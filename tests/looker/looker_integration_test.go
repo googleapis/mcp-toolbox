@@ -1056,7 +1056,15 @@ func TestLooker(t *testing.T) {
 					},
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The tables to generate views for.\n\t\tEach item must be a map with:\n\t\t- schema (string, required)\n\t\t- table_name (string, required)\n\t\t- primary_key (string, optional)\n\t\t- base_view (boolean, optional)\n\t\t- columns (array of objects, optional): Each object must have 'column_name' (string).",
+						"default":      "",
+						"description":  "The BigQuery project or database where the target table resides. May be required even when using the connection's default database.",
+						"name":         "database",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The tables to generate views for.\n\t\tEach item must be a map with:\n\t\t- schema (string, optional)\n\t\t- table_name (string, required)\n\t\t- primary_key (string, optional)\n\t\t- base_view (boolean, optional)\n\t\t- columns (array of objects, optional): Each object must have 'column_name' (string).",
 						"items": map[string]any{
 							"additionalProperties": true,
 							"authServices":         []any{},
