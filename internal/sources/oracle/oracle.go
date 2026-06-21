@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
-	_ "github.com/godror/godror"   // OCI driver
+	"github.com/godror/godror"     // OCI driver
 	_ "github.com/sijms/go-ora/v2" // Pure Go driver
 
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -100,7 +100,22 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
+func wrapContextWithTelemetry(ctx context.Context, useOCI bool) context.Context {
+	userAgent, err := util.UserAgentFromContext(ctx)
+	if err != nil {
+		userAgent = "genai-toolbox"
+	}
+	if useOCI {
+		return godror.ContextWithTraceTag(ctx, godror.TraceTag{
+			ClientInfo: userAgent,
+			Module:     "mcp-toolbox",
+		})
+	}
+	return ctx
+}
+
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	ctx = wrapContextWithTelemetry(ctx, r.UseOCI)
 	db, err := initOracleConnection(ctx, tracer, r)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Oracle connection: %w", err)
@@ -143,6 +158,7 @@ func (s *Source) OracleDB() *sql.DB {
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any, readOnly bool) (any, error) {
+	ctx = wrapContextWithTelemetry(ctx, s.UseOCI)
 	if !readOnly {
 		result, err := s.OracleDB().ExecContext(ctx, statement, params...)
 		if err != nil {
@@ -259,7 +275,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any, rea
 	return out, nil
 }
 
-func buildGoOraConnString(user, password, connectStringBase, walletLocation string) string {
+func buildGoOraConnString(user, password, connectStringBase, walletLocation, userAgent string) string {
 	userInfo := url.UserPassword(
 		decodePercentEncodedUserInfo(user),
 		decodePercentEncodedUserInfo(password),
@@ -267,23 +283,30 @@ func buildGoOraConnString(user, password, connectStringBase, walletLocation stri
 
 	base := fmt.Sprintf("oracle://%s@%s", userInfo, connectStringBase)
 	trimmedWalletLocation := strings.TrimSpace(walletLocation)
-	if trimmedWalletLocation == "" {
-		return base
-	}
 
 	q := url.Values{}
-	q.Set("ssl", "true")
-	q.Set("wallet", trimmedWalletLocation)
-
-	separator := "?"
-	if strings.Contains(connectStringBase, "?") {
-		separator = "&"
-		if strings.HasSuffix(base, "?") || strings.HasSuffix(base, "&") {
-			separator = ""
-		}
+	if trimmedWalletLocation != "" {
+		q.Set("ssl", "true")
+		q.Set("wallet", trimmedWalletLocation)
 	}
 
-	return fmt.Sprintf("%s%s%s", base, separator, q.Encode())
+	lowerConnStr := strings.ToLower(connectStringBase)
+	if !strings.Contains(lowerConnStr, "program=") && userAgent != "" {
+		q.Set("PROGRAM", userAgent)
+	}
+
+	if len(q) > 0 {
+		separator := "?"
+		if strings.Contains(connectStringBase, "?") {
+			separator = "&"
+			if strings.HasSuffix(base, "?") || strings.HasSuffix(base, "&") {
+				separator = ""
+			}
+		}
+		return fmt.Sprintf("%s%s%s", base, separator, q.Encode())
+	}
+
+	return base
 }
 
 func decodePercentEncodedUserInfo(value string) string {
@@ -346,7 +369,12 @@ func initOracleConnection(ctx context.Context, tracer trace.Tracer, config Confi
 		// Use go-ora driver (pure Go)
 		driverName = "oracle"
 
-		finalConnStr = buildGoOraConnString(config.User, config.Password, connectStringBase, config.WalletLocation)
+		userAgent, err := util.UserAgentFromContext(ctx)
+		if err != nil {
+			userAgent = "genai-toolbox"
+		}
+
+		finalConnStr = buildGoOraConnString(config.User, config.Password, connectStringBase, config.WalletLocation, userAgent)
 
 		if hasWallet {
 			logger.DebugContext(ctx, fmt.Sprintf("Using go-ora driver (pure-Go) with wallet and serverString: %s\n", connectStringBase))

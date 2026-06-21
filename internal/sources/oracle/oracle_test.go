@@ -114,6 +114,7 @@ func TestBuildGoOraConnString(t *testing.T) {
 		password       string
 		connectBase    string
 		walletLocation string
+		userAgent      string
 		want           string
 	}{
 		{
@@ -154,12 +155,29 @@ func TestBuildGoOraConnString(t *testing.T) {
 			walletLocation: " /tmp/wallet ",
 			want:           "oracle://scott:tiger@dbhost:1521/ORCL?custom_opt=true&ssl=true&wallet=%2Ftmp%2Fwallet",
 		},
+		{
+			name:        "includes_user_agent_as_program",
+			user:        "scott",
+			password:    "tiger",
+			connectBase: "dbhost:1521/ORCL",
+			userAgent:   "mcp-toolbox",
+			want:        "oracle://scott:tiger@dbhost:1521/ORCL?PROGRAM=mcp-toolbox",
+		},
+		{
+			name:           "includes_user_agent_program_with_wallet_and_existing_query",
+			user:           "scott",
+			password:       "tiger",
+			connectBase:    "dbhost:1521/ORCL?custom_opt=true",
+			walletLocation: "/tmp/wallet",
+			userAgent:      "mcp-toolbox",
+			want:           "oracle://scott:tiger@dbhost:1521/ORCL?custom_opt=true&ssl=true&wallet=%2Ftmp%2Fwallet&PROGRAM=mcp-toolbox",
+		},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := buildGoOraConnString(tc.user, tc.password, tc.connectBase, tc.walletLocation)
+			got := buildGoOraConnString(tc.user, tc.password, tc.connectBase, tc.walletLocation, tc.userAgent)
 			if got != tc.want {
 				t.Fatalf("buildGoOraConnString() = %q, want %q", got, tc.want)
 			}
