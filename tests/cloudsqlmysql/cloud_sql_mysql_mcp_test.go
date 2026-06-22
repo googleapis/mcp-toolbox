@@ -86,7 +86,7 @@ func TestCloudSQLMySQLMCPListTools(t *testing.T) {
 				"type": "object",
 				"properties": map[string]any{
 					"output_format": map[string]any{"default": "detailed", "description": "Optional: Use 'simple' for names only or 'detailed' for full info.", "type": "string"},
-					"table_names":   map[string]any{"default": "", "description": "Optional: A comma-separated list of table names. If empty, details for all tables will be listed.", "type": "string"},
+					"table_names":   map[string]any{"default": "", "description": "Optional: A comma-separated list of table names. If empty, details for all tables in the configured database will be listed. If the source has no configured database, all user schemas are listed.", "type": "string"},
 				},
 				"required": []any{},
 			},

@@ -172,9 +172,10 @@ const listTablesStatement = `
         END AS object_details
     FROM
         INFORMATION_SCHEMA.TABLES T
-    CROSS JOIN (SELECT @table_names := ?, @output_format := ?) AS variables
+    CROSS JOIN (SELECT @table_names := ?, @output_format := ?, @connected_schema := ?) AS variables
     WHERE
         T.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+        AND (NULLIF(TRIM(@connected_schema), '') IS NULL OR T.TABLE_SCHEMA = TRIM(@connected_schema))
         AND (NULLIF(TRIM(@table_names), '') IS NULL OR FIND_IN_SET(T.TABLE_NAME, @table_names))
         AND T.TABLE_TYPE = 'BASE TABLE'
     ORDER BY
@@ -198,6 +199,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	MySQLPool() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
+	MySQLDatabase() string
 }
 
 type Config struct {
@@ -220,7 +222,7 @@ func (cfg Config) Initialize() (tools.Tool, error) {
 	}
 
 	allParameters := parameters.Parameters{
-		parameters.NewStringParameterWithDefault("table_names", "", "Optional: A comma-separated list of table names. If empty, details for all tables will be listed."),
+		parameters.NewStringParameterWithDefault("table_names", "", "Optional: A comma-separated list of table names. If empty, details for all tables in the configured database will be listed. If the source has no configured database, all user schemas are listed."),
 		parameters.NewStringParameterWithDefault("output_format", "detailed", "Optional: Use 'simple' for names only or 'detailed' for full info."),
 	}
 
@@ -257,7 +259,7 @@ func (t Tool) Invoke(ctx context.Context, resourceMgr tools.SourceProvider, para
 	if outputFormat != "simple" && outputFormat != "detailed" {
 		return nil, util.NewAgentError(fmt.Sprintf("invalid value for output_format: must be 'simple' or 'detailed', but got %q", outputFormat), nil)
 	}
-	resp, err := source.RunSQL(ctx, listTablesStatement, []any{tableNames, outputFormat})
+	resp, err := source.RunSQL(ctx, listTablesStatement, []any{tableNames, outputFormat, source.MySQLDatabase()})
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

@@ -54,7 +54,7 @@ kind: tool
 name: list_tables
 type: mysql-list-tables
 source: cloud-sql-mysql-source
-description: Lists detailed schema information (object type, columns, constraints, indexes, triggers, comment) as JSON for user-created tables (ordinary or partitioned). Filters by a comma-separated list of names. If names are omitted, lists all tables in user schemas.
+description: Lists detailed schema information (object type, columns, constraints, indexes, triggers, comment) as JSON for user-created tables (ordinary or partitioned). Filters by a comma-separated list of names. If names are omitted, lists all tables in the configured database.
 ---
 kind: tool
 name: list_table_stats
