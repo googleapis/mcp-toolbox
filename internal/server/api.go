@@ -103,7 +103,7 @@ func toolGetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		err = fmt.Errorf("invalid tool name: tool with name %q does not exist", toolName)
+		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames())
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return
@@ -156,7 +156,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		err = fmt.Errorf("invalid tool name: tool with name %q does not exist", toolName)
+		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames())
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return

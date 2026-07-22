@@ -215,3 +215,14 @@ func (r *PrimitiveManager) GroupsList() []group.Group {
 
 	return groupsList
 }
+
+// ToolNames returns the names of all registered tools.
+func (r *PrimitiveManager) ToolNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	return names
+}
