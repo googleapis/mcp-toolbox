@@ -11,6 +11,7 @@ description: "Details of the Spanner (GoogleSQL dialect) prebuilt configuration.
     *   `SPANNER_PROJECT`: The GCP project ID.
     *   `SPANNER_INSTANCE`: The Spanner instance ID.
     *   `SPANNER_DATABASE`: The Spanner database ID.
+    *   `SPANNER_READONLY`: Optional. Set to `true` to enforce read-only execution at the database protocol level and suppress write-capable tools. Default: `false`.
 *   **Permissions:**
     *   **Cloud Spanner Database Reader** (`roles/spanner.databaseReader`) to
         execute DQL queries and list tables.
