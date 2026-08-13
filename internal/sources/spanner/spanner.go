@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	dataplexapi "cloud.google.com/go/dataplex/apiv1"
 	"cloud.google.com/go/spanner"
@@ -56,6 +57,7 @@ type Config struct {
 	Instance       string          `yaml:"instance" validate:"required"`
 	Dialect        sources.Dialect `yaml:"dialect" validate:"required"`
 	Database       string          `yaml:"database" validate:"required"`
+	ReadOnly       bool            `yaml:"readOnly"`
 	UseClientOAuth bool            `yaml:"useClientOAuth"`
 }
 
@@ -95,7 +97,7 @@ type Source struct {
 }
 
 func (s *Source) IsReadOnly() bool {
-	return false
+	return s.ReadOnly
 }
 
 func (s *Source) SourceType() string {
@@ -178,7 +180,7 @@ func (s *Source) RunSQL(ctx context.Context, readOnly bool, statement string, pa
 		stmt.Params = params
 	}
 
-	if readOnly {
+	if readOnly || s.IsReadOnly() {
 		iter := s.SpannerClient().Single().Query(ctx, stmt)
 		results, opErr = processRows(iter)
 	} else {
@@ -193,6 +195,9 @@ func (s *Source) RunSQL(ctx context.Context, readOnly bool, statement string, pa
 	}
 
 	if opErr != nil {
+		if strings.Contains(opErr.Error(), "Unsupported concurrency mode") {
+			return nil, fmt.Errorf("unable to execute query: the query failed because INFORMATION_SCHEMA cannot be queried in a read-write transaction in Cloud Spanner. To execute this query, please use the execute_sql_readonly tool instead, or configure the Spanner source with readOnly: true: %w", opErr)
+		}
 		return nil, fmt.Errorf("unable to execute client: %w", opErr)
 	}
 
@@ -200,9 +205,11 @@ func (s *Source) RunSQL(ctx context.Context, readOnly bool, statement string, pa
 }
 
 func initSpannerClient(ctx context.Context, tracer trace.Tracer, name, project, instance, dbname string) (*spanner.Client, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
+	if tracer != nil {
+		var span trace.Span
+		ctx, span = sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+		defer span.End()
+	}
 
 	// Configure the connection to the database
 	db := fmt.Sprintf("projects/%s/instances/%s/databases/%s", project, instance, dbname)
