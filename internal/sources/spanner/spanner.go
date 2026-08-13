@@ -305,6 +305,28 @@ func (s *Source) GetDatabaseDdl(ctx context.Context, tokenString string) ([]stri
 	return resp.GetStatements(), nil
 }
 
+func (s *Source) UpdateDatabaseDdl(ctx context.Context, statements []string, tokenString string) error {
+	client, shouldClose, err := s.getDatabaseAdminClient(ctx, tokenString)
+	if err != nil {
+		return fmt.Errorf("unable to get database admin client: %w", err)
+	}
+	if shouldClose {
+		defer client.Close()
+	}
+	dbPath := fmt.Sprintf("projects/%s/instances/%s/databases/%s", s.Project, s.Instance, s.Database)
+	op, err := client.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		Database:   dbPath,
+		Statements: statements,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to update database DDL: %w", err)
+	}
+	if err := op.Wait(ctx); err != nil {
+		return fmt.Errorf("database DDL update operation failed: %w", err)
+	}
+	return nil
+}
+
 func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any, tokenStr string) ([]searchcatalog.DataplexSearchResponse, error) {
 	typeMap := map[string]string{
 		"cloud-spanner-instance": "SERVICE",

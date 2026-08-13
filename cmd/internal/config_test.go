@@ -2309,11 +2309,11 @@ func TestPrebuiltTools(t *testing.T) {
 				"data": group.GroupConfig{
 					Name:        "data",
 					Description: "Use these skills when you need to explore the database structure, discover schema objects like tables and graphs, and execute custom SQL queries to interact with your data.",
-					ToolNames:   []string{"execute_sql", "execute_sql_readonly", "list_tables", "list_graphs"},
+					ToolNames:   []string{"execute_sql", "execute_sql_readonly", "list_tables", "list_graphs", "update_database_schema", "get_database_ddl"},
 				},
 				"data_with_discovery": group.GroupConfig{
 					Name:      "data_with_discovery",
-					ToolNames: []string{"execute_sql", "execute_sql_readonly", "list_tables", "list_graphs", "search_catalog"},
+					ToolNames: []string{"execute_sql", "execute_sql_readonly", "list_tables", "list_graphs", "search_catalog", "update_database_schema", "get_database_ddl"},
 				},
 			},
 		},
@@ -2323,11 +2323,11 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"data": group.GroupConfig{
 					Name:      "data",
-					ToolNames: []string{"execute_sql", "execute_sql_readonly", "list_tables"},
+					ToolNames: []string{"execute_sql", "execute_sql_readonly", "list_tables", "update_database_schema", "get_database_ddl"},
 				},
 				"data_with_discovery": group.GroupConfig{
 					Name:      "data_with_discovery",
-					ToolNames: []string{"execute_sql", "execute_sql_readonly", "list_tables", "search_catalog"},
+					ToolNames: []string{"execute_sql", "execute_sql_readonly", "list_tables", "search_catalog", "update_database_schema", "get_database_ddl"},
 				},
 			},
 		},

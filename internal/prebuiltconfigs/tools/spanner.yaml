@@ -52,6 +52,18 @@ type: spanner-search-catalog
 source: spanner-source
 description: Searches for data assets (eg. Spanner instances, tables, views, or databases) in catalog based on the provided search query
 ---
+kind: tool
+name: update_database_schema
+type: spanner-update-database-schema
+source: spanner-source
+description: Execute DDL (Data Definition Language) statements to modify the Spanner database schema, such as creating, altering, or dropping tables, indexes, or views. Do not use this tool for standard data queries or modifications (SELECT, INSERT, UPDATE, DELETE).
+---
+kind: tool
+name: get_database_ddl
+type: spanner-get-database-ddl
+source: spanner-source
+description: Retrieve the DDL (Data Definition Language) statements that define the schema of the Cloud Spanner database.
+---
 kind: group
 name: data
 description: Use these skills when you need to explore the database structure, discover schema objects like tables and graphs, and execute custom SQL queries to interact with your data.
@@ -60,6 +72,8 @@ tools:
 - execute_sql_readonly
 - list_tables
 - list_graphs
+- update_database_schema
+- get_database_ddl
 ---
 kind: toolset
 name: data_with_discovery
@@ -69,4 +83,6 @@ tools:
 - list_tables
 - list_graphs
 - search_catalog
+- update_database_schema
+- get_database_ddl
 
