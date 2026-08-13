@@ -67,6 +67,7 @@ export SPANNER_PROJECT="<your-gcp-project-id>"
 export SPANNER_INSTANCE="<your-spanner-instance-id>"
 export SPANNER_DATABASE="<your-spanner-database-id>"
 export SPANNER_DIALECT="googlesql" # Optional: "googlesql" or "postgresql". Defaults to "googlesql".
+export SPANNER_READONLY="true" # Optional: "true", "false". Defaults to "false".
 ```
 
 Add the following configuration to your MCP client (e.g., `settings.json` for Gemini CLI, `mcp_config.json` for Antigravity):
@@ -81,7 +82,8 @@ Add the following configuration to your MCP client (e.g., `settings.json` for Ge
         "SPANNER_PROJECT": "your-project-id",
         "SPANNER_INSTANCE": "your-instance-id",
         "SPANNER_DATABASE": "your-database-name",
-        "SPANNER_DIALECT": "googlesql"
+        "SPANNER_DIALECT": "googlesql",
+        "SPANNER_READONLY": "false"
       }
     }
   }

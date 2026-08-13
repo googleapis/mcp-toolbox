@@ -1133,3 +1133,107 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 	// Run semantic search test
 	tests.RunSemanticSearchToolInvokeTest(t, "[]", "", "The quick brown fox")
 }
+
+// TestSpanner_ReadOnlyVulnerabilityBlock verifies that if a tool executes against a read-only Spanner source,
+// or via execute_sql_readonly / snapshot reads, write operations (DML) are blocked by the database kernel.
+func TestSpanner_ReadOnlyVulnerabilityBlock(t *testing.T) {
+	sourceConfig := getSpannerVars(t)
+	sourceConfig["readOnly"] = true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	args := []string{"--enable-api", "--port", "5002"}
+
+	toolsFile := map[string]any{
+		"sources": map[string]any{
+			"my-readonly-spanner": sourceConfig,
+		},
+		"tools": map[string]any{
+			"vulnerable_write_tool": map[string]any{
+				"type":        "spanner-sql",
+				"source":      "my-readonly-spanner",
+				"description": "I try to mutate data on a read-only Spanner source!",
+				"annotations": map[string]any{
+					"readOnlyHint": true,
+				},
+				"statement": "INSERT INTO users (id, name) VALUES (9999, 'Hacker');",
+			},
+		},
+	}
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	// Make the API request
+	api := "http://127.0.0.1:5002/api/tool/vulnerable_write_tool/invoke"
+	requestBody := strings.NewReader(`{}`)
+	resp, respBody := tests.RunRequest(t, "POST", api, requestBody, map[string]string{})
+
+	bodyLower := strings.ToLower(string(respBody))
+	if !strings.Contains(bodyLower, "invalidargument") && !strings.Contains(bodyLower, "read-only") && !strings.Contains(bodyLower, "read only") && !strings.Contains(bodyLower, "cannot execute") && resp.StatusCode == http.StatusOK {
+		t.Fatalf("Vulnerability check failed! Expected Spanner snapshot read to reject DML write, but got response code %d and body:\n%s", resp.StatusCode, string(respBody))
+	}
+}
+
+// TestSpanner_DDLRejection verifies that DDL statements like CREATE TABLE / ALTER TABLE
+// are rejected when invoked through execute_sql_readonly / snapshot read paths.
+func TestSpanner_DDLRejection(t *testing.T) {
+	sourceConfig := getSpannerVars(t)
+	sourceConfig["readOnly"] = true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	args := []string{"--enable-api", "--port", "5002"}
+
+	toolsFile := map[string]any{
+		"sources": map[string]any{
+			"my-readonly-spanner": sourceConfig,
+		},
+		"tools": map[string]any{
+			"execute_sql_readonly": map[string]any{
+				"type":        "spanner-execute-sql",
+				"source":      "my-readonly-spanner",
+				"description": "Execute readonly SQL against Spanner",
+				"annotations": map[string]any{
+					"readOnlyHint": true,
+				},
+			},
+		},
+	}
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	// Make the API request attempting DDL
+	api := "http://127.0.0.1:5002/api/tool/execute_sql_readonly/invoke"
+	requestBody := strings.NewReader(`{"sql": "CREATE TABLE fake_ddl_test (id INT64) PRIMARY KEY (id)"}`)
+	resp, respBody := tests.RunRequest(t, "POST", api, requestBody, map[string]string{})
+
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("DDL rejection check failed! Expected Spanner snapshot read to reject DDL query, but got 200 OK:\n%s", string(respBody))
+	}
+}

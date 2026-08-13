@@ -19,6 +19,7 @@ project: ${SPANNER_PROJECT}
 instance: ${SPANNER_INSTANCE}
 database: ${SPANNER_DATABASE}
 dialect: ${SPANNER_DIALECT:googlesql}
+readOnly: ${SPANNER_READONLY:false}
 ---
 kind: tool
 name: execute_sql

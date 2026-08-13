@@ -15,13 +15,21 @@
 package spannerexecutesql_test
 
 import (
+	"bytes"
+	"context"
+	"strings"
 	"testing"
 
+	"cloud.google.com/go/spanner"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/spanner/spannerexecutesql"
+	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
 func TestParseFromYamlExecuteSql(t *testing.T) {
@@ -29,6 +37,8 @@ func TestParseFromYamlExecuteSql(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
+	boolPtr := func(b bool) *bool { return &b }
+
 	tcs := []struct {
 		desc string
 		in   string
@@ -50,9 +60,8 @@ func TestParseFromYamlExecuteSql(t *testing.T) {
 						Description:  "some description",
 						AuthRequired: []string{},
 					},
-					Type:     "spanner-execute-sql",
-					Source:   "my-spanner-instance",
-					ReadOnly: false,
+					Type:   "spanner-execute-sql",
+					Source: "my-spanner-instance",
 				},
 			},
 		},
@@ -75,7 +84,7 @@ func TestParseFromYamlExecuteSql(t *testing.T) {
 					},
 					Type:     "spanner-execute-sql",
 					Source:   "my-spanner-instance",
-					ReadOnly: true,
+					ReadOnly: boolPtr(true),
 				},
 			},
 		},
@@ -92,5 +101,246 @@ func TestParseFromYamlExecuteSql(t *testing.T) {
 			}
 		})
 	}
+}
 
+type fakeSource struct {
+	readOnly           bool
+	lastReadOnlyPassed bool
+}
+
+func (f *fakeSource) SpannerClient() *spanner.Client { return nil }
+func (f *fakeSource) DatabaseDialect() string        { return "googlesql" }
+func (f *fakeSource) RunSQL(ctx context.Context, readOnly bool, sql string, params map[string]any) (any, error) {
+	f.lastReadOnlyPassed = readOnly
+	return map[string]any{"status": "ok"}, nil
+}
+func (f *fakeSource) IsReadOnly() bool               { return f.readOnly }
+func (f *fakeSource) SourceType() string             { return "spanner" }
+func (f *fakeSource) ToConfig() sources.SourceConfig { return nil }
+
+func TestSpannerExecuteSQL_ValidateSource(t *testing.T) {
+	ctx := context.Background()
+	toolCfg := spannerexecutesql.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "test_spanner_tool",
+			Description: "test tool",
+		},
+		Type:   "spanner-execute-sql",
+		Source: "test-source",
+	}
+	tool, err := toolCfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error initializing tool: %v", err)
+	}
+	if err := tool.ValidateSource(&fakeSource{readOnly: false}); err != nil {
+		t.Errorf("ValidateSource(readWrite) unexpected error: %v", err)
+	}
+	if err := tool.ValidateSource(&fakeSource{readOnly: true}); err != nil {
+		t.Errorf("ValidateSource(readOnly) unexpected error: %v", err)
+	}
+}
+
+func TestSpannerExecuteSQL_Invoke_ReadOnlyRouting(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	tcs := []struct {
+		desc               string
+		readOnly           *bool
+		annotations        *tools.ToolAnnotations
+		wantReadOnlyPassed bool
+	}{
+		{
+			desc:               "legacy readOnly: true routes to read-only snapshot",
+			readOnly:           boolPtr(true),
+			annotations:        nil,
+			wantReadOnlyPassed: true,
+		},
+		{
+			desc:               "legacy readOnly: false routes to read-write transaction",
+			readOnly:           boolPtr(false),
+			annotations:        nil,
+			wantReadOnlyPassed: false,
+		},
+		{
+			desc:               "modern annotations readOnlyHint: true routes to read-only snapshot",
+			readOnly:           nil,
+			annotations:        &tools.ToolAnnotations{ReadOnlyHint: boolPtr(true)},
+			wantReadOnlyPassed: true,
+		},
+		{
+			desc:               "modern annotations readOnlyHint: false routes to read-write transaction",
+			readOnly:           nil,
+			annotations:        &tools.ToolAnnotations{ReadOnlyHint: boolPtr(false)},
+			wantReadOnlyPassed: false,
+		},
+		{
+			desc:               "no annotations and no legacy readOnly routes to read-write transaction",
+			readOnly:           nil,
+			annotations:        nil,
+			wantReadOnlyPassed: false,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			toolCfg := spannerexecutesql.Config{
+				ConfigBase: tools.ConfigBase{
+					Name:        "test_exec_tool",
+					Description: "test tool",
+				},
+				Type:        "spanner-execute-sql",
+				Source:      "my-source",
+				ReadOnly:    tc.readOnly,
+				Annotations: tc.annotations,
+			}
+
+			ctx, err := testutils.ContextWithNewLogger()
+			if err != nil {
+				t.Fatalf("unexpected error setting up logger: %v", err)
+			}
+
+			tool, err := toolCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error initializing tool: %v", err)
+			}
+
+			src := &fakeSource{readOnly: false}
+			params := parameters.ParamValues{
+				{Name: "sql", Value: "SELECT 1"},
+			}
+			_, toolErr := tool.Invoke(ctx, src, params, tools.AccessToken(""))
+			if toolErr != nil {
+				t.Fatalf("unexpected tool invocation error: %v", toolErr)
+			}
+
+			if src.lastReadOnlyPassed != tc.wantReadOnlyPassed {
+				t.Errorf("lastReadOnlyPassed = %v, want %v", src.lastReadOnlyPassed, tc.wantReadOnlyPassed)
+			}
+		})
+	}
+}
+
+func TestSpannerExecuteSQL_ConflictValidation(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	boolPtr := func(b bool) *bool { return &b }
+
+	tcs := []struct {
+		desc        string
+		readOnly    *bool
+		annotations *tools.ToolAnnotations
+		wantError   bool
+	}{
+		{
+			desc:        "readOnly: true with readOnlyHint: true -> valid",
+			readOnly:    boolPtr(true),
+			annotations: &tools.ToolAnnotations{ReadOnlyHint: boolPtr(true)},
+			wantError:   false,
+		},
+		{
+			desc:        "readOnly: false with readOnlyHint: false -> valid",
+			readOnly:    boolPtr(false),
+			annotations: &tools.ToolAnnotations{ReadOnlyHint: boolPtr(false)},
+			wantError:   false,
+		},
+		{
+			desc:        "readOnly: true with readOnlyHint: false -> conflict error",
+			readOnly:    boolPtr(true),
+			annotations: &tools.ToolAnnotations{ReadOnlyHint: boolPtr(false)},
+			wantError:   true,
+		},
+		{
+			desc:        "readOnly: false with readOnlyHint: true -> conflict error",
+			readOnly:    boolPtr(false),
+			annotations: &tools.ToolAnnotations{ReadOnlyHint: boolPtr(true)},
+			wantError:   true,
+		},
+		{
+			desc:        "readOnly: true with nil annotations -> valid",
+			readOnly:    boolPtr(true),
+			annotations: nil,
+			wantError:   false,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			toolCfg := spannerexecutesql.Config{
+				ConfigBase: tools.ConfigBase{
+					Name:        "test_spanner_tool",
+					Description: "test tool",
+				},
+				Type:        "spanner-execute-sql",
+				Source:      "test-source",
+				ReadOnly:    tc.readOnly,
+				Annotations: tc.annotations,
+			}
+
+			_, err := toolCfg.Initialize(ctx)
+			if (err != nil) != tc.wantError {
+				t.Errorf("Initialize() error = %v, wantError = %v", err, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestSpannerExecuteSQL_DeprecationWarning(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	tcs := []struct {
+		desc        string
+		readOnly    *bool
+		wantWarning bool
+	}{
+		{
+			desc:        "readOnly: true emits deprecation warning",
+			readOnly:    boolPtr(true),
+			wantWarning: true,
+		},
+		{
+			desc:        "readOnly: false emits deprecation warning",
+			readOnly:    boolPtr(false),
+			wantWarning: true,
+		},
+		{
+			desc:        "readOnly omitted (nil) does not emit deprecation warning",
+			readOnly:    nil,
+			wantWarning: false,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			var buf bytes.Buffer
+			logger, err := log.NewStdLogger(&buf, &buf, "warn")
+			if err != nil {
+				t.Fatalf("unexpected error creating logger: %v", err)
+			}
+			ctx := util.WithLogger(context.Background(), logger)
+
+			toolCfg := spannerexecutesql.Config{
+				ConfigBase: tools.ConfigBase{
+					Name:        "test_exec_tool",
+					Description: "test tool",
+				},
+				Type:     "spanner-execute-sql",
+				Source:   "my-source",
+				ReadOnly: tc.readOnly,
+			}
+
+			_, err = toolCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error initializing tool: %v", err)
+			}
+
+			logs := buf.String()
+			hasWarning := strings.Contains(logs, "[DEPRECATED] The 'readOnly' field on tool") && strings.Contains(logs, "test_exec_tool")
+			if hasWarning != tc.wantWarning {
+				t.Errorf("hasWarning = %v, wantWarning = %v; logs:\n%s", hasWarning, tc.wantWarning, logs)
+			}
+		})
+	}
 }
