@@ -371,6 +371,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/snowflake/snowflakeexecutesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/snowflake/snowflakesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/spanner/spannerexecutesql"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/spanner/spannergetdatabaseddl"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/spanner/spannerlistgraphs"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/spanner/spannerlisttables"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/spanner/spannersearchcatalog"
