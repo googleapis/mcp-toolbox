@@ -15,26 +15,110 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // maxListedNames caps how many available tool names are embedded in an
 // unknown-tool error so the payload stays bounded for large toolsets.
 const maxListedNames = 25
 
+// SuggestionMode controls how much an unknown-tool error discloses about the
+// tools that do exist. Tool listing is not authorization-filtered, so on a
+// given endpoint the names in these errors are a subset of what a `tools/list`
+// on that same endpoint already returns. The mode exists for deployments that
+// still want to keep the inventory out of error strings, which reach sinks a
+// list response does not: telemetry spans, client logs, and any gateway that
+// filters `tools/list` but passes `tools/call` errors through.
+type SuggestionMode string
+
+const (
+	// SuggestionsFull lists the available tool names and the nearest match.
+	SuggestionsFull SuggestionMode = "full"
+	// SuggestionsNearest includes only the nearest-match suggestion, so the
+	// agent can still self-correct without the error carrying an inventory.
+	SuggestionsNearest SuggestionMode = "nearest"
+	// SuggestionsOff returns the bare "does not exist" message.
+	SuggestionsOff SuggestionMode = "off"
+)
+
+// suggestionRank orders the modes from least to most disclosure so AtMost can
+// compare them.
+var suggestionRank = map[SuggestionMode]int{
+	SuggestionsOff:     0,
+	SuggestionsNearest: 1,
+	SuggestionsFull:    2,
+}
+
+// String is used by both fmt.Print and by Cobra in help text.
+func (m *SuggestionMode) String() string {
+	if string(*m) != "" {
+		return strings.ToLower(string(*m))
+	}
+	return string(SuggestionsFull)
+}
+
+// Set validates the tool-suggestions flag.
+func (m *SuggestionMode) Set(v string) error {
+	switch SuggestionMode(strings.ToLower(v)) {
+	case SuggestionsFull, SuggestionsNearest, SuggestionsOff:
+		*m = SuggestionMode(strings.ToLower(v))
+		return nil
+	default:
+		return fmt.Errorf(`tool suggestions must be one of "full", "nearest", or "off"`)
+	}
+}
+
+// Type is used in Cobra help text.
+func (m *SuggestionMode) Type() string {
+	return "suggestionMode"
+}
+
+// resolve normalizes an unset or unrecognized mode to the default.
+func (m SuggestionMode) resolve() SuggestionMode {
+	normalized := SuggestionMode(strings.ToLower(string(m)))
+	if _, ok := suggestionRank[normalized]; ok {
+		return normalized
+	}
+	return SuggestionsFull
+}
+
+// AtMost returns the less disclosing of the two modes. Callers that lack a
+// group scope use it to bound what an error can reveal regardless of the
+// server-wide setting.
+func (m SuggestionMode) AtMost(ceiling SuggestionMode) SuggestionMode {
+	if suggestionRank[ceiling.resolve()] < suggestionRank[m.resolve()] {
+		return ceiling.resolve()
+	}
+	return m.resolve()
+}
+
+// SuggestionModeFromContext retrieves the server's configured suggestion mode,
+// defaulting to SuggestionsFull when unset.
+func SuggestionModeFromContext(ctx context.Context) SuggestionMode {
+	mode, ok := util.ToolSuggestionsFromContext(ctx)
+	if !ok {
+		return SuggestionsFull
+	}
+	return SuggestionMode(mode).resolve()
+}
+
 // UnknownToolError returns the error for a tool name that could not be
-// resolved. Beyond the base message, it lists the available tool names (capped
-// at maxListedNames) and, when one is close enough, a nearest-match
-// suggestion. MCP errors are consumed by LLM agents as prompt text; including
-// the valid names lets an agent self-correct instead of retrying a stale or
-// misspelled name.
-func UnknownToolError(toolName string, available []string) error {
+// resolved. Beyond the base message, and depending on mode, it lists the
+// available tool names (capped at maxListedNames) and, when one is close
+// enough, a nearest-match suggestion. MCP errors are consumed by LLM agents as
+// prompt text; including the valid names lets an agent self-correct instead of
+// retrying a stale or misspelled name.
+func UnknownToolError(toolName string, available []string, mode SuggestionMode) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "invalid tool name: tool with name %q does not exist", toolName)
 
-	if len(available) == 0 {
+	mode = mode.resolve()
+	if len(available) == 0 || mode == SuggestionsOff {
 		return fmt.Errorf("%s", b.String())
 	}
 
@@ -42,9 +126,17 @@ func UnknownToolError(toolName string, available []string) error {
 	copy(sorted, available)
 	sort.Strings(sorted)
 
+	suggestion, hasSuggestion := nearestName(toolName, sorted)
+	if mode == SuggestionsNearest && !hasSuggestion {
+		return fmt.Errorf("%s", b.String())
+	}
+
 	b.WriteString(".")
-	if suggestion, ok := nearestName(toolName, sorted); ok {
+	if hasSuggestion {
 		fmt.Fprintf(&b, " Did you mean %q?", suggestion)
+	}
+	if mode == SuggestionsNearest {
+		return fmt.Errorf("%s", b.String())
 	}
 
 	listed := sorted

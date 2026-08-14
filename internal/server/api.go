@@ -103,7 +103,11 @@ func toolGetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames())
+		// The /api routes carry no group scope, so the only names available here
+		// are the server-wide ones. Cap the disclosure at the nearest match so an
+		// unknown-tool error never enumerates the whole server, whatever
+		// --tool-suggestions is set to.
+		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames(), s.toolSuggestions.AtMost(tools.SuggestionsNearest))
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return
@@ -156,7 +160,11 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames())
+		// The /api routes carry no group scope, so the only names available here
+		// are the server-wide ones. Cap the disclosure at the nearest match so an
+		// unknown-tool error never enumerates the whole server, whatever
+		// --tool-suggestions is set to.
+		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames(), s.toolSuggestions.AtMost(tools.SuggestionsNearest))
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return

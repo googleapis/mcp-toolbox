@@ -826,6 +826,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 	if header != nil {
 		ctx = util.WithRequestHeader(ctx, header)
 	}
+	ctx = util.WithToolSuggestions(ctx, string(s.toolSuggestions))
 	// Process the method
 	switch baseMessage.Method {
 	// This is only used for <v2026

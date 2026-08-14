@@ -357,6 +357,24 @@ func IgnoreUnknownToolsFromContext(ctx context.Context) bool {
 	return false
 }
 
+// toolSuggestionsKey is the key used to store the tool-suggestions mode within
+// context. The value is the raw flag string; the tools package owns its
+// interpretation (this package cannot import tools without a cycle).
+const toolSuggestionsKey contextKey = "toolSuggestions"
+
+// WithToolSuggestions adds the tool-suggestions mode to the context
+func WithToolSuggestions(ctx context.Context, mode string) context.Context {
+	return context.WithValue(ctx, toolSuggestionsKey, mode)
+}
+
+// ToolSuggestionsFromContext retrieves the tool-suggestions mode from context
+func ToolSuggestionsFromContext(ctx context.Context) (string, bool) {
+	if mode, ok := ctx.Value(toolSuggestionsKey).(string); ok && mode != "" {
+		return mode, true
+	}
+	return "", false
+}
+
 // urlParamsKey is the key used to store URL parameters within context
 const urlParamsKey contextKey = "urlParams"
 

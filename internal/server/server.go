@@ -72,6 +72,7 @@ type Server struct {
 	httpMaxRequestBytes     int64
 	enableDraftSpecs        bool
 	disableExtensionCheck   bool
+	toolSuggestions         tools.SuggestionMode
 }
 
 func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
@@ -673,6 +674,7 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 		httpMaxRequestBytes:     limit,
 		enableDraftSpecs:        cfg.EnableDraftSpecs,
 		disableExtensionCheck:   cfg.DisableExtensionCheck,
+		toolSuggestions:         cfg.ToolSuggestions,
 	}
 
 	if s.enableDraftSpecs {

@@ -360,3 +360,62 @@ func TestApiRequestBodyLimitOverride(t *testing.T) {
 		t.Fatalf("unexpected error message: got %v, want %s", got["error"], wantError)
 	}
 }
+
+func TestApiUnknownToolSuggestionIsCapped(t *testing.T) {
+	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+
+	testCases := []struct {
+		name string
+		mode tools.SuggestionMode
+		want string
+	}{
+		{
+			// The /api routes have no group scope, so full is capped at nearest:
+			// the error suggests, but never enumerates the server's tools.
+			name: "full is capped at the nearest match",
+			mode: tools.SuggestionsFull,
+			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "no_params"?`,
+		},
+		{
+			name: "off is still off",
+			mode: tools.SuggestionsOff,
+			want: `invalid tool name: tool with name "no_param" does not exist`,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mode := tc.mode
+			r, shutdown := setUpServer(t, "api", toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups, func(s *Server) {
+				s.toolSuggestions = mode
+			})
+			defer shutdown()
+			ts := runServer(r, false)
+			defer ts.Close()
+
+			for _, path := range []string{"/tool/no_param", "/tool/no_param/invoke"} {
+				method := http.MethodGet
+				var reqBody io.Reader
+				if strings.HasSuffix(path, "/invoke") {
+					method, reqBody = http.MethodPost, bytes.NewBufferString("{}")
+				}
+				resp, body, err := runRequest(ts, method, path, reqBody, nil)
+				if err != nil {
+					t.Fatalf("unexpected error during request: %s", err)
+				}
+				if resp.StatusCode != http.StatusNotFound {
+					t.Fatalf("unexpected status code: want %d, got %d", http.StatusNotFound, resp.StatusCode)
+				}
+				var got struct {
+					Error string `json:"error"`
+				}
+				if err := json.Unmarshal(body, &got); err != nil {
+					t.Fatalf("unable to parse error response: %s", err)
+				}
+				if got.Error != tc.want {
+					t.Errorf("%s: got  %q\nwant %q", path, got.Error, tc.want)
+				}
+			}
+		})
+	}
+}

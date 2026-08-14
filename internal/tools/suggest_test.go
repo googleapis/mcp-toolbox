@@ -15,9 +15,12 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 func TestUnknownToolError(t *testing.T) {
@@ -25,6 +28,7 @@ func TestUnknownToolError(t *testing.T) {
 		desc      string
 		toolName  string
 		available []string
+		mode      SuggestionMode
 		want      string
 	}{
 		{
@@ -32,6 +36,34 @@ func TestUnknownToolError(t *testing.T) {
 			toolName:  "foo",
 			available: nil,
 			want:      `invalid tool name: tool with name "foo" does not exist`,
+		},
+		{
+			desc:      "unset mode defaults to full",
+			toolName:  "lookup_sensor",
+			available: []string{"list_sensors", "latest_observation"},
+			mode:      "",
+			want:      `invalid tool name: tool with name "lookup_sensor" does not exist. Did you mean "list_sensors"? Available tools: latest_observation, list_sensors`,
+		},
+		{
+			desc:      "off returns the bare message",
+			toolName:  "lookup_sensor",
+			available: []string{"list_sensors", "latest_observation"},
+			mode:      SuggestionsOff,
+			want:      `invalid tool name: tool with name "lookup_sensor" does not exist`,
+		},
+		{
+			desc:      "nearest suggests without listing the inventory",
+			toolName:  "lookup_sensor",
+			available: []string{"list_sensors", "latest_observation"},
+			mode:      SuggestionsNearest,
+			want:      `invalid tool name: tool with name "lookup_sensor" does not exist. Did you mean "list_sensors"?`,
+		},
+		{
+			desc:      "nearest with no plausible match discloses nothing",
+			toolName:  "zzzzzzzzzzzz",
+			available: []string{"search_hotels", "book_hotel"},
+			mode:      SuggestionsNearest,
+			want:      `invalid tool name: tool with name "zzzzzzzzzzzz" does not exist`,
 		},
 		{
 			desc:      "close match yields a suggestion and the list",
@@ -60,7 +92,7 @@ func TestUnknownToolError(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := UnknownToolError(tc.toolName, tc.available).Error()
+			got := UnknownToolError(tc.toolName, tc.available, tc.mode).Error()
 			if got != tc.want {
 				t.Errorf("got  %q\nwant %q", got, tc.want)
 			}
@@ -73,7 +105,7 @@ func TestUnknownToolErrorCapsList(t *testing.T) {
 	for i := range available {
 		available[i] = fmt.Sprintf("tool_%02d", i)
 	}
-	got := UnknownToolError("nonexistent_name", available).Error()
+	got := UnknownToolError("nonexistent_name", available, SuggestionsFull).Error()
 	if want := "(and 15 more)"; !strings.Contains(got, want) {
 		t.Errorf("expected %q in error, got %q", want, got)
 	}
@@ -82,6 +114,88 @@ func TestUnknownToolErrorCapsList(t *testing.T) {
 	}
 	if !strings.Contains(got, "tool_24") {
 		t.Errorf("expected names within the cap to be listed, got %q", got)
+	}
+}
+
+func TestSuggestionModeSet(t *testing.T) {
+	tcs := []struct {
+		in      string
+		want    SuggestionMode
+		wantErr bool
+	}{
+		{in: "full", want: SuggestionsFull},
+		{in: "FULL", want: SuggestionsFull},
+		{in: "nearest", want: SuggestionsNearest},
+		{in: "off", want: SuggestionsOff},
+		{in: "", wantErr: true},
+		{in: "verbose", wantErr: true},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.in, func(t *testing.T) {
+			var mode SuggestionMode
+			err := mode.Set(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error for %q, got mode %q", tc.in, mode)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if mode != tc.want {
+				t.Errorf("got %q, want %q", mode, tc.want)
+			}
+		})
+	}
+}
+
+func TestSuggestionModeStringDefaultsToFull(t *testing.T) {
+	var mode SuggestionMode
+	if got, want := mode.String(), string(SuggestionsFull); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestSuggestionModeAtMost(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		mode    SuggestionMode
+		ceiling SuggestionMode
+		want    SuggestionMode
+	}{
+		{desc: "ceiling lowers full", mode: SuggestionsFull, ceiling: SuggestionsNearest, want: SuggestionsNearest},
+		{desc: "ceiling does not raise off", mode: SuggestionsOff, ceiling: SuggestionsNearest, want: SuggestionsOff},
+		{desc: "ceiling does not raise nearest", mode: SuggestionsNearest, ceiling: SuggestionsFull, want: SuggestionsNearest},
+		{desc: "unset mode is treated as full", mode: "", ceiling: SuggestionsNearest, want: SuggestionsNearest},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			if got := tc.mode.AtMost(tc.ceiling); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSuggestionModeFromContext(t *testing.T) {
+	tcs := []struct {
+		desc string
+		ctx  context.Context
+		want SuggestionMode
+	}{
+		{desc: "unset context defaults to full", ctx: context.Background(), want: SuggestionsFull},
+		{desc: "empty value defaults to full", ctx: util.WithToolSuggestions(context.Background(), ""), want: SuggestionsFull},
+		{desc: "unrecognized value defaults to full", ctx: util.WithToolSuggestions(context.Background(), "loud"), want: SuggestionsFull},
+		{desc: "off is honored", ctx: util.WithToolSuggestions(context.Background(), "off"), want: SuggestionsOff},
+		{desc: "nearest is honored", ctx: util.WithToolSuggestions(context.Background(), "nearest"), want: SuggestionsNearest},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			if got := SuggestionModeFromContext(tc.ctx); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
