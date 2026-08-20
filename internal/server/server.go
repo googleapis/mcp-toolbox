@@ -72,7 +72,6 @@ type Server struct {
 	httpMaxRequestBytes     int64
 	enableDraftSpecs        bool
 	disableExtensionCheck   bool
-	toolSuggestions         tools.SuggestionMode
 }
 
 func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
@@ -629,6 +628,7 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 	sseManager := newSseManager(ctx)
 
 	primitiveManager := primitives.NewPrimitiveManager(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap)
+	primitiveManager.SetToolSuggestions(cfg.ToolSuggestions)
 
 	limit := cfg.HttpMaxRequestBytes
 	if limit <= 0 {
@@ -674,7 +674,6 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 		httpMaxRequestBytes:     limit,
 		enableDraftSpecs:        cfg.EnableDraftSpecs,
 		disableExtensionCheck:   cfg.DisableExtensionCheck,
-		toolSuggestions:         cfg.ToolSuggestions,
 	}
 
 	if s.enableDraftSpecs {

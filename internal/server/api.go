@@ -103,11 +103,11 @@ func toolGetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		// The /api routes carry no group scope, so the only names available here
-		// are the server-wide ones. Cap the disclosure at the nearest match so an
-		// unknown-tool error never enumerates the whole server, whatever
-		// --tool-suggestions is set to.
-		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames(), s.toolSuggestions.AtMost(tools.SuggestionsNearest))
+		// The /api routes carry no group scope, so there is no set of names here
+		// that is known to be disclosable: the server may be configured to
+		// withhold tools that nonetheless exist in the registry. Suggestions are
+		// therefore an MCP-only affordance, where the request's group bounds them.
+		err = tools.UnknownToolError(toolName, nil, tools.SuggestionsOff)
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return
@@ -160,11 +160,11 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		// The /api routes carry no group scope, so the only names available here
-		// are the server-wide ones. Cap the disclosure at the nearest match so an
-		// unknown-tool error never enumerates the whole server, whatever
-		// --tool-suggestions is set to.
-		err = tools.UnknownToolError(toolName, s.PrimitiveMgr.ToolNames(), s.toolSuggestions.AtMost(tools.SuggestionsNearest))
+		// The /api routes carry no group scope, so there is no set of names here
+		// that is known to be disclosable: the server may be configured to
+		// withhold tools that nonetheless exist in the registry. Suggestions are
+		// therefore an MCP-only affordance, where the request's group bounds them.
+		err = tools.UnknownToolError(toolName, nil, tools.SuggestionsOff)
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return

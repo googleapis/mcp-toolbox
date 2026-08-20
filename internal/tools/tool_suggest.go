@@ -15,43 +15,34 @@
 package tools
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
-// maxListedNames caps how many available tool names are embedded in an
-// unknown-tool error so the payload stays bounded for large toolsets.
+// maxListedNames bounds the payload of an unknown-tool error for large groups.
 const maxListedNames = 25
 
 // SuggestionMode controls how much an unknown-tool error discloses about the
-// tools that do exist. Tool listing is not authorization-filtered, so on a
-// given endpoint the names in these errors are a subset of what a `tools/list`
-// on that same endpoint already returns. The mode exists for deployments that
-// still want to keep the inventory out of error strings, which reach sinks a
-// list response does not: telemetry spans, client logs, and any gateway that
-// filters `tools/list` but passes `tools/call` errors through.
+// tools that do exist. Errors reach sinks a tools/list response does not —
+// telemetry spans, client logs, and gateways that filter tools/list but pass
+// tools/call errors through — so deployments can narrow this independently.
 type SuggestionMode string
 
 const (
 	// SuggestionsFull lists the available tool names and the nearest match.
 	SuggestionsFull SuggestionMode = "full"
-	// SuggestionsNearest includes only the nearest-match suggestion, so the
-	// agent can still self-correct without the error carrying an inventory.
+	// SuggestionsNearest includes only the nearest-match suggestion.
 	SuggestionsNearest SuggestionMode = "nearest"
 	// SuggestionsOff returns the bare "does not exist" message.
 	SuggestionsOff SuggestionMode = "off"
 )
 
-// suggestionRank orders the modes from least to most disclosure so AtMost can
-// compare them.
-var suggestionRank = map[SuggestionMode]int{
-	SuggestionsOff:     0,
-	SuggestionsNearest: 1,
-	SuggestionsFull:    2,
+// validModes is the set of recognized modes.
+var validModes = map[SuggestionMode]bool{
+	SuggestionsOff:     true,
+	SuggestionsNearest: true,
+	SuggestionsFull:    true,
 }
 
 // String is used by both fmt.Print and by Cobra in help text.
@@ -64,13 +55,12 @@ func (m *SuggestionMode) String() string {
 
 // Set validates the tool-suggestions flag.
 func (m *SuggestionMode) Set(v string) error {
-	switch SuggestionMode(strings.ToLower(v)) {
-	case SuggestionsFull, SuggestionsNearest, SuggestionsOff:
-		*m = SuggestionMode(strings.ToLower(v))
-		return nil
-	default:
+	normalized := SuggestionMode(strings.ToLower(v))
+	if !validModes[normalized] {
 		return fmt.Errorf(`tool suggestions must be one of "full", "nearest", or "off"`)
 	}
+	*m = normalized
+	return nil
 }
 
 // Type is used in Cobra help text.
@@ -81,38 +71,20 @@ func (m *SuggestionMode) Type() string {
 // resolve normalizes an unset or unrecognized mode to the default.
 func (m SuggestionMode) resolve() SuggestionMode {
 	normalized := SuggestionMode(strings.ToLower(string(m)))
-	if _, ok := suggestionRank[normalized]; ok {
+	if validModes[normalized] {
 		return normalized
 	}
 	return SuggestionsFull
 }
 
-// AtMost returns the less disclosing of the two modes. Callers that lack a
-// group scope use it to bound what an error can reveal regardless of the
-// server-wide setting.
-func (m SuggestionMode) AtMost(ceiling SuggestionMode) SuggestionMode {
-	if suggestionRank[ceiling.resolve()] < suggestionRank[m.resolve()] {
-		return ceiling.resolve()
-	}
-	return m.resolve()
-}
-
-// SuggestionModeFromContext retrieves the server's configured suggestion mode,
-// defaulting to SuggestionsFull when unset.
-func SuggestionModeFromContext(ctx context.Context) SuggestionMode {
-	mode, ok := util.ToolSuggestionsFromContext(ctx)
-	if !ok {
-		return SuggestionsFull
-	}
-	return SuggestionMode(mode).resolve()
-}
-
 // UnknownToolError returns the error for a tool name that could not be
-// resolved. Beyond the base message, and depending on mode, it lists the
-// available tool names (capped at maxListedNames) and, when one is close
-// enough, a nearest-match suggestion. MCP errors are consumed by LLM agents as
-// prompt text; including the valid names lets an agent self-correct instead of
-// retrying a stale or misspelled name.
+// resolved. Depending on mode it appends a nearest-match suggestion and the
+// available names (capped at maxListedNames). MCP errors are consumed by LLM
+// agents as prompt text, so naming the valid alternatives lets an agent
+// self-correct instead of retrying a stale or misspelled name.
+//
+// available must already be scoped to what the caller is allowed to disclose
+// on this endpoint; this function does no filtering of its own.
 func UnknownToolError(toolName string, available []string, mode SuggestionMode) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "invalid tool name: tool with name %q does not exist", toolName)
@@ -152,23 +124,44 @@ func UnknownToolError(toolName string, available []string, mode SuggestionMode) 
 	return fmt.Errorf("%s", b.String())
 }
 
-// nearestName returns the candidate most similar to name, if any candidate is
-// similar enough to be a plausible rename or typo. Similarity is
-// case-insensitive Levenshtein distance; a candidate qualifies when the
-// distance is at most half the longer name's length. Candidates must be
-// sorted so ties resolve deterministically.
+// nearestName returns the candidate most similar to name, if any is close
+// enough to be a plausible rename or typo: case-insensitive Levenshtein
+// distance at most half the longer name's length. Candidates must be sorted so
+// ties resolve deterministically.
+//
+// Only the closest candidate matters, so the scan never computes a full
+// distance it cannot use. A candidate whose length alone puts it at or beyond
+// the incumbent is skipped outright (length difference is a lower bound on
+// distance), the matrix walk aborts as soon as every cell in a row reaches the
+// incumbent, and an exact match ends the scan.
 func nearestName(name string, candidates []string) (string, bool) {
 	lowered := strings.ToLower(name)
+	nameLen := len([]rune(lowered))
+
 	best, bestDist := "", -1
 	for _, c := range candidates {
-		d := levenshtein(lowered, strings.ToLower(c))
+		lc := strings.ToLower(c)
+		if bestDist >= 0 {
+			lenDiff := nameLen - len([]rune(lc))
+			if lenDiff < 0 {
+				lenDiff = -lenDiff
+			}
+			if lenDiff >= bestDist {
+				continue
+			}
+		}
+		d := levenshtein(lowered, lc, bestDist)
 		if bestDist == -1 || d < bestDist {
 			best, bestDist = c, d
+			if bestDist == 0 {
+				break
+			}
 		}
 	}
 	if bestDist == -1 {
 		return "", false
 	}
+
 	longer := len([]rune(name))
 	if l := len([]rune(best)); l > longer {
 		longer = l
@@ -179,8 +172,12 @@ func nearestName(name string, candidates []string) (string, bool) {
 	return best, true
 }
 
-// levenshtein computes the edit distance between two strings by rune.
-func levenshtein(a, b string) int {
+// levenshtein computes the edit distance between two strings by rune. A cutoff
+// of zero or more abandons the walk once no result below cutoff is reachable,
+// returning cutoff; callers comparing against an incumbent distance only need
+// to know the result is no better. A negative cutoff computes the exact
+// distance.
+func levenshtein(a, b string, cutoff int) int {
 	ar, br := []rune(a), []rune(b)
 	if len(ar) == 0 {
 		return len(br)
@@ -192,14 +189,23 @@ func levenshtein(a, b string) int {
 	}
 	for i := 1; i <= len(ar); i++ {
 		curr[0] = i
+		rowMin := curr[0]
 		for j := 1; j <= len(br); j++ {
 			cost := 1
 			if ar[i-1] == br[j-1] {
 				cost = 0
 			}
 			curr[j] = min(prev[j]+1, min(curr[j-1]+1, prev[j-1]+cost))
+			if curr[j] < rowMin {
+				rowMin = curr[j]
+			}
 		}
 		prev, curr = curr, prev
+		// Distances never decrease as rows advance, so once the whole row is
+		// at the cutoff nothing below it remains reachable.
+		if cutoff >= 0 && rowMin >= cutoff {
+			return cutoff
+		}
 	}
 	return prev[len(br)]
 }

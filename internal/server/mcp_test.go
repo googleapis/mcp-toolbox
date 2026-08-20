@@ -2840,7 +2840,7 @@ func TestMcpToolSuggestionModes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mode := tc.mode
 			r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups, func(s *Server) {
-				s.toolSuggestions = mode
+				s.PrimitiveMgr.SetToolSuggestions(mode)
 			})
 			defer shutdown()
 			ts := runServer(r, false)

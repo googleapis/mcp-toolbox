@@ -335,13 +335,13 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 
 	// Verify tool belongs to the current group before resolving globally.
 	if !g.ContainsTool(toolName) {
-		err = tools.UnknownToolError(toolName, g.ToolNames, tools.SuggestionModeFromContext(ctx))
+		err = tools.UnknownToolError(toolName, g.ToolNames, primitiveMgr.ToolSuggestions())
 		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
 	}
 
 	tool, ok := primitiveMgr.GetTool(toolName)
 	if !ok {
-		err = tools.UnknownToolError(toolName, g.ToolNames, tools.SuggestionModeFromContext(ctx))
+		err = tools.UnknownToolError(toolName, g.ToolNames, primitiveMgr.ToolSuggestions())
 		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
 	}
 

@@ -361,33 +361,24 @@ func TestApiRequestBodyLimitOverride(t *testing.T) {
 	}
 }
 
-func TestApiUnknownToolSuggestionIsCapped(t *testing.T) {
+// TestApiUnknownToolNeverDisclosesNames pins the invariant that the /api
+// routes disclose nothing about the tools that do exist. They carry no group
+// scope, so there is no set of names known to be safe to reveal — the server
+// may be configured to withhold tools that are still present in the registry.
+// Suggestions are an MCP-only affordance, where the request's group bounds them.
+func TestApiUnknownToolNeverDisclosesNames(t *testing.T) {
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
 	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
 
-	testCases := []struct {
-		name string
-		mode tools.SuggestionMode
-		want string
-	}{
-		{
-			// The /api routes have no group scope, so full is capped at nearest:
-			// the error suggests, but never enumerates the server's tools.
-			name: "full is capped at the nearest match",
-			mode: tools.SuggestionsFull,
-			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "no_params"?`,
-		},
-		{
-			name: "off is still off",
-			mode: tools.SuggestionsOff,
-			want: `invalid tool name: tool with name "no_param" does not exist`,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			mode := tc.mode
+	// "no_param" is one edit from the real "no_params", so a suggestion would
+	// fire here if the /api path consulted the tool registry at all.
+	const want = `invalid tool name: tool with name "no_param" does not exist`
+
+	for _, mode := range []tools.SuggestionMode{tools.SuggestionsFull, tools.SuggestionsNearest, tools.SuggestionsOff} {
+		t.Run(string(mode), func(t *testing.T) {
+			mode := mode
 			r, shutdown := setUpServer(t, "api", toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups, func(s *Server) {
-				s.toolSuggestions = mode
+				s.PrimitiveMgr.SetToolSuggestions(mode)
 			})
 			defer shutdown()
 			ts := runServer(r, false)
@@ -412,8 +403,8 @@ func TestApiUnknownToolSuggestionIsCapped(t *testing.T) {
 				if err := json.Unmarshal(body, &got); err != nil {
 					t.Fatalf("unable to parse error response: %s", err)
 				}
-				if got.Error != tc.want {
-					t.Errorf("%s: got  %q\nwant %q", path, got.Error, tc.want)
+				if got.Error != want {
+					t.Errorf("%s: got  %q\nwant %q", path, got.Error, want)
 				}
 			}
 		})

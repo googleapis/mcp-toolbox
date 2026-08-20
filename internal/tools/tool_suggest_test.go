@@ -15,12 +15,10 @@
 package tools
 
 import (
-	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
-
-	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 func TestUnknownToolError(t *testing.T) {
@@ -157,48 +155,6 @@ func TestSuggestionModeStringDefaultsToFull(t *testing.T) {
 	}
 }
 
-func TestSuggestionModeAtMost(t *testing.T) {
-	tcs := []struct {
-		desc    string
-		mode    SuggestionMode
-		ceiling SuggestionMode
-		want    SuggestionMode
-	}{
-		{desc: "ceiling lowers full", mode: SuggestionsFull, ceiling: SuggestionsNearest, want: SuggestionsNearest},
-		{desc: "ceiling does not raise off", mode: SuggestionsOff, ceiling: SuggestionsNearest, want: SuggestionsOff},
-		{desc: "ceiling does not raise nearest", mode: SuggestionsNearest, ceiling: SuggestionsFull, want: SuggestionsNearest},
-		{desc: "unset mode is treated as full", mode: "", ceiling: SuggestionsNearest, want: SuggestionsNearest},
-	}
-	for _, tc := range tcs {
-		t.Run(tc.desc, func(t *testing.T) {
-			if got := tc.mode.AtMost(tc.ceiling); got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSuggestionModeFromContext(t *testing.T) {
-	tcs := []struct {
-		desc string
-		ctx  context.Context
-		want SuggestionMode
-	}{
-		{desc: "unset context defaults to full", ctx: context.Background(), want: SuggestionsFull},
-		{desc: "empty value defaults to full", ctx: util.WithToolSuggestions(context.Background(), ""), want: SuggestionsFull},
-		{desc: "unrecognized value defaults to full", ctx: util.WithToolSuggestions(context.Background(), "loud"), want: SuggestionsFull},
-		{desc: "off is honored", ctx: util.WithToolSuggestions(context.Background(), "off"), want: SuggestionsOff},
-		{desc: "nearest is honored", ctx: util.WithToolSuggestions(context.Background(), "nearest"), want: SuggestionsNearest},
-	}
-	for _, tc := range tcs {
-		t.Run(tc.desc, func(t *testing.T) {
-			if got := SuggestionModeFromContext(tc.ctx); got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestNearestName(t *testing.T) {
 	tcs := []struct {
 		desc       string
@@ -260,8 +216,88 @@ func TestLevenshtein(t *testing.T) {
 		{"flaw", "lawn", 2},
 	}
 	for _, tc := range tcs {
-		if got := levenshtein(tc.a, tc.b); got != tc.want {
-			t.Errorf("levenshtein(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+		if got := levenshtein(tc.a, tc.b, -1); got != tc.want {
+			t.Errorf("levenshtein(%q, %q, -1) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// TestLevenshteinCutoff checks the early abort: a cutoff never changes a
+// result that is genuinely below it, and saturates at the cutoff otherwise.
+// Callers only compare against an incumbent, so saturating is sufficient.
+func TestLevenshteinCutoff(t *testing.T) {
+	tcs := []struct {
+		a, b   string
+		cutoff int
+		want   int
+	}{
+		{"kitten", "sitting", -1, 3},
+		{"kitten", "sitting", 10, 3},   // cutoff above the true distance is exact
+		{"kitten", "sitting", 4, 3},    // still exact: 3 < 4
+		{"kitten", "sitting", 3, 3},    // saturates: not better than the incumbent
+		{"kitten", "sitting", 1, 1},    // saturates early
+		{"abcdefgh", "zyxwvuts", 2, 2}, // hopeless pair abandoned immediately
+		{"abc", "abc", 5, 0},           // identical strings still reach 0
+	}
+	for _, tc := range tcs {
+		if got := levenshtein(tc.a, tc.b, tc.cutoff); got != tc.want {
+			t.Errorf("levenshtein(%q, %q, %d) = %d, want %d", tc.a, tc.b, tc.cutoff, got, tc.want)
+		}
+	}
+}
+
+// naiveNearestName is the unoptimized reference: score every candidate with a
+// full distance computation, then apply the same threshold. TestNearestName-
+// MatchesNaive pins the optimized scan to it.
+func naiveNearestName(name string, candidates []string) (string, bool) {
+	lowered := strings.ToLower(name)
+	best, bestDist := "", -1
+	for _, c := range candidates {
+		d := levenshtein(lowered, strings.ToLower(c), -1)
+		if bestDist == -1 || d < bestDist {
+			best, bestDist = c, d
+		}
+	}
+	if bestDist == -1 {
+		return "", false
+	}
+	longer := len([]rune(name))
+	if l := len([]rune(best)); l > longer {
+		longer = l
+	}
+	if bestDist*2 > longer {
+		return "", false
+	}
+	return best, true
+}
+
+// TestNearestNameMatchesNaive proves the length pre-filter, the row-abort and
+// the exact-match break are pure optimizations: over a deterministic sweep of
+// name/candidate combinations, the optimized scan agrees with the reference on
+// every input. Candidate lists are sorted, as nearestName requires.
+func TestNearestNameMatchesNaive(t *testing.T) {
+	pool := []string{
+		"a", "ab", "abc", "list_sensors", "list_sensor", "latest_observation",
+		"get_weather", "get_weather_data", "search_flights", "zyxwvuts",
+		"tool_a", "tool_b", "TOOL_A", "", "list_tables", "execute_sql",
+	}
+	sorted := make([]string, len(pool))
+	copy(sorted, pool)
+	sort.Strings(sorted)
+
+	names := append([]string{"lookup_sensor", "listsensors", "get_wether", "tool_x", "", "EXECUTE_SQL"}, pool...)
+
+	// Sweep every prefix of the sorted pool so candidates arrive in varying
+	// orders and sizes, including the empty list.
+	for i := 0; i <= len(sorted); i++ {
+		candidates := sorted[:i]
+		for _, name := range names {
+			gotName, gotOK := nearestName(name, candidates)
+			wantName, wantOK := naiveNearestName(name, candidates)
+			if gotOK != wantOK || gotName != wantName {
+				t.Fatalf("nearestName(%q, %v) = (%q, %v), naive = (%q, %v)",
+					name, candidates, gotName, gotOK, wantName, wantOK)
+			}
 		}
 	}
 }
