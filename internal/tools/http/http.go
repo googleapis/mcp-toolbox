@@ -29,7 +29,16 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
+
+// findDefaultCredentials is a package variable so tests can substitute a fake
+// credential source instead of depending on real Application Default
+// Credentials being present in the test environment.
+var findDefaultCredentials = func(ctx context.Context, scopes ...string) (*google.Credentials, error) {
+	return google.FindDefaultCredentials(ctx, scopes...)
+}
 
 const resourceType string = "http"
 
@@ -67,6 +76,11 @@ type Config struct {
 	BodyParams       parameters.Parameters  `yaml:"bodyParams"`
 	HeaderParams     parameters.Parameters  `yaml:"headerParams"`
 	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	// SendGoogleAccessToken, when true, fetches an OAuth2 access token from
+	// Application Default Credentials and sends it as a "Bearer" Authorization
+	// header on every request, overriding any Authorization value set via
+	// Headers or HeaderParams.
+	SendGoogleAccessToken bool `yaml:"sendGoogleAccessToken"`
 }
 
 // validate interface
@@ -76,7 +90,7 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
-func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
+func (cfg Config) Initialize(ctx context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
 	}
@@ -97,6 +111,18 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		paramManifest = make([]parameters.ParameterManifest, 0)
 	}
 
+	// Resolve Application Default Credentials once at initialization, rather
+	// than on every Invoke, so a missing or misconfigured credential fails
+	// fast at startup instead of on the tool's first call.
+	var tokenSource oauth2.TokenSource
+	if cfg.SendGoogleAccessToken {
+		creds, err := findDefaultCredentials(ctx, sources.CloudPlatformScope)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find Application Default Credentials for tool %q: %w", cfg.Name, err)
+		}
+		tokenSource = creds.TokenSource
+	}
+
 	// finish tool setup
 	return Tool{
 		BaseTool: tools.NewBaseTool(
@@ -105,6 +131,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 			tools.Manifest{Description: cfg.Description, Parameters: paramManifest, AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),
+		TokenSource: tokenSource,
 	}, nil
 }
 
@@ -113,6 +140,11 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
+	// TokenSource is non-nil only when Cfg.SendGoogleAccessToken is true. Its
+	// Token method returns a cached token and transparently refreshes it once
+	// expired, so Invoke can call it on every request without adding its own
+	// caching layer.
+	TokenSource oauth2.TokenSource
 }
 
 func (t Tool) GetSourceName() string {
@@ -303,6 +335,19 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewAgentError("error populating request headers", err)
 	}
+
+	// A Google access token, when requested, overrides any Authorization
+	// value from Headers or HeaderParams: it is fetched fresh (or served from
+	// TokenSource's own cache) on every invocation, so a static or
+	// LLM-supplied Authorization value would otherwise go stale silently.
+	if t.Cfg.SendGoogleAccessToken {
+		token, err := t.TokenSource.Token()
+		if err != nil {
+			return nil, util.NewClientServerError("failed to fetch Google access token", http.StatusInternalServerError, err)
+		}
+		allHeaders["Authorization"] = "Bearer " + token.AccessToken
+	}
+
 	// Set request headers
 	for k, v := range allHeaders {
 		req.Header.Set(k, v)
