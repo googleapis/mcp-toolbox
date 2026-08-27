@@ -97,6 +97,42 @@ func TestInitializeFetchesCredentialsWhenSendGoogleAccessTokenIsSet(t *testing.T
 	}
 }
 
+func TestInitializeDecouplesCredentialLookupFromStartupContext(t *testing.T) {
+	origFindDefaultCredentials := findDefaultCredentials
+	t.Cleanup(func() { findDefaultCredentials = origFindDefaultCredentials })
+
+	var gotCtx context.Context
+	findDefaultCredentials = func(ctx context.Context, _ ...string) (*google.Credentials, error) {
+		gotCtx = ctx
+		return &google.Credentials{TokenSource: &fakeTokenSource{token: &oauth2.Token{AccessToken: "abc"}}}, nil
+	}
+
+	cfg := Config{
+		ConfigBase:            tools.ConfigBase{Name: "t", Description: "d"},
+		Type:                  resourceType,
+		Source:                "s",
+		Path:                  "/p",
+		Method:                "GET",
+		SendGoogleAccessToken: true,
+	}
+
+	// A startup context that is cancelled right after Initialize returns,
+	// modeling the real lifecycle: Initialize only runs during server
+	// startup, and that context is not guaranteed to outlive it.
+	startupCtx, cancel := context.WithCancel(context.Background())
+	if _, err := cfg.Initialize(startupCtx); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	cancel()
+
+	if gotCtx == nil {
+		t.Fatalf("findDefaultCredentials was never called")
+	}
+	if err := gotCtx.Err(); err != nil {
+		t.Fatalf("context passed to findDefaultCredentials was cancelled along with the startup context: %s", err)
+	}
+}
+
 func TestInitializeFailsWhenCredentialsUnavailable(t *testing.T) {
 	origFindDefaultCredentials := findDefaultCredentials
 	t.Cleanup(func() { findDefaultCredentials = origFindDefaultCredentials })

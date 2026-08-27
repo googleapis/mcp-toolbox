@@ -116,7 +116,12 @@ func (cfg Config) Initialize(ctx context.Context) (tools.Tool, error) {
 	// fast at startup instead of on the tool's first call.
 	var tokenSource oauth2.TokenSource
 	if cfg.SendGoogleAccessToken {
-		creds, err := findDefaultCredentials(ctx, sources.CloudPlatformScope)
+		// The returned TokenSource is long-lived and refreshes the token on
+		// its own schedule for as long as the tool exists, so it must not be
+		// bound to ctx's lifetime: ctx is only the startup context and may be
+		// cancelled once initialization completes, which would otherwise
+		// break every refresh after that point with "context canceled".
+		creds, err := findDefaultCredentials(context.WithoutCancel(ctx), sources.CloudPlatformScope)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find Application Default Credentials for tool %q: %w", cfg.Name, err)
 		}
