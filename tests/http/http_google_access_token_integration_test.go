@@ -125,6 +125,10 @@ func TestHttpToolSendsGoogleAccessToken(t *testing.T) {
 		if !strings.HasPrefix(got, "Bearer ") {
 			t.Fatalf("Authorization header = %q, want a Bearer token", got)
 		}
+		tokenVal := strings.TrimPrefix(got, "Bearer ")
+		if !strings.HasPrefix(tokenVal, "ya29.") {
+			t.Fatalf("Authorization header = %q, want a Google access token starting with 'ya29.'", got)
+		}
 		// Access tokens can be refreshed between the two fetches above, so
 		// only fail on a mismatched scheme; a different token value from a
 		// legitimate refresh is not itself a bug.
