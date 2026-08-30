@@ -245,3 +245,37 @@ Sample code is aggregated visually in the UI via the Samples section, but the ph
 
 1.  **File Size Limits:** Never add files larger than 24MB to the `docs/` directory.
 
+
+## Security Review
+
+Before opening a PR, review the change against the security surfaces below.
+Flag anything you cannot verify instead of assuming it is safe.
+
+-   **Bind, don't format:** User-supplied values must flow through
+    `parameters.GetParams` and reach the driver as bound arguments (see
+    `internal/tools/postgres/postgressql/postgressql.go`). Never `fmt.Sprintf`
+    a parameter value into a statement.
+-   **Template parameters are not bound:** `parameters.ResolveTemplateParams`
+    substitutes `templateParameters` straight into the statement. Constrain
+    them with `allowedValues` (or `minValue`/`maxValue`) and validate
+    identifiers (e.g. `bigquerycommon.ValidTableID`, `ValidColumnName`).
+    `escape` alone does *not* make a template parameter safe.
+-   **Honor resource allow-lists:** Tools that accept a resource identifier must
+    check the source's allow-list (e.g. `BigQueryAllowedDatasets()`) before
+    issuing a request, and return an access-denied error otherwise.
+-   **Honor write modes:** New query paths must respect the source's write mode
+    (`WriteModeBlocked`, `WriteModeProtected`) instead of bypassing it.
+-   **Auth-bound parameters:** Values declared with `authServices` must be
+    resolved from verified claims (`parseFromAuthService`) and must never be
+    overridable by a client-supplied parameter value.
+-   **Credentials and tokens:** Never log, persist, or include in trace attributes source credentials, client
+    OAuth tokens (`useClientOAuth`, the `Authorization` header), or auth claims.
+    Keep them out of manifests, tool results, and error strings - errors are
+    returned to the model.
+-   **Outbound requests:** New outbound HTTP paths must use the SSRF-guarded
+    client in `internal/sources/http/http.go` (`SSRFGuard.IsIPBlocked` plus the
+    redirect re-validation in `CheckRedirect`), not a bare `http.Client`.
+    Preserve the `getURL` checks in `internal/tools/http/http.go`: relative
+    paths only, no `..` segments, no host override.
+-   **Reporting:** Do *not* open a public issue or PR for an exploitable
+    vulnerability. Follow `SECURITY.md` instead.
