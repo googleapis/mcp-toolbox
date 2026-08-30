@@ -268,7 +268,8 @@ Flag anything you cannot verify instead of assuming it is safe.
 -   **Auth-bound parameters:** Values declared with `authServices` must be
     resolved from verified claims (`parseFromAuthService`) and must never be
     overridable by a client-supplied parameter value.
--   **Credentials and tokens:** Never log, persist, or include source credentials, client OAuth tokens (`useClientOAuth`, the `Authorization` header), or auth claims in trace attributes.
+-   **Credentials and tokens:** Never log, persist, or include source credentials, client
+    OAuth tokens (`useClientOAuth`, the `Authorization` header), or auth claims in trace attributes.
     Keep them out of manifests, tool results, and error strings - errors are
     returned to the model.
 -   **Outbound requests:** New outbound HTTP paths must use the SSRF-guarded
