@@ -132,9 +132,39 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
+  - id: "start-alloydb-omni"
+    name: "gcr.io/cloud-builders/docker"
+    waitFor: ["detect-changes"]
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if [ -f /workspace/skip-evals ]; then
+          echo "Evals skipped; not starting AlloyDB Omni container."
+          exit 0
+        fi
+        PATTERN="(^|/)internal/prebuiltconfigs/tools/alloydb-omni.yaml|(^|/)evals/evalsets/alloydb-omni.json"
+        if [ -n "$_PR_NUMBER" ] && [ -s /workspace/changed_files.txt ] && ! grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "alloydb-omni not affected by changes; skipping container start."
+          exit 0
+        fi
+
+        echo "Starting AlloyDB Omni container on cloudbuild network..."
+        docker rm -f alloydb-omni 2>/dev/null || true
+        docker run -d \
+          --name alloydb-omni \
+          --network=cloudbuild \
+          --shm-size=2g \
+          -e POSTGRES_PASSWORD=$$ALLOYDB_OMNI_PASSWORD \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_DB=test_database \
+          google/alloydbomni:16.9.0-ubi9
+    secretEnv:
+      - "ALLOYDB_OMNI_PASSWORD"
+
   - id: "evals-alloydb-omni"
     name: "${_EVALBENCH_IMAGE}"
-    waitFor: ["build-toolbox", "pull-evalbench"]
+    waitFor: ["build-toolbox", "pull-evalbench", "start-alloydb-omni"]
     dir: /evalbench
     entrypoint: bash
     args: ["/workspace/.ci/run_evals.sh"]
@@ -212,6 +242,6 @@ substitutions:
   _GEMINI_MODEL: "gemini-3.7-flash"
   _CLAUDE_MODEL: "claude-opus-4-8"
   _EVALBENCH_IMAGE: "us-central1-docker.pkg.dev/cloud-db-nl2sql/evalbench/eval_server:latest"
-  _ALLOYDB_OMNI_HOST: "127.0.0.1"
+  _ALLOYDB_OMNI_HOST: "alloydb-omni"
   _ALLOYDB_OMNI_PORT: "5432"
 
