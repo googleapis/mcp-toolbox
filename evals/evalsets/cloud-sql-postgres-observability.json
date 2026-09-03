@@ -1,0 +1,38 @@
+{
+  "scenarios": [
+    {
+      "id": "cloudsqlpg-obs-01",
+      "starting_prompt": "We are noticing latency spikes on our Cloud SQL Postgres instance '${CLOUD_SQL_POSTGRES_OBSERVABILITY_INSTANCE}' in project '${CLOUD_SQL_POSTGRES_OBSERVABILITY_PROJECT}'. Can you check the CPU utilization and memory usage over the last 15 minutes to see if we are hitting resource limits?",
+      "conversation_plan": "Turn 2: The user observes that CPU and memory look normal, but clients report connection errors. Ask the agent to check the number of active database connections and whether connections have spiked. Turn 3: User acknowledges the connection metrics and asks for a short summary of recommendations. Accept the summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_system_metrics",
+        "toolbox__get_system_metrics"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlpg-obs-02",
+      "starting_prompt": "Our batch job is running slower than expected on instance '${CLOUD_SQL_POSTGRES_OBSERVABILITY_INSTANCE}' in project '${CLOUD_SQL_POSTGRES_OBSERVABILITY_PROJECT}'. Check Query Insights to identify which queries have the highest execution time.",
+      "conversation_plan": "Turn 2: The user notes a query has high overall latency and asks whether it was delayed due to lock wait time or disk IO time. Accept the breakdown. Turn 3: User asks for a concise wrap-up summary of the query bottlenecks and ends the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_query_metrics",
+        "toolbox__get_query_metrics"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlpg-obs-03",
+      "starting_prompt": "Users are reporting performance degradation on instance '${CLOUD_SQL_POSTGRES_OBSERVABILITY_INSTANCE}' in project '${CLOUD_SQL_POSTGRES_OBSERVABILITY_PROJECT}'. First check if instance CPU or disk IO is maxed out, and then check Query Insights for any runaway queries causing the issue.",
+      "conversation_plan": "Turn 1: Agent checks system metrics for CPU and disk IO. Turn 2: User asks the agent to drill down into Query Insights for queries with high lock wait or execution time during the spike. Turn 3: User asks if there were any deadlock events or connection spikes. Accept the answer and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_system_metrics",
+        "toolbox__get_query_metrics",
+        "toolbox__get_system_metrics"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    }
+  ]
+}
