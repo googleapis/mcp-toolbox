@@ -75,7 +75,10 @@ with distinctive terms (tool name, error string). If it's a known issue, propose
 close: link and reference the original, and thank the reporter (template below).
 
 **Investigate before deferring (bugs).** Before proposing `waiting for response`, try to reproduce
-by tracing the code, and check `git log`/`git blame` for a fix that already landed silently. If
+by tracing the code, and check `git log`/`git blame` for a fix that already landed silently. When
+the call hinges on whether the bug is real, hand off to the `reproduce-bug` skill, which runs the
+cheap discriminators (wrong tool type, version skew, client-side) and can reproduce most reports on
+SQLite with no credentials; its verdict sharpens both `priority:` and `status:`. If
 it's already fixed, propose `duplicate` + close referencing the commit rather than asking for info.
 If you can root-cause it, include the `file:line` — it sharpens the priority call. Only fall back to
 `waiting for response` when reproduction genuinely isn't possible, and then ask *specific*,
