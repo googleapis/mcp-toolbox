@@ -106,6 +106,20 @@ steps:
       - "CLOUD_SQL_MYSQL_USER"
       - "CLOUD_SQL_MYSQL_PASSWORD"
 
+  - id: "evals-alloydb-postgres-observability"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=alloydb-postgres-observability"
+      - "EVAL_DATASET=evals/evalsets/alloydb-postgres-observability.json"
+      - "EVAL_ENV_PREFIX=''"
+      - "EVAL_HARNESSES=claude_cli gemini_cli"
+
+
   # These evals create real backups and the toolbox has no delete tool, so the
   # TEARDOWN_ variables drive evals/teardown/, which EvalBench runs after each
   # harness.
