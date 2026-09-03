@@ -132,6 +132,26 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
+  - id: "evals-alloydb-omni"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=alloydb-omni"
+      - "EVAL_DATASET=evals/evalsets/alloydb-omni.json"
+      - "EVAL_ENV_PREFIX=ALLOYDB_OMNI"
+
+      - "ALLOYDB_OMNI_HOST=${_ALLOYDB_OMNI_HOST}"
+      - "ALLOYDB_OMNI_PORT=${_ALLOYDB_OMNI_PORT}"
+      - "ALLOYDB_OMNI_DATABASE=${_DATABASE_NAME}"
+    secretEnv:
+      - "ALLOYDB_OMNI_USER"
+      - "ALLOYDB_OMNI_PASSWORD"
+
+
   # Turns the allowFailure steps back into a red build. No waitFor, which means
   # every step above, so a new database needs no edit here.
   - id: "report-failures"
@@ -156,6 +176,10 @@ availableSecrets:
       env: CLOUD_SQL_MYSQL_USER
     - versionName: projects/$PROJECT_ID/secrets/cloud_sql_mysql_pass/versions/latest
       env: CLOUD_SQL_MYSQL_PASSWORD
+    - versionName: projects/$PROJECT_ID/secrets/alloydb_omni_user/versions/latest
+      env: ALLOYDB_OMNI_USER
+    - versionName: projects/$PROJECT_ID/secrets/alloydb_omni_pass/versions/latest
+      env: ALLOYDB_OMNI_PASSWORD
 
 # env here is shared by every step. EVAL_REPORTING_PROJECT is required from the
 # trigger: results are never written to the build project.
@@ -188,3 +212,4 @@ substitutions:
   _GEMINI_MODEL: "gemini-3.7-flash"
   _CLAUDE_MODEL: "claude-opus-4-8"
   _EVALBENCH_IMAGE: "us-central1-docker.pkg.dev/cloud-db-nl2sql/evalbench/eval_server:latest"
+  _ALLOYDB_OMNI_PORT: "5432"
