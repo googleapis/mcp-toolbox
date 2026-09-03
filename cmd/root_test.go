@@ -266,6 +266,21 @@ func TestServerConfigFlags(t *testing.T) {
 				DisableExt: []string{"io.modelcontextprotocol/tasks"},
 			}),
 		},
+		{
+			desc: "defer source connect",
+			args: []string{"--defer-source-connect"},
+			want: withDefaults(server.ServerConfig{
+				DeferSourceConnect: true,
+			}),
+		},
+		{
+			desc: "defer env var parsing",
+			args: []string{"--defer-source-connect", "--defer-env-var-parsing"},
+			want: withDefaults(server.ServerConfig{
+				DeferSourceConnect: true,
+				DeferEnvVarParsing: true,
+			}),
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -1087,6 +1102,26 @@ authServices:
 		t.Fatal("expected error when running with MCP Auth and --enable-api, got nil")
 	}
 	if !strings.Contains(err.Error(), "MCP Auth cannot be enabled together with the legacy HTTP API") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDeferEnvVarParsingRequiresDeferSourceConnect(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "tools.yaml")
+	if err := os.WriteFile(configFile, []byte("sources:\ntools:\n"), 0644); err != nil {
+		t.Fatalf("failed to write temp config file: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	opts := internal.NewToolboxOptions(internal.WithIOStreams(buf, buf))
+	cmd := NewCommand(opts)
+	cmd.SetArgs([]string{"--config", configFile, "--defer-env-var-parsing"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when --defer-env-var-parsing is set alone, got nil")
+	}
+	if !strings.Contains(err.Error(), "--defer-env-var-parsing requires --defer-source-connect") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

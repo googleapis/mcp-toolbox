@@ -359,7 +359,7 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 			reloadedOpts.Configs = slices.Clone(opts.Configs)
 			reloadedOpts.Cfg.Version = versionString
 
-			if _, err := reloadedOpts.LoadConfig(ctx, &internal.ConfigParser{}); err != nil {
+			if _, err := reloadedOpts.LoadConfig(ctx, &internal.ConfigParser{AllowMissingEnvVars: opts.Cfg.DeferEnvVarParsing}); err != nil {
 				logger.WarnContext(ctx, fmt.Sprintf("Error reloading config: %s", err))
 				continue
 			}
@@ -431,9 +431,25 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 		_ = shutdown(ctx)
 	}()
 
-	isCustomConfigured, err := opts.LoadConfig(ctx, &internal.ConfigParser{})
+	// A placeholder only makes sense for a source that has not connected yet.
+	// Substituting one and then connecting eagerly fails on the placeholder
+	// itself, so reject the combination rather than report that failure.
+	if opts.Cfg.DeferEnvVarParsing && !opts.Cfg.DeferSourceConnect {
+		errMsg := fmt.Errorf("--defer-env-var-parsing requires --defer-source-connect")
+		opts.Logger.ErrorContext(ctx, errMsg.Error())
+		return errMsg
+	}
+
+	parser := internal.ConfigParser{AllowMissingEnvVars: opts.Cfg.DeferEnvVarParsing}
+	isCustomConfigured, err := opts.LoadConfig(ctx, &parser)
 	if err != nil {
 		return err
+	}
+	if len(parser.MissingEnvVars) > 0 {
+		slices.Sort(parser.MissingEnvVars)
+		opts.Logger.WarnContext(ctx, fmt.Sprintf(
+			"Unset environment variables replaced with placeholders because --defer-env-var-parsing is set; any source using them will fail to connect: %s",
+			strings.Join(parser.MissingEnvVars, ", ")))
 	}
 
 	// Validate ToolboxUrl if MCP Auth is enabled
