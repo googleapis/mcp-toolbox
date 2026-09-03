@@ -163,10 +163,10 @@ var MockPrompt2 = NewMockPrompt("prompt2", "", prompts.Arguments{
 	{Parameter: parameters.NewStringParameter("arg1", "This is the first argument.")},
 })
 
-var MockResource1 = NewMockResource("mock_resource_1", "file:///mock/resource/1")
-var MockResource2 = NewMockResource("mock_resource_2", "text:///mock/resource/2")
-var MockTemplate1 = NewMockResourceTemplate("mock_template_1", "file://{path}")
-var MockTemplate2 = NewMockResourceTemplate("mock_template_2", "file:///logs/{path}")
+var MockResource1 = NewMockResource("mock_resource_1", "file:///mock/resource/1", "", "", "", nil, nil)
+var MockResource2 = NewMockResource("mock_resource_2", "text:///mock/resource/2", "", "", "", nil, nil)
+var MockTemplate1 = NewMockResourceTemplate("mock_template_1", "file://{path}", "", "", "", nil)
+var MockTemplate2 = NewMockResourceTemplate("mock_template_2", "file:///logs/{path}", "", "", "", nil)
 
 // SetUpPrimitives setups resources to test against. The returned groups map is the
 // source of truth used by PrimitiveManager; assert group membership via
@@ -195,19 +195,19 @@ func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPromp
 	}
 
 	resourcesMap := make(map[string]resources.Resource)
-	// var allResources []string
+	var allResources []string
 	for _, resource := range mockResources {
 		resName := resource.GetName()
 		resourcesMap[resName] = resource
-		// allResources = append(allResources, resName)
+		allResources = append(allResources, resName)
 	}
 
 	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)
-	// var allResourceTemplates []string
+	var allResourceTemplates []string
 	for _, resourceTemplate := range mockResourceTemplates {
 		resTemplateName := resourceTemplate.GetName()
 		resourceTemplatesMap[resTemplateName] = resourceTemplate
-		// allResourceTemplates = append(allResourceTemplates, resTemplateName)
+		allResourceTemplates = append(allResourceTemplates, resTemplateName)
 	}
 
 	// Build the authoritative groups map directly. Each named collection
@@ -217,7 +217,7 @@ func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPromp
 	for name := range groupToolNames {
 		groupNames[name] = struct{}{}
 	}
-	if len(allPrompts) > 0 {
+	if len(allPrompts) > 0 || len(allResources) > 0 || len(allResourceTemplates) > 0 {
 		groupNames[""] = struct{}{}
 	}
 	groups := make(map[string]group.Group)
@@ -225,6 +225,8 @@ func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPromp
 		gc := group.GroupConfig{Name: name, ToolNames: groupToolNames[name]}
 		if name == "" {
 			gc.PromptNames = allPrompts
+			gc.ResourceNames = allResources
+			gc.ResourceTemplateNames = allResourceTemplates
 		}
 		groups[name] = group.NewGroup(gc)
 	}

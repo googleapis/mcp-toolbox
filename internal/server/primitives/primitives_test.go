@@ -103,7 +103,3 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, sources (-want +got):\n%s", diff)
 	}
 }
-
-// TestPrimitiveManager_GetResourceOrTemplateByURI verifies that the primitive
-// manager can correctly resolve exact URI matches for static resources, or
-// fallback to matching and extracting parameters for URI templates.

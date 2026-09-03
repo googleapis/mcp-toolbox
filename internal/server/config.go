@@ -621,10 +621,10 @@ func UnmarshalYAMLGroupConfig(ctx context.Context, name string, r map[string]any
 	if err := dec.DecodeContext(ctx, &gc); err != nil {
 		return group.GroupConfig{}, fmt.Errorf("unable to unmarshal group: %s", err)
 	}
-	// The default (nameless) group always contains all configured tools and
-	// prompts, so it may only set a description.
-	if name == "" && (len(gc.ToolNames) > 0 || len(gc.PromptNames) > 0) {
-		return group.GroupConfig{}, fmt.Errorf("the default (nameless) group cannot declare 'tools' or 'prompts'; it always contains all configured tools and prompts")
+	// The default (nameless) group always contains all configured tools, prompts,
+	// resources, and resourceTemplates, so it may only set a description.
+	if name == "" && (len(gc.ToolNames) > 0 || len(gc.PromptNames) > 0 || len(gc.ResourceNames) > 0 || len(gc.ResourceTemplateNames) > 0) {
+		return group.GroupConfig{}, fmt.Errorf("the default (nameless) group cannot declare 'tools', 'prompts', 'resources', or 'resourceTemplates'; it always contains all configured primitives")
 	}
 	return gc, nil
 }

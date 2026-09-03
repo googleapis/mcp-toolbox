@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 )
@@ -28,26 +29,30 @@ const (
 )
 
 // GroupConfig is the parsed configuration for a group: a single named collection
-// that holds both tools and prompts. Its description doubles as the MCP server
-// instructions for clients connected to the group.
+// that holds tools, prompts, resources, and resource templates. Its description
+// doubles as the MCP server instructions for clients connected to the group.
 type GroupConfig struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	ToolNames   []string `yaml:"tools"`
-	PromptNames []string `yaml:"prompts"`
-	CacheScope  string   `yaml:"cacheScope" validate:"omitempty,oneof=public private"`
-	TTLMs       *int     `yaml:"ttlMs" validate:"omitempty,gte=0"`
+	Name                  string   `yaml:"name"`
+	Description           string   `yaml:"description"`
+	ToolNames             []string `yaml:"tools"`
+	PromptNames           []string `yaml:"prompts"`
+	ResourceNames         []string `yaml:"resources"`
+	ResourceTemplateNames []string `yaml:"resourceTemplates"`
+	CacheScope            string   `yaml:"cacheScope" validate:"omitempty,oneof=public private"`
+	TTLMs                 *int     `yaml:"ttlMs" validate:"omitempty,gte=0"`
 }
 
 // Group is an initialized group: the source of truth for a named collection of
-// tools and prompts. It is a self-contained MCP primitive and does not depend on
-// the legacy toolset/promptset types. It keeps O(1) membership sets for its tools
-// and prompts; per-tool and per-prompt manifests are generated on demand by
-// callers from the resolved tools and prompts maps.
+// tools, prompts, resources, and resource templates. It is a self-contained MCP primitive and does not depend on
+// the legacy toolset/promptset types. It keeps O(1) membership sets for its tools,
+// prompts, resources, and templates; manifests are generated on demand by
+// callers from the resolved primitive maps.
 type Group struct {
 	GroupConfig
-	toolNameSet   map[string]struct{}
-	promptNameSet map[string]struct{}
+	toolNameSet             map[string]struct{}
+	promptNameSet           map[string]struct{}
+	resourceNameSet         map[string]struct{}
+	resourceTemplateNameSet map[string]struct{}
 }
 
 // GroupManager defines the minimal view of the primitives.PrimitiveManager
@@ -58,10 +63,10 @@ type GroupManager interface {
 	GetTool(string) (tools.Tool, bool)
 }
 
-// Initialize validates the group name and checks that every declared tool and
-// prompt exists in the provided maps, building the membership sets used by
-// ContainsTool and ContainsPrompt.
-func (gc GroupConfig) Initialize(toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt) (Group, error) {
+// Initialize validates the group name and checks that every declared tool,
+// prompt, resource, and template exists in the provided maps, building the membership sets used by
+// ContainsTool, ContainsPrompt, ContainsResource, and ContainsResourceTemplate.
+func (gc GroupConfig) Initialize(toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, resourcesMap map[string]resources.Resource, templatesMap map[string]resources.ResourceTemplate) (Group, error) {
 	if !tools.IsValidName(gc.Name) {
 		return Group{}, fmt.Errorf("invalid group name: %q", gc.Name)
 	}
@@ -82,11 +87,33 @@ func (gc GroupConfig) Initialize(toolsMap map[string]tools.Tool, promptsMap map[
 		promptNameSet[name] = struct{}{}
 	}
 
-	return Group{GroupConfig: gc, toolNameSet: toolNameSet, promptNameSet: promptNameSet}, nil
+	resourceNameSet := make(map[string]struct{}, len(gc.ResourceNames))
+	for _, name := range gc.ResourceNames {
+		if _, ok := resourcesMap[name]; !ok {
+			return Group{}, fmt.Errorf("resource does not exist: %q", name)
+		}
+		resourceNameSet[name] = struct{}{}
+	}
+
+	templateNameSet := make(map[string]struct{}, len(gc.ResourceTemplateNames))
+	for _, name := range gc.ResourceTemplateNames {
+		if _, ok := templatesMap[name]; !ok {
+			return Group{}, fmt.Errorf("resource template does not exist: %q", name)
+		}
+		templateNameSet[name] = struct{}{}
+	}
+
+	return Group{
+		GroupConfig:             gc,
+		toolNameSet:             toolNameSet,
+		promptNameSet:           promptNameSet,
+		resourceNameSet:         resourceNameSet,
+		resourceTemplateNameSet: templateNameSet,
+	}, nil
 }
 
 // NewGroup builds a Group directly from its config, deriving the membership sets
-// from the declared tool and prompt names. It skips the existence checks
+// from the declared tool, prompt, resource, and template names. It skips the existence checks
 // performed by GroupConfig.Initialize and is intended for tests and callers that
 // have already validated the names.
 func NewGroup(config GroupConfig) Group {
@@ -98,7 +125,21 @@ func NewGroup(config GroupConfig) Group {
 	for _, name := range config.PromptNames {
 		promptNameSet[name] = struct{}{}
 	}
-	return Group{GroupConfig: config, toolNameSet: toolNameSet, promptNameSet: promptNameSet}
+	resourceNameSet := make(map[string]struct{}, len(config.ResourceNames))
+	for _, name := range config.ResourceNames {
+		resourceNameSet[name] = struct{}{}
+	}
+	templateNameSet := make(map[string]struct{}, len(config.ResourceTemplateNames))
+	for _, name := range config.ResourceTemplateNames {
+		templateNameSet[name] = struct{}{}
+	}
+	return Group{
+		GroupConfig:             config,
+		toolNameSet:             toolNameSet,
+		promptNameSet:           promptNameSet,
+		resourceNameSet:         resourceNameSet,
+		resourceTemplateNameSet: templateNameSet,
+	}
 }
 
 // GetTTLMs returns the time to live for the group
@@ -155,4 +196,16 @@ func (g Group) ToolsetManifest(serverVersion string, mgr GroupManager) (tools.To
 		toolsManifest[name] = m
 	}
 	return tools.ToolsetManifest{ServerVersion: serverVersion, ToolsManifest: toolsManifest}, nil
+}
+
+// ContainsResource reports whether the group includes a resource with the given name.
+func (g Group) ContainsResource(name string) bool {
+	_, ok := g.resourceNameSet[name]
+	return ok
+}
+
+// ContainsResourceTemplate reports whether the group includes a resource template with the given name.
+func (g Group) ContainsResourceTemplate(name string) bool {
+	_, ok := g.resourceTemplateNameSet[name]
+	return ok
 }

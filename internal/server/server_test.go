@@ -1768,6 +1768,28 @@ tools:
 			},
 		},
 		{
+			name: "valid named group with resources and resource templates",
+			yaml: `
+kind: group
+name: my_group_with_resources
+tools:
+  - tool_a
+prompts:
+  - prompt_a
+resources:
+  - res_a
+resourceTemplates:
+  - tmpl_a
+`,
+			want: group.GroupConfig{
+				Name:                  "my_group_with_resources",
+				ToolNames:             []string{"tool_a"},
+				PromptNames:           []string{"prompt_a"},
+				ResourceNames:         []string{"res_a"},
+				ResourceTemplateNames: []string{"tmpl_a"},
+			},
+		},
+		{
 			name: "default group declaring tools is an error",
 			yaml: `
 kind: group
@@ -1788,11 +1810,31 @@ prompts:
 			wantError: true,
 		},
 		{
+			name: "default group declaring resources is an error",
+			yaml: `
+kind: group
+name:
+resources:
+  - res_a
+`,
+			wantError: true,
+		},
+		{
+			name: "default group declaring resourceTemplates is an error",
+			yaml: `
+kind: group
+name:
+resourceTemplates:
+  - tmpl_a
+`,
+			wantError: true,
+		},
+		{
 			name: "unknown field is an error",
 			yaml: `
 kind: group
 name: my_group
-resources:
+unknown_field:
   - res_a
 `,
 			wantError: true,
@@ -2062,9 +2104,10 @@ kind: resource
 name: test-resource
 type: mock
 uri: mock://test
-size: 123
+size: 100
 `,
-			wantError: true,
+			wantError:   true,
+			errContains: "unknown field \"size\"",
 		},
 		{
 			name: "valid mock resource parses successfully",

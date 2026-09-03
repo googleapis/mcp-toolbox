@@ -336,20 +336,49 @@ func (m MockResourceTemplate) GetName() string {
 	return m.config.Name
 }
 
-// NewMockResource creates a new mock resource for testing
-func NewMockResource(name, uri string) MockResource {
+func NewMockResource(name, uri, title, description, mimeType string, size *int64, annotations *resources.ResourceAnnotations) MockResource {
+	cfgBase := resources.ConfigBase{Name: name}
+	if title != "" {
+		cfgBase.Title = title
+	}
+	if description != "" {
+		cfgBase.Description = description
+	}
+	if mimeType != "" {
+		cfgBase.MimeType = mimeType
+	}
+	if annotations != nil {
+		cfgBase.Annotations = annotations
+	}
+
+	resCfg := resources.ResourceConfigBase{
+		ConfigBase: cfgBase,
+		URI:        uri,
+	}
+
 	return MockResource{
 		config: &MockResourceConfig{
-			ResourceConfigBase: resources.ResourceConfigBase{
-				ConfigBase: resources.ConfigBase{Name: name},
-				URI:        uri,
-			},
+			ResourceConfigBase: resCfg,
+			Size:               size,
 		},
 	}
 }
 
-// NewMockResourceTemplate creates a new mock resource template for testing
-func NewMockResourceTemplate(name, uriTemplate string) MockResourceTemplate {
+func NewMockResourceTemplate(name, uriTemplate, title, description, mimeType string, annotations *resources.ResourceAnnotations) MockResourceTemplate {
+	cfgBase := resources.ConfigBase{Name: name}
+	if title != "" {
+		cfgBase.Title = title
+	}
+	if description != "" {
+		cfgBase.Description = description
+	}
+	if mimeType != "" {
+		cfgBase.MimeType = mimeType
+	}
+	if annotations != nil {
+		cfgBase.Annotations = annotations
+	}
+
 	return MockResourceTemplate{
 		config: &MockResourceTemplateConfig{
 			ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{
