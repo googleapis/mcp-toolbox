@@ -32,11 +32,13 @@ func init() {
 
 func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (resources.ResourceConfig, error) {
 	cfg := &Config{
-		BaseConfig: resources.BaseConfig{
-			Name:     name,
-			Type:     resourceType,
-			MimeType: "text/plain",
-			URI:      fmt.Sprintf("text://%s", name),
+		ResourceConfigBase: resources.ResourceConfigBase{
+			ConfigBase: resources.ConfigBase{
+				Name:     name,
+				Type:     resourceType,
+				MimeType: "text/plain",
+			},
+			URI: fmt.Sprintf("text://%s", name),
 		},
 	}
 	if err := decoder.DecodeContext(ctx, cfg); err != nil {
@@ -47,8 +49,8 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (resourc
 
 // Config represents the uninitialized textual resource configuration from YAML.
 type Config struct {
-	resources.BaseConfig `yaml:",inline"`
-	Text                 string `yaml:"text" validate:"required"`
+	resources.ResourceConfigBase `yaml:",inline"`
+	Text                         string `yaml:"text" validate:"required"`
 }
 
 var _ resources.ResourceConfig = &Config{}

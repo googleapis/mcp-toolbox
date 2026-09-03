@@ -32,14 +32,15 @@ import (
 // groups is the source of truth for named collections; toolset views (manifests)
 // are derived from the group on demand by the callers that render them.
 type PrimitiveManager struct {
-	mu              sync.RWMutex
-	sources         map[string]sources.Source
-	authServices    map[string]auth.AuthService
-	embeddingModels map[string]embeddingmodels.EmbeddingModel
-	tools           map[string]tools.Tool
-	prompts         map[string]prompts.Prompt
-	resources       map[string]resources.Resource
-	groups          map[string]group.Group
+	mu                sync.RWMutex
+	sources           map[string]sources.Source
+	authServices      map[string]auth.AuthService
+	embeddingModels   map[string]embeddingmodels.EmbeddingModel
+	tools             map[string]tools.Tool
+	prompts           map[string]prompts.Prompt
+	resources         map[string]resources.Resource
+	resourceTemplates map[string]resources.ResourceTemplate
+	groups            map[string]group.Group
 }
 
 func NewPrimitiveManager(
@@ -49,18 +50,19 @@ func NewPrimitiveManager(
 	toolsMap map[string]tools.Tool,
 	promptsMap map[string]prompts.Prompt,
 	resourcesMap map[string]resources.Resource,
+	resourceTemplatesMap map[string]resources.ResourceTemplate,
 	groupsMap map[string]group.Group,
-
 ) *PrimitiveManager {
 	primitiveMgr := &PrimitiveManager{
-		mu:              sync.RWMutex{},
-		sources:         sourcesMap,
-		authServices:    authServicesMap,
-		embeddingModels: embeddingModelsMap,
-		tools:           toolsMap,
-		prompts:         promptsMap,
-		resources:       resourcesMap,
-		groups:          groupsMap,
+		mu:                sync.RWMutex{},
+		sources:           sourcesMap,
+		authServices:      authServicesMap,
+		embeddingModels:   embeddingModelsMap,
+		tools:             toolsMap,
+		prompts:           promptsMap,
+		resources:         resourcesMap,
+		resourceTemplates: resourceTemplatesMap,
+		groups:            groupsMap,
 	}
 
 	return primitiveMgr
@@ -109,6 +111,14 @@ func (r *PrimitiveManager) GetResource(name string) (resources.Resource, bool) {
 	return resource, ok
 }
 
+// GetResourceTemplate returns a specific resource template by name.
+func (r *PrimitiveManager) GetResourceTemplate(name string) (resources.ResourceTemplate, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rt, exists := r.resourceTemplates[name]
+	return rt, exists
+}
+
 // GetGroup returns the group of the given name.
 func (r *PrimitiveManager) GetGroup(groupName string) (group.Group, bool) {
 	r.mu.RLock()
@@ -117,7 +127,7 @@ func (r *PrimitiveManager) GetGroup(groupName string) (group.Group, bool) {
 	return g, ok
 }
 
-func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, authServicesMap map[string]auth.AuthService, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel, toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, resourcesMap map[string]resources.Resource, groupsMap map[string]group.Group) {
+func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, authServicesMap map[string]auth.AuthService, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel, toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, resourcesMap map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate, groupsMap map[string]group.Group) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sources = sourcesMap
@@ -126,6 +136,7 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.tools = toolsMap
 	r.prompts = promptsMap
 	r.resources = resourcesMap
+	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
 }
 

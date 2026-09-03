@@ -127,7 +127,7 @@ func RunParseFromYAMLTests(t *testing.T, resourceType string, newConfig func(c c
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if tc.wantErr != "" {
 				if err == nil {
 					t.Fatal("expected error, got nil")

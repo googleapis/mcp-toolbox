@@ -441,8 +441,8 @@ func TestToolsListHandler(t *testing.T) {
 	ctx = util.WithToolboxVersionKey(ctx, "v0.0.0")
 	// Initialize tools using provided testutils mock instances
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, promptsMap, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 
 	tests := []struct {
 		name        string
@@ -586,8 +586,8 @@ func TestToolsCallHandler(t *testing.T) {
 		testutils.MockTool4,
 		testutils.MockTool5,
 	}
-	toolsMap, promptsMap, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 
 	tests := []struct {
 		name            string
@@ -861,10 +861,10 @@ func TestPromptsListHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
-	// Initialize prompts
+	// Initialize primitives
 	mockPrompts := []testutils.MockPrompt{testutils.MockPrompt1, testutils.MockPrompt2}
-	toolsMap, promptsMap, _, groups := testutils.SetUpPrimitives(t, nil, mockPrompts, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, mockPrompts, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 	tests := []struct {
 		name        string
 		body        ListPromptsRequest
@@ -946,10 +946,10 @@ func TestPromptsGetHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
-	// Initialize prompts
+	// Initialize primitives
 	mockPrompts := []testutils.MockPrompt{testutils.MockPrompt1, testutils.MockPrompt2}
-	toolsMap, promptsMap, _, groups := testutils.SetUpPrimitives(t, nil, mockPrompts, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, mockPrompts, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 	tests := []struct {
 		name        string
 		body        GetPromptRequest
@@ -1080,8 +1080,8 @@ func TestGroupsListHandler(t *testing.T) {
 	}
 	ctx = util.WithLogger(ctx, testLogger)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, promptsMap, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, groups)
+	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
@@ -1180,8 +1180,8 @@ func TestGroupsGetHandler(t *testing.T) {
 	}
 	ctx = util.WithLogger(ctx, testLogger)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, promptsMap, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, groups)
+	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
@@ -1411,7 +1411,7 @@ func TestToolsCallHandlerWithSecureParams(t *testing.T) {
 		"":             g,
 		"test-toolset": g,
 	}
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, groups)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, groups)
 
 	tests := []struct {
 		desc            string

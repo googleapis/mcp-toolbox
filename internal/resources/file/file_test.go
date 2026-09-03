@@ -19,7 +19,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +63,21 @@ func TestFileResource_Validation(t *testing.T) {
 	validPath := filepath.Join(tmpDir, "valid.txt")
 	if err := os.WriteFile(validPath, []byte("content"), 0644); err != nil {
 		t.Fatal(err)
+	}
+
+	nonExistentPath := filepath.Join(tmpDir, "nonexistent.txt")
+
+	noPermPath := filepath.Join(tmpDir, "noperm.txt")
+	if err := os.WriteFile(noPermPath, []byte("noperm"), 0000); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		if err := exec.Command("icacls", noPermPath, "/deny", "*S-1-1-0:(R)").Run(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_ = exec.Command("icacls", noPermPath, "/remove:d", "*S-1-1-0").Run()
+		})
 	}
 
 	tests := []struct {
@@ -114,11 +131,29 @@ func TestFileResource_Validation(t *testing.T) {
 			failDecode: true,
 		},
 		{
+			name:       "non-existent file",
+			yamlStr:    fmt.Sprintf("type: file\npath: %s", filepath.ToSlash(nonExistentPath)),
+			wantErrMsg: "file not found",
+		},
+		{
 			name:       "max_size type string",
 			yamlStr:    fmt.Sprintf("type: file\npath: %s\nmax_size: 50MB", filepath.ToSlash(validPath)),
 			wantErrMsg: "cannot unmarshal",
 			failDecode: true,
 		},
+	}
+
+	if os.Geteuid() != 0 {
+		tests = append(tests, struct {
+			name       string
+			yamlStr    string
+			wantErrMsg string
+			failDecode bool
+		}{
+			name:       "missing read permissions",
+			yamlStr:    fmt.Sprintf("type: file\npath: %s", filepath.ToSlash(noPermPath)),
+			wantErrMsg: "missing read permissions",
+		})
 	}
 
 	for _, tt := range tests {

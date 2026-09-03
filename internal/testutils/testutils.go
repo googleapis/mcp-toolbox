@@ -163,10 +163,15 @@ var MockPrompt2 = NewMockPrompt("prompt2", "", prompts.Arguments{
 	{Parameter: parameters.NewStringParameter("arg1", "This is the first argument.")},
 })
 
+var MockResource1 = NewMockResource("mock_resource_1", "file:///mock/resource/1")
+var MockResource2 = NewMockResource("mock_resource_2", "text:///mock/resource/2")
+var MockTemplate1 = NewMockResourceTemplate("mock_template_1", "file://{path}")
+var MockTemplate2 = NewMockResourceTemplate("mock_template_2", "file:///logs/{path}")
+
 // SetUpPrimitives setups resources to test against. The returned groups map is the
 // source of truth used by PrimitiveManager; assert group membership via
 // groups[name].ContainsTool / ContainsPrompt.
-func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPrompt, mockResources []MockResource) (map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]group.Group) {
+func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPrompt, mockResources []MockResource, mockResourceTemplates []MockResourceTemplate) (map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]resources.ResourceTemplate, map[string]group.Group) {
 	toolsMap := make(map[string]tools.Tool)
 	var allTools []string
 	for _, tool := range mockTools {
@@ -197,6 +202,14 @@ func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPromp
 		// allResources = append(allResources, resName)
 	}
 
+	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)
+	// var allResourceTemplates []string
+	for _, resourceTemplate := range mockResourceTemplates {
+		resTemplateName := resourceTemplate.GetName()
+		resourceTemplatesMap[resTemplateName] = resourceTemplate
+		// allResourceTemplates = append(allResourceTemplates, resTemplateName)
+	}
+
 	// Build the authoritative groups map directly. Each named collection
 	// contributes its tool names; all prompts belong to the default (nameless)
 	// group, matching the legacy default-toolset behavior.
@@ -216,5 +229,5 @@ func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPromp
 		groups[name] = group.NewGroup(gc)
 	}
 
-	return toolsMap, promptsMap, resourcesMap, groups
+	return toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups
 }

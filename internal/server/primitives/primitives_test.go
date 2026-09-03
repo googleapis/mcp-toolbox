@@ -47,7 +47,8 @@ func TestUpdateServer(t *testing.T) {
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
 	newResources := map[string]resources.Resource{"example-resource": nil}
-	primMgr := primitives.NewPrimitiveManager(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newGroups)
+	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
+	primMgr := primitives.NewPrimitiveManager(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 
 	gotSource, _ := primMgr.GetSource("example-source")
 	if diff := cmp.Diff(gotSource, newSources["example-source"]); diff != "" {
@@ -83,6 +84,10 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, prompts (-want +got):\n%s", diff)
 	}
 
+	gotTemplate, _ := primMgr.GetResourceTemplate("example-template")
+	if diff := cmp.Diff(gotTemplate, newResourceTemplates["example-template"]); diff != "" {
+		t.Errorf("error updating server, resource templates (-want +got):\n%s", diff)
+	}
 	updateSource := map[string]sources.Source{
 		"example-source2": &alloydbpg.Source{
 			Config: alloydbpg.Config{
@@ -92,9 +97,13 @@ func TestUpdateServer(t *testing.T) {
 		},
 	}
 
-	primMgr.SetPrimitives(updateSource, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newGroups)
+	primMgr.SetPrimitives(updateSource, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 	gotSource, _ = primMgr.GetSource("example-source2")
 	if diff := cmp.Diff(gotSource, updateSource["example-source2"]); diff != "" {
 		t.Errorf("error updating server, sources (-want +got):\n%s", diff)
 	}
 }
+
+// TestPrimitiveManager_GetResourceOrTemplateByURI verifies that the primitive
+// manager can correctly resolve exact URI matches for static resources, or
+// fallback to matching and extracting parameters for URI templates.

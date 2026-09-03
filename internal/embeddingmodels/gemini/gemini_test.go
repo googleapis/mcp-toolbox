@@ -94,7 +94,7 @@ func TestParseFromYamlGemini(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -149,7 +149,7 @@ func TestFailParseFromYamlGemini(t *testing.T) {
 			t.Setenv("GOOGLE_CLOUD_PROJECT", "")
 			t.Setenv("GOOGLE_CLOUD_LOCATION", "")
 
-			_, embeddingConfigs, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, embeddingConfigs, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				if err.Error() != tc.err {
 					t.Fatalf("unexpected unmarshal error:\ngot:  %q\nwant: %q", err.Error(), tc.err)

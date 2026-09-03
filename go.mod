@@ -68,6 +68,7 @@ require (
 	github.com/thlib/go-timezone-local v0.0.7
 	github.com/trinodb/trino-go-client v0.333.0
 	github.com/valkey-io/valkey-go v1.0.76
+	github.com/yosida95/uritemplate/v3 v3.0.2
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-5
 	go.mongodb.org/mongo-driver/v2 v2.7.0
 	go.opentelemetry.io/contrib/propagators/autoprop v0.69.0

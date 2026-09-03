@@ -159,7 +159,7 @@ func TestGetBaseDirFromContext(t *testing.T) {
 	})
 }
 
-func TestBaseConfig_YAML(t *testing.T) {
+func TestResourceConfigBase_YAML(t *testing.T) {
 	yamlStr := `
 name: testName
 type: testType
@@ -170,9 +170,9 @@ mimeType: text/plain
 annotations:
   priority: 0.5
 `
-	var cfg resources.BaseConfig
+	var cfg resources.ResourceConfigBase
 	if err := yaml.Unmarshal([]byte(yamlStr), &cfg); err != nil {
-		t.Fatalf("Failed to unmarshal BaseConfig: %v", err)
+		t.Fatalf("Failed to unmarshal ResourceConfigBase: %v", err)
 	}
 
 	if cfg.Name != "testName" {

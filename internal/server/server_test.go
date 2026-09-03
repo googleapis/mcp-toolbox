@@ -430,7 +430,9 @@ func TestUpdateServer(t *testing.T) {
 	newGroups := map[string]group.Group{
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
-	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, nil, newGroups)
+	newResources := map[string]resources.Resource{"example-resource": nil}
+	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
+	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 	if err != nil {
 		t.Errorf("error updating server: %s", err)
 	}
@@ -462,6 +464,16 @@ func TestUpdateServer(t *testing.T) {
 	gotPrompt, _ := s.PrimitiveMgr.GetPrompt("example-prompt")
 	if diff := cmp.Diff(gotPrompt, newPrompts["example-prompt"], cmp.AllowUnexported(testutils.MockPrompt{})); diff != "" {
 		t.Errorf("error updating server, prompts (-want +got):\n%s", diff)
+	}
+
+	gotResource, _ := s.PrimitiveMgr.GetResource("example-resource")
+	if diff := cmp.Diff(gotResource, newResources["example-resource"]); diff != "" {
+		t.Errorf("error updating server, resources (-want +got):\n%s", diff)
+	}
+
+	gotTemplate, _ := s.PrimitiveMgr.GetResourceTemplate("example-template")
+	if diff := cmp.Diff(gotTemplate, newResourceTemplates["example-template"]); diff != "" {
+		t.Errorf("error updating server, resource templates (-want +got):\n%s", diff)
 	}
 }
 
@@ -1371,9 +1383,10 @@ func TestGoogleAuthConfigValidation(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name      string
-		yaml      string
-		wantError bool
+		name        string
+		yaml        string
+		wantError   bool
+		errContains string
 	}{
 		{
 			name: "only clientId, mcpEnabled false",
@@ -1445,9 +1458,14 @@ mcpEnabled: true
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
 			if (err != nil) != tc.wantError {
 				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
+			}
+			if err != nil && tc.errContains != "" {
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Fatalf("expected error to contain %q, got %q", tc.errContains, err.Error())
+				}
 			}
 		})
 	}
@@ -1457,9 +1475,10 @@ func TestGenericAuthConfigValidation(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name      string
-		yaml      string
-		wantError bool
+		name        string
+		yaml        string
+		wantError   bool
+		errContains string
 	}{
 		{
 			name: "valid mcpEnabled false",
@@ -1537,9 +1556,14 @@ scopesRequired:
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
 			if (err != nil) != tc.wantError {
 				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
+			}
+			if err != nil && tc.errContains != "" {
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Fatalf("expected error to contain %q, got %q", tc.errContains, err.Error())
+				}
 			}
 		})
 	}
@@ -1656,7 +1680,7 @@ messages:
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
 			if err == nil {
 				t.Fatalf("UnmarshalPrimitiveConfig() expected a duplicate error, got nil")
 			}
@@ -1671,10 +1695,11 @@ func TestGroupConfigParsing(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name      string
-		yaml      string
-		want      group.GroupConfig
-		wantError bool
+		name        string
+		yaml        string
+		want        group.GroupConfig
+		wantError   bool
+		errContains string
 	}{
 		{
 			name: "valid named group",
@@ -1804,7 +1829,7 @@ tools:
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
+			_, _, _, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
 			if (err != nil) != tc.wantError {
 				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
 			}
@@ -1834,7 +1859,7 @@ tools:
 prompts:
   - prompt_a
 `
-	_, _, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(yaml))
+	_, _, _, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(yaml))
 	if err != nil {
 		t.Fatalf("UnmarshalPrimitiveConfig() returned unexpected error: %v", err)
 	}
@@ -1879,7 +1904,7 @@ func TestInitializeConfigs(t *testing.T) {
 				"my-tool": tools1.ToConfig(),
 			},
 		}
-		sourcesMap, _, _, toolsMap, _, _, _, err := server.InitializeConfigs(ctx, validCfg)
+		sourcesMap, _, _, toolsMap, _, _, _, _, err := server.InitializeConfigs(ctx, validCfg)
 		if err != nil {
 			t.Fatalf("unexpected error during config initialization: %s", err)
 		}
@@ -1902,7 +1927,7 @@ func TestInitializeConfigs(t *testing.T) {
 				"my-invalid-tool": testutils.NewMockTool("my-tool", "mock tool for offline config", "my-source", nil, false, false).ToConfig(),
 			},
 		}
-		_, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, invalidCfg)
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, invalidCfg)
 		if err == nil {
 			t.Fatalf("expected error but got nil")
 		}
@@ -2005,9 +2030,10 @@ func TestResourceConfigValidation(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name      string
-		yaml      string
-		wantError bool
+		name        string
+		yaml        string
+		wantError   bool
+		errContains string
 	}{
 		{
 			name: "missing required text field for text resource triggers validation error",
@@ -2138,6 +2164,99 @@ uri: file://bad-file
 `,
 			wantError: true,
 		},
+		{
+			name: "missing type",
+			yaml: `
+kind: resource
+name: test
+uri: mock://test
+`,
+			wantError: true,
+		},
+		{
+			name: "valid resource template",
+			yaml: `
+kind: resourceTemplate
+type: file
+name: project_files
+uriTemplate: file://{path}
+description: Access files in the project directory.
+`,
+			wantError: false,
+		},
+		{
+			name: "missing name",
+			yaml: `
+kind: resourceTemplate
+type: file
+uriTemplate: file://{path}
+`,
+			wantError:   true,
+			errContains: "missing 'name' field",
+		},
+		{
+			name: "missing type throws error",
+			yaml: `
+kind: resourceTemplate
+name: test
+uriTemplate: file://{path}
+`,
+			wantError:   true,
+			errContains: "missing 'type' field or it is not a string",
+		},
+		{
+			name: "invalid scheme for file template",
+			yaml: `
+kind: resourceTemplate
+type: file
+name: test
+uriTemplate: http://example.com/{path}
+`,
+			wantError:   true,
+			errContains: "invalid scheme for file resource template",
+		},
+		{
+			name: "duplicate uri template",
+			yaml: `
+kind: resourceTemplate
+type: file
+name: t1
+uriTemplate: file://{path}
+---
+kind: resourceTemplate
+type: file
+name: t2
+uriTemplate: file://{path}
+`,
+			wantError:   true,
+			errContains: "duplicate resource URI",
+		},
+		{
+			name: "malformed template without URITemplate",
+			yaml: `
+kind: resourceTemplate
+name: test
+type: file
+`,
+			wantError:   true,
+			errContains: "validation for 'URITemplate' failed on the 'required' tag",
+		},
+		{
+			name: "duplicate name",
+			yaml: `
+kind: resourceTemplate
+type: file
+name: t1
+uriTemplate: file://{path}
+---
+kind: resourceTemplate
+type: file
+name: t1
+uriTemplate: file:///{path}
+`,
+			wantError:   true,
+			errContains: "duplicate resourceTemplate name",
+		},
 	}
 
 	// Register a mock factory for this test package to use
@@ -2151,11 +2270,26 @@ uri: file://bad-file
 	}
 	resources.Register("mock", mockFactory)
 
+	mockTemplateFactory := func(ctx context.Context, name string, decoder *yaml.Decoder) (resources.ResourceTemplateConfig, error) {
+		var cfg testutils.MockResourceTemplateConfig
+		cfg.Name = name
+		if err := decoder.DecodeContext(ctx, &cfg); err != nil {
+			return nil, err
+		}
+		return &cfg, nil
+	}
+	resources.RegisterTemplate("file", mockTemplateFactory)
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
 			if (err != nil) != tc.wantError {
 				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
+			}
+			if err != nil && tc.errContains != "" {
+				if !strings.Contains(err.Error(), tc.errContains) {
+					t.Fatalf("expected error to contain %q, got %q", tc.errContains, err.Error())
+				}
 			}
 		})
 	}
@@ -2187,7 +2321,7 @@ annotations:
     - assistant
   lastModified: 2024-01-01T00:00:00Z
 `)
-	_, _, _, _, _, resConfigs, _, err := server.UnmarshalPrimitiveConfig(ctx, yamlBytes)
+	_, _, _, _, _, resConfigs, _, _, err := server.UnmarshalPrimitiveConfig(ctx, yamlBytes)
 	if err != nil {
 		t.Fatalf("unexpected error parsing valid config: %v", err)
 	}
@@ -2302,7 +2436,7 @@ annotations: {}`,
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, _, _, _, _, _, err = server.UnmarshalPrimitiveConfig(ctx, []byte(tt.yaml))
+			_, _, _, _, _, _, _, _, err = server.UnmarshalPrimitiveConfig(ctx, []byte(tt.yaml))
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("expected error for %q, got nil", tt.name)

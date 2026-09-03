@@ -139,14 +139,14 @@ func handleDynamicReload(ctx context.Context, cfg server.ServerConfig, s *server
 		panic(err)
 	}
 
-	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, groupsMap, err := validateReloadEdits(ctx, cfg)
+	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, err := validateReloadEdits(ctx, cfg)
 	if err != nil {
 		errMsg := fmt.Errorf("unable to validate reloaded edits: %w", err)
 		logger.WarnContext(ctx, errMsg.Error())
 		return err
 	}
 
-	s.PrimitiveMgr.SetPrimitives(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, groupsMap)
+	s.PrimitiveMgr.SetPrimitives(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap)
 
 	return nil
 }
@@ -154,7 +154,7 @@ func handleDynamicReload(ctx context.Context, cfg server.ServerConfig, s *server
 // validateReloadEdits checks that the reloaded config configs can initialized without failing
 func validateReloadEdits(
 	ctx context.Context, cfg server.ServerConfig,
-) (map[string]sources.Source, map[string]auth.AuthService, map[string]embeddingmodels.EmbeddingModel, map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]group.Group, error) {
+) (map[string]sources.Source, map[string]auth.AuthService, map[string]embeddingmodels.EmbeddingModel, map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]resources.ResourceTemplate, map[string]group.Group, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		panic(err)
@@ -170,14 +170,14 @@ func validateReloadEdits(
 	ctx, span := instrumentation.Tracer.Start(ctx, "toolbox/server/reload")
 	defer span.End()
 
-	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, groupsMap, err := server.InitializeConfigs(ctx, cfg)
+	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, err := server.InitializeConfigs(ctx, cfg)
 	if err != nil {
 		errMsg := fmt.Errorf("unable to initialize reloaded configs: %w", err)
 		logger.WarnContext(ctx, errMsg.Error())
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
-	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, groupsMap, nil
+	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, nil
 }
 
 // Helper to check if a file has a newer ModTime than stored in the map

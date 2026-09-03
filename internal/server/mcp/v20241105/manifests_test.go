@@ -246,7 +246,7 @@ func TestGenerateListToolsResult(t *testing.T) {
 		Name:      "test-toolset",
 		ToolNames: []string{"no_params", "some_params"},
 	})
-	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil)
+	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
 	got, err := GenerateListToolsResult(pMgr, g, nil)
 	if err != nil {
 		t.Fatalf("unable to generate list tools result: %s", err)
@@ -358,7 +358,7 @@ func TestGenerateListPromptsResult(t *testing.T) {
 	gMap := map[string]group.Group{
 		g.Name: g,
 	}
-	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, promptsMap, nil, gMap)
+	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, promptsMap, nil, nil, gMap)
 	got, err := GenerateListPromptsResult(pMgr, g)
 	if err != nil {
 		t.Fatalf("unable to generate list prompt result: %s", err)
@@ -414,7 +414,7 @@ func TestGenerateListToolsResultWithSecureParams(t *testing.T) {
 		Name:      "test-toolset",
 		ToolNames: []string{"standard_tool", "secure_tool"},
 	})
-	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil)
+	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
 
 	got, err := GenerateListToolsResult(pMgr, g, nil)
 	if err != nil {
