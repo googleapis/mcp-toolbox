@@ -212,4 +212,6 @@ substitutions:
   _GEMINI_MODEL: "gemini-3.7-flash"
   _CLAUDE_MODEL: "claude-opus-4-8"
   _EVALBENCH_IMAGE: "us-central1-docker.pkg.dev/cloud-db-nl2sql/evalbench/eval_server:latest"
+  _ALLOYDB_OMNI_HOST: "127.0.0.1"
   _ALLOYDB_OMNI_PORT: "5432"
+
