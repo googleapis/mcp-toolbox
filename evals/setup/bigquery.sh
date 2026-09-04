@@ -13,15 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Seeds the dataset the bigquery evalset queries. The project has no stable
-# BigQuery fixture -- the Go integration tests create their own at runtime -- so
-# the scenarios would otherwise have nothing deterministic to read.
+# Seeds the dataset the bigquery evalset queries: the project has no stable
+# BigQuery fixture, so the scenarios would otherwise have nothing deterministic
+# to read. The name comes from EVAL_RUN_ID (.ci/run_evals.sh), which the evalset
+# composes too.
 #
-# The name comes from EVAL_RUN_ID (.ci/run_evals.sh); the evalset composes the
-# same one.
-#
-# Idempotent, because run_evals.sh invokes EvalBench once per harness and
-# EvalBench runs this once per invocation.
+# Idempotent: run_evals.sh invokes EvalBench once per harness, and EvalBench
+# runs this once per invocation.
 
 set -euo pipefail
 
@@ -32,8 +30,7 @@ export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
 echo "seeding ${BIGQUERY_PROJECT}.${BQ_DATASET} in ${BIGQUERY_LOCATION}"
 
 # Python rather than bq: bq is a separate gcloud component the EvalBench image
-# need not carry, while google-cloud-bigquery is already present for the run
-# config's reporting block.
+# need not carry, while google-cloud-bigquery is already present.
 uv run --no-sync python - <<'PY'
 import os
 
@@ -72,8 +69,8 @@ client.query(
     """
 ).result()
 
-# A long enough daily series that AI.FORECAST has real history to fit; the sine
-# term gives it a weekly cycle rather than a straight line.
+# 90 daily points so AI.FORECAST has real history to fit; the sine term keeps it
+# from being a straight line.
 client.query(
     f"""
     CREATE OR REPLACE TABLE `{dataset_id}.daily_revenue` AS
@@ -85,15 +82,15 @@ client.query(
     """
 ).result()
 
-# CONTRIBUTION_ANALYSIS needs a test/control split and enough dimension
-# combinations to rank. FARM_FINGERPRINT rather than RAND so the noise is the
-# same every build; the planted drop is paid_search in US, and it is the only
-# segment that moves.
+# FARM_FINGERPRINT rather than RAND so the noise is identical every build. The
+# planted drop is paid_search in US; nothing else moves.
+#
+# day is not projected: CONTRIBUTION_ANALYSIS rejects any column that is not the
+# metric, a dimension, or the test flag.
 client.query(
     f"""
     CREATE OR REPLACE TABLE `{dataset_id}.signups` AS
     SELECT
-      day,
       channel,
       country,
       day >= DATE '2026-02-01' AS is_test,

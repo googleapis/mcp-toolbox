@@ -25,9 +25,9 @@
 
 set -euo pipefail
 
-# This script's own exit code is discarded too, so the marker is the only way a
-# leaked dataset reaches report-failures. Ahead of the guards below, which would
-# otherwise fail silently. Skipped on the sweep path, which runs outside a build.
+# EvalBench discards this script's exit code, so the marker is the only way a
+# leaked dataset reaches report-failures. Ahead of the guards below so they
+# cannot fail silently; skipped on the sweep path, which runs outside a build.
 if [[ -z "${TEARDOWN_SWEEP:-}" ]]; then
   trap '[ $? -eq 0 ] || touch "/workspace/failed-teardown-${TOOLBOX_PREBUILT}"' EXIT
 fi
@@ -43,36 +43,53 @@ if [[ -n "${TEARDOWN_SWEEP:-}" ]]; then
 else
   : "${EVAL_RUN_ID:?}"
   export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
-  echo "deleting ${BIGQUERY_PROJECT}.${BQ_DATASET}"
 fi
 
 uv run --no-sync python - <<'PY'
 import datetime
 import os
+import sys
 
 from google.cloud import bigquery
 
 project = os.environ["BIGQUERY_PROJECT"]
 client = bigquery.Client(project=project)
 
-dataset = os.environ.get("BQ_DATASET")
-if dataset:
-    targets = [f"{project}.{dataset}"]
-else:
+# Same condition the shell branched on, so the two cannot disagree.
+if os.environ.get("TEARDOWN_SWEEP"):
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         hours=float(os.environ["SWEEP_AGE_HOURS"])
     )
-    # created is only on the full resource, not the list entry, so this costs a
-    # get per candidate.
+
+    # created is not on the list entry, so this costs a get per candidate. A
+    # failed get just drops the candidate: it was never confirmed a target, and
+    # the likely cause is another teardown deleting it first.
+    def is_stale(reference):
+        try:
+            return client.get_dataset(reference).created < cutoff
+        except Exception as exc:
+            print(f"skipping {reference}: {exc}")
+            return False
+
     targets = [
         item.reference
         for item in client.list_datasets(project)
-        if item.dataset_id.startswith("toolbox_evals_")
-        and client.get_dataset(item.reference).created < cutoff
+        if item.dataset_id.startswith("toolbox_evals_") and is_stale(item.reference)
     ]
     print(f"{len(targets)} dataset(s) to delete")
+else:
+    targets = [f"{project}.{os.environ['BQ_DATASET']}"]
 
+# One undeletable dataset must not take the rest with it: the sweep rebuilds this
+# list in the same order every run, so it would block everything behind it.
+err = 0
 for target in targets:
     print(f"deleting {target}")
-    client.delete_dataset(target, delete_contents=True, not_found_ok=True)
+    try:
+        client.delete_dataset(target, delete_contents=True, not_found_ok=True)
+    except Exception as exc:
+        print(f"could not delete {target}: {exc}")
+        err = 1
+
+sys.exit(err)
 PY
