@@ -336,6 +336,26 @@ func TestSSRFGuard(t *testing.T) {
 			ip:   net.ParseIP("100.128.0.0"),
 			want: false,
 		},
+		{
+			desc: "IETF protocol assignment range blocked",
+			ip:   net.ParseIP("192.0.0.1"),
+			want: true,
+		},
+		{
+			desc: "IETF protocol assignment range upper bound blocked",
+			ip:   net.ParseIP("192.0.0.255"),
+			want: true,
+		},
+		{
+			desc: "IP just below IETF protocol assignment range allowed",
+			ip:   net.ParseIP("191.255.255.255"),
+			want: false,
+		},
+		{
+			desc: "IP just above IETF protocol assignment range allowed",
+			ip:   net.ParseIP("192.0.1.0"),
+			want: false,
+		},
 	}
 
 	for _, tc := range tcs {
@@ -365,6 +385,9 @@ func TestSSRFGuard(t *testing.T) {
 	if guardPrivate.IsIPBlocked(net.ParseIP("100.64.0.1")) {
 		t.Error("expected CGNAT IP to be allowed when AllowPrivateNetworks is true")
 	}
+	if guardPrivate.IsIPBlocked(net.ParseIP("192.0.0.1")) {
+		t.Error("expected IETF protocol assignment IP to be allowed when AllowPrivateNetworks is true")
+	}
 
 	// Test that an explicit allowedIpRanges override lets a CGNAT IP through,
 	// preserving the whitelist precedence over the default CGNAT block.
@@ -374,6 +397,17 @@ func TestSSRFGuard(t *testing.T) {
 	}
 	if guardAllowCGNAT.IsIPBlocked(net.ParseIP("100.64.0.1")) {
 		t.Error("expected CGNAT IP to be allowed when explicitly whitelisted via AllowedRanges")
+	}
+
+	// Test that an explicit allowedIpRanges override lets an IETF protocol
+	// assignment IP through, preserving the whitelist precedence over the
+	// default block.
+	guardAllowIPA := &SSRFGuard{
+		AllowedRanges:        mustParseCIDRs(t, []string{"192.0.0.0/24"}),
+		AllowPrivateNetworks: false,
+	}
+	if guardAllowIPA.IsIPBlocked(net.ParseIP("192.0.0.1")) {
+		t.Error("expected IETF protocol assignment IP to be allowed when explicitly whitelisted via AllowedRanges")
 	}
 }
 
