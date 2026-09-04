@@ -15,9 +15,12 @@
 package cassandra
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -243,6 +246,28 @@ func TestCassandra(t *testing.T) {
 		tests.WithMcpMyToolId3NameAliceWant(mcpMyToolIdWant),
 		tests.WithMcpMySecureToolWant(selectIdNameWant),
 		tests.DisableMcpSelect1AuthTest())
+
+	// Regression: a query that matches no rows must come back as an empty
+	// JSON array, not null.
+	t.Run("invoke my-tool-by-id with no matching row returns an empty slice", func(t *testing.T) {
+		resp, respBody := tests.RunRequest(t, http.MethodPost,
+			"http://127.0.0.1:5000/api/tool/my-tool-by-id/invoke",
+			bytes.NewBuffer([]byte(`{"id": 9999}`)), map[string]string{})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+		}
+		var body map[string]interface{}
+		if err := json.Unmarshal(respBody, &body); err != nil {
+			t.Fatalf("error parsing response body: %v", err)
+		}
+		got, ok := body["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body: %s", string(respBody))
+		}
+		if got != "[]" {
+			t.Fatalf("a no-match query should serialize as an empty slice, got %q", got)
+		}
+	})
 
 }
 

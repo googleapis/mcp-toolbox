@@ -113,6 +113,12 @@ func TestNeo4jToolEndpoints(t *testing.T) {
 				"source":      "my-instance",
 				"description": "A tool to get the Neo4j schema from a populated DB.",
 			},
+			"my-empty-cypher-tool": map[string]any{
+				"type":        "neo4j-cypher",
+				"source":      "my-instance",
+				"description": "Tool that matches no rows, for empty-result coverage.",
+				"statement":   "MATCH (n:NoSuchLabel) RETURN n",
+			},
 		},
 	}
 
@@ -252,6 +258,17 @@ func TestNeo4jToolEndpoints(t *testing.T) {
 			requestBody: bytes.NewBuffer([]byte(`{}`)),
 			want:        "[{\"a\":1}]",
 			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "invoke my-empty-cypher-tool returns an empty slice, not null",
+			api:         "http://127.0.0.1:5000/api/tool/my-empty-cypher-tool/invoke",
+			requestBody: bytes.NewBuffer([]byte(`{}`)),
+			wantStatus:  http.StatusOK,
+			validateFunc: func(t *testing.T, body string) {
+				if body != "[]" {
+					t.Fatalf("a query that matches no rows should serialize as [], got %q", body)
+				}
+			},
 		},
 		{
 			name:        "invoke my-simple-execute-cypher-tool",
