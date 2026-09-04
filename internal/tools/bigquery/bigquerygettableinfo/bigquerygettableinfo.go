@@ -16,8 +16,10 @@ package bigquerygettableinfo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	bigqueryapi "cloud.google.com/go/bigquery"
 	yaml "github.com/goccy/go-yaml"
@@ -148,7 +150,80 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGcpError(err)
 	}
 
-	return metadata, nil
+	compactMetadata, err := compactTableMetadata(metadata)
+	if err != nil {
+		return nil, util.NewClientServerError("failed to serialize BigQuery table metadata", http.StatusInternalServerError, err)
+	}
+	return compactMetadata, nil
+}
+
+// compactTableMetadata removes zero-valued fields from the schema while preserving
+// the rest of the table metadata returned by the BigQuery client.
+func compactTableMetadata(metadata *bigqueryapi.TableMetadata) (map[string]json.RawMessage, error) {
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	var compacted map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &compacted); err != nil {
+		return nil, err
+	}
+	for key, value := range compacted {
+		if strings.EqualFold(key, "schema") {
+			var schema any
+			if err := json.Unmarshal(value, &schema); err != nil {
+				return nil, err
+			}
+			compactedSchema, err := json.Marshal(removeJSONZeroValues(schema))
+			if err != nil {
+				return nil, err
+			}
+			compacted[key] = compactedSchema
+		}
+	}
+	return compacted, nil
+}
+func removeJSONZeroValues(value any) any {
+	switch value := value.(type) {
+	case []any:
+		compacted := make([]any, 0, len(value))
+		for _, item := range value {
+			compacted = append(compacted, removeJSONZeroValues(item))
+		}
+		return compacted
+	case map[string]any:
+		for key, item := range value {
+			item = removeJSONZeroValues(item)
+			if !isJSONZeroValue(item) {
+				value[key] = item
+			} else {
+				delete(value, key)
+			}
+		}
+		return value
+	default:
+		return value
+	}
+}
+
+func isJSONZeroValue(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case string:
+		return value == ""
+	case bool:
+		return !value
+	case float64:
+		return value == 0
+	case []any:
+		return len(value) == 0
+	case map[string]any:
+		return len(value) == 0
+	default:
+		return false
+	}
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
