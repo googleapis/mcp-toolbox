@@ -507,6 +507,10 @@ func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tr
 			return pool, nil
 		}
 
+		if pool != nil {
+			pool.Close()
+		}
+
 		if attempt < maxRetries {
 			backoff := baseDelay * time.Duration(math.Pow(2, float64(attempt)))
 			time.Sleep(backoff)
