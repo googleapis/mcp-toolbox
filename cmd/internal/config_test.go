@@ -47,49 +47,71 @@ func TestParseEnv(t *testing.T) {
 		err          bool
 		errString    string
 		wantOptional []string
+		wantRequired []string
 		lenient      bool
 	}{
 		{
-			desc:      "without default without env",
-			in:        "${FOO}",
-			want:      "",
-			err:       true,
-			errString: `environment variable not found: "FOO" (line 1, column 1)`,
+			desc:         "without default without env",
+			in:           "${FOO}",
+			want:         "",
+			err:          true,
+			errString:    `environment variable not found: "FOO" (line 1, column 1)`,
+			wantRequired: []string{"FOO"},
 		},
 		{
-			desc:      "multiple missing required vars reported together",
-			in:        "host: ${HOST}, user: ${USER_NAME}, pass: ${PASSWORD}",
-			want:      "host: , user: , pass: ",
-			err:       true,
-			errString: "environment variables not found:\n  - \"HOST\" (line 1, column 7)\n  - \"USER_NAME\" (line 1, column 22)\n  - \"PASSWORD\" (line 1, column 42)",
+			desc:         "multiple missing required vars reported together",
+			in:           "host: ${HOST}, user: ${USER_NAME}, pass: ${PASSWORD}",
+			want:         "host: , user: , pass: ",
+			err:          true,
+			errString:    "environment variables not found:\n  - \"HOST\" (line 1, column 7)\n  - \"USER_NAME\" (line 1, column 22)\n  - \"PASSWORD\" (line 1, column 42)",
+			wantRequired: []string{"HOST", "USER_NAME", "PASSWORD"},
 		},
 		{
-			desc:      "repeated missing required var reported once",
-			in:        "a: ${HOST}, b: ${HOST}",
-			want:      "a: , b: ",
-			err:       true,
-			errString: `environment variable not found: "HOST" (line 1, column 4)`,
+			desc:         "repeated missing required var reported once",
+			in:           "a: ${HOST}, b: ${HOST}",
+			want:         "a: , b: ",
+			err:          true,
+			errString:    `environment variable not found: "HOST" (line 1, column 4)`,
+			wantRequired: []string{"HOST", "HOST"},
 		},
 		{
-			desc:    "without default without env, lenient",
-			in:      "${FOO}",
-			want:    "FOO",
-			lenient: true,
+			desc:         "legacy and non-empty errors reported together",
+			in:           "${TEST_LEGACY_UNSET_3635} ${TEST_REQUIRED_UNSET_3635:?must be set}",
+			want:         " ",
+			err:          true,
+			errString:    "environment variable expansion errors:\n  - environment variable not found: \"TEST_LEGACY_UNSET_3635\" (line 1, column 1)\n  - required environment variable is unset or empty: \"TEST_REQUIRED_UNSET_3635\": must be set (line 1, column 27)",
+			wantRequired: []string{"TEST_LEGACY_UNSET_3635", "TEST_REQUIRED_UNSET_3635"},
 		},
 		{
-			desc:    "missing required mixed with env, lenient",
-			in:      "project: ${PROJECT}, region: ${REGION}",
-			env:     map[string]string{"REGION": "us-central1"},
-			want:    "project: PROJECT, region: us-central1",
-			lenient: true,
+			desc:         "without default without env, lenient",
+			in:           "${FOO}",
+			want:         "FOO",
+			wantRequired: []string{"FOO"},
+			lenient:      true,
+		},
+		{
+			desc:         "missing required mixed with env, lenient",
+			in:           "project: ${PROJECT}, region: ${REGION}",
+			env:          map[string]string{"REGION": "us-central1"},
+			want:         "project: PROJECT, region: us-central1",
+			wantRequired: []string{"PROJECT", "REGION"},
+			lenient:      true,
 		},
 		{
 			desc: "without default with env",
 			env: map[string]string{
 				"FOO": "bar",
 			},
-			in:   "${FOO}",
-			want: "bar",
+			in:           "${FOO}",
+			want:         "bar",
+			wantRequired: []string{"FOO"},
+		},
+		{
+			desc:         "without default with empty env",
+			env:          map[string]string{"FOO": ""},
+			in:           "${FOO}",
+			want:         "",
+			wantRequired: []string{"FOO"},
 		},
 		{
 			desc: "skip commented out env var",
@@ -112,7 +134,8 @@ func TestParseEnv(t *testing.T) {
 			env: map[string]string{
 				"PORT": "9090",
 			},
-			want: "port: 9090 # default is ${DEFAULT_PORT}",
+			want:         "port: 9090 # default is ${DEFAULT_PORT}",
+			wantRequired: []string{"PORT"},
 		},
 		{
 			desc: "do not skip env var with hash inside double quotes",
@@ -120,7 +143,8 @@ func TestParseEnv(t *testing.T) {
 			env: map[string]string{
 				"ANCHOR": "section1",
 			},
-			want: `url: "http://example.com/#section1"`,
+			want:         `url: "http://example.com/#section1"`,
+			wantRequired: []string{"ANCHOR"},
 		},
 		{
 			desc: "do not skip env var with hash inside single quotes",
@@ -128,7 +152,8 @@ func TestParseEnv(t *testing.T) {
 			env: map[string]string{
 				"ANCHOR": "section1",
 			},
-			want: `url: 'http://example.com/#section1'`,
+			want:         `url: 'http://example.com/#section1'`,
+			wantRequired: []string{"ANCHOR"},
 		},
 		{
 			desc: "skip commented out env var but parse non-commented ones",
@@ -137,7 +162,8 @@ func TestParseEnv(t *testing.T) {
 				"BAR": "bar_val",
 				"QUX": "qux_val",
 			},
-			want: "foo: bar_val\n# ${FOO}\nbaz: qux_val",
+			want:         "foo: bar_val\n# ${FOO}\nbaz: qux_val",
+			wantRequired: []string{"BAR", "QUX"},
 		},
 		{
 			desc: "parse env vars after a comment containing multi-byte characters",
@@ -153,6 +179,7 @@ func TestParseEnv(t *testing.T) {
 				"foo: bar_val\n" +
 				"# " + strings.Repeat("é", 30) + "\n" +
 				"baz: qux_val\n",
+			wantRequired: []string{"BAR", "QUX"},
 		},
 		{
 			desc: "skip commented out env var when comment contains multi-byte characters",
@@ -160,7 +187,8 @@ func TestParseEnv(t *testing.T) {
 			env: map[string]string{
 				"BAR": "bar_val",
 			},
-			want: "# " + strings.Repeat("é", 30) + " ${FOO}\nbar: bar_val\n",
+			want:         "# " + strings.Repeat("é", 30) + " ${FOO}\nbar: bar_val\n",
+			wantRequired: []string{"BAR"},
 		},
 		{
 			desc: "multiline yaml with mixed comments and env vars",
@@ -178,6 +206,7 @@ func TestParseEnv(t *testing.T) {
 				"port: 5432\n" +
 				"user: my_user\n",
 			wantOptional: []string{"DB_PORT"},
+			wantRequired: []string{"DB_USER"},
 		},
 		{
 			desc:         "with default without env",
@@ -201,6 +230,74 @@ func TestParseEnv(t *testing.T) {
 			wantOptional: []string{"FOO"},
 		},
 		{
+			desc:         "legacy default preserves empty env",
+			env:          map[string]string{"FOO": ""},
+			in:           "${FOO:bar}",
+			want:         "",
+			wantOptional: []string{"FOO"},
+		},
+		{
+			desc:         "non-empty default without env",
+			in:           "${TEST_NONEMPTY_DEFAULT_UNSET_3635:-bar}",
+			want:         "bar",
+			wantOptional: []string{"TEST_NONEMPTY_DEFAULT_UNSET_3635"},
+		},
+		{
+			desc:         "non-empty default with empty env",
+			env:          map[string]string{"FOO": ""},
+			in:           "${FOO:-bar}",
+			want:         "bar",
+			wantOptional: []string{"FOO"},
+		},
+		{
+			desc:         "non-empty default with env",
+			env:          map[string]string{"FOO": "hello"},
+			in:           "${FOO:-bar}",
+			want:         "hello",
+			wantOptional: []string{"FOO"},
+		},
+		{
+			desc:         "required non-empty without env",
+			in:           "${TEST_REQUIRED_UNSET_3635:?}",
+			want:         "",
+			err:          true,
+			errString:    `required environment variable is unset or empty: "TEST_REQUIRED_UNSET_3635" (line 1, column 1)`,
+			wantRequired: []string{"TEST_REQUIRED_UNSET_3635"},
+		},
+		{
+			desc:         "required non-empty with empty env",
+			env:          map[string]string{"FOO": ""},
+			in:           "${FOO:?}",
+			want:         "",
+			err:          true,
+			errString:    `required environment variable is unset or empty: "FOO" (line 1, column 1)`,
+			wantRequired: []string{"FOO"},
+		},
+		{
+			desc:         "required non-empty with custom error",
+			env:          map[string]string{"FOO": ""},
+			in:           "value: ${FOO:?FOO must be set}",
+			want:         "value: ",
+			err:          true,
+			errString:    `required environment variable is unset or empty: "FOO": FOO must be set (line 1, column 8)`,
+			wantRequired: []string{"FOO"},
+		},
+		{
+			desc:         "required non-empty with env",
+			env:          map[string]string{"FOO": "hello"},
+			in:           "${FOO:?FOO must be set}",
+			want:         "hello",
+			wantRequired: []string{"FOO"},
+		},
+		{
+			desc:         "required non-empty with empty env, lenient",
+			env:          map[string]string{"FOO": ""},
+			in:           "${FOO:?FOO must be set}",
+			want:         "FOO",
+			wantRequired: []string{"FOO"},
+			lenient:      true,
+		},
+		{
 			desc: "multiple variables",
 			in:   "user: ${USER_NAME:}, password: ${PASSWORD:}, ip: ${IP:public}, region: ${REGION}",
 			env: map[string]string{
@@ -208,6 +305,7 @@ func TestParseEnv(t *testing.T) {
 			},
 			want:         "user: , password: , ip: public, region: us-central1",
 			wantOptional: []string{"USER_NAME", "PASSWORD", "IP"},
+			wantRequired: []string{"REGION"},
 		},
 		{
 			desc: "variable required in one place and optional in another",
@@ -217,6 +315,27 @@ func TestParseEnv(t *testing.T) {
 			},
 			want:         "project_req: my_project, project_opt: my_project",
 			wantOptional: []string{}, // Because it was marked required at least once
+			wantRequired: []string{"PROJECT_ID"},
+		},
+		{
+			desc: "variable required non-empty in one place and optional in another",
+			in:   "project_req: ${PROJECT_ID:?}, project_opt: ${PROJECT_ID:-default}",
+			env: map[string]string{
+				"PROJECT_ID": "my_project",
+			},
+			want:         "project_req: my_project, project_opt: my_project",
+			wantOptional: []string{},
+			wantRequired: []string{"PROJECT_ID"},
+		},
+		{
+			desc: "unsupported non-colon default remains unchanged",
+			in:   "${FOO-default}",
+			want: "${FOO-default}",
+		},
+		{
+			desc: "unsupported non-colon required remains unchanged",
+			in:   "${FOO?message}",
+			want: "${FOO?message}",
 		},
 	}
 	for _, tc := range tcs {
@@ -247,8 +366,65 @@ func TestParseEnv(t *testing.T) {
 					t.Errorf("OptionalEnvVars element %d mismatch: got %q, want %q", i, v, tc.wantOptional[i])
 				}
 			}
+			if diff := cmp.Diff(tc.wantRequired, parser.requiredEnvVars); diff != "" {
+				t.Errorf("requiredEnvVars mismatch (-want +got):\n%s", diff)
+			}
 		})
 	}
+}
+
+func TestParseConfigEnvExpansion(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	t.Run("expands non-empty default and required value", func(t *testing.T) {
+		t.Setenv("EMPTY_BASE_URL", "")
+		t.Setenv("REQUIRED_HEADER", "actual-header")
+		parser := ConfigParser{}
+		config, err := parser.ParseConfig(ctx, []byte(`
+kind: source
+name: my-http-instance
+type: http
+baseUrl: ${EMPTY_BASE_URL:-https://example.com}
+headers:
+  Required: ${REQUIRED_HEADER:?header is required}
+`))
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		source, ok := config.Sources["my-http-instance"].(httpsrc.Config)
+		if !ok {
+			t.Fatalf("unexpected source type: %T", config.Sources["my-http-instance"])
+		}
+		if source.BaseURL != "https://example.com" {
+			t.Errorf("BaseURL mismatch: got %q, want %q", source.BaseURL, "https://example.com")
+		}
+		if got := source.DefaultHeaders["Required"]; got != "actual-header" {
+			t.Errorf("required header mismatch: got %q, want %q", got, "actual-header")
+		}
+	})
+
+	t.Run("rejects empty required value", func(t *testing.T) {
+		t.Setenv("REQUIRED_HEADER", "")
+		parser := ConfigParser{}
+		_, err := parser.ParseConfig(ctx, []byte(`
+kind: source
+name: my-http-instance
+type: http
+baseUrl: https://example.com
+headers:
+  Required: ${REQUIRED_HEADER:?header is required}
+`))
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		want := `required environment variable is unset or empty: "REQUIRED_HEADER": header is required (line 7, column 13)`
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error mismatch: got %q, want substring %q", err, want)
+		}
+	})
 }
 
 func TestConvertConfig(t *testing.T) {

@@ -12,18 +12,32 @@ tools.yaml` flag.
 
 ### Using Environment Variables
 
-To avoid hardcoding certain secret fields like passwords, usernames, API keys
-etc., you could use environment variables instead with the format `${ENV_NAME}`.
+To avoid hardcoding certain secret fields like passwords, usernames, API keys,
+etc., you can use environment variables. Toolbox supports these forms:
+
+| Syntax | Variable is unset | Variable is set to an empty string | Variable has a value |
+| --- | --- | --- | --- |
+| `${ENV_NAME}` | Error | Use the empty string | Use the value |
+| `${ENV_NAME:default}` | Use `default` | Use the empty string | Use the value |
+| `${ENV_NAME:-default}` | Use `default` | Use `default` | Use the value |
+| `${ENV_NAME:?message}` | Error | Error | Use the value |
+
+The message in `${ENV_NAME:?message}` is optional and is included in the
+startup error when provided.
 
 ```yaml
 user: ${USER_NAME}
 password: ${PASSWORD}
 ```
 
-A default value can be specified like `${ENV_NAME:default}`.
+A default value can be specified for an unset variable with
+`${ENV_NAME:default}`. Use `${ENV_NAME:-default}` when an empty value should
+also select the default.
 
 ```yaml
 port: ${DB_PORT:3306}
+host: ${DB_HOST:-localhost}
+password: ${PASSWORD:?database password is required}
 ```
 
 ### Sources
