@@ -609,13 +609,14 @@ func TestMcpEndpoint(t *testing.T) {
 				"result": map[string]any{
 					"protocolVersion": "2025-06-18",
 					"capabilities": map[string]any{
-						"tools":   map[string]any{"listChanged": false},
-						"prompts": map[string]any{"listChanged": false},
+						"tools":     map[string]any{"listChanged": false},
+						"prompts":   map[string]any{"listChanged": false},
+						"resources": map[string]any{},
 					},
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover", "resources/list", "resources/templates/list", "resources/read"},
+			invalidMethods: []string{"server/discover"},
 		},
 		{
 			name:      "version 2025-11-25",
@@ -628,13 +629,14 @@ func TestMcpEndpoint(t *testing.T) {
 				"result": map[string]any{
 					"protocolVersion": "2025-11-25",
 					"capabilities": map[string]any{
-						"tools":   map[string]any{"listChanged": false},
-						"prompts": map[string]any{"listChanged": false},
+						"tools":     map[string]any{"listChanged": false},
+						"prompts":   map[string]any{"listChanged": false},
+						"resources": map[string]any{},
 					},
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover", "resources/list", "resources/templates/list", "resources/read"},
+			invalidMethods: []string{"server/discover"},
 		},
 		{
 			name:           "version 2026-07-28",
@@ -687,6 +689,60 @@ func TestMcpEndpoint(t *testing.T) {
 					"cacheScope": "public",
 					"_meta": map[string]any{
 						"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
+					},
+				},
+			},
+			wantResourcesList: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "resources-list",
+				"result": map[string]any{
+					"resultType": "complete",
+					"resources": []any{
+						map[string]any{
+							"name": "res1",
+							"uri":  "file:///res1",
+						},
+					},
+					"ttlMs":      float64(300000),
+					"cacheScope": "public",
+					"_meta": map[string]any{
+						"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
+					},
+				},
+			},
+			wantTemplatesList: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "templates-list",
+				"result": map[string]any{
+					"resultType": "complete",
+					"resourceTemplates": []any{
+						map[string]any{
+							"name":        "tmpl1",
+							"uriTemplate": "file:///tmpl/{path}",
+						},
+					},
+					"ttlMs":      float64(300000),
+					"cacheScope": "public",
+					"_meta": map[string]any{
+						"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
+					},
+				},
+			},
+			wantResourcesRead: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "resources-read",
+				"result": map[string]any{
+					"resultType": "complete",
+					"_meta": map[string]any{
+						"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
+					},
+					"cacheScope": "public",
+					"ttlMs":      float64(300000),
+					"contents": []any{
+						map[string]any{
+							"uri":  "file:///res1",
+							"text": "mock resource data",
+						},
 					},
 				},
 			},
@@ -1198,14 +1254,14 @@ func TestMcpEndpoint(t *testing.T) {
 					url:   "/",
 					isErr: true,
 					batchBody: []jsonrpc.JSONRPCRequest{
-						jsonrpc.JSONRPCRequest{
+						{
 							Jsonrpc: "1.0",
 							Id:      "batch-requests1",
 							Request: jsonrpc.Request{
 								Method: "foo",
 							},
 						},
-						jsonrpc.JSONRPCRequest{
+						{
 							Jsonrpc: jsonrpcVersion,
 							Id:      "batch-requests2",
 							Request: jsonrpc.Request{
@@ -1428,20 +1484,15 @@ func TestMcpEndpoint(t *testing.T) {
 						"jsonrpc": "2.0",
 						"id":      "resources-list",
 						"result": map[string]any{
-							"resultType": "complete",
 							"resources": []any{
 								map[string]any{
 									"name": "res1",
 									"uri":  "file:///res1",
 								},
 							},
-							"ttlMs":      float64(300000),
-							"cacheScope": "public",
-							"_meta": map[string]any{
-								"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
-							},
 						},
 					},
+					wantOverwrite: vtc.wantResourcesList,
 				},
 				{
 					name:       "resources/templates/list",
@@ -1457,20 +1508,15 @@ func TestMcpEndpoint(t *testing.T) {
 						"jsonrpc": "2.0",
 						"id":      "templates-list",
 						"result": map[string]any{
-							"resultType": "complete",
 							"resourceTemplates": []any{
 								map[string]any{
 									"name":        "tmpl1",
 									"uriTemplate": "file:///tmpl/{path}",
 								},
 							},
-							"ttlMs":      float64(300000),
-							"cacheScope": "public",
-							"_meta": map[string]any{
-								"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
-							},
 						},
 					},
+					wantOverwrite: vtc.wantTemplatesList,
 				},
 				{
 					name:       "resources/read",
@@ -1487,12 +1533,6 @@ func TestMcpEndpoint(t *testing.T) {
 						"jsonrpc": "2.0",
 						"id":      "resources-read",
 						"result": map[string]any{
-							"resultType": "complete",
-							"_meta": map[string]any{
-								"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
-							},
-							"cacheScope": "public",
-							"ttlMs":      float64(300000),
 							"contents": []any{
 								map[string]any{
 									"uri":  "file:///res1",
@@ -1501,6 +1541,7 @@ func TestMcpEndpoint(t *testing.T) {
 							},
 						},
 					},
+					wantOverwrite: vtc.wantResourcesRead,
 				},
 				{
 					name: "tools/call with URL param override returns error",
