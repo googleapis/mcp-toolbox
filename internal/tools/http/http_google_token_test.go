@@ -36,6 +36,7 @@ type fakeSource struct {
 
 func (f *fakeSource) SourceType() string             { return "http" }
 func (f *fakeSource) ToConfig() sources.SourceConfig { return nil }
+func (f *fakeSource) IsReadOnly() bool               { return false }
 
 func (f *fakeSource) HttpDefaultHeaders() map[string]string { return nil }
 func (f *fakeSource) HttpBaseURL() string                   { return f.baseURL }
