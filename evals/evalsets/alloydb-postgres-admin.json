@@ -1,0 +1,69 @@
+{
+  "scenarios": [
+    {
+      "id": "alloydbpg-admin-01",
+      "starting_prompt": "We need an isolated AlloyDB cluster for testing. Create a cluster named ${ALLOYDB_POSTGRES_CLUSTER} in location ${ALLOYDB_POSTGRES_REGION} on the 'default' network with initial user 'postgres' and password 'EvalTestPass123!'. Tell me once the operation has actually finished.",
+      "conversation_plan": "The user wants the cluster creation confirmed as complete, not just started. If the assistant only reports that the cluster was requested, ask it to confirm the operation finished. Then end the conversation.",
+      "expected_trajectory": [
+        "toolbox__create_cluster",
+        "toolbox__wait_for_operation"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "alloydbpg-admin-02",
+      "starting_prompt": "We need additional read capacity on AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}. Create a READ_POOL instance named ${ALLOYDB_POSTGRES_INSTANCE} with 1 node, and tell me once the operation has actually finished.",
+      "conversation_plan": "The user wants the instance creation confirmed as complete, not just started. If the assistant only reports that the instance was requested, ask it to confirm the operation finished. Then end the conversation.",
+      "expected_trajectory": [
+        "toolbox__create_instance",
+        "toolbox__wait_for_operation"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "alloydbpg-admin-03",
+      "starting_prompt": "Create a new database user named ${ALLOYDB_POSTGRES_USER} on AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}. Set the user type to ALLOYDB_IAM_USER.",
+      "conversation_plan": "The user wants to create a new IAM user on the cluster. Accept confirmation and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__create_user"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-04",
+      "starting_prompt": "I am auditing our AlloyDB fleet in this project. Which clusters do we have in ${ALLOYDB_POSTGRES_REGION}, and what is the network and status of ${ALLOYDB_POSTGRES_CLUSTER}?",
+      "conversation_plan": "The user wants a cluster fleet listing followed by details for one named cluster. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_clusters",
+        "toolbox__get_cluster"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-05",
+      "starting_prompt": "Which instances exist in our AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}, and what instance type and state is ${ALLOYDB_POSTGRES_INSTANCE} running with?",
+      "conversation_plan": "The user wants an instance listing for the cluster followed by details for one named instance. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_instances",
+        "toolbox__get_instance"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-06",
+      "starting_prompt": "We are conducting an access audit for AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}. Which users exist, and what are the details and user type for the ${ALLOYDB_POSTGRES_USER} user?",
+      "conversation_plan": "The user wants a user listing for the cluster followed by details for the ${ALLOYDB_POSTGRES_USER} user. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_users",
+        "toolbox__get_user"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    }
+  ]
+}

@@ -132,6 +132,30 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
+  - id: "evals-alloydb-postgres-admin"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=alloydb-postgres-admin"
+      - "EVAL_DATASET=evals/evalsets/alloydb-postgres-admin.json"
+      - "EVAL_ENV_PREFIX=ALLOYDB_POSTGRES"
+
+      - "TEARDOWN_PROJECT=$PROJECT_ID"
+      - "TEARDOWN_REGION=${_REGION}"
+      - "TEARDOWN_USER=${_EVAL_TEST_USER}"
+      - "TEARDOWN_CLUSTER=${_EVAL_TEST_CLUSTER}"
+      - "TEARDOWN_INSTANCE=${_EVAL_TEST_INSTANCE}"
+
+      - "ALLOYDB_POSTGRES_PROJECT=$PROJECT_ID"
+      - "ALLOYDB_POSTGRES_REGION=${_REGION}"
+      - "ALLOYDB_POSTGRES_USER=${_EVAL_TEST_USER}"
+      - "ALLOYDB_POSTGRES_CLUSTER=${_EVAL_TEST_CLUSTER}"
+      - "ALLOYDB_POSTGRES_INSTANCE=${_EVAL_TEST_INSTANCE}"
+
   # Turns the allowFailure steps back into a red build. No waitFor, which means
   # every step above, so a new database needs no edit here.
   - id: "report-failures"
@@ -188,3 +212,6 @@ substitutions:
   _GEMINI_MODEL: "gemini-3.7-flash"
   _CLAUDE_MODEL: "claude-opus-4-8"
   _EVALBENCH_IMAGE: "us-central1-docker.pkg.dev/cloud-db-nl2sql/evalbench/eval_server:latest"
+  _EVAL_TEST_USER: "eval-test-user"
+  _EVAL_TEST_CLUSTER: "eval-test-cluster"
+  _EVAL_TEST_INSTANCE: "eval-test-instance"
