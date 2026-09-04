@@ -132,6 +132,27 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
+  - id: "evals-cloud-sql-mssql"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=cloud-sql-mssql"
+      - "EVAL_DATASET=evals/evalsets/cloud-sql-mssql.json"
+      - "EVAL_ENV_PREFIX=CLOUD_SQL_MSSQL"
+
+      - "CLOUD_SQL_MSSQL_PROJECT=$PROJECT_ID"
+      - "CLOUD_SQL_MSSQL_REGION=${_REGION}"
+      - "CLOUD_SQL_MSSQL_INSTANCE=${_CLOUD_SQL_MSSQL_INSTANCE}"
+      - "CLOUD_SQL_MSSQL_DATABASE=${_DATABASE_NAME}"
+      - "CLOUD_SQL_MSSQL_IP_TYPE=${_CLOUD_SQL_IP_TYPE}"
+    secretEnv:
+      - "CLOUD_SQL_MSSQL_USER"
+      - "CLOUD_SQL_MSSQL_PASSWORD"
+
   # Turns the allowFailure steps back into a red build. No waitFor, which means
   # every step above, so a new database needs no edit here.
   - id: "report-failures"
@@ -156,6 +177,10 @@ availableSecrets:
       env: CLOUD_SQL_MYSQL_USER
     - versionName: projects/$PROJECT_ID/secrets/cloud_sql_mysql_pass/versions/latest
       env: CLOUD_SQL_MYSQL_PASSWORD
+    - versionName: projects/$PROJECT_ID/secrets/cloud_sql_mssql_user/versions/latest
+      env: CLOUD_SQL_MSSQL_USER
+    - versionName: projects/$PROJECT_ID/secrets/cloud_sql_mssql_pass/versions/latest
+      env: CLOUD_SQL_MSSQL_PASSWORD
 
 # env here is shared by every step. EVAL_REPORTING_PROJECT is required from the
 # trigger: results are never written to the build project.
