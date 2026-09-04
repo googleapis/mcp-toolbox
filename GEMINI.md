@@ -160,6 +160,7 @@ Use the format: `Fixes #<issue_number> 🦕`
 4.  Implement `Source` interface (`SourceType`, `ToConfig`).
 5.  Implement `init()` to register the source.
 6.  Add unit tests in `internal/sources/<newdb>/<newdb>_test.go`.
+7.  **Google Cloud Databases:** For every Google Cloud database, ensure a corresponding `product: <database>` label is added to `.github/labels.yaml`, routing is configured in `.github/blunderbuss.yml` (under both `assign_issues_by` and `assign_prs_by`), and the GitHub team is team-synced from an MDB group with write access to the repo.
 
 ### Adding a New Tool
 
