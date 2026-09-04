@@ -55,6 +55,6 @@ scorers:
   effective_billed_tokens: {}
 
 # Reporting Related Configs
-reporting:
-  bigquery:
-    gcp_project_id: !ENV ${EVAL_REPORTING_PROJECT}
+# reporting:
+#   bigquery:
+#     gcp_project_id: !ENV ${EVAL_REPORTING_PROJECT}
