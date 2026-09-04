@@ -381,11 +381,10 @@ func TestMcpEndpointWithoutInitialized(t *testing.T) {
 				},
 			},
 		},
-		// TODO: Revisit these method not found exceptions in upcoming JSON-RPC PRs
 		{
-			name:  "resources/list invalid method",
+			name:  "resources/list",
 			url:   "/",
-			isErr: true,
+			isErr: false,
 			body: jsonrpc.JSONRPCRequest{
 				Jsonrpc: jsonrpcVersion,
 				Id:      "resources-list",
@@ -394,16 +393,20 @@ func TestMcpEndpointWithoutInitialized(t *testing.T) {
 			want: map[string]any{
 				"jsonrpc": "2.0",
 				"id":      "resources-list",
-				"error": map[string]any{
-					"code":    -32601.0,
-					"message": `invalid method resources/list`,
+				"result": map[string]any{
+					"resources": []any{
+						map[string]any{
+							"name": "res1",
+							"uri":  "file:///res1",
+						},
+					},
 				},
 			},
 		},
 		{
-			name:  "resources/templates/list invalid method",
+			name:  "resources/templates/list",
 			url:   "/",
-			isErr: true,
+			isErr: false,
 			body: jsonrpc.JSONRPCRequest{
 				Jsonrpc: jsonrpcVersion,
 				Id:      "templates-list",
@@ -412,16 +415,20 @@ func TestMcpEndpointWithoutInitialized(t *testing.T) {
 			want: map[string]any{
 				"jsonrpc": "2.0",
 				"id":      "templates-list",
-				"error": map[string]any{
-					"code":    -32601.0,
-					"message": `invalid method resources/templates/list`,
+				"result": map[string]any{
+					"resourceTemplates": []any{
+						map[string]any{
+							"name":        "tmpl1",
+							"uriTemplate": "file:///tmpl/{path}",
+						},
+					},
 				},
 			},
 		},
 		{
-			name:  "resources/read invalid method",
+			name:  "resources/read",
 			url:   "/",
-			isErr: true,
+			isErr: false,
 			body: jsonrpc.JSONRPCRequest{
 				Jsonrpc: jsonrpcVersion,
 				Id:      "resources-read",
@@ -431,9 +438,13 @@ func TestMcpEndpointWithoutInitialized(t *testing.T) {
 			want: map[string]any{
 				"jsonrpc": "2.0",
 				"id":      "resources-read",
-				"error": map[string]any{
-					"code":    -32601.0,
-					"message": `invalid method resources/read`,
+				"result": map[string]any{
+					"contents": []any{
+						map[string]any{
+							"text": "mock resource data",
+							"uri":  "file:///res1",
+						},
+					},
 				},
 			},
 		},
@@ -571,14 +582,15 @@ func TestMcpEndpoint(t *testing.T) {
 				"result": map[string]any{
 					"protocolVersion": "2024-11-05",
 					"capabilities": map[string]any{
-						"tools":   map[string]any{"listChanged": false},
-						"prompts": map[string]any{"listChanged": false},
+						"tools":     map[string]any{"listChanged": false},
+						"prompts":   map[string]any{"listChanged": false},
+						"resources": map[string]any{},
 					},
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
 
-			invalidMethods: []string{"server/discover", "resources/list", "resources/templates/list", "resources/read"},
+			invalidMethods: []string{"server/discover"},
 		},
 		{
 			name:     "version 2025-03-26",
@@ -590,13 +602,14 @@ func TestMcpEndpoint(t *testing.T) {
 				"result": map[string]any{
 					"protocolVersion": "2025-03-26",
 					"capabilities": map[string]any{
-						"tools":   map[string]any{"listChanged": false},
-						"prompts": map[string]any{"listChanged": false},
+						"tools":     map[string]any{"listChanged": false},
+						"prompts":   map[string]any{"listChanged": false},
+						"resources": map[string]any{},
 					},
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover", "resources/list", "resources/templates/list", "resources/read"},
+			invalidMethods: []string{"server/discover"},
 		},
 		{
 			name:      "version 2025-06-18",
