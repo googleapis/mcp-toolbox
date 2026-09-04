@@ -11,7 +11,7 @@ description: >
 The `cloud-gemini-data-analytics-query` tool allows you to send natural language questions to the Gemini Data Analytics API and receive structured responses containing SQL queries, natural language answers, and explanations. For details on defining data agent context for database data sources, see the official [documentation](https://docs.cloud.google.com/gemini/docs/conversational-analytics-api/data-agent-authored-context-databases).
 
 > [!NOTE]
-> Only `alloydb`, `spannerReference`, and `cloudSqlReference` are supported as [datasource references](https://clouddocs.devsite.corp.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences).
+> Only `alloydb`, `spannerReference`, and `cloudSqlReference` are supported as [datasource references](https://cloud.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences).
 
 
 ## Compatible Sources
@@ -51,7 +51,7 @@ When using this tool, a `query` parameter containing a natural language query is
 
 The structure of the response depends on the `generationOptions` configured in your tool definition (e.g., enabling `generateQueryResult` will include the SQL query results).
 
-See [Data Analytics API REST documentation](https://clouddocs.devsite.corp.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1alpha/projects.locations/queryData?rep_location=global) for details.
+See [Data Analytics API REST documentation](https://cloud.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1alpha/projects.locations/queryData) for details.
 
 **Example Input Query:**
 
@@ -94,8 +94,49 @@ How many accounts who have region in Prague are eligible for loans? A3 contains 
 | source            |  string  |     true     | The name of the `cloud-gemini-data-analytics` source to use.                                                                                                                                                                                                 |
 | description       |  string  |     true     | A description of the tool's purpose.                                                                                                                                                                                                                         |
 | location          |  string  |     true     | The Google Cloud location of the target database resource (e.g., "us-central1"). This is used to construct the parent resource name in the API call.                                                                                                         |
-| context           |  object  |     true     | The context for the query, including datasource references. See [QueryDataContext](https://github.com/googleapis/googleapis/blob/b32495a713a68dd0dff90cf0b24021debfca048a/google/cloud/geminidataanalytics/v1beta/data_chat_service.proto#L156) for details. |
+| context           |  object  |     true     | The database to query, and optional query context. See [Context](#context) below.                                                                                                                                                                            |
 | generationOptions |  object  |    false     | Options for generating the response. See [GenerationOptions](https://github.com/googleapis/googleapis/blob/b32495a713a68dd0dff90cf0b24021debfca048a/google/cloud/geminidataanalytics/v1beta/data_chat_service.proto#L135) for details.                       |
+
+### Context
+
+`context` is passed to the Gemini Data Analytics API unchanged, as a
+[QueryDataContext](https://github.com/googleapis/googleapis/blob/b32495a713a68dd0dff90cf0b24021debfca048a/google/cloud/geminidataanalytics/v1beta/data_chat_service.proto#L156).
+Field names are lowerCamelCase, and unrecognized fields are rejected when
+Toolbox loads the configuration.
+
+| **field**                                    | **type**            | **required** | **description**                                                                                                                       |
+| -------------------------------------------- | :-----------------: | :----------: | ------------------------------------------------------------------------------------------------------------------------------------- |
+| datasourceReferences                         |       object        |     true     | The database to query. Set exactly one datasource kind. See [Datasource references](#datasource-references) below.                    |
+| parameterizedSecureViewParameters.parameters |  map[string]string  |    false     | Parameter names and values to inject into a parameterized secure view. See [Parameterized Secure Views](#parameterized-secure-views-psv). |
+
+#### Datasource references
+
+Set exactly one of `alloydb`, `spannerReference`, or `cloudSqlReference` under
+`datasourceReferences`. The API also defines `bq`, `studio`, and `looker`, but
+this tool does not support them.
+
+All three supported kinds take the same two fields:
+
+| **field**                          | **type** | **required** | **description**                                                                                                                                                            |
+| ---------------------------------- | :------: | :----------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| databaseReference                  |  object  |     true     | Identifies the database. Fields vary by kind. See [databaseReference fields](#databasereference-fields) below.                                                             |
+| agentContextReference.contextSetId |  string  |    false     | Resource name of an authored context set to apply to the query, in the form `projects/{project}/locations/{location}/contextSets/{context_set}`. Improves query accuracy. |
+
+#### databaseReference fields
+
+One table covers all three kinds; the **applies to** column shows where each
+field is accepted. Supplying a field to a kind that does not accept it is a
+configuration error.
+
+| **field**  |    **type**    | **required** | **applies to**                       | **description**                                                                                            |
+| ---------- | :------------: | :----------: | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| projectId  |     string     |     true     | all                                  | The project the instance belongs to.                                                                       |
+| region     |     string     |     true     | all                                  | The region of the instance, for example `us-central1`.                                                     |
+| clusterId  |     string     |     true     | `alloydb`                            | The AlloyDB cluster id.                                                                                    |
+| instanceId |     string     |     true     | all                                  | The instance id.                                                                                           |
+| databaseId |     string     |     true     | all                                  | The database id.                                                                                           |
+| engine     |     string     |     true     | `cloudSqlReference`, `spannerReference` | `POSTGRESQL` or `MYSQL` for `cloudSqlReference`; `GOOGLE_SQL` or `POSTGRESQL` for `spannerReference`. AlloyDB has no engine field. |
+| tableIds   | list of string |    false     | all                                  | Restricts the query to these tables. All tables in the database are used if unset.                         |
 
 ## Advanced Usage
 
@@ -133,8 +174,9 @@ context:
         contextSetId: "${your_context_set_id}" # E.g. projects/${project_id}/locations/${context_set_location}/contextSets/${context_set_id}
   parameterizedSecureViewParameters:
     parameters:
-      - key: "app_end_userid"  # The parameter name defined in your secure view
-        value: "303"           # The value to filter rows by (e.g., the end-user's ID)
+      # Key is the parameter name defined in your secure view; value is what to
+      # filter rows by (e.g., the end-user's ID).
+      app_end_userid: "303"
 generationOptions:
   generateQueryResult: true
   generateNaturalLanguageAnswer: true
