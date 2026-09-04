@@ -109,23 +109,23 @@ After you install Looker in the MCP Store, resources and tools from the server a
 
 {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.11.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.11.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.11.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.11.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.11.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
