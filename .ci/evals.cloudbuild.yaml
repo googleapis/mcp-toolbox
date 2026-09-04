@@ -132,6 +132,29 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
+  # No secretEnv: the source authenticates through ADC. BIGQUERY_READONLY is
+  # load-bearing, not hygiene -- an empty writeMode defaults to "allowed", which
+  # would give execute_sql DROP rights over everything the build service account
+  # can reach. Setting BIGQUERY_WRITE_MODE as well would be rejected as a
+  # conflicting pair.
+  #
+  # The evalset reads a dataset that evals/setup/bigquery.sh seeds per build.
+  - id: "evals-bigquery"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=bigquery"
+      - "EVAL_DATASET=evals/evalsets/bigquery.json"
+      - "EVAL_ENV_PREFIX=BIGQUERY"
+
+      - "BIGQUERY_PROJECT=$PROJECT_ID"
+      - "BIGQUERY_LOCATION=US"
+      - "BIGQUERY_READONLY=true"
+
   # Turns the allowFailure steps back into a red build. No waitFor, which means
   # every step above, so a new database needs no edit here.
   - id: "report-failures"
@@ -168,6 +191,8 @@ options:
   machineType: E2_HIGHCPU_32
   env:
     - "TOOLBOX_BIN=/workspace/toolbox"
+    # A substitution, not an env var, so run_evals.sh cannot read it otherwise.
+    - "BUILD_ID=$BUILD_ID"
     - "EVAL_HARNESSES=${_EVAL_HARNESSES}"
     - "EVAL_GEMINI_MODEL=${_GEMINI_MODEL}"
     - "EVAL_CLAUDE_MODEL=${_CLAUDE_MODEL}"

@@ -1,0 +1,69 @@
+#!/bin/bash
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Seeds the dataset the bigquery evalset queries. The project has no stable
+# BigQuery fixture -- the Go integration tests create their own at runtime -- so
+# the scenarios would otherwise have nothing deterministic to read.
+#
+# Named per build from EVAL_RUN_ID (.ci/run_evals.sh) so that concurrent eval
+# builds cannot drop each other's data. The evalset composes the same name.
+#
+# Idempotent, because run_evals.sh invokes EvalBench once per harness and
+# EvalBench runs this once per invocation.
+
+set -euo pipefail
+
+: "${BIGQUERY_PROJECT:?}" "${EVAL_RUN_ID:?}"
+
+export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
+export BQ_LOCATION="${BIGQUERY_LOCATION:-US}"
+
+echo "seeding ${BIGQUERY_PROJECT}.${BQ_DATASET} in ${BQ_LOCATION}"
+
+# Python rather than bq: bq is a separate gcloud component that the EvalBench
+# image need not carry, while google-cloud-bigquery backs the run config's
+# reporting block and is therefore always present.
+uv run --no-sync python - <<'PY'
+import os
+
+from google.cloud import bigquery
+
+project = os.environ["BIGQUERY_PROJECT"]
+dataset_id = f"{project}.{os.environ['BQ_DATASET']}"
+
+client = bigquery.Client(project=project)
+dataset = bigquery.Dataset(dataset_id)
+dataset.location = os.environ["BQ_LOCATION"]
+client.create_dataset(dataset, exists_ok=True)
+
+# globex is the top customer by total amount whether or not the agent filters
+# on status, so the expected answer does not turn on how it reads the prompt.
+client.query(
+    f"""
+    CREATE OR REPLACE TABLE `{dataset_id}.orders` AS
+    SELECT * FROM UNNEST([
+      STRUCT(1 AS order_id, 'acme' AS customer, NUMERIC '120.50' AS amount,
+             'shipped' AS status, TIMESTAMP '2026-01-05 09:00:00' AS ordered_at),
+      STRUCT(2, 'globex', NUMERIC '400.00', 'shipped',   TIMESTAMP '2026-01-06 11:30:00'),
+      STRUCT(3, 'acme',   NUMERIC '45.25',  'pending',   TIMESTAMP '2026-01-07 14:15:00'),
+      STRUCT(4, 'initech',NUMERIC '300.00', 'shipped',   TIMESTAMP '2026-01-08 08:45:00'),
+      STRUCT(5, 'globex', NUMERIC '210.75', 'cancelled', TIMESTAMP '2026-01-09 16:20:00'),
+      STRUCT(6, 'acme',   NUMERIC '15.00',  'shipped',   TIMESTAMP '2026-01-10 10:05:00'),
+      STRUCT(7, 'initech',NUMERIC '60.00',  'pending',   TIMESTAMP '2026-01-11 13:40:00'),
+      STRUCT(8, 'globex', NUMERIC '95.00',  'shipped',   TIMESTAMP '2026-01-12 17:55:00')
+    ])
+    """
+).result()
+PY
