@@ -1,0 +1,35 @@
+{
+  "scenarios": [
+    {
+      "id": "spanner-data-01",
+      "starting_prompt": "Give me an inventory of the ${SPANNER_DATABASE} Spanner database: which tables exist, and what are their primary keys and column definitions?",
+      "conversation_plan": "The user wants a detailed table schema inventory. Accept the summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "spanner-data-02",
+      "starting_prompt": "First, find what tables exist in the ${SPANNER_DATABASE} database. Then, run a read-only query to inspect the top 5 records from one of the tables.",
+      "conversation_plan": "Turn 1: user asks for tables. Turn 2: user asks to query records from a discovered table using read-only SQL. Accept the result and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables",
+        "toolbox__execute_sql_readonly"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "spanner-discovery-01",
+      "starting_prompt": "Search our data catalog for assets related to database or table metadata in this project.",
+      "conversation_plan": "The user wants to find data assets using catalog search. Accept the catalog search results and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__search_catalog"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    }
+  ]
+}

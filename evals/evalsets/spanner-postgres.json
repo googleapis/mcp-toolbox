@@ -1,0 +1,35 @@
+{
+  "scenarios": [
+    {
+      "id": "spannerpg-data-01",
+      "starting_prompt": "Give me an inventory of user tables in the ${SPANNER_DATABASE} Spanner PostgreSQL database, including columns and constraints.",
+      "conversation_plan": "The user wants a table schema inventory. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "spannerpg-data-02",
+      "starting_prompt": "What PostgreSQL tables exist in ${SPANNER_DATABASE}? After checking the tables, run a read-only query using the PostgreSQL dialect to verify the current schema version or table contents.",
+      "conversation_plan": "Turn 1: agent lists tables. Turn 2: agent runs read-only SQL. Accept the output and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables",
+        "toolbox__execute_sql_readonly"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "spannerpg-discovery-01",
+      "starting_prompt": "Search our data catalog for assets related to database or table metadata in this project.",
+      "conversation_plan": "The user wants to find data assets using catalog search. Accept the catalog search results and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__search_catalog"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    }
+  ]
+}

@@ -132,6 +132,38 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
+  - id: "evals-spanner"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=spanner"
+      - "EVAL_DATASET=evals/evalsets/spanner.json"
+      - "EVAL_ENV_PREFIX=SPANNER"
+
+      - "SPANNER_PROJECT=$PROJECT_ID"
+      - "SPANNER_INSTANCE=${_SPANNER_INSTANCE}"
+      - "SPANNER_DATABASE=${_SPANNER_DATABASE}"
+
+  - id: "evals-spanner-postgres"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=spanner-postgres"
+      - "EVAL_DATASET=evals/evalsets/spanner-postgres.json"
+      - "EVAL_ENV_PREFIX=SPANNER"
+
+      - "SPANNER_PROJECT=$PROJECT_ID"
+      - "SPANNER_INSTANCE=${_SPANNER_INSTANCE}"
+      - "SPANNER_DATABASE=${_SPANNER_PG_DATABASE}"
+
   # Turns the allowFailure steps back into a red build. No waitFor, which means
   # every step above, so a new database needs no edit here.
   - id: "report-failures"
