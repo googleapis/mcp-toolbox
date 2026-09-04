@@ -16,31 +16,65 @@
 # Drops the dataset evals/setup/bigquery.sh created. Nothing else can: the
 # source runs read-only, so no scenario is able to clean up after itself.
 #
-# not_found_ok covers both the skipped-run case and the second harness in a
-# multi-harness run, whose setup recreates what the first one's teardown removed.
+# Two entry points, as in evals/teardown/cloud-sql-postgres-admin.sh: EvalBench's
+# tear_down_script hook, which normally does the deleting, and TEARDOWN_SWEEP, an
+# age-bounded pass over the datasets a killed build never reached teardown for.
+#
+# not_found_ok because teardown can arrive with nothing to drop: EvalBench
+# discards the setup script's exit code and runs teardown in a finally, so a run
+# whose seeding failed still ends up here.
 
 set -euo pipefail
 
-: "${BIGQUERY_PROJECT:?}" "${EVAL_RUN_ID:?}"
-
-export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
-
 # EvalBench discards this script's exit code, so the marker file is the only way
-# a leaked dataset reaches the build's report-failures step.
-trap '[ $? -eq 0 ] || touch "/workspace/failed-teardown-${TOOLBOX_PREBUILT}"' EXIT
+# a leaked dataset reaches the build's report-failures step. Installed ahead of
+# the guards below, which would otherwise fail silently. Not on the sweep path,
+# which runs outside a build, where nothing reads the marker.
+if [[ -z "${TEARDOWN_SWEEP:-}" ]]; then
+  trap '[ $? -eq 0 ] || touch "/workspace/failed-teardown-${TOOLBOX_PREBUILT}"' EXIT
+fi
 
-echo "deleting ${BIGQUERY_PROJECT}.${BQ_DATASET}"
+: "${BIGQUERY_PROJECT:?}"
+
+# A flag rather than $1, because EvalBench passes the session directory there.
+if [[ -n "${TEARDOWN_SWEEP:-}" ]]; then
+  # No EVAL_RUN_ID to name a dataset with, so spare anything recent enough to
+  # belong to a build still in flight. Builds time out at 2h.
+  export SWEEP_AGE_HOURS="${TEARDOWN_SWEEP_AGE_HOURS:-6}"
+  echo "sweeping toolbox_evals_* in ${BIGQUERY_PROJECT} older than ${SWEEP_AGE_HOURS}h"
+else
+  : "${EVAL_RUN_ID:?}"
+  export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
+  echo "deleting ${BIGQUERY_PROJECT}.${BQ_DATASET}"
+fi
 
 uv run --no-sync python - <<'PY'
+import datetime
 import os
 
 from google.cloud import bigquery
 
 project = os.environ["BIGQUERY_PROJECT"]
+client = bigquery.Client(project=project)
 
-bigquery.Client(project=project).delete_dataset(
-    f"{project}.{os.environ['BQ_DATASET']}",
-    delete_contents=True,
-    not_found_ok=True,
-)
+dataset = os.environ.get("BQ_DATASET")
+if dataset:
+    targets = [f"{project}.{dataset}"]
+else:
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        hours=float(os.environ["SWEEP_AGE_HOURS"])
+    )
+    # created lives on the full resource, not the list entry, so the age check
+    # costs a get per candidate.
+    targets = [
+        item.reference
+        for item in client.list_datasets(project)
+        if item.dataset_id.startswith("toolbox_evals_")
+        and client.get_dataset(item.reference).created < cutoff
+    ]
+    print(f"{len(targets)} dataset(s) to delete")
+
+for target in targets:
+    print(f"deleting {target}")
+    client.delete_dataset(target, delete_contents=True, not_found_ok=True)
 PY

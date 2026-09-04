@@ -1,26 +1,26 @@
 {
   "scenarios": [
     {
-      "id": "bigquery-01",
+      "id": "bigquery-data-01",
       "starting_prompt": "I am getting oriented in this project's BigQuery data. What datasets are there, and which tables live in toolbox_evals_${EVAL_RUN_ID}?",
-      "conversation_plan": "The user wants a dataset listing followed by the tables in one named dataset. Accept a short summary and end the conversation.",
+      "conversation_plan": "The user wants a dataset listing and the tables inside toolbox_evals_${EVAL_RUN_ID}. If the assistant lists the datasets but not the tables in that one, ask for them by name. Once both are given, end the conversation.",
       "expected_trajectory": [
         "toolbox__list_dataset_ids",
         "toolbox__list_table_ids"
       ],
       "kind": "tools",
-      "max_turns": 1
+      "max_turns": 2
     },
     {
-      "id": "bigquery-02",
+      "id": "bigquery-data-02",
       "starting_prompt": "In the BigQuery dataset toolbox_evals_${EVAL_RUN_ID}, what columns does the orders table have, and which customer has the highest total order amount?",
-      "conversation_plan": "The user wants the schema first and then a figure derived from the data, so the assistant has to inspect the table before querying it. Accept the column list plus a named customer and end the conversation.",
+      "conversation_plan": "The user wants the orders schema and a named top customer, so the assistant has to inspect the table before querying it. If the assistant supplies only one of the two, ask for the missing half. Once both are given, end the conversation.",
       "expected_trajectory": [
         "toolbox__get_table_info",
         "toolbox__execute_sql"
       ],
       "kind": "tools",
-      "max_turns": 1
+      "max_turns": 2
     }
   ]
 }

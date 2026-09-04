@@ -135,8 +135,7 @@ steps:
   # No secretEnv: the source authenticates through ADC. BIGQUERY_READONLY is
   # load-bearing, not hygiene -- an empty writeMode defaults to "allowed", which
   # would give execute_sql DROP rights over everything the build service account
-  # can reach. Setting BIGQUERY_WRITE_MODE as well would be rejected as a
-  # conflicting pair.
+  # can reach.
   #
   # The evalset reads a dataset that evals/setup/bigquery.sh seeds per build.
   - id: "evals-bigquery"

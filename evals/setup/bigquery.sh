@@ -25,12 +25,11 @@
 
 set -euo pipefail
 
-: "${BIGQUERY_PROJECT:?}" "${EVAL_RUN_ID:?}"
+: "${BIGQUERY_PROJECT:?}" "${BIGQUERY_LOCATION:?}" "${EVAL_RUN_ID:?}"
 
 export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
-export BQ_LOCATION="${BIGQUERY_LOCATION:-US}"
 
-echo "seeding ${BIGQUERY_PROJECT}.${BQ_DATASET} in ${BQ_LOCATION}"
+echo "seeding ${BIGQUERY_PROJECT}.${BQ_DATASET} in ${BIGQUERY_LOCATION}"
 
 # Python rather than bq: bq is a separate gcloud component that the EvalBench
 # image need not carry, while google-cloud-bigquery backs the run config's
@@ -41,11 +40,18 @@ import os
 from google.cloud import bigquery
 
 project = os.environ["BIGQUERY_PROJECT"]
+location = os.environ["BIGQUERY_LOCATION"]
 dataset_id = f"{project}.{os.environ['BQ_DATASET']}"
 
-client = bigquery.Client(project=project)
+# location on the client as well as the dataset: the CREATE below is a job, and
+# an unset job location is inferred from the dataset it references -- a race
+# against the dataset created a line earlier.
+client = bigquery.Client(project=project, location=location)
 dataset = bigquery.Dataset(dataset_id)
-dataset.location = os.environ["BQ_LOCATION"]
+dataset.location = location
+# A build killed before teardown leaves the dataset for the sweep. This bounds
+# what it costs until then.
+dataset.default_table_expiration_ms = 24 * 60 * 60 * 1000
 client.create_dataset(dataset, exists_ok=True)
 
 # globex is the top customer by total amount whether or not the agent filters

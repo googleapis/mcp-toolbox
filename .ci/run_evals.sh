@@ -111,8 +111,8 @@ ulimit -n 4096
 # Per-build identity for setup and teardown scripts that name a resource, so
 # concurrent builds cannot collide. Hyphens go because BigQuery dataset ids
 # reject them; evalsets referencing ${EVAL_RUN_ID} expand it from here.
-export EVAL_RUN_ID="${BUILD_ID:-local}"
-EVAL_RUN_ID="${EVAL_RUN_ID//-/_}"
+EVAL_RUN_ID="${BUILD_ID:-local}"
+export EVAL_RUN_ID="${EVAL_RUN_ID//-/_}"
 
 # Lower bound for teardown, so it cannot reach resources that predate this build.
 # Its absence is also how teardown knows the evals never ran.
