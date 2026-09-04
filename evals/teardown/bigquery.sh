@@ -13,23 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Drops the dataset evals/setup/bigquery.sh created. Nothing else can: the
-# source runs read-only, so no scenario is able to clean up after itself.
+# Drops the dataset evals/setup/bigquery.sh created. Nothing else can drop it:
+# the source runs read-only, so no scenario is able to clean up after itself.
 #
-# Two entry points, as in evals/teardown/cloud-sql-postgres-admin.sh: EvalBench's
-# tear_down_script hook, which normally does the deleting, and TEARDOWN_SWEEP, an
-# age-bounded pass over the datasets a killed build never reached teardown for.
+# Two entry points: EvalBench's tear_down_script hook, which normally does the
+# deleting, and TEARDOWN_SWEEP, an age-bounded pass over the datasets a killed
+# build never reached teardown for.
 #
-# not_found_ok because teardown can arrive with nothing to drop: EvalBench
-# discards the setup script's exit code and runs teardown in a finally, so a run
-# whose seeding failed still ends up here.
+# not_found_ok because seeding is allowed to fail: EvalBench ignores the setup
+# script's exit code and runs teardown in a finally regardless.
 
 set -euo pipefail
 
-# EvalBench discards this script's exit code, so the marker file is the only way
-# a leaked dataset reaches the build's report-failures step. Installed ahead of
-# the guards below, which would otherwise fail silently. Not on the sweep path,
-# which runs outside a build, where nothing reads the marker.
+# This script's own exit code is discarded too, so the marker is the only way a
+# leaked dataset reaches report-failures. Ahead of the guards below, which would
+# otherwise fail silently. Skipped on the sweep path, which runs outside a build.
 if [[ -z "${TEARDOWN_SWEEP:-}" ]]; then
   trap '[ $? -eq 0 ] || touch "/workspace/failed-teardown-${TOOLBOX_PREBUILT}"' EXIT
 fi
@@ -64,8 +62,8 @@ else:
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
         hours=float(os.environ["SWEEP_AGE_HOURS"])
     )
-    # created lives on the full resource, not the list entry, so the age check
-    # costs a get per candidate.
+    # created is only on the full resource, not the list entry, so this costs a
+    # get per candidate.
     targets = [
         item.reference
         for item in client.list_datasets(project)

@@ -17,8 +17,8 @@
 # BigQuery fixture -- the Go integration tests create their own at runtime -- so
 # the scenarios would otherwise have nothing deterministic to read.
 #
-# Named per build from EVAL_RUN_ID (.ci/run_evals.sh) so that concurrent eval
-# builds cannot drop each other's data. The evalset composes the same name.
+# The name comes from EVAL_RUN_ID (.ci/run_evals.sh); the evalset composes the
+# same one.
 #
 # Idempotent, because run_evals.sh invokes EvalBench once per harness and
 # EvalBench runs this once per invocation.
@@ -31,9 +31,9 @@ export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
 
 echo "seeding ${BIGQUERY_PROJECT}.${BQ_DATASET} in ${BIGQUERY_LOCATION}"
 
-# Python rather than bq: bq is a separate gcloud component that the EvalBench
-# image need not carry, while google-cloud-bigquery backs the run config's
-# reporting block and is therefore always present.
+# Python rather than bq: bq is a separate gcloud component the EvalBench image
+# need not carry, while google-cloud-bigquery is already present for the run
+# config's reporting block.
 uv run --no-sync python - <<'PY'
 import os
 
@@ -43,14 +43,13 @@ project = os.environ["BIGQUERY_PROJECT"]
 location = os.environ["BIGQUERY_LOCATION"]
 dataset_id = f"{project}.{os.environ['BQ_DATASET']}"
 
-# location on the client as well as the dataset: the CREATE below is a job, and
-# an unset job location is inferred from the dataset it references -- a race
-# against the dataset created a line earlier.
+# location on the client too: a query job that does not carry one defaults to
+# US, so the CREATE below would miss a dataset seeded anywhere else.
 client = bigquery.Client(project=project, location=location)
 dataset = bigquery.Dataset(dataset_id)
 dataset.location = location
-# A build killed before teardown leaves the dataset for the sweep. This bounds
-# what it costs until then.
+# Bounds the storage a build killed before teardown leaves behind, until the
+# sweep collects the dataset itself.
 dataset.default_table_expiration_ms = 24 * 60 * 60 * 1000
 client.create_dataset(dataset, exists_ok=True)
 
@@ -70,6 +69,41 @@ client.query(
       STRUCT(7, 'initech',NUMERIC '60.00',  'pending',   TIMESTAMP '2026-01-11 13:40:00'),
       STRUCT(8, 'globex', NUMERIC '95.00',  'shipped',   TIMESTAMP '2026-01-12 17:55:00')
     ])
+    """
+).result()
+
+# A long enough daily series that AI.FORECAST has real history to fit; the sine
+# term gives it a weekly cycle rather than a straight line.
+client.query(
+    f"""
+    CREATE OR REPLACE TABLE `{dataset_id}.daily_revenue` AS
+    SELECT
+      TIMESTAMP(day) AS day,
+      ROUND(1000 + 12 * off + 150 * SIN(off / 7 * 2 * ACOS(-1)), 2) AS revenue
+    FROM UNNEST(GENERATE_DATE_ARRAY(DATE '2026-01-01', DATE '2026-03-31')) AS day
+    WITH OFFSET AS off
+    """
+).result()
+
+# CONTRIBUTION_ANALYSIS needs a test/control split and enough dimension
+# combinations to rank. FARM_FINGERPRINT rather than RAND so the noise is the
+# same every build; the planted drop is paid_search in US, and it is the only
+# segment that moves.
+client.query(
+    f"""
+    CREATE OR REPLACE TABLE `{dataset_id}.signups` AS
+    SELECT
+      day,
+      channel,
+      country,
+      day >= DATE '2026-02-01' AS is_test,
+      20
+        + MOD(ABS(FARM_FINGERPRINT(FORMAT('%t|%s|%s', day, channel, country))), 5)
+        - IF(day >= DATE '2026-02-01' AND channel = 'paid_search' AND country = 'US', 15, 0)
+        AS signups
+    FROM UNNEST(GENERATE_DATE_ARRAY(DATE '2026-01-01', DATE '2026-02-28')) AS day
+    CROSS JOIN UNNEST(['paid_search', 'organic', 'referral']) AS channel
+    CROSS JOIN UNNEST(['US', 'CA', 'DE']) AS country
     """
 ).result()
 PY

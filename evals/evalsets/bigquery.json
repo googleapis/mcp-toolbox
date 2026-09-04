@@ -2,10 +2,11 @@
   "scenarios": [
     {
       "id": "bigquery-data-01",
-      "starting_prompt": "I am getting oriented in this project's BigQuery data. What datasets are there, and which tables live in toolbox_evals_${EVAL_RUN_ID}?",
-      "conversation_plan": "The user wants a dataset listing and the tables inside toolbox_evals_${EVAL_RUN_ID}. If the assistant lists the datasets but not the tables in that one, ask for them by name. Once both are given, end the conversation.",
+      "starting_prompt": "I am getting oriented in this project's BigQuery data. What datasets are there, and for toolbox_evals_${EVAL_RUN_ID} specifically, what location is it in and which tables does it hold?",
+      "conversation_plan": "The user wants a dataset listing, then the location and table list for toolbox_evals_${EVAL_RUN_ID}. If the assistant covers only some of the three, ask for what is missing. Once all three are given, end the conversation.",
       "expected_trajectory": [
         "toolbox__list_dataset_ids",
+        "toolbox__get_dataset_info",
         "toolbox__list_table_ids"
       ],
       "kind": "tools",
@@ -18,6 +19,28 @@
       "expected_trajectory": [
         "toolbox__get_table_info",
         "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "bigquery-analytics-01",
+      "starting_prompt": "Our daily revenue history is in the BigQuery table toolbox_evals_${EVAL_RUN_ID}.daily_revenue. Where is revenue headed over the next 14 days?",
+      "conversation_plan": "The user wants a 14-day forecast and does not know the column names, so the assistant has to inspect the table before forecasting. If the assistant asks which columns hold the date and the value, tell it to work that out from the table itself. Once a forecast is given, end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_table_info",
+        "toolbox__forecast"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "bigquery-analytics-02",
+      "starting_prompt": "Signups moved between our control and test periods, and toolbox_evals_${EVAL_RUN_ID}.signups has the per-day breakdown. Which segments drove the change?",
+      "conversation_plan": "The user wants the segments behind the change and does not know the column names, so the assistant has to inspect the table before analyzing it. If the assistant asks which column marks the test group or which columns are dimensions, tell it to work that out from the table itself. Once named segments are given, end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_table_info",
+        "toolbox__analyze_contribution"
       ],
       "kind": "tools",
       "max_turns": 2

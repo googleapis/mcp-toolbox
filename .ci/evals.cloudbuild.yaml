@@ -74,7 +74,7 @@ steps:
       - "TOOLBOX_PREBUILT=cloud-sql-postgres"
       - "EVAL_DATASET=evals/evalsets/cloud-sql-postgres.json"
       - "EVAL_ENV_PREFIX=CLOUD_SQL_POSTGRES"
-      - "EVAL_HARNESSES=claude_cli gemini_cli"
+      # - "EVAL_HARNESSES=claude_cli gemini_cli"
 
       - "CLOUD_SQL_POSTGRES_PROJECT=$PROJECT_ID"
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
@@ -132,10 +132,9 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
-  # No secretEnv: the source authenticates through ADC. BIGQUERY_READONLY is
-  # load-bearing, not hygiene -- an empty writeMode defaults to "allowed", which
-  # would give execute_sql DROP rights over everything the build service account
-  # can reach.
+  # No secretEnv: the source authenticates through ADC. BIGQUERY_READONLY is not
+  # hygiene -- an empty writeMode defaults to "allowed", which would give
+  # execute_sql DROP rights over everything the build service account can reach.
   #
   # The evalset reads a dataset that evals/setup/bigquery.sh seeds per build.
   - id: "evals-bigquery"

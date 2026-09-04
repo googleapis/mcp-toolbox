@@ -108,9 +108,9 @@ done
 
 ulimit -n 4096
 
-# Per-build identity for setup and teardown scripts that name a resource, so
-# concurrent builds cannot collide. Hyphens go because BigQuery dataset ids
-# reject them; evalsets referencing ${EVAL_RUN_ID} expand it from here.
+# Per-build resource name for the setup and teardown scripts, so concurrent
+# builds cannot collide. Hyphens go because BigQuery dataset ids reject them;
+# exported because the evalset loader expands ${EVAL_RUN_ID} too.
 EVAL_RUN_ID="${BUILD_ID:-local}"
 export EVAL_RUN_ID="${EVAL_RUN_ID//-/_}"
 
