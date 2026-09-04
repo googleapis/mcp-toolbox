@@ -255,34 +255,38 @@ steps:
           exit 0
         fi
 
-  # - id: "bigtable"
-  #   name: golang:1
-  #   waitFor: ["compile-test-binary", "detect-changes"]
-  #   entrypoint: /bin/bash
-  #   env:
-  #     - "GOPATH=/gopath"
-  #     - "BIGTABLE_PROJECT=$PROJECT_ID"
-  #     - "BIGTABLE_INSTANCE=$_BIGTABLE_INSTANCE"
-  #     - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
-  #   secretEnv: ["CLIENT_ID"]
-  #   volumes:
-  #     - name: "go"
-  #       path: "/gopath"
-  #   args:
-  #     - -c
-  #     - |
-  #       PATTERN="(^|/)bigtable/|$$(cat .ci/core_pattern.txt)"
-  #
-  #       if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
-  #         echo "Changes detected. Running Bigtable tests..."
-  #         .ci/test_with_coverage.sh \
-  #           "Bigtable" \
-  #           bigtable \
-  #           bigtable
-  #       else
-  #         echo "No relevant changes for Bigtable. Skipping shard."
-  #         exit 0
-  #       fi
+  - id: "bigtable"
+    name: golang:1
+    waitFor: ["compile-test-binary", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+      - "BIGTABLE_PROJECT=$PROJECT_ID"
+      - "BIGTABLE_INSTANCE=$_BIGTABLE_INSTANCE"
+      - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
+      - "RUN_EXPENSIVE_TESTS=$_RUN_EXPENSIVE_TESTS"
+    secretEnv: ["CLIENT_ID"]
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)bigtable/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Bigtable tests..."
+          if grep -qE "(^|/)bigtable/" /workspace/changed_files.txt; then
+            export RUN_EXPENSIVE_TESTS="true"
+          fi
+          .ci/test_with_coverage.sh \
+            "Bigtable" \
+            bigtable \
+            bigtable
+        else
+          echo "No relevant changes for Bigtable. Skipping shard."
+          exit 0
+        fi
 
   - id: "bigquery"
     name: golang:1
@@ -1770,6 +1774,7 @@ options:
     name: projects/$PROJECT_ID/locations/us-central1/workerPools/integration-testing # Necessary for VPC network connection
 
 substitutions:
+  _RUN_EXPENSIVE_TESTS: "false"
   _DATABASE_NAME: test_database
   _FIREBIRD_DATABASE_NAME: /firebird/test_database.fdb
   _REGION: "us-central1"
