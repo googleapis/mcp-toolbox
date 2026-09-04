@@ -66,37 +66,52 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initCloudSQLPgConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	err = pool.Ping(ctx)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
-	var res int
-	err = pool.QueryRow(ctx, "SELECT 1").Scan(&res)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("failed to execute 'SELECT 1' after connection: %w", err)
-	}
-
-	s := &Source{
-		Config: r,
-		Pool:   pool,
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[*pgxpool.Pool](ctx, r.Name, SourceType, tracer),
+	}
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *pgxpool.Pool
+	conn *sources.ConnectOnce[*pgxpool.Pool]
+}
+
+func (s *Source) pool(ctx context.Context) (*pgxpool.Pool, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*pgxpool.Pool, error) {
+		pool, err := initCloudSQLPgConnectionPool(ctx, s.Project, s.Region, s.Instance, s.IPType.String(), s.User, s.Password, s.Database, s.ReadOnly)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+
+		err = pool.Ping(ctx)
+		if err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+
+		var res int
+		err = pool.QueryRow(ctx, "SELECT 1").Scan(&res)
+		if err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("failed to execute 'SELECT 1' after connection: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -111,13 +126,24 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// PostgresPool reports the pool once connected; use PostgresPoolContext to guarantee one.
 func (s *Source) PostgresPool() *pgxpool.Pool {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
+}
+
+// PostgresPoolContext returns the pool, connecting on first use.
+func (s *Source) PostgresPoolContext(ctx context.Context) (*pgxpool.Pool, error) {
+	return s.pool(ctx)
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
 	statement = sqlcommenter.PrependComment(ctx, statement, SourceType, s.SQLCommenter)
-	results, err := s.PostgresPool().Query(ctx, statement, params...)
+	results, err := pool.Query(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -184,11 +210,7 @@ func getConnectionConfig(ctx context.Context, user, pass, dbname string, readOnl
 	return dsn, useIAM, nil
 }
 
-func initCloudSQLPgConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initCloudSQLPgConnectionPool(ctx context.Context, project, region, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, error) {
 	// Configure the driver to connect to the database
 	dsn, useIAM, err := getConnectionConfig(ctx, user, pass, dbname, readOnly)
 	if err != nil {

@@ -55,7 +55,9 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 // compatibleSource defines the interface a data source must implement to be used by this tool.
 // It ensures that the source can provide a Neo4j driver and database name.
 type compatibleSource interface {
+	// Returns nil until the source has connected; use Neo4jDriverContext instead.
 	Neo4jDriver() neo4j.Driver
+	Neo4jDriverContext(ctx context.Context) (neo4j.Driver, error)
 	Neo4jDatabase() string
 }
 
@@ -160,7 +162,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 func (t Tool) checkAPOCProcedures(ctx context.Context, source compatibleSource) (bool, error) {
 	proceduresToCheck := []string{"apoc.meta.schema", "apoc.meta.cypher.types"}
 
-	session := source.Neo4jDriver().NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
+	driver, err := source.Neo4jDriverContext(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
 	defer session.Close(ctx)
 
 	// This query efficiently counts how many of the specified procedures exist.
@@ -411,6 +418,11 @@ func (t Tool) GetAPOCSchema(ctx context.Context, source compatibleSource) ([]typ
 		},
 	}
 
+	driver, err := source.Neo4jDriverContext(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for _, task := range tasks {
@@ -419,7 +431,7 @@ func (t Tool) GetAPOCSchema(ctx context.Context, source compatibleSource) ([]typ
 			fn   func(session neo4j.Session) error
 		}) {
 			defer wg.Done()
-			session := source.Neo4jDriver().NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
+			session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
 			defer session.Close(ctx)
 			if err := task.fn(session); err != nil {
 				handleError(fmt.Errorf("task %s failed: %w", task.name, err))
@@ -576,6 +588,11 @@ func (t Tool) GetSchemaWithoutAPOC(ctx context.Context, source compatibleSource,
 		},
 	}
 
+	driver, err := source.Neo4jDriverContext(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for _, task := range tasks {
@@ -584,7 +601,7 @@ func (t Tool) GetSchemaWithoutAPOC(ctx context.Context, source compatibleSource,
 			fn   func(session neo4j.Session) error
 		}) {
 			defer wg.Done()
-			session := source.Neo4jDriver().NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
+			session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
 			defer session.Close(ctx)
 			if err := task.fn(session); err != nil {
 				handleError(fmt.Errorf("task %s failed: %w", task.name, err))
@@ -603,7 +620,12 @@ func (t Tool) GetSchemaWithoutAPOC(ctx context.Context, source compatibleSource,
 
 // extractDatabaseInfo retrieves general information about the Neo4j database instance.
 func (t Tool) extractDatabaseInfo(ctx context.Context, source compatibleSource) (*types.DatabaseInfo, error) {
-	session := source.Neo4jDriver().NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
+	driver, err := source.Neo4jDriverContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
 	defer session.Close(ctx)
 
 	result, err := session.Run(ctx, "CALL dbms.components() YIELD name, versions, edition", nil)
@@ -625,7 +647,12 @@ func (t Tool) extractDatabaseInfo(ctx context.Context, source compatibleSource) 
 
 // extractConstraints fetches all schema constraints from the database.
 func (t Tool) extractConstraints(ctx context.Context, source compatibleSource) ([]types.Constraint, error) {
-	session := source.Neo4jDriver().NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
+	driver, err := source.Neo4jDriverContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
 	defer session.Close(ctx)
 
 	result, err := session.Run(ctx, "SHOW CONSTRAINTS", nil)
@@ -654,7 +681,12 @@ func (t Tool) extractConstraints(ctx context.Context, source compatibleSource) (
 
 // extractIndexes fetches all schema indexes from the database.
 func (t Tool) extractIndexes(ctx context.Context, source compatibleSource) ([]types.Index, error) {
-	session := source.Neo4jDriver().NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
+	driver, err := source.Neo4jDriverContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: source.Neo4jDatabase()})
 	defer session.Close(ctx)
 
 	result, err := session.Run(ctx, "SHOW INDEXES", nil)

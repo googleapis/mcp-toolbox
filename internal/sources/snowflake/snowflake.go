@@ -60,30 +60,43 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	db, err := initSnowflakeConnection(ctx, tracer, r.Name, r.Account, r.User, r.Password, r.Database, r.Schema, r.Warehouse, r.Role)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create connection: %w", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	err = db.PingContext(ctx)
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
-	s := &Source{
-		Config: r,
-		DB:     db,
+	if _, err := s.db(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[*sqlx.DB](ctx, r.Name, SourceType, tracer),
+	}
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	DB *sqlx.DB
+	conn *sources.ConnectOnce[*sqlx.DB]
+}
+
+func (s *Source) db(ctx context.Context) (*sqlx.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sqlx.DB, error) {
+		db, err := initSnowflakeConnection(ctx, s.Account, s.User, s.Password, s.Database, s.Schema, s.Warehouse, s.Role)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create connection: %w", err)
+		}
+		if err := db.PingContext(ctx); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return db, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -98,12 +111,18 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// SnowflakeDB reports the database handle once connected.
 func (s *Source) SnowflakeDB() *sqlx.DB {
-	return s.DB
+	db, _ := s.conn.Get()
+	return db
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	rows, err := s.DB.QueryxContext(ctx, statement, params...)
+	db, err := s.db(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryxContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -140,11 +159,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initSnowflakeConnection(ctx context.Context, tracer trace.Tracer, name, account, user, password, database, schema, warehouse, role string) (*sqlx.DB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initSnowflakeConnection(ctx context.Context, account, user, password, database, schema, warehouse, role string) (*sqlx.DB, error) {
 	// Set defaults for optional parameters
 	if warehouse == "" {
 		warehouse = "COMPUTE_WH"

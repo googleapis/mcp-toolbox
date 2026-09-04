@@ -439,6 +439,112 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 }
 
+func TestInitialize_MaxQueryResultRows(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithUserAgent(ctx, "test-agent")
+	tracer := noop.NewTracerProvider().Tracer("")
+
+	tcs := []struct {
+		desc string
+		cfg  bigquery.Config
+		want int
+	}{
+		{
+			desc: "default value",
+			cfg: bigquery.Config{
+				Name:           "test-default",
+				Type:           bigquery.SourceType,
+				Project:        "test-project",
+				UseClientOAuth: "true",
+			},
+			want: 50,
+		},
+		{
+			desc: "configured value",
+			cfg: bigquery.Config{
+				Name:               "test-configured",
+				Type:               bigquery.SourceType,
+				Project:            "test-project",
+				UseClientOAuth:     "true",
+				MaxQueryResultRows: 100,
+			},
+			want: 100,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			src, err := tc.cfg.Initialize(ctx, tracer, false)
+			if err != nil {
+				t.Fatalf("Initialize failed: %v", err)
+			}
+			bqSrc, ok := src.(*bigquery.Source)
+			if !ok {
+				t.Fatalf("Expected *bigquery.Source, got %T", src)
+			}
+			if bqSrc.MaxQueryResultRows != tc.want {
+				t.Errorf("MaxQueryResultRows = %d, want %d", bqSrc.MaxQueryResultRows, tc.want)
+			}
+		})
+	}
+}
+
+func TestInitialize_MaximumBytesBilled(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithUserAgent(ctx, "test-agent")
+	tracer := noop.NewTracerProvider().Tracer("")
+
+	tcs := []struct {
+		desc string
+		cfg  bigquery.Config
+		want int64
+	}{
+		{
+			desc: "default value",
+			cfg: bigquery.Config{
+				Name:           "test-default",
+				Type:           bigquery.SourceType,
+				Project:        "test-project",
+				UseClientOAuth: "true",
+			},
+			want: 0,
+		},
+		{
+			desc: "configured value",
+			cfg: bigquery.Config{
+				Name:               "test-configured",
+				Type:               bigquery.SourceType,
+				Project:            "test-project",
+				UseClientOAuth:     "true",
+				MaximumBytesBilled: 10737418240,
+			},
+			want: 10737418240,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			src, err := tc.cfg.Initialize(ctx, tracer, false)
+			if err != nil {
+				t.Fatalf("Initialize failed: %v", err)
+			}
+			bqSrc, ok := src.(*bigquery.Source)
+			if !ok {
+				t.Fatalf("Expected *bigquery.Source, got %T", src)
+			}
+			if bqSrc.MaximumBytesBilled != tc.want {
+				t.Errorf("MaximumBytesBilled = %d, want %d", bqSrc.MaximumBytesBilled, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeEndpoint(t *testing.T) {
 	tcs := []struct {
 		desc string
@@ -459,6 +565,68 @@ func TestNormalizeEndpoint(t *testing.T) {
 			got := bigquery.NormalizeEndpoint(tc.in)
 			if got != tc.want {
 				t.Errorf("NormalizeEndpoint(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInitialize_APIEndpoint(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithUserAgent(ctx, "test-agent")
+	tracer := noop.NewTracerProvider().Tracer("")
+
+	tcs := []struct {
+		desc         string
+		cfg          bigquery.Config
+		wantEndpoint string
+	}{
+		{
+			desc: "no endpoint — option not added",
+			cfg: bigquery.Config{
+				Name: "test-no-ep", Type: bigquery.SourceType,
+				Project: "proj", UseClientOAuth: "true",
+			},
+			wantEndpoint: "",
+		},
+		{
+			desc: "http emulator endpoint wired through",
+			cfg: bigquery.Config{
+				Name: "test-emulator", Type: bigquery.SourceType,
+				Project: "proj", UseClientOAuth: "true",
+				APIEndpoint: "http://localhost:9050",
+			},
+			wantEndpoint: "http://localhost:9050",
+		},
+		{
+			desc: "https proxy endpoint normalized and wired through",
+			cfg: bigquery.Config{
+				Name: "test-proxy", Type: bigquery.SourceType,
+				Project: "proj", UseClientOAuth: "true",
+				APIEndpoint: "https://proxy.example.com",
+			},
+			wantEndpoint: "https://proxy.example.com:443",
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			src, err := tc.cfg.Initialize(ctx, tracer, false)
+			if err != nil {
+				t.Fatalf("Initialize failed: %v", err)
+			}
+			bqSrc, ok := src.(*bigquery.Source)
+			if !ok {
+				t.Fatalf("expected *bigquery.Source, got %T", src)
+			}
+			if bqSrc.APIEndpoint != tc.cfg.APIEndpoint {
+				t.Errorf("Config.APIEndpoint = %q, want %q", bqSrc.APIEndpoint, tc.cfg.APIEndpoint)
+			}
+			// Exercise the ClientCreator; neither constructor makes a network call.
+			_, _, err = bqSrc.BigQueryClientCreator()("fake-token", false)
+			if err != nil {
+				t.Errorf("ClientCreator unexpectedly failed with endpoint %q: %v", tc.wantEndpoint, err)
 			}
 		})
 	}
@@ -734,7 +902,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 				tt.cfg.Type = bigquery.SourceType
 				tt.cfg.Project = "test-project"
 			}
-			src, err := tt.cfg.Initialize(ctx, tracer)
+			src, err := tt.cfg.Initialize(ctx, tracer, false)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.wantErr)

@@ -59,44 +59,66 @@ func (r Config) SourceConfigType() string {
 }
 
 // Initialize initializes a Cloud Monitoring Source instance.
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	ua, err := util.UserAgentFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	var client *http.Client
-	if r.UseClientOAuth {
-		client = &http.Client{
-			Transport: util.NewUserAgentRoundTripper(ua, http.DefaultTransport),
-		}
-	} else {
-		// Use Application Default Credentials
-		creds, err := google.FindDefaultCredentials(ctx, monitoring.MonitoringScope)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find default credentials: %w", err)
-		}
-		baseClient := oauth2.NewClient(ctx, creds.TokenSource)
-		baseClient.Transport = util.NewUserAgentRoundTripper(ua, baseClient.Transport)
-		client = baseClient
-	}
-
-	s := &Source{
-		Config:    r,
-		baseURL:   "https://monitoring.googleapis.com",
-		client:    client,
-		userAgent: ua,
+	if _, err := s.clients(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config:  r,
+		baseURL: "https://monitoring.googleapis.com",
+		tracer:  tracer,
+		conn:    sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+	}
+}
+
+// clientSet pairs the client with the user agent read from the same connect context.
+type clientSet struct {
+	client    *http.Client
+	userAgent string
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	baseURL   string
-	client    *http.Client
-	userAgent string
+	baseURL string
+	tracer  trace.Tracer
+	conn    *sources.ConnectOnce[*clientSet]
+}
+
+func (s *Source) clients(ctx context.Context) (*clientSet, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
+		ua, err := util.UserAgentFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
+		}
+
+		var client *http.Client
+		if s.UseClientOAuth {
+			client = &http.Client{
+				Transport: util.NewUserAgentRoundTripper(ua, http.DefaultTransport),
+			}
+		} else {
+			// Use Application Default Credentials
+			creds, err := google.FindDefaultCredentials(ctx, monitoring.MonitoringScope)
+			if err != nil {
+				return nil, fmt.Errorf("failed to find default credentials: %w", err)
+			}
+			baseClient := oauth2.NewClient(ctx, creds.TokenSource)
+			baseClient.Transport = util.NewUserAgentRoundTripper(ua, baseClient.Transport)
+			client = baseClient
+		}
+
+		return &clientSet{client: client, userAgent: ua}, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -115,12 +137,22 @@ func (s *Source) BaseURL() string {
 	return s.baseURL
 }
 
+// Client reports the HTTP client once connected.
 func (s *Source) Client() *http.Client {
-	return s.client
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.client
 }
 
+// UserAgent reports the user agent once connected.
 func (s *Source) UserAgent() string {
-	return s.userAgent
+	cs, ok := s.conn.Get()
+	if !ok {
+		return ""
+	}
+	return cs.userAgent
 }
 
 func (s *Source) GetClient(ctx context.Context, accessToken string) (*http.Client, error) {
@@ -131,14 +163,23 @@ func (s *Source) GetClient(ctx context.Context, accessToken string) (*http.Clien
 		token := &oauth2.Token{AccessToken: accessToken}
 		return oauth2.NewClient(ctx, oauth2.StaticTokenSource(token)), nil
 	}
-	return s.client, nil
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return cs.client, nil
 }
 
 func (s *Source) UseClientAuthorization() bool {
 	return s.UseClientOAuth
 }
 
-func (s *Source) RunQuery(projectID, query string) (any, error) {
+func (s *Source) RunQuery(ctx context.Context, projectID, query string) (any, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	url := fmt.Sprintf("%s/v1/projects/%s/location/global/prometheus/api/v1/query", s.BaseURL(), projectID)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -150,9 +191,9 @@ func (s *Source) RunQuery(projectID, query string) (any, error) {
 	q.Add("query", query)
 	req.URL.RawQuery = q.Encode()
 
-	req.Header.Set("User-Agent", s.UserAgent())
+	req.Header.Set("User-Agent", cs.userAgent)
 
-	resp, err := s.Client().Do(req)
+	resp, err := cs.client.Do(req)
 	if err != nil {
 		return nil, err
 	}

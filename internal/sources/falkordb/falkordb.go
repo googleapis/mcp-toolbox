@@ -77,7 +77,7 @@ func (r Config) validateTLS() error {
 	return nil
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	if err := r.validateTLS(); err != nil {
 		return nil, err
 	}
@@ -90,28 +90,24 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		logger.WarnContext(ctx, fmt.Sprintf("TLS certificate verification is skipped (insecureSkipVerify: true) for FalkorDB source %s. This exposes traffic for this source to man-in-the-middle attacks. Do not use in production.", r.Name))
 	}
 
-	client, err := initFalkorDBClient(ctx, tracer, r)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create client: %w", err)
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	if err := client.Conn.Ping(ctx).Err(); err != nil {
-		client.Conn.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
-	s := &Source{
-		Config: r,
-		Client: client,
+	if _, err := s.client(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
 
-func initFalkorDBClient(ctx context.Context, tracer trace.Tracer, r Config) (*falkordb.FalkorDB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, r.Name)
-	defer span.End()
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[*falkordb.FalkorDB](ctx, r.Name, SourceType, tracer),
+	}
+}
 
+func initFalkorDBClient(ctx context.Context, r Config) (*falkordb.FalkorDB, error) {
 	opts := &falkordb.ConnectionOption{
 		Addr:     net.JoinHostPort(r.Host, r.Port),
 		Username: r.Username,
@@ -135,7 +131,21 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Client *falkordb.FalkorDB
+	conn *sources.ConnectOnce[*falkordb.FalkorDB]
+}
+
+func (s *Source) client(ctx context.Context) (*falkordb.FalkorDB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*falkordb.FalkorDB, error) {
+		client, err := initFalkorDBClient(ctx, s.Config)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create client: %w", err)
+		}
+		if err := client.Conn.Ping(ctx).Err(); err != nil {
+			client.Conn.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return client, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -150,8 +160,15 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// FalkorDBClient reports the client once connected; use FalkorDBClientContext to guarantee one.
 func (s *Source) FalkorDBClient() *falkordb.FalkorDB {
-	return s.Client
+	client, _ := s.conn.Get()
+	return client
+}
+
+// FalkorDBClientContext returns the client, connecting on first use.
+func (s *Source) FalkorDBClientContext(ctx context.Context) (*falkordb.FalkorDB, error) {
+	return s.client(ctx)
 }
 
 func (s *Source) DefaultGraph() string {
@@ -166,13 +183,17 @@ func (s *Source) RunQuery(ctx context.Context, graphName, cypherStr string, para
 	if graphName == "" {
 		graphName = s.Graph
 	}
-	graph := s.Client.SelectGraph(graphName)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	graph := client.SelectGraph(graphName)
 
 	if dryRun {
 		// GRAPH.EXPLAIN replies with an array of plan lines, which
 		// falkordb-go's ExecutionPlan does not handle; issue the command
 		// directly instead.
-		plan, err := s.Client.Conn.Do(ctx, "GRAPH.EXPLAIN", graphName, cypherStr).StringSlice()
+		plan, err := client.Conn.Do(ctx, "GRAPH.EXPLAIN", graphName, cypherStr).StringSlice()
 		if err != nil {
 			return nil, fmt.Errorf("unable to explain query: %w", err)
 		}
@@ -185,7 +206,6 @@ func (s *Source) RunQuery(ctx context.Context, graphName, cypherStr string, para
 	}
 
 	var results *falkordb.QueryResult
-	var err error
 	if readOnly {
 		results, err = graph.ROQuery(cypherStr, params, opts)
 	} else {

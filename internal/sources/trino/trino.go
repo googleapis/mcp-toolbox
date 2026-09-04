@@ -71,30 +71,51 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initTrinoConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Catalog, r.Schema, r.QueryTimeout, r.AccessToken, r.KerberosEnabled, r.SSLEnabled, r.SSLCertPath, r.SSLCert, r.DisableSslVerification)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	err = pool.PingContext(ctx)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
-	s := &Source{
-		Config: r,
-		Pool:   pool,
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	// The ping issues a query, which Trino bounds by queryTimeout, so the
+	// connect must not be capped tighter. Trino owns this value's format, so a
+	// string it does not recognise as a duration just leaves the default.
+	var opts []sources.Option
+	if timeout, err := time.ParseDuration(r.QueryTimeout); err == nil && timeout > 0 {
+		opts = append(opts, sources.WithMinConnectTimeout(timeout))
+	}
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer, opts...),
+	}
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *sql.DB
+	conn *sources.ConnectOnce[*sql.DB]
+}
+
+func (s *Source) pool(ctx context.Context) (*sql.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
+		pool, err := initTrinoConnectionPool(ctx, s.Name, s.Host, s.Port, s.User, s.Password, s.Catalog, s.Schema, s.QueryTimeout, s.AccessToken, s.KerberosEnabled, s.SSLEnabled, s.SSLCertPath, s.SSLCert, s.DisableSslVerification)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+
+		if err := pool.PingContext(ctx); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -109,12 +130,18 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// TrinoDB reports the pool once connected.
 func (s *Source) TrinoDB() *sql.DB {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	results, err := s.TrinoDB().QueryContext(ctx, statement, params...)
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results, err := pool.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -163,11 +190,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initTrinoConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, password, catalog, schema, queryTimeout, accessToken string, kerberosEnabled, sslEnabled bool, sslCertPath, sslCert string, disableSslVerification bool) (*sql.DB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initTrinoConnectionPool(ctx context.Context, name, host, port, user, password, catalog, schema, queryTimeout, accessToken string, kerberosEnabled, sslEnabled bool, sslCertPath, sslCert string, disableSslVerification bool) (*sql.DB, error) {
 	// Build Trino DSN
 	dsn, err := buildTrinoDSN(host, port, user, password, catalog, schema, queryTimeout, accessToken, kerberosEnabled, sslEnabled, sslCertPath, sslCert)
 	if err != nil {

@@ -80,67 +80,89 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	// Initializes a Dataplex source
-	client, dataScanClient, dataProductClient, projectsClient, err := initDataplexConnection(ctx, tracer, r.Name, r.Project, r.ImpersonateServiceAccount, r.Scopes)
-	if err != nil {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.clients(ctx); err != nil {
 		return nil, err
 	}
-
-	// Resolve project number
-	proj, err := projectsClient.GetProject(ctx, &resourcemanagerpb.GetProjectRequest{
-		Name: "projects/" + r.Project,
-	})
-	if err != nil {
-		client.Close()
-		dataScanClient.Close()
-		dataProductClient.Close()
-		projectsClient.Close()
-		return nil, fmt.Errorf("failed to get project details for project %q: %w", r.Project, err)
-	}
-	parts := strings.Split(proj.Name, "/")
-	if len(parts) < 2 {
-		client.Close()
-		dataScanClient.Close()
-		dataProductClient.Close()
-		projectsClient.Close()
-		return nil, fmt.Errorf("unexpected project resource name format: %q", proj.Name)
-	}
-	projectNumberStr := parts[1]
-	projectNumber, err := strconv.ParseInt(projectNumberStr, 10, 64)
-	if err != nil {
-		client.Close()
-		dataScanClient.Close()
-		dataProductClient.Close()
-		projectsClient.Close()
-		return nil, fmt.Errorf("failed to parse project number %q as int64: %w", projectNumberStr, err)
-	}
-
-	s := &Source{
-		Config:            r,
-		Client:            client,
-		DataScanClient:    dataScanClient,
-		dataProductClient: dataProductClient,
-		projectsClient:    projectsClient,
-		projectNumber:     projectNumber,
-	}
-
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+	}
 }
 
 var _ sources.Source = &Source{}
 
-type Source struct {
-	Config
-	Client            *dataplexapi.CatalogClient
-	DataScanClient    *dataplexapi.DataScanClient
+type clientSet struct {
+	client            *dataplexapi.CatalogClient
+	dataScanClient    *dataplexapi.DataScanClient
 	dataProductClient *dataplexapi.DataProductClient
 	projectsClient    *resourcemanager.ProjectsClient
 	projectNumber     int64
 }
 
+type Source struct {
+	Config
+	conn *sources.ConnectOnce[*clientSet]
+}
+
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) clients(ctx context.Context) (*clientSet, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
+		r := s.Config
+		client, dataScanClient, dataProductClient, projectsClient, err := initDataplexConnection(ctx, r.Project, r.ImpersonateServiceAccount, r.Scopes)
+		if err != nil {
+			return nil, err
+		}
+
+		// Resolve project number
+		proj, err := projectsClient.GetProject(ctx, &resourcemanagerpb.GetProjectRequest{
+			Name: "projects/" + r.Project,
+		})
+		if err != nil {
+			client.Close()
+			dataScanClient.Close()
+			dataProductClient.Close()
+			projectsClient.Close()
+			return nil, fmt.Errorf("failed to get project details for project %q: %w", r.Project, err)
+		}
+		parts := strings.Split(proj.Name, "/")
+		if len(parts) < 2 {
+			client.Close()
+			dataScanClient.Close()
+			dataProductClient.Close()
+			projectsClient.Close()
+			return nil, fmt.Errorf("unexpected project resource name format: %q", proj.Name)
+		}
+		projectNumberStr := parts[1]
+		projectNumber, err := strconv.ParseInt(projectNumberStr, 10, 64)
+		if err != nil {
+			client.Close()
+			dataScanClient.Close()
+			dataProductClient.Close()
+			projectsClient.Close()
+			return nil, fmt.Errorf("failed to parse project number %q as int64: %w", projectNumberStr, err)
+		}
+
+		return &clientSet{
+			client:            client,
+			dataScanClient:    dataScanClient,
+			dataProductClient: dataProductClient,
+			projectsClient:    projectsClient,
+			projectNumber:     projectNumber,
+		}, nil
+	})
 }
 
 func (s *Source) SourceType() string {
@@ -156,37 +178,66 @@ func (s *Source) ProjectID() string {
 	return s.Project
 }
 
+// ProjectNumber reports the number resolved on connect, or 0; use ProjectNumberContext for a resolved one.
 func (s *Source) ProjectNumber() int64 {
-	return s.projectNumber
+	cs, ok := s.conn.Get()
+	if !ok {
+		return 0
+	}
+	return cs.projectNumber
 }
 
+// ProjectNumberContext returns the project number, connecting on first use.
+func (s *Source) ProjectNumberContext(ctx context.Context) (int64, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return cs.projectNumber, nil
+}
+
+// ProjectsClient reports the Resource Manager client once connected.
 func (s *Source) ProjectsClient() *resourcemanager.ProjectsClient {
-	return s.projectsClient
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.projectsClient
 }
 
+// CatalogClient reports the catalog client if one has been made.
 func (s *Source) CatalogClient() *dataplexapi.CatalogClient {
-	return s.Client
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.client
 }
 
+// GetDataScanClient reports the data scan client if one has been made.
 func (s *Source) GetDataScanClient() *dataplexapi.DataScanClient {
-	return s.DataScanClient
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.dataScanClient
 }
 
+// GetDataProductClient reports the data product client if one has been made.
 func (s *Source) GetDataProductClient() *dataplexapi.DataProductClient {
-	return s.dataProductClient
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.dataProductClient
 }
 
 func initDataplexConnection(
 	ctx context.Context,
-	tracer trace.Tracer,
-	name string,
 	project string,
 	impersonateServiceAccount string,
 	scopes []string,
 ) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, *dataplexapi.DataProductClient, *resourcemanager.ProjectsClient, error) {
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -266,7 +317,11 @@ func (s *Source) LookupEntry(ctx context.Context, name string, view int, aspectT
 		AspectTypes: aspectTypes,
 		Entry:       entry,
 	}
-	result, err := s.CatalogClient().LookupEntry(ctx, req)
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := cs.client.LookupEntry(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +329,11 @@ func (s *Source) LookupEntry(ctx context.Context, name string, view int, aspectT
 }
 
 func (s *Source) searchRequest(ctx context.Context, query string, pageSize int, orderBy string, scope string) (*dataplexapi.SearchEntriesResultIterator, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Create SearchEntriesRequest with the provided parameters
 	req := &dataplexpb.SearchEntriesRequest{
 		Query:          query,
@@ -288,7 +348,7 @@ func (s *Source) searchRequest(ctx context.Context, query string, pageSize int, 
 	}
 
 	// Perform the search using the CatalogClient - this will return an iterator
-	it := s.CatalogClient().SearchEntries(ctx, req)
+	it := cs.client.SearchEntries(ctx, req)
 	if it == nil {
 		return nil, fmt.Errorf("failed to create search entries iterator for project %q", s.ProjectID())
 	}
@@ -298,6 +358,10 @@ func (s *Source) searchRequest(ctx context.Context, query string, pageSize int, 
 func (s *Source) SearchAspectTypes(ctx context.Context, query string, pageSize int, orderBy string) ([]*dataplexpb.AspectType, error) {
 	if pageSize <= 0 {
 		return nil, fmt.Errorf("pageSize must be positive: %d", pageSize)
+	}
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
 	}
 	q := query + " type=projects/dataplex-types/locations/global/entryTypes/aspecttype"
 	it, err := s.searchRequest(ctx, q, pageSize, orderBy, "")
@@ -332,7 +396,7 @@ func (s *Source) SearchAspectTypes(ctx context.Context, query string, pageSize i
 		}
 
 		operation := func() (*dataplexpb.AspectType, error) {
-			aspectType, err := s.CatalogClient().GetAspectType(ctx, getAspectTypeReq)
+			aspectType, err := cs.client.GetAspectType(ctx, getAspectTypeReq)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get aspect type for entry %q: %w", resourceName, err)
 			}
@@ -383,7 +447,11 @@ func (s *Source) LookupContext(ctx context.Context, name string, resources []str
 		Name:      name,
 		Resources: resources,
 	}
-	result, err := s.CatalogClient().LookupContext(ctx, req)
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := cs.client.LookupContext(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -391,6 +459,10 @@ func (s *Source) LookupContext(ctx context.Context, name string, resources []str
 }
 
 func (s *Source) SearchDataQualityScans(ctx context.Context, filter string, pageSize int, orderBy string) ([]*dataplexpb.DataScan, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if pageSize <= 0 {
 		return nil, fmt.Errorf("pageSize must be positive: %d", pageSize)
 	}
@@ -401,7 +473,7 @@ func (s *Source) SearchDataQualityScans(ctx context.Context, filter string, page
 		OrderBy:  orderBy,
 	}
 
-	it := s.GetDataScanClient().ListDataScans(ctx, req)
+	it := cs.dataScanClient.ListDataScans(ctx, req)
 
 	var results []*dataplexpb.DataScan
 	for len(results) < pageSize {
@@ -434,6 +506,10 @@ func (s *Source) ListDataProducts(
 	pageSize int,
 	orderBy string,
 ) ([]*DataProductSummary, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if pageSize <= 0 {
 		return nil, fmt.Errorf("pageSize must be positive: %d", pageSize)
 	}
@@ -445,7 +521,7 @@ func (s *Source) ListDataProducts(
 		OrderBy:  orderBy,
 	}
 
-	it := s.GetDataProductClient().ListDataProducts(ctx, req)
+	it := cs.dataProductClient.ListDataProducts(ctx, req)
 	var results []*DataProductSummary
 
 	for len(results) < pageSize {
@@ -496,11 +572,15 @@ type DataProduct struct {
 }
 
 func (s *Source) GetDataProduct(ctx context.Context, locationID string, dataProductID string) (*DataProduct, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	name := fmt.Sprintf("projects/%s/locations/%s/dataProducts/%s", s.ProjectID(), locationID, dataProductID)
 	req := &dataplexpb.GetDataProductRequest{
 		Name: name,
 	}
-	resp, err := s.GetDataProductClient().GetDataProduct(ctx, req)
+	resp, err := cs.dataProductClient.GetDataProduct(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -554,6 +634,10 @@ func (s *Source) ListDataAssets(
 	pageSize int,
 	orderBy string,
 ) ([]*DataAsset, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if pageSize <= 0 {
 		return nil, fmt.Errorf("pageSize must be positive: %d", pageSize)
 	}
@@ -565,7 +649,7 @@ func (s *Source) ListDataAssets(
 		OrderBy:  orderBy,
 	}
 
-	it := s.GetDataProductClient().ListDataAssets(ctx, req)
+	it := cs.dataProductClient.ListDataAssets(ctx, req)
 	var results []*DataAsset
 
 	for len(results) < pageSize {
@@ -598,11 +682,15 @@ func (s *Source) ListDataAssets(
 }
 
 func (s *Source) GetDataAsset(ctx context.Context, locationID string, dataProductID string, dataAssetID string) (*DataAsset, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	name := fmt.Sprintf("projects/%s/locations/%s/dataProducts/%s/dataAssets/%s", s.ProjectID(), locationID, dataProductID, dataAssetID)
 	req := &dataplexpb.GetDataAssetRequest{
 		Name: name,
 	}
-	resp, err := s.GetDataProductClient().GetDataAsset(ctx, req)
+	resp, err := cs.dataProductClient.GetDataAsset(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -635,6 +723,10 @@ func (s *Source) CreateDataProduct(
 	ownerEmails []string,
 	accessGroups []AccessGroup,
 ) (map[string]string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	parent := fmt.Sprintf("projects/%s/locations/%s", s.ProjectID(), locationID)
 
 	agMap := make(map[string]*dataplexpb.DataProduct_AccessGroup)
@@ -667,7 +759,7 @@ func (s *Source) CreateDataProduct(
 		},
 	}
 
-	op, err := s.GetDataProductClient().CreateDataProduct(ctx, req)
+	op, err := cs.dataProductClient.CreateDataProduct(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -693,6 +785,10 @@ func (s *Source) UpdateDataProduct(
 	accessGroups []AccessGroup,
 	updateMask []string,
 ) (map[string]string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	name := fmt.Sprintf("projects/%s/locations/%s/dataProducts/%s", s.ProjectID(), locationID, dataProductID)
 
 	agMap := make(map[string]*dataplexpb.DataProduct_AccessGroup)
@@ -736,7 +832,7 @@ func (s *Source) UpdateDataProduct(
 		}
 	}
 
-	op, err := s.GetDataProductClient().UpdateDataProduct(ctx, req)
+	op, err := cs.dataProductClient.UpdateDataProduct(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -761,6 +857,10 @@ func (s *Source) CreateDataAsset(
 	labels map[string]string,
 	accessGroupConfigs map[string][]string,
 ) (map[string]string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	parent := fmt.Sprintf("projects/%s/locations/%s/dataProducts/%s", s.ProjectID(), locationID, dataProductID)
 
 	agcMap := make(map[string]*dataplexpb.DataAsset_AccessGroupConfig)
@@ -780,7 +880,7 @@ func (s *Source) CreateDataAsset(
 		},
 	}
 
-	op, err := s.GetDataProductClient().CreateDataAsset(ctx, req)
+	op, err := cs.dataProductClient.CreateDataAsset(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -805,6 +905,10 @@ func (s *Source) UpdateDataAsset(
 	accessGroupConfigs map[string][]string,
 	updateMask []string,
 ) (map[string]string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	name := fmt.Sprintf("projects/%s/locations/%s/dataProducts/%s/dataAssets/%s", s.ProjectID(), locationID, dataProductID, dataAssetID)
 
 	agcMap := make(map[string]*dataplexpb.DataAsset_AccessGroupConfig)
@@ -832,7 +936,7 @@ func (s *Source) UpdateDataAsset(
 		}
 	}
 
-	op, err := s.GetDataProductClient().UpdateDataAsset(ctx, req)
+	op, err := cs.dataProductClient.UpdateDataAsset(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -849,14 +953,22 @@ func (s *Source) UpdateDataAsset(
 }
 
 func (s *Source) UpdateEntry(ctx context.Context, entry *dataplexpb.Entry, updateMask *fieldmaskpb.FieldMask) (*dataplexpb.Entry, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	req := &dataplexpb.UpdateEntryRequest{
 		Entry:      entry,
 		UpdateMask: updateMask,
 	}
-	return s.CatalogClient().UpdateEntry(ctx, req)
+	return cs.client.UpdateEntry(ctx, req)
 }
 
 func (s *Source) GenerateDataInsights(ctx context.Context, location, resourcePath string, publish bool) (string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return "", err
+	}
 	parent := fmt.Sprintf("projects/%s/locations/%s", s.ProjectID(), location)
 	dataScanID := fmt.Sprintf("nq-doc-%s", uuid.New().String())
 
@@ -888,7 +1000,7 @@ func (s *Source) GenerateDataInsights(ctx context.Context, location, resourcePat
 		},
 	}
 
-	op, err := s.DataScanClient.CreateDataScan(ctx, req)
+	op, err := cs.dataScanClient.CreateDataScan(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -896,15 +1008,23 @@ func (s *Source) GenerateDataInsights(ctx context.Context, location, resourcePat
 }
 
 func (s *Source) GetDataScan(ctx context.Context, location, scanID string) (*dataplexpb.DataScan, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	name := fmt.Sprintf("projects/%s/locations/%s/dataScans/%s", s.ProjectID(), location, scanID)
 	req := &dataplexpb.GetDataScanRequest{
 		Name: name,
 		View: dataplexpb.GetDataScanRequest_FULL,
 	}
-	return s.DataScanClient.GetDataScan(ctx, req)
+	return cs.dataScanClient.GetDataScan(ctx, req)
 }
 
 func (s *Source) GetOperation(ctx context.Context, opName string) (map[string]any, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if !operationNameRegex.MatchString(opName) {
 		return nil, fmt.Errorf("invalid operation name format: %q (expected projects/*/locations/*/operations/*)", opName)
 	}
@@ -912,7 +1032,7 @@ func (s *Source) GetOperation(ctx context.Context, opName string) (map[string]an
 	req := &longrunningpb.GetOperationRequest{
 		Name: opName,
 	}
-	op, err := s.DataScanClient.LROClient.GetOperation(ctx, req)
+	op, err := cs.dataScanClient.LROClient.GetOperation(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -931,13 +1051,17 @@ func (s *Source) GetOperation(ctx context.Context, opName string) (map[string]an
 }
 
 func (s *Source) GetJobStatus(ctx context.Context, location, scanID, jobID string) (*dataplexpb.DataScanJob, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// If jobID is provided, fetch that specific job directly!
 	if jobID != "" {
 		name := fmt.Sprintf("projects/%s/locations/%s/dataScans/%s/jobs/%s", s.ProjectID(), location, scanID, jobID)
 		req := &dataplexpb.GetDataScanJobRequest{
 			Name: name,
 		}
-		return s.DataScanClient.GetDataScanJob(ctx, req)
+		return cs.dataScanClient.GetDataScanJob(ctx, req)
 	}
 
 	// Fallback to listing and returning the latest job (PageSize: 1)
@@ -947,7 +1071,7 @@ func (s *Source) GetJobStatus(ctx context.Context, location, scanID, jobID strin
 		PageSize: 1,
 	}
 
-	it := s.DataScanClient.ListDataScanJobs(ctx, req)
+	it := cs.dataScanClient.ListDataScanJobs(ctx, req)
 	if it == nil {
 		return nil, fmt.Errorf("failed to list data scan jobs for scan %q", scanID)
 	}
@@ -964,6 +1088,10 @@ func (s *Source) GetJobStatus(ctx context.Context, location, scanID, jobID strin
 }
 
 func (s *Source) GenerateDataProfile(ctx context.Context, location, resourcePath string, publish bool) (string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return "", err
+	}
 	parent := fmt.Sprintf("projects/%s/locations/%s", s.ProjectID(), location)
 	dataScanID := fmt.Sprintf("nq-prof-%s", uuid.New().String())
 
@@ -995,7 +1123,7 @@ func (s *Source) GenerateDataProfile(ctx context.Context, location, resourcePath
 		},
 	}
 
-	op, err := s.DataScanClient.CreateDataScan(ctx, req)
+	op, err := cs.dataScanClient.CreateDataScan(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -1003,6 +1131,10 @@ func (s *Source) GenerateDataProfile(ctx context.Context, location, resourcePath
 }
 
 func (s *Source) GenerateDataDiscovery(ctx context.Context, location, resourcePath string) (string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return "", err
+	}
 	parent := fmt.Sprintf("projects/%s/locations/%s", s.ProjectID(), location)
 	dataScanID := fmt.Sprintf("nq-disc-%s", uuid.New().String())
 
@@ -1032,7 +1164,7 @@ func (s *Source) GenerateDataDiscovery(ctx context.Context, location, resourcePa
 		},
 	}
 
-	op, err := s.DataScanClient.CreateDataScan(ctx, req)
+	op, err := cs.dataScanClient.CreateDataScan(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -1040,6 +1172,10 @@ func (s *Source) GenerateDataDiscovery(ctx context.Context, location, resourcePa
 }
 
 func (s *Source) GenerateDataQuality(ctx context.Context, location, resourcePath string, specJSON string, publish bool) (string, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return "", err
+	}
 	parent := fmt.Sprintf("projects/%s/locations/%s", s.ProjectID(), location)
 	dataScanID := fmt.Sprintf("nq-dq-%s", uuid.New().String())
 
@@ -1075,7 +1211,7 @@ func (s *Source) GenerateDataQuality(ctx context.Context, location, resourcePath
 		},
 	}
 
-	op, err := s.DataScanClient.CreateDataScan(ctx, req)
+	op, err := cs.dataScanClient.CreateDataScan(ctx, req)
 	if err != nil {
 		return "", err
 	}

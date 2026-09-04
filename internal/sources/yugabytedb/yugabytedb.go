@@ -62,30 +62,45 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initYugabyteDBConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.LoadBalance, r.TopologyKeys, r.YBServersRefreshInterval, r.FallBackToTopologyKeysOnly, r.FailedHostReconnectDelaySeconds)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	err = pool.Ping(ctx)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
-	s := &Source{
-		Config: r,
-		Pool:   pool,
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[*pgxpool.Pool](ctx, r.Name, SourceType, tracer),
+	}
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *pgxpool.Pool
+	conn *sources.ConnectOnce[*pgxpool.Pool]
+}
+
+func (s *Source) pool(ctx context.Context) (*pgxpool.Pool, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*pgxpool.Pool, error) {
+		pool, err := initYugabyteDBConnectionPool(ctx, s.Host, s.Port, s.User, s.Password, s.Database, s.LoadBalance, s.TopologyKeys, s.YBServersRefreshInterval, s.FallBackToTopologyKeysOnly, s.FailedHostReconnectDelaySeconds)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+
+		err = pool.Ping(ctx)
+		if err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -100,12 +115,18 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// YugabyteDBPool reports the pool once connected.
 func (s *Source) YugabyteDBPool() *pgxpool.Pool {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	results, err := s.YugabyteDBPool().Query(ctx, statement, params...)
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results, err := pool.Query(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -134,10 +155,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initYugabyteDBConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname, loadBalance, topologyKeys, refreshInterval, explicitFallback, failedHostTTL string) (*pgxpool.Pool, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
+func initYugabyteDBConnectionPool(ctx context.Context, host, port, user, pass, dbname, loadBalance, topologyKeys, refreshInterval, explicitFallback, failedHostTTL string) (*pgxpool.Pool, error) {
 	// urlExample := "postgres://username:password@localhost:5433/database_name"
 	i := fmt.Sprintf("postgres://%s:%s@%s:%s/%s", user, pass, host, port, dbname)
 	if loadBalance == "true" {

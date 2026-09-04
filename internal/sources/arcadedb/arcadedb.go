@@ -77,30 +77,43 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	driver, err := initArcadeDBDriver(ctx, tracer, r.Uri, r.User, r.Password, r.Name)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create driver: %w", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	err = driver.VerifyConnectivity(ctx)
-	if err != nil {
-		driver.Close(ctx)
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
-	s := &Source{
-		Config: r,
-		Driver: driver,
+	if _, err := s.driver(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[neo4j.Driver](ctx, r.Name, SourceType, tracer),
+	}
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Driver neo4j.Driver
+	conn *sources.ConnectOnce[neo4j.Driver]
+}
+
+func (s *Source) driver(ctx context.Context) (neo4j.Driver, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (neo4j.Driver, error) {
+		driver, err := initArcadeDBDriver(ctx, s.Uri, s.User, s.Password)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create driver: %w", err)
+		}
+		if err := driver.VerifyConnectivity(ctx); err != nil {
+			driver.Close(ctx)
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return driver, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -115,8 +128,10 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// ArcadeDBDriver reports the driver once connected.
 func (s *Source) ArcadeDBDriver() neo4j.Driver {
-	return s.Driver
+	driver, _ := s.conn.Get()
+	return driver
 }
 
 func (s *Source) ArcadeDBDatabase() string {
@@ -137,8 +152,13 @@ func (s *Source) RunCypher(ctx context.Context, cypherStr string, params map[str
 		cypherStr = "EXPLAIN " + cypherStr
 	}
 
+	driver, err := s.driver(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	config := neo4j.ExecuteQueryWithDatabase(s.ArcadeDBDatabase())
-	results, err := neo4j.ExecuteQuery[*neo4j.EagerResult](ctx, s.ArcadeDBDriver(), cypherStr, params,
+	results, err := neo4j.ExecuteQuery[*neo4j.EagerResult](ctx, driver, cypherStr, params,
 		neo4j.EagerResultTransformer, config)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
@@ -315,10 +335,7 @@ func (s *Source) arcadeHTTPEndpointURL(endpoint string) (string, error) {
 		url.PathEscape(s.ArcadeDBDatabase())), nil
 }
 
-func initArcadeDBDriver(ctx context.Context, tracer trace.Tracer, uri, user, password, name string) (neo4j.Driver, error) {
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initArcadeDBDriver(ctx context.Context, uri, user, password string) (neo4j.Driver, error) {
 	auth := neo4j.BasicAuth(user, password, "")
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {

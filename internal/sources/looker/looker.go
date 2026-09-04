@@ -88,74 +88,57 @@ func (r Config) SourceConfigType() string {
 }
 
 // Initialize initializes a Looker Source instance.
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	logger, err := util.LoggerFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
-	}
-
-	userAgent, err := util.UserAgentFromContext(ctx)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s, err := r.newSource(ctx, tracer)
 	if err != nil {
 		return nil, err
 	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.clients(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 
-	duration, err := time.ParseDuration(r.Timeout)
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) (*Source, error) {
+	authTokenHeaderName := "Authorization"
+	if useOAuth := strings.ToLower(r.UseClientOAuth); useOAuth != "false" && useOAuth != "true" {
+		authTokenHeaderName = r.UseClientOAuth
+	}
+	// A malformed timeout needs no network to detect, so it fails at startup.
+	timeout, err := time.ParseDuration(r.Timeout)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse Timeout string as time.Duration: %s", err)
 	}
-
-	if !r.SslVerification {
-		logger.WarnContext(ctx, "Insecure HTTP is enabled for Looker source %s. TLS certificate verification is skipped.\n", r.Name)
-	}
-	cfg := rtl.ApiSettings{
-		AgentTag:     userAgent,
-		BaseUrl:      r.BaseURL,
-		ApiVersion:   "4.0",
-		VerifySsl:    r.SslVerification,
-		Timeout:      int32(duration.Seconds()),
-		ClientId:     r.ClientId,
-		ClientSecret: r.ClientSecret,
-	}
-
-	var tokenSource oauth2.TokenSource
-	tokenSource, _ = initGoogleCloudConnection(ctx)
-
-	s := &Source{
+	// The connect logs in through the SDK, so it needs the full configured timeout.
+	opts := []sources.Option{sources.WithMinConnectTimeout(timeout)}
+	return &Source{
 		Config:              r,
-		ApiSettings:         &cfg,
-		TokenSource:         tokenSource,
-		AuthTokenHeaderName: "Authorization",
-	}
-
-	if strings.ToLower(r.UseClientOAuth) == "false" {
-		if r.ClientId == "" || r.ClientSecret == "" {
-			return nil, fmt.Errorf("client_id and client_secret need to be specified")
-		}
-		s.Client = v4.NewLookerSDK(rtl.NewAuthSession(cfg))
-		resp, err := s.Client.Me("", s.ApiSettings)
-		if err != nil {
-			return nil, fmt.Errorf("incorrect settings: %w", err)
-		}
-		logger.DebugContext(ctx, fmt.Sprintf("logged in as %s %s", *resp.FirstName, *resp.LastName))
-	} else {
-		if strings.ToLower(r.UseClientOAuth) != "true" {
-			s.AuthTokenHeaderName = r.UseClientOAuth
-		}
-		logger.DebugContext(ctx, fmt.Sprintf("Using AuthTokenHeaderName: %s", s.AuthTokenHeaderName))
-	}
-
-	return s, nil
-
+		AuthTokenHeaderName: authTokenHeaderName,
+		timeout:             timeout,
+		tracer:              tracer,
+		conn:                sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer, opts...),
+	}, nil
 }
 
 var _ sources.Source = &Source{}
 
+// clientSet holds the API settings, whose user agent comes from the connect context, and the API-key sdk, nil under client OAuth.
+type clientSet struct {
+	apiSettings *rtl.ApiSettings
+	sdk         *v4.LookerSDK
+	tokenSource oauth2.TokenSource
+}
+
 type Source struct {
 	Config
-	Client              *v4.LookerSDK
-	ApiSettings         *rtl.ApiSettings
-	TokenSource         oauth2.TokenSource
 	AuthTokenHeaderName string
+
+	timeout time.Duration
+	tracer  trace.Tracer
+	conn    *sources.ConnectOnce[*clientSet]
 
 	hostURLMu       sync.RWMutex
 	cachedHostURL   string
@@ -167,6 +150,53 @@ type Source struct {
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) clients(ctx context.Context) (*clientSet, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
+		logger, err := util.LoggerFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
+		}
+
+		userAgent, err := util.UserAgentFromContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if !s.SslVerification {
+			logger.WarnContext(ctx, "Insecure HTTP is enabled for Looker source %s. TLS certificate verification is skipped.\n", s.Name)
+		}
+		cfg := rtl.ApiSettings{
+			AgentTag:     userAgent,
+			BaseUrl:      s.BaseURL,
+			ApiVersion:   "4.0",
+			VerifySsl:    s.SslVerification,
+			Timeout:      int32(s.timeout.Seconds()),
+			ClientId:     s.ClientId,
+			ClientSecret: s.ClientSecret,
+		}
+
+		tokenSource, _ := initGoogleCloudConnection(ctx)
+		cs := &clientSet{apiSettings: &cfg, tokenSource: tokenSource}
+
+		if strings.ToLower(s.UseClientOAuth) == "false" {
+			if s.ClientId == "" || s.ClientSecret == "" {
+				return nil, fmt.Errorf("client_id and client_secret need to be specified")
+			}
+			sdk := v4.NewLookerSDK(rtl.NewAuthSession(cfg))
+			resp, err := sdk.Me("", cs.apiSettings)
+			if err != nil {
+				return nil, fmt.Errorf("incorrect settings: %w", err)
+			}
+			logger.DebugContext(ctx, fmt.Sprintf("logged in as %s %s", *resp.FirstName, *resp.LastName))
+			cs.sdk = sdk
+		} else {
+			logger.DebugContext(ctx, fmt.Sprintf("Using AuthTokenHeaderName: %s", s.AuthTokenHeaderName))
+		}
+
+		return cs, nil
+	})
 }
 
 func (s *Source) SourceType() string {
@@ -197,20 +227,44 @@ func (s *Source) GoogleCloudQuotaProject() string {
 	return s.QuotaProject
 }
 
+// GoogleCloudTokenSource reports the ADC token source once connected.
 func (s *Source) GoogleCloudTokenSource() oauth2.TokenSource {
-	return s.TokenSource
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.tokenSource
 }
 
 func (s *Source) GoogleCloudTokenSourceWithScope(ctx context.Context, scope string) (oauth2.TokenSource, error) {
 	return google.DefaultTokenSource(ctx, scope)
 }
 
+// LookerClient reports the API-key SDK once connected; use GetLookerSDK for a guaranteed-live one.
 func (s *Source) LookerClient() *v4.LookerSDK {
-	return s.Client
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.sdk
 }
 
+// LookerApiSettings is only populated after GetLookerSDK has connected; otherwise use LookerApiSettingsContext.
 func (s *Source) LookerApiSettings() *rtl.ApiSettings {
-	return s.ApiSettings
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.apiSettings
+}
+
+// LookerApiSettingsContext returns the API settings, connecting on first use so the user agent is filled in.
+func (s *Source) LookerApiSettingsContext(ctx context.Context) (*rtl.ApiSettings, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return cs.apiSettings, nil
 }
 
 func (s *Source) LookerShowHiddenFields() bool {
@@ -247,6 +301,11 @@ func (t *transportWithAuthHeader) RoundTrip(req *http.Request) (*http.Response, 
 }
 
 func (s *Source) GetLookerSDK(ctx context.Context, accessToken string) (*v4.LookerSDK, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if s.UseClientAuthorization() {
 		if accessToken == "" {
 			return nil, fmt.Errorf("no access token supplied with request")
@@ -254,11 +313,11 @@ func (s *Source) GetLookerSDK(ctx context.Context, accessToken string) (*v4.Look
 
 		clientIP, _ := util.ClientIPFromContext(ctx)
 
-		session := rtl.NewAuthSession(*s.LookerApiSettings())
+		session := rtl.NewAuthSession(*cs.apiSettings)
 		// Configure base transport with TLS
 		transport := &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: !s.LookerApiSettings().VerifySsl,
+				InsecureSkipVerify: !cs.apiSettings.VerifySsl,
 			},
 		}
 
@@ -274,10 +333,10 @@ func (s *Source) GetLookerSDK(ctx context.Context, accessToken string) (*v4.Look
 		return v4.NewLookerSDK(session), nil
 	}
 
-	if s.LookerClient() == nil {
+	if cs.sdk == nil {
 		return nil, fmt.Errorf("client id or client secret not valid")
 	}
-	return s.LookerClient(), nil
+	return cs.sdk, nil
 }
 
 func initGoogleCloudConnection(ctx context.Context) (oauth2.TokenSource, error) {
@@ -290,7 +349,7 @@ func initGoogleCloudConnection(ctx context.Context) (oauth2.TokenSource, error) 
 }
 
 func (s *Source) GetHostURL(ctx context.Context, sdk *v4.LookerSDK) (string, error) {
-	defaultURL := strings.TrimSuffix(s.ApiSettings.BaseUrl, "/")
+	defaultURL := strings.TrimSuffix(s.BaseURL, "/")
 
 	if sdk == nil {
 		return defaultURL, nil
@@ -339,8 +398,13 @@ func (s *Source) GetHostURL(ctx context.Context, sdk *v4.LookerSDK) (string, err
 			return defaultURL, err
 		}
 
+		apiSettings, err := s.LookerApiSettingsContext(ctx)
+		if err != nil {
+			return defaultURL, err
+		}
+
 		// Perform network call outside of locks to prevent blocking concurrent readers
-		versionInfo, err := sdk.Versions("", s.ApiSettings)
+		versionInfo, err := sdk.Versions("", apiSettings)
 		if err != nil || versionInfo.WebServerUrl == nil || *versionInfo.WebServerUrl == "" {
 			fetchErr := err
 			if fetchErr == nil {

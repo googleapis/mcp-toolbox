@@ -41,7 +41,7 @@ func (m MockSourceConfig) SourceConfigType() string {
 	return "mock-source"
 }
 
-func (m MockSourceConfig) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (m MockSourceConfig) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	return MockSource{MockSourceConfig: m}, nil
 }
 

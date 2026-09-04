@@ -105,6 +105,11 @@ type ServerConfig struct {
 	SkipSourceValidation bool
 	// DisableExt specifies MCP extension URIs disabled on this server.
 	DisableExt []string
+	// DeferSourceConnect connects each source on first use instead of at startup.
+	DeferSourceConnect bool
+	// DeferEnvVarParsing resolves an unset ${VAR} to its own name instead of
+	// failing startup. Requires DeferSourceConnect.
+	DeferEnvVarParsing bool
 }
 
 type logFormat string

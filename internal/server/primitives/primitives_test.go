@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/mcp-toolbox/internal/auth"
 	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/group"
@@ -48,7 +49,7 @@ func TestUpdateServer(t *testing.T) {
 	resMgr := primitives.NewPrimitiveManager(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newGroups)
 
 	gotSource, _ := resMgr.GetSource("example-source")
-	if diff := cmp.Diff(gotSource, newSources["example-source"]); diff != "" {
+	if diff := cmp.Diff(gotSource, newSources["example-source"], cmpopts.IgnoreUnexported(alloydbpg.Source{})); diff != "" {
 		t.Errorf("error updating server, sources (-want +got):\n%s", diff)
 	}
 
@@ -87,7 +88,7 @@ func TestUpdateServer(t *testing.T) {
 
 	resMgr.SetPrimitives(updateSource, newAuth, newEmbeddingModels, newTools, newPrompts, newGroups)
 	gotSource, _ = resMgr.GetSource("example-source2")
-	if diff := cmp.Diff(gotSource, updateSource["example-source2"]); diff != "" {
+	if diff := cmp.Diff(gotSource, updateSource["example-source2"], cmpopts.IgnoreUnexported(alloydbpg.Source{})); diff != "" {
 		t.Errorf("error updating server, sources (-want +got):\n%s", diff)
 	}
 }

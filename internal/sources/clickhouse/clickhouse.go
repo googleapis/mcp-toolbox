@@ -63,30 +63,63 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initClickHouseConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.Protocol, r.Secure)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s, err := r.newSource(ctx, tracer)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
+		return nil, err
 	}
-
-	err = pool.PingContext(ctx)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	if deferConnect {
+		return s, nil
 	}
-
-	s := &Source{
-		Config: r,
-		Pool:   pool,
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) (*Source, error) {
+	protocol, err := r.protocol()
+	if err != nil {
+		return nil, err
+	}
+	return &Source{
+		Config:   r,
+		protocol: protocol,
+		conn:     sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer),
+	}, nil
+}
+
+// protocol resolves the configured protocol; an unsupported value fails at startup, not at connect.
+func (r Config) protocol() (string, error) {
+	if r.Protocol == "" {
+		return "https", nil
+	}
+	if err := validateConfig(r.Protocol); err != nil {
+		return "", err
+	}
+	return r.Protocol, nil
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *sql.DB
+	protocol string
+	conn     *sources.ConnectOnce[*sql.DB]
+}
+
+func (s *Source) pool(ctx context.Context) (*sql.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
+		pool, err := initClickHouseConnectionPool(ctx, s.Host, s.Port, s.User, s.Password, s.Database, s.protocol, s.Secure)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+		if err := pool.PingContext(ctx); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -101,16 +134,22 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// ClickHousePool reports the pool once connected.
 func (s *Source) ClickHousePool() *sql.DB {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params parameters.ParamValues) (any, error) {
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var sliceParams []any
 	if params != nil {
 		sliceParams = params.AsSlice()
 	}
-	results, err := s.ClickHousePool().QueryContext(ctx, statement, sliceParams...)
+	results, err := pool.QueryContext(ctx, statement, sliceParams...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -177,11 +216,7 @@ func validateConfig(protocol string) error {
 	return nil
 }
 
-func initClickHouseConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname, protocol string, secure bool) (*sql.DB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initClickHouseConnectionPool(ctx context.Context, host, port, user, pass, dbname, protocol string, secure bool) (*sql.DB, error) {
 	if protocol == "" {
 		protocol = "https"
 	}

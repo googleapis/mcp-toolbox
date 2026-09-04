@@ -63,34 +63,54 @@ func (r Config) SourceConfigType() string {
 }
 
 // Initialize initializes a Gemini Data Analytics Source instance.
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	ua, err := util.UserAgentFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := r.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	s := &Source{
-		Config:    r,
-		userAgent: ua,
+	if _, err := s.clients(ctx); err != nil {
+		return nil, err
 	}
-
-	if !r.UseClientOAuth {
-		client, err := NewDataChatClient(ctx, option.WithUserAgent(ua))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create DataChatClient: %w", err)
-		}
-		s.Client = client
-	}
-
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: r,
+		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+	}
+}
+
+// clientSet pairs the client, nil under client OAuth, with the user agent read from the same connect context.
+type clientSet struct {
+	client    *geminidataanalytics.DataChatClient
+	userAgent string
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Client    *geminidataanalytics.DataChatClient
-	userAgent string
+	conn *sources.ConnectOnce[*clientSet]
+}
+
+func (s *Source) clients(ctx context.Context) (*clientSet, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
+		ua, err := util.UserAgentFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
+		}
+
+		cs := &clientSet{userAgent: ua}
+		if !s.UseClientOAuth {
+			client, err := NewDataChatClient(ctx, option.WithUserAgent(ua))
+			if err != nil {
+				return nil, fmt.Errorf("failed to create DataChatClient: %w", err)
+			}
+			cs.client = client
+		}
+		return cs, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -103,6 +123,15 @@ func (s *Source) SourceType() string {
 
 func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
+}
+
+// Client reports the shared DataChat client once connected; use GetClient for a guaranteed-live one.
+func (s *Source) Client() *geminidataanalytics.DataChatClient {
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.client
 }
 
 func (s *Source) GetProjectID() string {
@@ -126,13 +155,18 @@ func (s *Source) UseClientAuthorization() bool {
 }
 
 func (s *Source) GetClient(ctx context.Context, tokenStr string) (*geminidataanalytics.DataChatClient, func(), error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if s.UseClientOAuth {
 		if tokenStr == "" {
 			return nil, nil, fmt.Errorf("client-side OAuth is enabled but no access token was provided")
 		}
 		token := &oauth2.Token{AccessToken: tokenStr}
 		opts := []option.ClientOption{
-			option.WithUserAgent(s.userAgent),
+			option.WithUserAgent(cs.userAgent),
 			option.WithTokenSource(oauth2.StaticTokenSource(token)),
 		}
 
@@ -142,7 +176,7 @@ func (s *Source) GetClient(ctx context.Context, tokenStr string) (*geminidataana
 		}
 		return client, func() { client.Close() }, nil
 	}
-	return s.Client, func() {}, nil
+	return cs.client, func() {}, nil
 }
 
 func (s *Source) RunQuery(ctx context.Context, tokenStr string, req *geminidataanalyticspb.QueryDataRequest) (*geminidataanalyticspb.QueryDataResponse, error) {

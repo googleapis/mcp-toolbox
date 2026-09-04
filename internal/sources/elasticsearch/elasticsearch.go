@@ -69,7 +69,8 @@ type EsClient interface {
 
 type Source struct {
 	Config
-	Client EsClient
+	tracer trace.Tracer
+	conn   *sources.ConnectOnce[EsClient]
 }
 
 var _ sources.Source = &Source{}
@@ -86,57 +87,74 @@ func (t *tracerProviderAdapter) Tracer(name string, options ...trace.TracerOptio
 }
 
 // Initialize creates a new Elasticsearch Source instance.
-func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	tracerProvider := &tracerProviderAdapter{tracer: tracer}
-
-	ua, err := util.UserAgentFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error getting user agent from context: %w", err)
+func (c Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := c.newSource(ctx, tracer)
+	if deferConnect {
+		return s, nil
 	}
-
-	// Create a new Elasticsearch client with the provided configuration
-	cfg := elasticsearch.Config{
-		Addresses:       c.Addresses,
-		Instrumentation: elasticsearch.NewOpenTelemetryInstrumentation(tracerProvider, false),
-		Header:          http.Header{"User-Agent": []string{ua + " go-elasticsearch/" + elasticsearch.Version}},
-	}
-
-	// Client need either username and password or an API key
-	if c.Username != "" && c.Password != "" {
-		cfg.Username = c.Username
-		cfg.Password = c.Password
-	} else if c.APIKey != "" {
-		// API key will be set below
-		cfg.APIKey = c.APIKey
-	} else {
-		// If neither username/password nor API key is provided, we throw an error
-		return nil, fmt.Errorf("elasticsearch source %q requires either username/password or an API key", c.Name)
-	}
-
-	client, err := elasticsearch.NewBaseClient(cfg)
-	if err != nil {
+	if _, err := s.client(ctx); err != nil {
 		return nil, err
-	}
-
-	// Test connection
-	res, err := esapi.InfoRequest{
-		Instrument: client.InstrumentationEnabled(),
-	}.Do(ctx, client)
-
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.IsError() {
-		return nil, fmt.Errorf("elasticsearch connection failed: status %d", res.StatusCode)
-	}
-
-	s := &Source{
-		Config: c,
-		Client: client,
 	}
 	return s, nil
+}
+
+func (c Config) newSource(ctx context.Context, tracer trace.Tracer) *Source {
+	return &Source{
+		Config: c,
+		tracer: tracer,
+		conn:   sources.NewConnectOnce[EsClient](ctx, c.Name, SourceType, tracer),
+	}
+}
+
+func (s *Source) client(ctx context.Context) (EsClient, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (EsClient, error) {
+		tracerProvider := &tracerProviderAdapter{tracer: s.tracer}
+
+		ua, err := util.UserAgentFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error getting user agent from context: %w", err)
+		}
+
+		// Create a new Elasticsearch client with the provided configuration
+		cfg := elasticsearch.Config{
+			Addresses:       s.Addresses,
+			Instrumentation: elasticsearch.NewOpenTelemetryInstrumentation(tracerProvider, false),
+			Header:          http.Header{"User-Agent": []string{ua + " go-elasticsearch/" + elasticsearch.Version}},
+		}
+
+		// Client need either username and password or an API key
+		if s.Username != "" && s.Password != "" {
+			cfg.Username = s.Username
+			cfg.Password = s.Password
+		} else if s.APIKey != "" {
+			// API key will be set below
+			cfg.APIKey = s.APIKey
+		} else {
+			// If neither username/password nor API key is provided, we throw an error
+			return nil, fmt.Errorf("elasticsearch source %q requires either username/password or an API key", s.Name)
+		}
+
+		client, err := elasticsearch.NewBaseClient(cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		// Test connection
+		res, err := esapi.InfoRequest{
+			Instrument: client.InstrumentationEnabled(),
+		}.Do(ctx, client)
+
+		if err != nil {
+			return nil, err
+		}
+		defer res.Body.Close()
+
+		if res.IsError() {
+			return nil, fmt.Errorf("elasticsearch connection failed: status %d", res.StatusCode)
+		}
+
+		return client, nil
+	})
 }
 
 // SourceType returns the resourceType string for this source.
@@ -152,8 +170,10 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// ElasticsearchClient reports the client once connected; callers needing a live one must go through a context-taking method.
 func (s *Source) ElasticsearchClient() EsClient {
-	return s.Client
+	client, _ := s.conn.Get()
+	return client
 }
 
 type EsqlColumn struct {
@@ -167,6 +187,10 @@ type EsqlResult struct {
 }
 
 func (s *Source) RunSQL(ctx context.Context, format, query string, params []map[string]any) (any, error) {
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
 	bodyStruct := struct {
 		Query  string           `json:"query"`
 		Params []map[string]any `json:"params,omitempty"`
@@ -183,8 +207,8 @@ func (s *Source) RunSQL(ctx context.Context, format, query string, params []map[
 		Body:       bytes.NewReader(body),
 		Format:     format,
 		FilterPath: []string{"columns", "values"},
-		Instrument: s.ElasticsearchClient().InstrumentationEnabled(),
-	}.Do(ctx, s.ElasticsearchClient())
+		Instrument: client.InstrumentationEnabled(),
+	}.Do(ctx, client)
 
 	if err != nil {
 		return nil, err

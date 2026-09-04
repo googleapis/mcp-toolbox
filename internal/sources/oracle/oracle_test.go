@@ -12,6 +12,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestParseFromYamlOracle(t *testing.T) {
@@ -266,13 +267,17 @@ func TestRunSQLExecutesDML(t *testing.T) {
 	}
 	defer db.Close()
 
-	src := &Source{
-		Config: Config{
-			Name: "test-dml-source",
-			Type: SourceType,
-			User: "test-user",
-		},
-		DB: db,
+	src := Config{
+		Name: "test-dml-source",
+		Type: SourceType,
+		User: "test-user",
+	}.newSource(context.Background(), noop.NewTracerProvider().Tracer("test"))
+
+	// Seed the lazy connection with the mock handle so RunSQL does not dial Oracle.
+	if _, err := src.conn.Do(context.Background(), func(context.Context) (*sql.DB, error) {
+		return db, nil
+	}); err != nil {
+		t.Fatalf("failed to seed connection: %v", err)
 	}
 
 	// Invoke RunSQL with readOnly=false to force the DML execution path.

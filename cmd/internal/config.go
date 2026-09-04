@@ -51,12 +51,18 @@ type ConfigParser struct {
 	requiredEnvVars []string
 
 	// AllowMissingEnvVars, when true, substitutes the variable name for an unset
-	// required ${VAR} placeholder instead of erroring. Used by offline flows like
-	// skills-generate, where source env vars are needed only to satisfy config
-	// parsing/validation, never to connect. A non-empty placeholder is used (not
-	// "") so required string fields still pass validation. The served path leaves
-	// this false so missing config still fails fast.
+	// required ${VAR} placeholder instead of erroring. Used by flows that never
+	// connect during parsing — skills-generate, and serving with a deferred
+	// connect — where source env vars are needed only to satisfy config
+	// parsing/validation. A non-empty placeholder is used (not "") so required
+	// string fields still pass validation. Eager serving leaves this false so
+	// missing config still fails fast.
 	AllowMissingEnvVars bool
+
+	// MissingEnvVars names the variables that were substituted with a
+	// placeholder, so a caller can report them rather than let a placeholder
+	// stand in for real config silently.
+	MissingEnvVars []string
 }
 
 // parseEnv replaces environment variables ${ENV_NAME} with their values.
@@ -117,6 +123,9 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 		} else {
 			if p.AllowMissingEnvVars {
 				p.EnvVars[variableName] = variableName
+				if !slices.Contains(p.MissingEnvVars, variableName) {
+					p.MissingEnvVars = append(p.MissingEnvVars, variableName)
+				}
 				output.WriteString(variableName)
 			} else if !seenMissing[variableName] {
 				seenMissing[variableName] = true

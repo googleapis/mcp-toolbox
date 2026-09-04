@@ -24,7 +24,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
-	"go.opentelemetry.io/otel"
 )
 
 func TestParseFromYamlClickhouse(t *testing.T) {
@@ -218,7 +217,6 @@ func TestValidateConfig(t *testing.T) {
 }
 
 func TestInitClickHouseConnectionPoolDSNGeneration(t *testing.T) {
-	tracer := otel.Tracer("test")
 	ctx := context.Background()
 
 	tests := []struct {
@@ -302,7 +300,7 @@ func TestInitClickHouseConnectionPoolDSNGeneration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pool, err := initClickHouseConnectionPool(ctx, tracer, "test", tt.host, tt.port, tt.user, tt.pass, tt.dbname, tt.protocol, tt.secure)
+			pool, err := initClickHouseConnectionPool(ctx, tt.host, tt.port, tt.user, tt.pass, tt.dbname, tt.protocol, tt.secure)
 
 			if !tt.shouldErr && err != nil {
 				t.Errorf("Expected no error, got: %v", err)

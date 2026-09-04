@@ -46,6 +46,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 type compatibleSource interface {
 	FalkorDBClient() *falkordb.FalkorDB
+	FalkorDBClientContext(context.Context) (*falkordb.FalkorDB, error)
 }
 
 type Config struct {
@@ -108,7 +109,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
 	}
 
-	graphs, err := source.FalkorDBClient().ListGraphs()
+	client, err := source.FalkorDBClientContext(ctx)
+	if err != nil {
+		return nil, util.ProcessGeneralError(err)
+	}
+	graphs, err := client.ListGraphs()
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

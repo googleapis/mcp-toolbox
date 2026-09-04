@@ -61,30 +61,71 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initOceanBaseConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryTimeout)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s, err := r.newSource(ctx, tracer)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
+		return nil, err
 	}
-
-	err = pool.PingContext(ctx)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	if deferConnect {
+		return s, nil
 	}
-
-	s := &Source{
-		Config: r,
-		Pool:   pool,
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) (*Source, error) {
+	queryTimeout, err := r.queryTimeout()
+	if err != nil {
+		return nil, err
+	}
+	// The ping honours queryTimeout as the read timeout, so the connect must not
+	// be capped tighter than the config allows.
+	var opts []sources.Option
+	if queryTimeout > 0 {
+		opts = append(opts, sources.WithMinConnectTimeout(queryTimeout))
+	}
+	return &Source{
+		Config:       r,
+		queryTimeout: queryTimeout,
+		conn:         sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer, opts...),
+	}, nil
+}
+
+// queryTimeout parses the configured timeout; a malformed value fails at startup, not at connect.
+func (r Config) queryTimeout() (time.Duration, error) {
+	if r.QueryTimeout == "" {
+		return 0, nil
+	}
+	timeout, err := time.ParseDuration(r.QueryTimeout)
+	if err != nil {
+		return 0, fmt.Errorf("invalid queryTimeout %q: %w", r.QueryTimeout, err)
+	}
+	return timeout, nil
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *sql.DB
+	queryTimeout time.Duration
+	conn         *sources.ConnectOnce[*sql.DB]
+}
+
+func (s *Source) pool(ctx context.Context) (*sql.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
+		pool, err := initOceanBaseConnectionPool(ctx, s.Host, s.Port, s.User, s.Password, s.Database, s.queryTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+
+		if err := pool.PingContext(ctx); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -99,12 +140,18 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// OceanBasePool reports the pool once connected.
 func (s *Source) OceanBasePool() *sql.DB {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	results, err := s.OceanBasePool().QueryContext(ctx, statement, params...)
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results, err := pool.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -157,18 +204,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initOceanBaseConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname, queryTimeout string) (*sql.DB, error) {
-	_, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initOceanBaseConnectionPool(ctx context.Context, host, port, user, pass, dbname string, queryTimeout time.Duration) (*sql.DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, pass, host, port, dbname)
 
-	if queryTimeout != "" {
-		timeout, err := time.ParseDuration(queryTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("invalid queryTimeout %q: %w", queryTimeout, err)
-		}
-		dsn += "&readTimeout=" + timeout.String()
+	if queryTimeout != 0 {
+		dsn += "&readTimeout=" + queryTimeout.String()
 	}
 
 	pool, err := sql.Open("mysql", dsn)

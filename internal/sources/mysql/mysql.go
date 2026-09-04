@@ -66,30 +66,70 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initMySQLConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryTimeout, r.QueryParams)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s, err := r.newSource(ctx, tracer)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
+		return nil, err
 	}
-
-	err = pool.PingContext(ctx)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	if deferConnect {
+		return s, nil
 	}
-
-	s := &Source{
-		Config: r,
-		Pool:   pool,
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
+}
+
+func (r Config) newSource(ctx context.Context, tracer trace.Tracer) (*Source, error) {
+	queryTimeout, err := r.queryTimeout()
+	if err != nil {
+		return nil, err
+	}
+	// The ping honours queryTimeout as the read timeout, so the connect must not
+	// be capped tighter than the config allows.
+	var opts []sources.Option
+	if queryTimeout > 0 {
+		opts = append(opts, sources.WithMinConnectTimeout(queryTimeout))
+	}
+	return &Source{
+		Config:       r,
+		queryTimeout: queryTimeout,
+		conn:         sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer, opts...),
+	}, nil
+}
+
+// queryTimeout needs no network to validate, so it is resolved at startup.
+func (r Config) queryTimeout() (time.Duration, error) {
+	if r.QueryTimeout == "" {
+		return 0, nil
+	}
+	timeout, err := time.ParseDuration(r.QueryTimeout)
+	if err != nil {
+		return 0, fmt.Errorf("invalid queryTimeout %q: %w", r.QueryTimeout, err)
+	}
+	return timeout, nil
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *sql.DB
+	queryTimeout time.Duration
+	conn         *sources.ConnectOnce[*sql.DB]
+}
+
+func (s *Source) pool(ctx context.Context) (*sql.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
+		pool, err := initMySQLConnectionPool(ctx, s.Host, s.Port, s.User, s.Password, s.Database, s.queryTimeout, s.QueryParams)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+		if err := pool.PingContext(ctx); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -104,8 +144,15 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// MySQLPool reports the pool once connected; use MySQLPoolContext for a guaranteed-live one.
 func (s *Source) MySQLPool() *sql.DB {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
+}
+
+// MySQLPoolContext returns the pool, connecting on first use.
+func (s *Source) MySQLPoolContext(ctx context.Context) (*sql.DB, error) {
+	return s.pool(ctx)
 }
 
 func (s *Source) MySQLDatabase() string {
@@ -113,24 +160,36 @@ func (s *Source) MySQLDatabase() string {
 }
 
 func (s *Source) PerformanceSchemaEnabled(ctx context.Context) (bool, error) {
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return false, err
+	}
 	var name, value string
-	if err := s.MySQLPool().QueryRowContext(ctx, "SHOW VARIABLES LIKE 'performance_schema'").Scan(&name, &value); err != nil {
+	if err := pool.QueryRowContext(ctx, "SHOW VARIABLES LIKE 'performance_schema'").Scan(&name, &value); err != nil {
 		return false, err
 	}
 	return value == "ON", nil
 }
 
 func (s *Source) RetrieveSourceVersion(ctx context.Context) (string, error) {
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return "", err
+	}
 	var version string
-	if err := s.MySQLPool().QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
+	if err := pool.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
 		return "", err
 	}
 	return version, nil
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
 	statement = sqlcommenter.PrependComment(ctx, statement, SourceType, s.SQLCommenter)
-	results, err := s.MySQLPool().QueryContext(ctx, statement, params...)
+	results, err := pool.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -183,11 +242,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initMySQLConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname, queryTimeout string, queryParams map[string]string) (*sql.DB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initMySQLConnectionPool(ctx context.Context, host, port, user, pass, dbname string, queryTimeout time.Duration, queryParams map[string]string) (*sql.DB, error) {
 	config := driver.NewConfig()
 	config.Addr = fmt.Sprintf("%s:%s", host, port)
 	config.Net = "tcp"
@@ -201,12 +256,8 @@ func initMySQLConnectionPool(ctx context.Context, tracer trace.Tracer, name, hos
 	if dbname != "" {
 		config.DBName = dbname
 	}
-	if queryTimeout != "" {
-		timeout, err := time.ParseDuration(queryTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("invalid queryTimeout %q: %w", queryTimeout, err)
-		}
-		config.ReadTimeout = timeout
+	if queryTimeout != 0 {
+		config.ReadTimeout = queryTimeout
 	}
 
 	// Custom user parameters

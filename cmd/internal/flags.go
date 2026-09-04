@@ -77,4 +77,6 @@ func ServeFlags(flags *pflag.FlagSet, opts *ToolboxOptions) {
 	flags.Int64Var(&opts.Cfg.HttpMaxRequestBytes, "http-max-request-bytes", server.DefaultHTTPMaxRequestBytes, "Maximum MCP HTTP request body size in bytes.")
 	flags.BoolVar(&opts.Cfg.EnableDraftSpecs, "enable-draft-specs", false, "Opt-in and test upcoming draft MCP specifications.")
 	flags.StringSliceVar(&opts.Cfg.DisableExt, "disable-ext", []string{}, "Specifies MCP extension URIs disabled on this server.")
+	flags.BoolVar(&opts.Cfg.DeferSourceConnect, "defer-source-connect", false, "Connect to each source on first use instead of at startup. Tools can be listed without any source being reachable.")
+	flags.BoolVar(&opts.Cfg.DeferEnvVarParsing, "defer-env-var-parsing", false, "Let an unset environment variable resolve to its own name instead of failing startup. Requires --defer-source-connect.")
 }

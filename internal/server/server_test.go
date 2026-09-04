@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/googleapis/mcp-toolbox/internal/auth"
 	"github.com/googleapis/mcp-toolbox/internal/auth/generic"
 	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
@@ -432,7 +433,7 @@ func TestUpdateServer(t *testing.T) {
 	}
 
 	gotSource, _ := s.PrimitiveMgr.GetSource("example-source")
-	if diff := cmp.Diff(gotSource, newSources["example-source"]); diff != "" {
+	if diff := cmp.Diff(gotSource, newSources["example-source"], cmpopts.IgnoreUnexported(alloydbpg.Source{})); diff != "" {
 		t.Errorf("error updating server, sources (-want +got):\n%s", diff)
 	}
 
@@ -1497,7 +1498,7 @@ func TestInitializeConfigs(t *testing.T) {
 	ctx = util.WithInstrumentation(ctx, instrumentation)
 	t.Run("valid initialization", func(t *testing.T) {
 		sourceConfig1 := testutils.MockSourceConfig{Name: "my-source", Type: "mock-source"}
-		source1, _ := sourceConfig1.Initialize(ctx, nil)
+		source1, _ := sourceConfig1.Initialize(ctx, nil, false)
 		tools1 := testutils.NewMockTool("my-tool", "mock tool for offline config", "my-source", nil, false, false)
 		validCfg := server.ServerConfig{
 			Version: "0.0.0",
