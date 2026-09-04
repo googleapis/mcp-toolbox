@@ -35,6 +35,58 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
+      - name: Checkout cloudflare-pages branch for pruning
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: cloudflare-pages
+          path: cf-pages-branch
+          persist-credentials: false
+
+      - name: Prune old versions from cloudflare-pages
+        run: |
+          set -euo pipefail
+          
+          # Extract the active versions from the Hugo Config file
+          ACTIVE_VERSIONS=$(grep -oE 'version = "v?[0-9a-zA-Z.-]+"' .hugo/hugo.cloudflare.toml | cut -d'"' -f2)
+          
+          echo "Active versions in TOML:"
+          echo "$ACTIVE_VERSIONS"
+
+          # Navigate into the deployment branch worktree
+          cd cf-pages-branch
+          
+          CHANGES_MADE=false
+          
+          # Loop through all folders starting with 'v'
+          for dir in v[0-9]*/; do
+            [ -d "$dir" ] || continue 
+            
+            VERSION_DIR="${dir%/}"
+
+            if [[ ! "$VERSION_DIR" =~ ^v[0-9]+(\.[0-9]+)+(-[a-zA-Z0-9.-]+)?$ ]]; then
+              continue
+            fi
+            
+            # Check if the folder exists in our Hugo config's versions list
+            if echo "$ACTIVE_VERSIONS" | grep -qx "$VERSION_DIR"; then
+              echo "Keeping active version: $VERSION_DIR"
+            else
+              echo "Removing deleted version: $VERSION_DIR"
+              git rm -r "$VERSION_DIR"
+              CHANGES_MADE=true
+            fi
+          done
+
+          # If anything was deleted, commit and push the clean branch
+          if [ "$CHANGES_MADE" = true ]; then
+            git config user.name "release-please[bot]"
+            git config user.email "55107282+release-please[bot]@users.noreply.github.com"
+            git commit -m "chore: prune older versions from cloudflare-pages"
+            git push origin cloudflare-pages
+          else
+            echo "No old versions to prune."
+          fi
+
       - name: Get Version from Release Tag
         id: get_version
         env:

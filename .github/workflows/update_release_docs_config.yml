@@ -1,0 +1,138 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: "CF: Update Release Docs Config"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to add (e.g., v1.6.0)"
+        required: true
+        type: string
+
+jobs:
+  update-docs-config:
+    runs-on: ubuntu-24.04
+    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'release-please--') }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f # v5.1.1
+        with:
+          python-version: "3.x"
+
+      - name: Create Hugo version list update PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "release-please[bot]"
+          git config user.email "55107282+release-please[bot]@users.noreply.github.com"
+
+          # Handle manual workflow_dispatch runs
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            python3 .ci/update_docs_versions.py "$INPUT_VERSION"
+            git add .hugo/hugo.cloudflare.toml
+            if git diff --staged --quiet; then
+              echo "No changes to commit."
+            else
+              git commit -m "chore: update documentation version list"
+              git push
+            fi
+            exit 0
+          fi
+
+          # Read the version that Release Please staged in cmd/version.txt
+          TARGET_VERSION=$(python3 -c "
+          import os
+          path = 'cmd/version.txt'
+          if os.path.exists(path):
+              with open(path) as f:
+                  v = f.read().strip()
+                  print(v if v.startswith('v') else f'v{v}')
+          ")
+
+          echo "Target version from release PR: $TARGET_VERSION"
+
+          # Branch off clean main to isolate only the Hugo config change
+          git fetch origin main
+          NEW_BRANCH="bot/docs-config-${TARGET_VERSION}"
+          git checkout -B "$NEW_BRANCH" origin/main
+
+          # Apply version update to the TOML on main
+          python3 .ci/update_docs_versions.py "$TARGET_VERSION"
+
+          git add .hugo/hugo.cloudflare.toml
+
+          if git diff --staged --quiet; then
+            echo "Config on main is already up-to-date for $TARGET_VERSION. No PR needed."
+            exit 0
+          fi
+
+          git commit -m "chore: update docs version config for ${TARGET_VERSION}"
+          git push origin "$NEW_BRANCH" --force
+
+          # Check if PR against main already exists
+          EXISTING_PR=$(gh pr list --head "$NEW_BRANCH" --base main --json url --jq '.[0].url')
+
+          if [ -z "$EXISTING_PR" ]; then
+            PR_URL=$(gh pr create \
+              --base main \
+              --head "$NEW_BRANCH" \
+              --title "chore: update docs config for ${TARGET_VERSION}" \
+              --body "Automated update to \`hugo.cloudflare.toml\` for upcoming release **${TARGET_VERSION}**.
+              
+              Merge this into \`main\` just before merging Release PR #${PR_NUMBER}. Release Please will automatically sync this into the release PR.")
+            
+            echo "Created PR for main: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            PR_URL="$EXISTING_PR"
+            echo "PR for main already exists: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          
+          COMMENT_BODY="Hugo config update PR is ready: **[Review and merge PR]($PR_URL)**.
+          
+          Merge that PR into \`main\` just before merging Release PR."
+
+          # Search for an existing comment starting with our specific string
+          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            -q '.[] | select(.body | startswith("Hugo config update PR is ready:")) | .id' | head -n 1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            # Update existing comment
+            gh api --method PATCH "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              -f body="$COMMENT_BODY" > /dev/null
+          else
+            # Create new comment
+            gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
+          fi
