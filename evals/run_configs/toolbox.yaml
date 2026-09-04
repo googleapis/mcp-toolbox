@@ -55,6 +55,8 @@ scorers:
   effective_billed_tokens: {}
 
 # Reporting Related Configs
-reporting:
-  bigquery:
-    gcp_project_id: !ENV ${EVAL_REPORTING_PROJECT}
+
+# commented out for evalbench dataset hack
+# reporting:
+#   bigquery:
+#     gcp_project_id: !ENV ${EVAL_REPORTING_PROJECT}

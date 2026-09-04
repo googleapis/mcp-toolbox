@@ -1,0 +1,57 @@
+{
+  "scenarios": [
+    {
+      "id": "firestore-data-01",
+      "starting_prompt": "I am auditing our Firestore database, give me info for 'eval_customers/customer_alpha'.",
+      "conversation_plan": "The user wants a list of collections followed by details for one named document. Accept a short summary of the collection and document contents and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_collections",
+        "toolbox__get_documents"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "firestore-data-02",
+      "starting_prompt": "Check my 'eval_customers' collection in Firestore for all documents where status is 'active'.",
+      "conversation_plan": "The user wants to find documents matching a filter in a collection. Accept the query results and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__query_collection"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "firestore-data-03",
+      "starting_prompt": "Add a new document to the 'eval_customers' collection with name 'Gamma Tech' and status 'pending'.",
+      "conversation_plan": "Turn 2: Ask the assistant to update the newly created document's status to 'active'. Accept confirmation of the update and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__add_documents",
+        "toolbox__update_document"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "firestore-data-04",
+      "starting_prompt": "Delete my doc at path 'eval_customers/temp_eval_doc' from Firestore.",
+      "conversation_plan": "The user wants a specific document deleted from the collection. Accept confirmation that the document was deleted and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__delete_documents"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "firestore-security-01",
+      "starting_prompt": "What are our current Firestore security rules for this project?",
+      "conversation_plan": "Turn 2: Provide this proposed rule and ask the assistant to validate it for syntax or errors: \"rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /eval_customers/{id} { allow read: if true; } } }\". Accept the validation results and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_rules",
+        "toolbox__validate_rules"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    }
+  ]
+}

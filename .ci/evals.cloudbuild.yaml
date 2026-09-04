@@ -131,6 +131,24 @@ steps:
       - "CLOUD_SQL_POSTGRES_PROJECT=$PROJECT_ID"
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
+  
+  - id: "evals-firestore"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=firestore"
+      - "EVAL_DATASET=evals/evalsets/firestore.json"
+      - "EVAL_ENV_PREFIX=FIRESTORE"
+
+      - "FIRESTORE_PROJECT=$PROJECT_ID"
+      - "FIRESTORE_DATABASE=${_FIRESTORE_DATABASE}"
+
+      - "TEARDOWN_PROJECT=$PROJECT_ID"
+      - "TEARDOWN_DATABASE=${_FIRESTORE_DATABASE}"
 
   # Turns the allowFailure steps back into a red build. No waitFor, which means
   # every step above, so a new database needs no edit here.
@@ -188,3 +206,4 @@ substitutions:
   _GEMINI_MODEL: "gemini-3.7-flash"
   _CLAUDE_MODEL: "claude-opus-4-8"
   _EVALBENCH_IMAGE: "us-central1-docker.pkg.dev/cloud-db-nl2sql/evalbench/eval_server:latest"
+  _FIRESTORE_DATABASE: "(default)"
