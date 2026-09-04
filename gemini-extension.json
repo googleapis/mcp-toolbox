@@ -1,6 +1,6 @@
 {
   "name": "mcp-toolbox-for-databases",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "MCP Toolbox for Databases is an open-source MCP server for more than 30 different datasources.",
   "contextFileName": "MCP-TOOLBOX-EXTENSION.md"
 }

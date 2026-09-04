@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.11.0](https://github.com/googleapis/mcp-toolbox/compare/v1.10.0...v1.11.0) (2026-09-04)
+
+
+### Features
+
+* **alloydb:** Provide actionable error when read-only mode is used on pre-PG17 ([#3902](https://github.com/googleapis/mcp-toolbox/issues/3902)) ([28ace11](https://github.com/googleapis/mcp-toolbox/commit/28ace115cfb02358ea2a3031fb5d26c71e9d583e))
+* **sources:** Add ConnectOnce, a helper for connecting on first use ([#3905](https://github.com/googleapis/mcp-toolbox/issues/3905)) ([16c31fa](https://github.com/googleapis/mcp-toolbox/commit/16c31faf23f360bc900c49bc75847163ecf60e79))
+
+
+### Bug Fixes
+
+* **docs/cloudgda:** Document context fields, fix PSV example and links ([#3919](https://github.com/googleapis/mcp-toolbox/issues/3919)) ([ae47535](https://github.com/googleapis/mcp-toolbox/commit/ae47535434cb3052ca4645400c823d1d8735a06e))
+* **sources:** Release the handle when a source fails to connect ([#3921](https://github.com/googleapis/mcp-toolbox/issues/3921)) ([0001190](https://github.com/googleapis/mcp-toolbox/commit/0001190a73a9742b1787f237be352030dbfbea5b))
+* **test/alloydbainl:** Use explicit SQL alias prompt in integration test ([#3916](https://github.com/googleapis/mcp-toolbox/issues/3916)) ([596eaf9](https://github.com/googleapis/mcp-toolbox/commit/596eaf92d0059883090e59c3aca7163ed213ae95))
+
 ## [1.10.0](https://github.com/googleapis/mcp-toolbox/compare/v1.9.0...v1.10.0) (2026-08-27)
 
 
