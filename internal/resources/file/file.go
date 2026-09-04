@@ -112,6 +112,7 @@ func validateExtension(path string) error {
 	return nil
 }
 
+// Validate performs specific validation including URI scheme and file size limits.
 func (c *Config) Validate() error {
 	if err := c.ResourceConfigBase.Validate(); err != nil {
 		return err
@@ -279,8 +280,10 @@ type FileResource struct {
 
 // GetSize returns the configured maximum size of the file.
 func (r *FileResource) GetSize() *int64 {
-	size := r.Size
-	return &size
+	if size, err := r.GetCurrentSize(); err == nil {
+		return &size
+	}
+	return &r.Size // Fallback to the size calculated at initialization
 }
 
 // Read retrieves the file content.

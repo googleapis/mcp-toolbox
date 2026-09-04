@@ -15,16 +15,15 @@
 package text_test
 
 import (
-	"bytes"
 	"context"
 	"strings"
 	"testing"
 
-	"github.com/go-playground/validator/v10"
-	"github.com/goccy/go-yaml"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/text"
+	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
 )
 
 func floatPtr(f float64) *float64 { return &f }
@@ -158,119 +157,242 @@ func TestTextResourceInitialization(t *testing.T) {
 	}
 }
 
-func TestTextResourceYAMLUnmarshaling(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name         string
-		yamlData     string
-		wantText     string
-		wantPriority *float64
-		wantSize     *int64
+func TestParseFromYamlText(t *testing.T) {
+	tcs := []struct {
+		desc string
+		in   string
+		want server.ResourceConfigs
 	}{
 		{
-			name: "Valid YAML",
-			yamlData: `
-name: test-yaml
-type: text
-uri: info://test
-annotations:
-  priority: 0.9
-  audience:
-    - user
-text: |
-  Line 1
-  Line 2
-`,
-			wantText:     "Line 1\nLine 2\n",
-			wantPriority: floatPtr(0.9),
-			wantSize:     func(i int64) *int64 { return &i }(14),
+			desc: "basic example",
+			in: `
+			kind: resource
+			name: my-text-resource
+			type: text
+			text: "Hello, world!"
+			`,
+			want: server.ResourceConfigs{
+				"my-text-resource": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "my-text-resource",
+							Type:        "text",
+							MimeType:    "text/plain",
+							Annotations: &resources.ResourceAnnotations{Priority: floatPtr(1.0)},
+						},
+						URI: "text://my-text-resource",
+					},
+					Text: "Hello, world!",
+				},
+			},
+		},
+		{
+			desc: "with annotations and custom mimeType",
+			in: `
+			kind: resource
+			name: my-json-resource
+			type: text
+			mimeType: application/json
+			uri: custom://my-json-resource
+			annotations:
+				priority: 0.8
+				audience:
+					- user
+					- assistant
+				lastModified: 2024-01-01T00:00:00Z
+			text: '{"key": "value"}'
+			`,
+			want: server.ResourceConfigs{
+				"my-json-resource": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:     "my-json-resource",
+							Type:     "text",
+							MimeType: "application/json",
+							Annotations: &resources.ResourceAnnotations{
+								Priority:     floatPtr(0.8),
+								Audience:     []resources.AudienceRole{resources.RoleUser, resources.RoleAssistant},
+								LastModified: "2024-01-01T00:00:00Z",
+							},
+						},
+						URI: "custom://my-json-resource",
+					},
+					Text: `{"key": "value"}`,
+				},
+			},
+		},
+		{
+			desc: "multiline text",
+			in: `
+			kind: resource
+			name: my-multiline-resource
+			type: text
+			text: |
+				Line 1
+				Line 2
+			`,
+			want: server.ResourceConfigs{
+				"my-multiline-resource": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "my-multiline-resource",
+							Type:        "text",
+							MimeType:    "text/plain",
+							Annotations: &resources.ResourceAnnotations{Priority: floatPtr(1.0)},
+						},
+						URI: "text://my-multiline-resource",
+					},
+					Text: "Line 1\nLine 2\n",
+				},
+			},
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			dec := yaml.NewDecoder(bytes.NewReader([]byte(tc.yamlData)), yaml.Strict(), yaml.Validator(validator.New()))
-			resCfg, err := resources.DecodeConfig(ctx, "text", "test-yaml", dec)
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			_, _, _, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
-				t.Fatalf("unexpected error decoding text resource: %v", err)
+				t.Fatalf("unable to unmarshal: %s", err)
 			}
-
-			cfg := resCfg.(*text.Config)
-			if cfg.Text != tc.wantText {
-				t.Errorf("unexpected text payload: %q", cfg.Text)
-			}
-
-			if tc.wantPriority != nil {
-				if cfg.Annotations == nil || cfg.Annotations.Priority == nil || *cfg.Annotations.Priority != *tc.wantPriority {
-					t.Errorf("unexpected priority: %v", cfg.Annotations)
-				}
-			}
-
-			// We need to initialize it to get the size calculated
-			res, err := cfg.Initialize(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error initializing text resource: %v", err)
-			}
-
-			if tc.wantSize != nil {
-				if res.(*text.Resource).Size != *tc.wantSize {
-					t.Errorf("unexpected size: got %v, want %v", res.(*text.Resource).Size, tc.wantSize)
-				}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Fatalf("incorrect parse (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestTextResourceYAMLUnmarshaling_Fail(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name        string
-		yamlData    string
-		errContains string
+func TestFailParseFromYaml(t *testing.T) {
+	tcs := []struct {
+		desc string
+		in   string
+		err  string
 	}{
 		{
-			name: "Strict Decoder Validation",
-			yamlData: `
-name: test-invalid
-type: text
-textContent: "hello" # invalid field
-`,
-			errContains: "unknown field",
+			desc: "unknown field",
+			in: `
+			kind: resource
+			name: test-invalid
+			type: text
+			text: "hello"
+			textContent: "hello"
+			`,
+			err: "unknown field \"textContent\"",
 		},
 		{
-			name: "Missing required text field",
-			yamlData: `
-name: test-missing-text
-type: text
-`,
-			errContains: "Field validation for 'Text' failed",
+			desc: "missing required text field",
+			in: `
+			kind: resource
+			name: test-missing-text
+			type: text
+			`,
+			err: "Field validation for 'Text' failed on the 'required' tag",
 		},
 		{
-			name: "Empty text field",
-			yamlData: `
-name: test-empty-text
-type: text
-text: ""
-`,
-			errContains: "Field validation for 'Text' failed",
+			desc: "empty text field",
+			in: `
+			kind: resource
+			name: test-empty-text
+			type: text
+			text: ""
+			`,
+			err: "Field validation for 'Text' failed on the 'required' tag",
+		},
+		{
+			desc: "unknown annotation field",
+			in: `
+			kind: resource
+			name: test-invalid
+			type: text
+			text: "hello"
+			annotations:
+				unknownField: "should error"
+			`,
+			err: "unknown field \"unknownField\"",
+		},
+		{
+			desc: "invalid priority type",
+			in: `
+			kind: resource
+			name: test-invalid
+			type: text
+			text: "hello"
+			annotations:
+				priority: "high"
+			`,
+			err: "cannot unmarshal",
+		},
+		{
+			desc: "invalid audience scalar",
+			in: `
+			kind: resource
+			name: test-invalid
+			type: text
+			text: "hello"
+			annotations:
+				audience: user
+			`,
+			err: "string was used where sequence is expected",
+		},
+		{
+			desc: "invalid audience value",
+			in: `
+			kind: resource
+			name: test-invalid
+			type: text
+			text: "hello"
+			annotations:
+				audience:
+					- admin
+			`,
+			err: "invalid audience \"admin\"",
+		},
+		{
+			desc: "duplicate audience value",
+			in: `
+			kind: resource
+			name: test-duplicate
+			type: text
+			text: "hello"
+			annotations:
+				audience:
+					- user
+					- user
+			`,
+			err: "duplicate audience \"user\"",
+		},
+		{
+			desc: "invalid mimeType",
+			in: `
+			kind: resource
+			name: test-mime
+			type: text
+			text: "hello"
+			mimeType: invalid_mime
+			`,
+			err: "invalid mimeType \"invalid_mime\"",
+		},
+		{
+			desc: "invalid lastModified",
+			in: `
+			kind: resource
+			name: test-lastmod
+			type: text
+			text: "hello"
+			annotations:
+				lastModified: "2025-01-12"
+			`,
+			err: "not a valid ISO 8601 string",
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			dec := yaml.NewDecoder(bytes.NewReader([]byte(tc.yamlData)), yaml.Strict(), yaml.Validator(validator.New()))
-			resCfg, err := resources.DecodeConfig(ctx, "text", "test-invalid", dec)
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
-				err = resCfg.Validate()
+				t.Fatalf("expect parsing to fail")
 			}
-
-			if err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-			if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
-				t.Errorf("expected error to contain %q, got: %v", tc.errContains, err)
+			if !strings.Contains(err.Error(), tc.err) {
+				t.Fatalf("unexpected error: got %q, want %q", err.Error(), tc.err)
 			}
 		})
 	}

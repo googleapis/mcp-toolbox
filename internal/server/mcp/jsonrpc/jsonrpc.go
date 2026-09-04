@@ -30,6 +30,7 @@ const (
 	METHOD_NOT_FOUND                   = -32601
 	INVALID_PARAMS                     = -32602
 	INTERNAL_ERROR                     = -32603
+	RESOURCE_NOT_FOUND                 = -32002
 	HEADER_MISMATCH                    = -32020
 	MISSING_REQUIRED_CLIENT_CAPABILITY = -32021
 	UNSUPPORTED_PROTOCOL_VERSION       = -32022
@@ -118,6 +119,8 @@ func (e Error) String() string {
 		return "invalid_params"
 	case INTERNAL_ERROR:
 		return "internal_error"
+	case RESOURCE_NOT_FOUND:
+		return "resource_not_found"
 	case PARSE_ERROR:
 		return "parse_error"
 	case INVALID_REQUEST:

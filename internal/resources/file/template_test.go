@@ -351,7 +351,7 @@ func TestFileTemplate_Validation(t *testing.T) {
 			name: my-template
 			type: file
 			`,
-			wantErrMsg: "required' tag",
+			wantErrMsg: "Field validation for 'URITemplate' failed on the 'required' tag",
 		},
 		{
 			name: "invalid max_size negative",

@@ -19,6 +19,7 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -196,8 +197,99 @@ func GenerateListPromptsResult(pMgr *primitives.PrimitiveManager, g group.Group)
 	return res, nil
 }
 
-// GenerateGetGroupResult generates the groups/get result for a single group's
-// tools and prompts.
+// generateAnnotations converts internal resource annotations to versioned Annotations
+func generateAnnotations(internalAnns *resources.ResourceAnnotations) *Annotations {
+	if internalAnns == nil || (internalAnns.LastModified == "" && len(internalAnns.Audience) == 0 && internalAnns.Priority == nil) {
+		return nil
+	}
+	annotations := &Annotations{
+		LastModified: internalAnns.LastModified,
+	}
+	for _, aud := range internalAnns.Audience {
+		annotations.Audience = append(annotations.Audience, Role(aud))
+	}
+	if internalAnns.Priority != nil {
+		annotations.Priority = internalAnns.Priority
+	}
+	return annotations
+}
+
+// generateResourceManifest generates a version-specific Resource manifest for list/resources
+func generateResourceManifest(name, title, desc, uri, mimeType string, size *int64, internalAnns *resources.ResourceAnnotations) Resource {
+	annotations := generateAnnotations(internalAnns)
+	return Resource{
+		BaseMetadata: BaseMetadata{
+			Name:  name,
+			Title: title,
+		},
+		Uri:         uri,
+		Description: desc,
+		MimeType:    mimeType,
+		Size:        size,
+		Annotations: annotations,
+	}
+}
+
+// GenerateListResourcesResult generates the list/resources result
+func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourcesResult, error) {
+	mcpManifest := make([]Resource, 0, len(g.ResourceNames))
+	for _, name := range g.ResourceNames {
+		res, ok := pMgr.GetResource(name)
+		if !ok {
+			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
+		}
+		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
+	}
+	return ListResourcesResult{
+		Resources: mcpManifest,
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      g.GetTTLMs(),
+			CacheScope: cacheScope(g.GetCacheScope()),
+		},
+	}, nil
+}
+
+// generateResourceTemplateManifest generates a version-specific ResourceTemplate manifest
+func generateResourceTemplateManifest(name, title, desc, uriTemplate, mimeType string, internalAnns *resources.ResourceAnnotations) ResourceTemplate {
+	annotations := generateAnnotations(internalAnns)
+	return ResourceTemplate{
+		BaseMetadata: BaseMetadata{
+			Name:  name,
+			Title: title,
+		},
+		UriTemplate: uriTemplate,
+		Description: desc,
+		MimeType:    mimeType,
+		Annotations: annotations,
+	}
+}
+
+// GenerateListResourceTemplatesResult generates the resources/templates/list result
+func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourceTemplatesResult, error) {
+	mcpManifest := make([]ResourceTemplate, 0, len(g.ResourceTemplateNames))
+	for _, name := range g.ResourceTemplateNames {
+		tmpl, ok := pMgr.GetResourceTemplate(name)
+		if !ok {
+			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
+		}
+		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetTitle(), tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType(), tmpl.GetAnnotations()))
+	}
+	return ListResourceTemplatesResult{
+		ResourceTemplates: mcpManifest,
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      g.GetTTLMs(),
+			CacheScope: cacheScope(g.GetCacheScope()),
+		},
+	}, nil
+}
+
+// GenerateGetGroupResult generates the groups/get result for a single group's primitives.
 func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool) (GetGroupResult, error) {
 	listToolsResult, err := GenerateListToolsResult(pMgr, g, urlParams, supportsSecureParams)
 	if err != nil {
@@ -207,9 +299,20 @@ func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, ur
 	if err != nil {
 		return GetGroupResult{}, fmt.Errorf("error generating prompts manifest: %w", err)
 	}
+	listResourcesResult, err := GenerateListResourcesResult(pMgr, g)
+	if err != nil {
+		return GetGroupResult{}, fmt.Errorf("error generating resources manifest: %w", err)
+	}
+	listTemplatesResult, err := GenerateListResourceTemplatesResult(pMgr, g)
+	if err != nil {
+		return GetGroupResult{}, fmt.Errorf("error generating resource templates manifest: %w", err)
+	}
+
 	return GetGroupResult{
-		Name:    g.Name,
-		Tools:   listToolsResult.Tools,
-		Prompts: listPromptsResult.Prompts,
+		Name:              g.Name,
+		Tools:             listToolsResult.Tools,
+		Prompts:           listPromptsResult.Prompts,
+		Resources:         listResourcesResult.Resources,
+		ResourceTemplates: listTemplatesResult.ResourceTemplates,
 	}, nil
 }

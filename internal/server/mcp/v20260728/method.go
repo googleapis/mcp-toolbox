@@ -20,13 +20,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -48,6 +52,12 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 		return toolsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case TOOLS_CALL:
 		return toolsCallHandler(ctx, id, g, primitiveMgr, body, header)
+	case RESOURCES_LIST:
+		return resourcesListHandler(ctx, id, primitiveMgr, g, body, header)
+	case RESOURCES_TEMPLATES_LIST:
+		return resourceTemplatesListHandler(ctx, id, primitiveMgr, g, body, header)
+	case RESOURCES_READ:
+		return resourcesReadHandler(ctx, id, primitiveMgr, g, body, header)
 	case PROMPTS_LIST:
 		return promptsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case PROMPTS_GET:
@@ -204,6 +214,10 @@ func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, body []byt
 			Prompts: &ListChanged{
 				ListChanged: &promptsListChanged,
 			},
+			Resources: &struct {
+				Subscribe   *bool `json:"subscribe,omitempty"`
+				ListChanged *bool `json:"listChanged,omitempty"`
+			}{},
 		},
 	}
 	res := jsonrpc.JSONRPCResponse{
@@ -865,6 +879,225 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, hasSecureParamsSupport)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// resourcesListHandler generates a response for resources/list.
+func resourcesListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, g group.Group, body []byte, header http.Header) (any, error) {
+	// retrieve logger from context
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling resources/list request")
+
+	var req ListResourcesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp resources list request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_LIST, "")
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	result, err := GenerateListResourcesResult(primitiveMgr, g)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("returning %d resources", len(result.Resources)))
+
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// resourceTemplatesListHandler generates a response for resources/templates/list.
+func resourceTemplatesListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, g group.Group, body []byte, header http.Header) (any, error) {
+	// retrieve logger from context
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling resources/templates/list request")
+
+	var req ListResourceTemplatesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp resource templates list request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_TEMPLATES_LIST, "")
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	result, err := GenerateListResourceTemplatesResult(primitiveMgr, g)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("returning %d resource templates", len(result.ResourceTemplates)))
+
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// getResourceOrTemplateByURI looks up a resource by exact URI match within a group.
+// If not found, it attempts to match against resource templates (e.g. file://{path}).
+// Returns the matched resource OR template, plus extracted params if a template was matched.
+func getResourceOrTemplateByURI(uri string, g group.Group, primitiveMgr *primitives.PrimitiveManager) (resources.Resource, resources.ResourceTemplate, map[string]any, error) {
+	for _, name := range g.ResourceNames {
+		if res, ok := primitiveMgr.GetResource(name); ok {
+			if res.GetURI() == uri {
+				return res, nil, nil, nil
+			}
+		}
+	}
+
+	for _, name := range g.ResourceTemplateNames {
+		if rt, ok := primitiveMgr.GetResourceTemplate(name); ok {
+			tmpl := rt.GetURITemplate()
+			if strings.Contains(tmpl, "{path}") {
+				regexPattern := regexp.QuoteMeta(tmpl)
+				regexPattern = strings.ReplaceAll(regexPattern, "\\{path\\}", "(.*)")
+				re, err := regexp.Compile("^" + regexPattern + "$")
+				if err != nil {
+					continue
+				}
+				matches := re.FindStringSubmatch(uri)
+				if len(matches) == 2 {
+					return nil, rt, map[string]any{"path": matches[1]}, nil
+				}
+			}
+		}
+	}
+	return nil, nil, nil, fmt.Errorf("no resource or template found for URI: %s", uri)
+}
+
+// resourcesReadHandler generates a response for resources/read.
+func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, g group.Group, body []byte, header http.Header) (any, error) {
+	// retrieve logger from context
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling resources/read request")
+
+	var req ReadResourceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp resources read request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_READ, "")
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	uri := req.Params.Uri
+	logger.DebugContext(ctx, fmt.Sprintf("resource uri: %s", uri))
+
+	// Update span name and set gen_ai attributes
+	span := trace.SpanFromContext(ctx)
+	span.SetName(fmt.Sprintf("%s %s", RESOURCES_READ, uri))
+	span.SetAttributes(attribute.String("gen_ai.resource.name", uri))
+
+	// Populate gen_ai attributes for operation duration metric
+	if genAIAttrs := util.GenAIMetricAttrsFromContext(ctx); genAIAttrs != nil {
+		genAIAttrs.OperationName = "read_resource"
+	}
+
+	res, resTmpl, params, err := getResourceOrTemplateByURI(uri, g, primitiveMgr)
+	if err != nil {
+		err = fmt.Errorf("resource lookup failed: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
+	}
+
+	var content any
+	var mimeType string
+
+	if res != nil {
+		content, err = res.Read(ctx, nil)
+		mimeType = res.GetMimeType()
+	} else {
+		content, err = resTmpl.Read(ctx, params)
+		mimeType = resTmpl.GetMimeType()
+	}
+
+	if err != nil {
+		err = fmt.Errorf("failed to read resource: %w", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
+		}
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+
+	// Only text content resource is supported
+	textContent, ok := content.(string)
+	if !ok {
+		err = fmt.Errorf("unsupported resource content type, expected string")
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "read resource successfully")
+
+	meta, err := getResultMetadata(ctx, nil)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+
+	result := &ReadResourceResult{
+		Result: Result{
+			ResultType: resultTypeComplete,
+			Result: jsonrpc.Result{
+				Meta: meta,
+			},
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      g.GetTTLMs(),
+			CacheScope: cacheScope(g.GetCacheScope()),
+		},
+		Contents: []TextResourceContents{
+			{
+				ResourceContents: ResourceContents{
+					Uri:      uri,
+					MimeType: mimeType,
+				},
+				Text: textContent,
+			},
+		},
 	}
 
 	return jsonrpc.JSONRPCResponse{

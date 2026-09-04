@@ -37,11 +37,13 @@ import (
 )
 
 var (
-	_ tools.Tool     = testutils.MockTool{}
-	_ prompts.Prompt = testutils.MockPrompt{}
+	_ tools.Tool                 = testutils.MockTool{}
+	_ prompts.Prompt             = testutils.MockPrompt{}
+	_ resources.Resource         = testutils.MockResource{}
+	_ resources.ResourceTemplate = testutils.MockResourceTemplate{}
 )
 
-// setUpServer create a new server with tools, prompts, resources and groups.
+// setUpServer create a new server with tools, prompts, resources, resourceTemplates and groups.
 func setUpServer(t *testing.T, router string, tools map[string]tools.Tool, prompts map[string]prompts.Prompt, resourcesMap map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate, groups map[string]group.Group, opts ...func(*Server)) (chi.Router, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 

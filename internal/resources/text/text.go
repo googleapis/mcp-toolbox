@@ -55,10 +55,12 @@ type Config struct {
 
 var _ resources.ResourceConfig = &Config{}
 
+// ResourceConfigType returns the resource type identifier.
 func (c *Config) ResourceConfigType() string {
 	return resourceType
 }
 
+// Initialize computes the size of the text and returns an initialized textual resource.
 func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 	size := int64(len(c.Text))
 
@@ -73,15 +75,18 @@ type Resource struct {
 
 var _ resources.Resource = &Resource{}
 
+// GetSize returns the pre-computed size of the text content.
 func (r *Resource) GetSize() *int64 {
 	size := r.Size
 	return &size
 }
 
+// Read retrieves the static text content.
 func (r *Resource) Read(ctx context.Context, params map[string]any) (any, error) {
 	return r.Text, nil
 }
 
+// ToConfig returns the underlying uninitialized configuration.
 func (r *Resource) ToConfig() resources.ResourceConfig {
 	return &r.Config
 }

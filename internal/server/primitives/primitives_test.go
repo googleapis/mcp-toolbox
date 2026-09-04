@@ -88,6 +88,7 @@ func TestUpdateServer(t *testing.T) {
 	if diff := cmp.Diff(gotTemplate, newResourceTemplates["example-template"]); diff != "" {
 		t.Errorf("error updating server, resource templates (-want +got):\n%s", diff)
 	}
+
 	updateSource := map[string]sources.Source{
 		"example-source2": &alloydbpg.Source{
 			Config: alloydbpg.Config{
