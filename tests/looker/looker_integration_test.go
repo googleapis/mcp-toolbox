@@ -2392,7 +2392,7 @@ func TestLooker(t *testing.T) {
 	// Verify that conditional filtering based on other fields works
 	testFieldValueSuggestions(t, "with_filtering", []byte(`{"model": "system__activity", "explore": "history", "field": "history.source", "filters": {"history.status": "complete"}}`), wantSuggestions)
 
-	wantResult = "{\"description\":\"\",\"label\":\"API Usage\",\"label_short\":\"API Usage\",\"name\":\"turtle::api_usage\",\"suggestable\":false,\"type\":\"turtle_look\"}"
+	wantResult = "{\"description\":\"The total number of views via the Looker API\",\"label\":\"Content Usage API Total\",\"label_short\":\"API Total\",\"name\":\"content_usage.api_total\",\"suggestable\":false,\"type\":\"sum\"}"
 	tests.RunToolInvokeParametersTest(t, "get_measures", []byte(`{"model": "system__activity", "explore": "content_usage"}`), wantResult)
 
 	wantResult = "[]"
