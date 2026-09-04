@@ -105,6 +105,8 @@ type ServerConfig struct {
 	SkipSourceValidation bool
 	// DisableExt specifies MCP extension URIs disabled on this server.
 	DisableExt []string
+	// DisableVersionCheck skips checking for newer Toolbox versions on startup.
+	DisableVersionCheck bool
 }
 
 type logFormat string
