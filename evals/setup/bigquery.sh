@@ -15,19 +15,17 @@
 
 # Seeds the dataset the bigquery evalset queries: the project has no stable
 # BigQuery fixture, so the scenarios would otherwise have nothing deterministic
-# to read. The name comes from EVAL_RUN_ID (.ci/run_evals.sh), which the evalset
-# composes too.
+# to read. The name comes from EVAL_BQ_DATASET (.ci/run_evals.sh), which the
+# evalset references too.
 #
 # Idempotent: run_evals.sh invokes EvalBench once per harness, and EvalBench
 # runs this once per invocation.
 
 set -euo pipefail
 
-: "${BIGQUERY_PROJECT:?}" "${BIGQUERY_LOCATION:?}" "${EVAL_RUN_ID:?}"
+: "${BIGQUERY_PROJECT:?}" "${BIGQUERY_LOCATION:?}" "${EVAL_BQ_DATASET:?}"
 
-export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
-
-echo "seeding ${BIGQUERY_PROJECT}.${BQ_DATASET} in ${BIGQUERY_LOCATION}"
+echo "seeding ${BIGQUERY_PROJECT}.${EVAL_BQ_DATASET} in ${BIGQUERY_LOCATION}"
 
 # Python rather than bq: bq is a separate gcloud component the EvalBench image
 # need not carry, while google-cloud-bigquery is already present.
@@ -38,7 +36,7 @@ from google.cloud import bigquery
 
 project = os.environ["BIGQUERY_PROJECT"]
 location = os.environ["BIGQUERY_LOCATION"]
-dataset_id = f"{project}.{os.environ['BQ_DATASET']}"
+dataset_id = f"{project}.{os.environ['EVAL_BQ_DATASET']}"
 
 # location on the client too: a query job that does not carry one defaults to
 # US, so the CREATE below would miss a dataset seeded anywhere else.

@@ -2,8 +2,8 @@
   "scenarios": [
     {
       "id": "bigquery-data-01",
-      "starting_prompt": "I am getting oriented in this project's BigQuery data. What datasets are there, and for toolbox_evals_${EVAL_RUN_ID} specifically, what location is it in and which tables does it hold?",
-      "conversation_plan": "The user wants a dataset listing, then the location and table list for toolbox_evals_${EVAL_RUN_ID}. If the assistant covers only some of the three, ask for what is missing. Once all three are given, end the conversation.",
+      "starting_prompt": "I am getting oriented in this project's BigQuery data. What datasets are there, and for ${EVAL_BQ_DATASET} specifically, what location is it in and which tables does it hold?",
+      "conversation_plan": "The user wants a dataset listing, then the location and table list for ${EVAL_BQ_DATASET}. If the assistant covers only some of the three, ask for what is missing. Once all three are given, end the conversation.",
       "expected_trajectory": [
         "toolbox__list_dataset_ids",
         "toolbox__get_dataset_info",
@@ -14,7 +14,7 @@
     },
     {
       "id": "bigquery-data-02",
-      "starting_prompt": "In the BigQuery dataset toolbox_evals_${EVAL_RUN_ID}, what columns does the orders table have, and which customer has the highest total order amount?",
+      "starting_prompt": "In the BigQuery dataset ${EVAL_BQ_DATASET}, what columns does the orders table have, and which customer has the highest total order amount?",
       "conversation_plan": "The user wants the orders schema and a named top customer, so the assistant has to inspect the table before querying it. If the assistant supplies only one of the two, ask for the missing half. Once both are given, end the conversation.",
       "expected_trajectory": [
         "toolbox__get_table_info",
@@ -25,7 +25,7 @@
     },
     {
       "id": "bigquery-analytics-01",
-      "starting_prompt": "Our daily revenue history is in the BigQuery table toolbox_evals_${EVAL_RUN_ID}.daily_revenue. Where is revenue headed over the next 14 days?",
+      "starting_prompt": "Our daily revenue history is in the BigQuery table ${EVAL_BQ_DATASET}.daily_revenue. Where is revenue headed over the next 14 days?",
       "conversation_plan": "The user wants a 14-day forecast and does not know the column names, so the assistant has to inspect the table before forecasting. If the assistant asks which columns hold the date and the value, tell it to work that out from the table itself. Once a forecast is given, end the conversation.",
       "expected_trajectory": [
         "toolbox__get_table_info",
@@ -36,7 +36,7 @@
     },
     {
       "id": "bigquery-analytics-02",
-      "starting_prompt": "Signups moved between our control and test periods, and toolbox_evals_${EVAL_RUN_ID}.signups has the per-day breakdown. Which segments drove the change?",
+      "starting_prompt": "Signups moved between our control and test periods, and ${EVAL_BQ_DATASET}.signups has the per-day breakdown. Which segments drove the change?",
       "conversation_plan": "The user wants the segments behind the change and does not know the column names, so the assistant has to inspect the table before analyzing it. If the assistant asks which column marks the test group or which columns are dimensions, tell it to work that out from the table itself. Once named segments are given, end the conversation.",
       "expected_trajectory": [
         "toolbox__get_table_info",

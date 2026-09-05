@@ -36,13 +36,12 @@ fi
 
 # A flag rather than $1, because EvalBench passes the session directory there.
 if [[ -n "${TEARDOWN_SWEEP:-}" ]]; then
-  # No EVAL_RUN_ID to name a dataset with, so spare anything recent enough to
-  # belong to a build still in flight. Builds time out at 2h.
+  # No EVAL_BQ_DATASET to name a dataset with, so spare anything recent enough
+  # to belong to a build still in flight. Builds time out at 2h.
   export SWEEP_AGE_HOURS="${TEARDOWN_SWEEP_AGE_HOURS:-6}"
   echo "sweeping toolbox_evals_* in ${BIGQUERY_PROJECT} older than ${SWEEP_AGE_HOURS}h"
 else
-  : "${EVAL_RUN_ID:?}"
-  export BQ_DATASET="toolbox_evals_${EVAL_RUN_ID}"
+  : "${EVAL_BQ_DATASET:?}"
 fi
 
 uv run --no-sync python - <<'PY'
@@ -78,7 +77,7 @@ if os.environ.get("TEARDOWN_SWEEP"):
     ]
     print(f"{len(targets)} dataset(s) to delete")
 else:
-    targets = [f"{project}.{os.environ['BQ_DATASET']}"]
+    targets = [f"{project}.{os.environ['EVAL_BQ_DATASET']}"]
 
 # One undeletable dataset must not take the rest with it: the sweep rebuilds this
 # list in the same order every run, so it would block everything behind it.
