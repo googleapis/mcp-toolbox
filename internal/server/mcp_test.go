@@ -2197,3 +2197,86 @@ func TestMcpPromptScopingByGroup(t *testing.T) {
 		})
 	}
 }
+
+func TestMcpToolSuggestionModes(t *testing.T) {
+	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
+	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
+
+	testCases := []struct {
+		name string
+		mode tools.SuggestionMode
+		url  string
+		want string
+	}{
+		{
+			name: "unset mode lists the group's tools and the nearest match",
+			url:  "/",
+			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "no_params"? Available tools: no_params, some_params`,
+		},
+		{
+			name: "full lists the group's tools and the nearest match",
+			mode: tools.SuggestionsFull,
+			url:  "/",
+			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "no_params"? Available tools: no_params, some_params`,
+		},
+		{
+			name: "nearest suggests without listing the inventory",
+			mode: tools.SuggestionsNearest,
+			url:  "/",
+			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "no_params"?`,
+		},
+		{
+			name: "off returns the bare message",
+			mode: tools.SuggestionsOff,
+			url:  "/",
+			want: `invalid tool name: tool with name "no_param" does not exist`,
+		},
+		{
+			name: "listing stays scoped to the connected group",
+			mode: tools.SuggestionsFull,
+			url:  "/tool2_only",
+			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "some_params"? Available tools: some_params`,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mode := tc.mode
+			r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, groups, func(s *Server) {
+				s.PrimitiveMgr.SetToolSuggestions(mode)
+			})
+			defer shutdown()
+			ts := runServer(r, false)
+			defer ts.Close()
+
+			reqBody := jsonrpc.JSONRPCRequest{
+				Jsonrpc: jsonrpcVersion,
+				Id:      "tools-call-unknown",
+				Request: jsonrpc.Request{Method: "tools/call"},
+				Params:  map[string]any{"name": "no_param"},
+			}
+			reqMarshal, err := json.Marshal(reqBody)
+			if err != nil {
+				t.Fatalf("unexpected error marshaling body: %s", err)
+			}
+			_, body, err := runRequest(ts, http.MethodPost, tc.url, bytes.NewBuffer(reqMarshal), nil)
+			if err != nil {
+				t.Fatalf("unexpected error during request: %s", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatalf("unexpected error unmarshalling body: %s", err)
+			}
+			want := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "tools-call-unknown",
+				"error": map[string]any{
+					"code":    -32602.0,
+					"message": tc.want,
+				},
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("unexpected response: got %#v, want %#v", got, want)
+			}
+		})
+	}
+}

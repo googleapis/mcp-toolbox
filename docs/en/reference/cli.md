@@ -39,6 +39,7 @@ description: >
 |              | `--user-agent-metadata`    | Appends additional metadata to the User-Agent.                                                                                                                            |             |
 |              | `--poll-interval`          | Specifies the polling frequency (seconds) for configuration file updates.                                                                                                 | `0`         |
 |              | `--enable-draft-specs`     | Opt-in and test upcoming draft MCP specifications.                                                                                                                        | `false`     |
+|              | `--tool-suggestions`       | Controls what an unknown-tool error discloses so an agent can self-correct: `full` (the nearest matching name and the available tool names for the connected toolset), `nearest` (the nearest matching name only), or `off` (neither). Applies to MCP `tools/call` only, where the connected toolset bounds what may be revealed; the `/api` endpoints have no toolset scope and never disclose tool names regardless of this setting. | `full`      |
 | `-v`         | `--version`                | version for toolbox                                                                                                                                                       |             |
 
 ## Sub Commands

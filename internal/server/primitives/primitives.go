@@ -38,6 +38,7 @@ type PrimitiveManager struct {
 	tools           map[string]tools.Tool
 	prompts         map[string]prompts.Prompt
 	groups          map[string]group.Group
+	toolSuggestions tools.SuggestionMode
 }
 
 func NewPrimitiveManager(
@@ -144,4 +145,21 @@ func (r *PrimitiveManager) GroupsList() []group.Group {
 	})
 
 	return groupsList
+}
+
+// ToolSuggestions returns the server-wide disclosure mode for unknown-tool
+// errors. It is server configuration rather than per-request state, so it
+// lives here alongside the primitives the handlers already resolve through.
+func (r *PrimitiveManager) ToolSuggestions() tools.SuggestionMode {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.toolSuggestions
+}
+
+// SetToolSuggestions records the mode. Called once during server construction,
+// before any request is served.
+func (r *PrimitiveManager) SetToolSuggestions(mode tools.SuggestionMode) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.toolSuggestions = mode
 }

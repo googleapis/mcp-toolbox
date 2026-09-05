@@ -36,6 +36,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/spf13/cobra"
 )
@@ -266,6 +267,13 @@ func TestServerConfigFlags(t *testing.T) {
 				DisableExt: []string{"io.modelcontextprotocol/tasks"},
 			}),
 		},
+		{
+			desc: "tool suggestions",
+			args: []string{"--tool-suggestions", "off"},
+			want: withDefaults(server.ServerConfig{
+				ToolSuggestions: tools.SuggestionsOff,
+			}),
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -454,6 +462,10 @@ func TestFailServerConfigFlags(t *testing.T) {
 			desc: "debug logs",
 			args: []string{"--log-level", "fail"},
 		},
+		{
+			desc: "tool suggestions",
+			args: []string{"--tool-suggestions", "fail"},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -486,6 +498,18 @@ func TestDefaultLogLevel(t *testing.T) {
 	want := "info"
 	if got != want {
 		t.Fatalf("unexpected default log level flag: got %v, want %v", got, want)
+	}
+}
+
+func TestDefaultToolSuggestions(t *testing.T) {
+	_, opts, _, err := invokeCommand([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error invoking command: %s", err)
+	}
+	got := opts.Cfg.ToolSuggestions.String()
+	want := "full"
+	if got != want {
+		t.Fatalf("unexpected default tool suggestions flag: got %v, want %v", got, want)
 	}
 }
 

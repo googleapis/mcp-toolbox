@@ -284,7 +284,7 @@ func runAINLMCPToolCallMethod(t *testing.T) {
 					"arguments": map[string]any{},
 				},
 			},
-			want: `{"jsonrpc":"2.0","id":"invalid-tool","error":{"code":-32602,"message":"invalid tool name: tool with name \"foo\" does not exist"}}`,
+			want: `{"jsonrpc":"2.0","id":"invalid-tool","error":{"code":-32602,"message":"invalid tool name: tool with name \"foo\" does not exist.`,
 		},
 		{
 			name:          "MCP Invoke my-auth-tool without parameters",

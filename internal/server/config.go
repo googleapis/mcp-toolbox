@@ -105,6 +105,9 @@ type ServerConfig struct {
 	SkipSourceValidation bool
 	// DisableExt specifies MCP extension URIs disabled on this server.
 	DisableExt []string
+	// ToolSuggestions controls how much an unknown-tool error discloses about
+	// the tools that do exist.
+	ToolSuggestions tools.SuggestionMode
 }
 
 type logFormat string

@@ -168,13 +168,13 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 
 	// Verify tool belongs to the current group before resolving globally.
 	if !g.ContainsTool(toolName) {
-		err = fmt.Errorf("invalid tool name: tool with name %q does not exist", toolName)
+		err = tools.UnknownToolError(toolName, g.ToolNames, primitiveMgr.ToolSuggestions())
 		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
 	}
 
 	tool, ok := primitiveMgr.GetTool(toolName)
 	if !ok {
-		err = fmt.Errorf("invalid tool name: tool with name %q does not exist", toolName)
+		err = tools.UnknownToolError(toolName, g.ToolNames, primitiveMgr.ToolSuggestions())
 		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
 	}
 
