@@ -18,6 +18,7 @@ require (
 	cloud.google.com/go/geminidataanalytics v1.2.0
 	cloud.google.com/go/logging v1.18.0
 	cloud.google.com/go/longrunning v1.0.0
+	cloud.google.com/go/parametermanager v1.0.0
 	cloud.google.com/go/resourcemanager v1.15.0
 	cloud.google.com/go/spanner v1.92.0
 	cloud.google.com/go/storage v1.62.3

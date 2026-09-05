@@ -43,6 +43,7 @@ type ToolboxOptions struct {
 	Config          string
 	Configs         []string
 	ConfigFolder    string
+	ConfigPMVersion string
 	PrebuiltConfigs []string
 	VersionNum      string
 }
@@ -139,7 +140,7 @@ func (opts *ToolboxOptions) Setup(ctx context.Context) (context.Context, func(co
 func (opts *ToolboxOptions) GetCustomConfigFiles(ctx context.Context) ([]string, bool, error) {
 	// Determine if Custom Files should be loaded
 	// Check for explicit custom flags
-	isCustomConfigured := opts.Config != "" || len(opts.Configs) > 0 || opts.ConfigFolder != ""
+	isCustomConfigured := opts.Config != "" || len(opts.Configs) > 0 || opts.ConfigFolder != "" || opts.ConfigPMVersion != ""
 
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
@@ -156,9 +157,12 @@ func (opts *ToolboxOptions) GetCustomConfigFiles(ctx context.Context) ([]string,
 			// Use tools-folder
 			allFiles, err := GetPathsFromConfigFolder(ctx, opts.ConfigFolder)
 			return allFiles, isCustomConfigured, err
-		} else {
+		} else if opts.Config != "" {
 			// use tools-file
 			return []string{opts.Config}, isCustomConfigured, nil
+		} else if opts.ConfigPMVersion != "" {
+			// use tools-pm-version (no local files to return)
+			return []string{}, isCustomConfigured, nil
 		}
 	}
 
@@ -266,12 +270,33 @@ func (opts *ToolboxOptions) LoadConfig(ctx context.Context, parser *ConfigParser
 
 	// Load Custom Configurations
 	if isCustomConfigured {
-		customTools, err := parser.LoadAndMergeConfigs(ctx, filesPaths)
-		if err != nil {
-			logger.ErrorContext(ctx, err.Error())
-			return isCustomConfigured, err
+		var customConfigs []Config
+
+		if opts.ConfigPMVersion != "" {
+			buf, err := FetchToolsFromParameterManager(ctx, opts.ConfigPMVersion)
+			if err != nil {
+				logger.ErrorContext(ctx, fmt.Sprintf("unable to fetch from Parameter Manager: %v", err))
+				return isCustomConfigured, err
+			}
+			pmConfig, err := parser.ParseConfig(ctx, buf)
+			if err != nil {
+				logger.ErrorContext(ctx, fmt.Sprintf("unable to parse Parameter Manager config: %v", err))
+				return isCustomConfigured, err
+			}
+			customConfigs = append(customConfigs, pmConfig)
 		}
-		allConfigs = append(allConfigs, customTools)
+
+		if len(filesPaths) > 0 {
+			customTools, err := parser.LoadAndMergeConfigs(ctx, filesPaths)
+			if err != nil {
+				logger.ErrorContext(ctx, err.Error())
+				return isCustomConfigured, err
+			}
+			customConfigs = append(customConfigs, customTools)
+		}
+
+		// Since both parameter manager & local files could theoretically be used (though mutually exclusive in CLI flags, tested anyway)
+		allConfigs = append(allConfigs, customConfigs...)
 	}
 
 	// Modify version string based on loaded configurations
