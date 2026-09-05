@@ -55,7 +55,7 @@ type Config struct {
 	Type               string                 `yaml:"type" validate:"required"`
 	Source             string                 `yaml:"source" validate:"required"`
 	Statement          string                 `yaml:"statement" validate:"required"`
-	ReadOnly           bool                   `yaml:"readOnly"`
+	ReadOnly           *bool                  `yaml:"readOnly,omitempty"`
 	Parameters         parameters.Parameters  `yaml:"parameters"`
 	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
 	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
@@ -68,9 +68,22 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
-func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
+func (cfg Config) Initialize(ctx context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
+	}
+
+	if cfg.ReadOnly != nil {
+		l, err := util.LoggerFromContext(ctx)
+		if err == nil {
+			l.WarnContext(ctx, fmt.Sprintf("[DEPRECATED] The 'readOnly' field on tool %q is deprecated and will be removed in a future release. Please configure 'readOnly: true' on the Spanner source instead.", cfg.Name))
+		}
+	}
+
+	if cfg.ReadOnly != nil && cfg.Annotations != nil && cfg.Annotations.ReadOnlyHint != nil {
+		if *cfg.ReadOnly != *cfg.Annotations.ReadOnlyHint {
+			return nil, fmt.Errorf("conflict in tool %q: legacy 'readOnly' (%v) and 'annotations.readOnlyHint' (%v) cannot have different values", cfg.Name, *cfg.ReadOnly, *cfg.Annotations.ReadOnlyHint)
+		}
 	}
 
 	allParameters, paramManifest, err := parameters.ProcessParameters(cfg.TemplateParameters, cfg.Parameters)
@@ -79,7 +92,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	}
 
 	defaultAnnotations := tools.NewDestructiveAnnotations
-	if cfg.ReadOnly {
+	if cfg.ReadOnly != nil && *cfg.ReadOnly {
 		defaultAnnotations = tools.NewReadOnlyAnnotations
 	}
 
@@ -155,7 +168,14 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewAgentError("fail to get map params", err)
 	}
 
-	resp, err := source.RunSQL(ctx, t.Cfg.ReadOnly, newStatement, mapParams)
+	readOnly := false
+	if t.Cfg.ReadOnly != nil {
+		readOnly = *t.Cfg.ReadOnly
+	} else if ann := t.GetAnnotations(s); ann != nil && ann.ReadOnlyHint != nil {
+		readOnly = *ann.ReadOnlyHint
+	}
+
+	resp, err := source.RunSQL(ctx, readOnly, newStatement, mapParams)
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
 	}

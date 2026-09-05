@@ -75,3 +75,4 @@ database: "my_db"
 | instance  |  string  |     true     | Name of the Spanner instance.                                                                                       |
 | database  |  string  |     true     | Name of the database on the Spanner instance                                                                        |
 | dialect   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. Default: `googlesql`. |
+| readOnly  | boolean  |    false     | When set to `true`, enforces read-only execution at the database protocol level and suppresses write-capable tools. Default: `false`. |
