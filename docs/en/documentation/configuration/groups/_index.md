@@ -8,7 +8,7 @@ description: >
 
 A Group is a single named collection that scopes MCP primitives together — currently **tools** and **prompts**, with more (such as resources) planned. Where a [Toolset](../toolsets/) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
 
-Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list` and `prompts/list`) to that group.
+Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list` and `prompts/list`) to that group. Groups are also introspectable over MCP through the [`groups/list` and `groups/get`](#introspecting-groups-over-mcp) methods, which are available only on the latest MCP protocol version (`2026-07-28`) and only behind the `com.google.cloud/toolbox.v1` extension.
 
 ## Defining Groups
 
@@ -17,7 +17,7 @@ Declare a group as a `kind: group` document in your configuration file. A group 
 | Field         | Required | Description                                                                                    |
 | ------------- | -------- | -----------------------------------------------------------------------------------------------|
 | `name`        | Yes\*    | Unique name for the group. Used as the endpoint path (`/mcp/{name}`).                          |
-| `description` | No       | Human-readable description of the group.                                                       |
+| `description` | No       | Human-readable description of the group, surfaced via `groups/list`.                           |
 | `tools`       | No       | List of tool names to include in the group.                                                    |
 | `prompts`     | No       | List of prompt names to include in the group.                                                  |
 | `ttlMs`       | No       | Time-to-live in milliseconds for cached group list responses. ([MCP TTL Spec](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field )). Defaults to `300000` (5 minutes).|
@@ -85,3 +85,79 @@ toolbox migrate --config tools.yaml
 ```
 
 Use `--dry-run` to preview the changes without writing them.
+
+## Introspecting groups over MCP
+
+Two MCP methods let clients discover groups: `groups/list` and `groups/get`.
+
+{{< notice warning >}}
+**Both methods are available only on MCP protocol version `2026-07-28` — the latest version — and only to clients that declare the `com.google.cloud/toolbox.v1` extension.** They belong to the experimental Toolbox extension, not to the base MCP specification, so a client on any earlier protocol version cannot reach them at all.
+{{< /notice >}}
+
+| Client's protocol version | Declares `com.google.cloud/toolbox.v1` | Result                                        |
+| ------------------------- | -------------------------------------- | --------------------------------------------- |
+| Earlier than `2026-07-28` | n/a                                    | `METHOD_NOT_FOUND` (-32601)                   |
+| `2026-07-28`              | No                                     | `MISSING_REQUIRED_CLIENT_CAPABILITY` (-32021) |
+| `2026-07-28`              | Yes                                    | Served                                        |
+
+A server operator can also close these methods off entirely by starting Toolbox with `--disable-ext com.google.cloud/toolbox.v1`, which makes even an extension-aware client fall into the second row.
+
+For more details on extension capabilities and client requirements, see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md).
+
+### `groups/list`
+
+Returns every named group with its `name` and `description`. The default (nameless) group is omitted:
+
+```json
+{
+  "resultType": "complete",
+  "groups": [
+    { "name": "data_analyst", "description": "Tools and prompts for exploratory data analysis." },
+    { "name": "admin", "description": "Administrative operations." }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol/serverInfo": { "name": "Toolbox", "version": "1.10.0" }
+  }
+}
+```
+
+Because a `groups/list` response spans groups that may each set a different `ttlMs`, it carries no cache hint of its own. The response is not paginated — a server configures a bounded set of groups, so all of them come back in one response.
+
+### `groups/get`
+
+Takes a group `name` and returns that group's tools and prompts together, along with the group's `ttlMs` and `cacheScope` cache hints — the same ones `tools/list` and `prompts/list` return for that group:
+
+```json
+{
+  "resultType": "complete",
+  "name": "data_analyst",
+  "ttlMs": 300000,
+  "cacheScope": "public",
+  "tools": [
+    {
+      "name": "list_tables",
+      "description": "List tables in the database.",
+      "inputSchema": { "type": "object", "properties": {}, "required": [] }
+    },
+    {
+      "name": "execute_sql",
+      "description": "Run a SQL query.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "sql": { "type": "string" } },
+        "required": ["sql"]
+      }
+    }
+  ],
+  "prompts": [
+    { "name": "summarize_results", "description": "Summarize query results." }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol/serverInfo": { "name": "Toolbox", "version": "1.10.0" }
+  }
+}
+```
+
+An unrecognized `name` returns `INVALID_PARAMS` (-32602). An omitted or empty `name` resolves to the default (nameless) group, which holds every tool and prompt on the server — the same rule the `/api/toolset` REST endpoint follows when called without a toolset name. Since `groups/list` omits the default group, this is the only way to reach it over MCP.
+
+Both methods are scoped to the server, not to the endpoint they are called on. Calling `groups/get` on `/mcp/data_analyst` can return the contents of the `admin` group.

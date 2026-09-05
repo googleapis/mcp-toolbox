@@ -509,9 +509,11 @@ type PromptMessage struct {
 /* Groups */
 
 // ListGroupsRequest is sent from the client to request the list of groups the
-// server has.
+// server has. It is not paginated: a server configures a bounded set of groups,
+// so groups/list always returns all of them in one response.
 type ListGroupsRequest struct {
-	PaginatedRequest
+	jsonrpc.Request
+	Params RequestParams `json:"params,omitempty"`
 }
 
 // Group is a single entry in a groups/list response.
@@ -522,7 +524,7 @@ type Group struct {
 
 // ListGroupsResult is the server's response to a groups/list request.
 type ListGroupsResult struct {
-	jsonrpc.Result
+	Result
 	Groups []Group `json:"groups"`
 }
 
@@ -542,7 +544,8 @@ type GetGroupRequestParams struct {
 // tools and prompts. The description is intentionally omitted; it is exposed only
 // through groups/list.
 type GetGroupResult struct {
-	jsonrpc.Result
+	Result
+	CacheableResult
 	Name    string   `json:"name"`
 	Tools   []Tool   `json:"tools"`
 	Prompts []Prompt `json:"prompts"`

@@ -1488,6 +1488,175 @@ func TestMcpEndpoint(t *testing.T) {
 	}
 }
 
+// TestMcpGroupsMethods checks that groups/list and groups/get are served only
+// on the latest protocol version, and only to clients that declared the
+// com.google.cloud/toolbox.v1 extension.
+func TestMcpGroupsMethods(t *testing.T) {
+	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
+	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
+	r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, groups)
+	defer shutdown()
+	ts := runServer(r, false)
+	defer ts.Close()
+
+	meta := func(extensions map[string]any) map[string]any {
+		return map[string]any{
+			"io.modelcontextprotocol/protocolVersion": protocolVersion20260728,
+			"io.modelcontextprotocol/clientInfo": map[string]any{
+				"version": "client-temp-version",
+				"name":    "client-name",
+			},
+			"io.modelcontextprotocol/clientCapabilities": map[string]any{
+				"extensions": extensions,
+			},
+		}
+	}
+	toolboxExt := map[string]any{"com.google.cloud/toolbox.v1": map[string]any{}}
+	serverInfoMeta := map[string]any{
+		"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
+	}
+
+	testCases := []struct {
+		name     string
+		protocol string
+		method   string
+		params   map[string]any
+		want     map[string]any
+	}{
+		{
+			name:     "groups/list with extension",
+			protocol: protocolVersion20260728,
+			method:   "groups/list",
+			params:   map[string]any{"_meta": meta(toolboxExt)},
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"result": map[string]any{
+					"resultType": "complete",
+					"groups": []any{
+						map[string]any{"name": "tool1_only"},
+						map[string]any{"name": "tool2_only"},
+					},
+					"_meta": serverInfoMeta,
+				},
+			},
+		},
+		{
+			name:     "groups/get with extension",
+			protocol: protocolVersion20260728,
+			method:   "groups/get",
+			params:   map[string]any{"name": "tool1_only", "_meta": meta(toolboxExt)},
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"result": map[string]any{
+					"resultType": "complete",
+					"name":       "tool1_only",
+					"tools": []any{
+						map[string]any{"name": "no_params", "inputSchema": basicInputSchema},
+					},
+					"prompts":    []any{},
+					"ttlMs":      300000.0,
+					"cacheScope": "public",
+					"_meta":      serverInfoMeta,
+				},
+			},
+		},
+		{
+			name:     "groups/list without extension",
+			protocol: protocolVersion20260728,
+			method:   "groups/list",
+			params:   map[string]any{"_meta": meta(nil)},
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"error": map[string]any{
+					"code":    -32021.0,
+					"message": `missing required client capability: method "groups/list" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
+				},
+			},
+		},
+		{
+			name:     "groups/get without extension",
+			protocol: protocolVersion20260728,
+			method:   "groups/get",
+			params:   map[string]any{"name": "tool1_only", "_meta": meta(nil)},
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"error": map[string]any{
+					"code":    -32021.0,
+					"message": `missing required client capability: method "groups/get" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
+				},
+			},
+		},
+		{
+			name:     "groups/list is not served on an earlier protocol version",
+			protocol: protocolVersion20251125,
+			method:   "groups/list",
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"error": map[string]any{
+					"code":    -32601.0,
+					"message": "invalid method groups/list",
+				},
+			},
+		},
+		{
+			name:     "groups/get is not served on an earlier protocol version",
+			protocol: protocolVersion20251125,
+			method:   "groups/get",
+			params:   map[string]any{"name": "tool1_only"},
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"error": map[string]any{
+					"code":    -32601.0,
+					"message": "invalid method groups/get",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := jsonrpc.JSONRPCRequest{
+				Jsonrpc: jsonrpcVersion,
+				Id:      "groups-req",
+				Request: jsonrpc.Request{Method: tc.method},
+			}
+			if tc.params != nil {
+				body.Params = tc.params
+			}
+			reqMarshal, err := json.Marshal(body)
+			if err != nil {
+				t.Fatalf("unexpected error during marshaling of body: %s", err)
+			}
+
+			header := map[string]string{
+				"Mcp-Protocol-Version": tc.protocol,
+				"Mcp-Method":           tc.method,
+			}
+			if tc.method == "groups/get" {
+				header["Mcp-Name"] = tc.params["name"].(string)
+			}
+
+			_, respBody, err := runRequest(ts, http.MethodPost, "/", bytes.NewBuffer(reqMarshal), header)
+			if err != nil {
+				t.Fatalf("unexpected error during request: %s", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(respBody, &got); err != nil {
+				t.Fatalf("unexpected error unmarshalling body: %s", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("unexpected response: got %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestMcpEndpointWithoutEnablingDraftSpecs checks a method on draft specs
 // without enabling draft specs in server. The server should response with
 // unsupported protocol version errror.

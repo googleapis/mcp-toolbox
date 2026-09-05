@@ -16,9 +16,12 @@ package v20260728
 
 import "slices"
 
+// ToolboxExtensionURI identifies the experimental Toolbox MCP extension.
+const ToolboxExtensionURI = "com.google.cloud/toolbox.v1"
+
 // SupportedExtensions lists all MCP extension URIs supported by Toolbox by default.
 var SupportedExtensions = map[string]any{
-	"com.google.cloud/toolbox.v1": map[string]any{},
+	ToolboxExtensionURI: map[string]any{},
 }
 
 // ServerExtensions is the map of extension URIs enabled on this server.
