@@ -111,6 +111,7 @@ For a full list of available tools and their capabilities across all supported d
 
 ---
 
+<a id="configuration"></a>
 ## Quick Start: Custom Tools
 
 Toolbox can also be used as a framework for customized tools.
@@ -202,6 +203,43 @@ arguments:
 
 For more details on configuring prompts, see the
 [Prompts](https://mcp-toolbox.dev/documentation/configuration/prompts/).
+
+### Resources
+
+The `resources` and `resourceTemplates` sections of your `tools.yaml` define read-only
+content, files, or parameterized directory trees that can be discovered and retrieved
+by MCP clients:
+
+```yaml
+kind: resource
+name: database_schema_ddl
+type: text
+description: "Core table definitions and constraints."
+mimeType: text/x-sql
+text: |
+  CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL
+  );
+---
+kind: resource
+name: database_schema
+type: file
+description: "PostgreSQL schema definition."
+path: "./schema.sql"
+---
+kind: resourceTemplate
+name: server_logs
+type: file
+description: "Application log files."
+uriTemplate: "file:///var/log/{path}"
+allowedPaths:
+  - "/var/log"
+```
+
+For more details on configuring resources and resource templates, see
+[Resources](https://mcp-toolbox.dev/documentation/configuration/resources/).
 
 ---
 

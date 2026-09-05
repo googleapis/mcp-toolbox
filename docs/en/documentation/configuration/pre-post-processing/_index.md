@@ -1,7 +1,7 @@
 ---
 title: "Pre- and Post- Processing"
 type: docs
-weight: 10
+weight: 12
 description: >
   Intercept and modify interactions between the agent and its tools either before or after a tool is executed.
 ---

@@ -90,7 +90,7 @@ tools:
 
 ### Groups
 
-The `group` kind scopes MCP primitives such as **tools** and **prompts**
+The `group` kind scopes MCP primitives such as **tools**, **prompts**, **resources**, and **resource templates**
 together under one name, with a `description` used as group metadata. A toolset
 is a tools-only group, so existing `kind: toolset` configs keep working
 unchanged. See [Groups](./groups/_index.md) for details.
@@ -98,11 +98,15 @@ unchanged. See [Groups](./groups/_index.md) for details.
 ```yaml
 kind: group
 name: my_group
-description: Tools and prompts for a specific task.
+description: Tools, prompts, and resources for a specific task.
 tools:
   - my_first_tool
 prompts:
   - my_first_prompt
+resources:
+  - my_first_resource
+resourceTemplates:
+  - my_first_template
 ```
 
 ### Prompts
@@ -123,6 +127,35 @@ arguments:
 
 For more details on configuring different types of prompts, see the
 [Prompts](./prompts/_index.md).
+
+### Resources
+
+The `resource` and `resourceTemplate` kinds define read-only content, files, and parameterized URI patterns that can be discovered and retrieved by MCP clients.
+
+```yaml
+kind: resource
+name: database_schema_ddl
+type: text
+description: "Core table definitions and constraints."
+mimeType: "text/x-sql"
+text: |
+  CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL
+  );
+---
+kind: resourceTemplate
+name: server_logs
+type: file
+description: "Application runtime log files."
+uriTemplate: "file:///var/log/{path}"
+allowedPaths:
+  - "/var/log"
+```
+
+For more details on configuring different types of resources, see
+[Resources](./resources/_index.md).
 
 ### Read-Only Configuration
 
