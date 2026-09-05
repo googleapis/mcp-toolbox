@@ -45,12 +45,12 @@ description: |
   Required Parameters:
   - title: A unique title for the new Look.
   - description: A brief description of the Look's purpose.
-  - model_name: The name of the LookML model (from `get_models`).
-  - explore_name: The name of the explore (from `get_explores`).
+  - model: The name of the LookML model (from `get_models`).
+  - explore: The name of the explore (from `get_explores`).
   - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query.
 
   Optional Parameters:
-  - pivots, filters, sorts, limit, query_timezone: These parameters are identical
+  - pivots, filters, sorts, limit, tz: These parameters are identical
     to those described for the `query` tool.
   - vis_config: A JSON object defining the visualization settings for the Look.
     The structure and options are the same as for the `query_url` tool's `vis_config`.

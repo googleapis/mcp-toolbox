@@ -38,12 +38,12 @@ description: |
 
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
-  - model_name, explore_name, fields: These query parameters are inherited
+  - model, explore, fields: These query parameters are inherited
     from the `query` tool and are required to define the data for the tile.
 
   Optional Parameters:
   - title: An optional title for the dashboard tile.
-  - pivots, filters, sorts, limit, query_timezone: These query parameters are
+  - pivots, filters, sorts, limit, tz: These query parameters are
     inherited from the `query` tool and can be used to customize the tile's query.
   - vis_config: A JSON object defining the visualization settings for this tile.
     The structure and options are the same as for the `query_url` tool's `vis_config`.

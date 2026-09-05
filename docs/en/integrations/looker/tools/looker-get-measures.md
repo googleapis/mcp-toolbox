@@ -31,8 +31,8 @@ description: |
   that are used for calculations and quantitative analysis in your queries.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
-  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 
   Output Details:
   - If a measure includes a `suggestions` field, its contents are valid values

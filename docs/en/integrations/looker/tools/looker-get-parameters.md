@@ -33,8 +33,8 @@ description: |
   users to choose dimensions, measures, or other query components at runtime.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
-  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 ```
 
 The response is a json array with the following elements:
