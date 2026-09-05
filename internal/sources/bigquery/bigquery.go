@@ -1010,7 +1010,7 @@ func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dataplex client: %w", err)
 	}
-	return searchcatalog.InvokeSearchCatalog(
+	results, err := searchcatalog.InvokeSearchCatalog(
 		ctx,
 		params,
 		tokenStr,
@@ -1025,4 +1025,49 @@ func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any,
 			return catalogClient, nil
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
+	return s.filterSearchCatalogByAllowedDatasets(results), nil
+}
+
+// bigQueryDatasetFromResource pulls the project and dataset out of a BigQuery
+// resource path like
+// "//bigquery.googleapis.com/projects/{project}/datasets/{dataset}/...".
+// ok is false for resources that aren't dataset-scoped, e.g. a connection or a
+// project-level policy.
+func bigQueryDatasetFromResource(resource string) (projectID, datasetID string, ok bool) {
+	path, found := strings.CutPrefix(resource, "//bigquery.googleapis.com/")
+	if !found {
+		return "", "", false
+	}
+	parts := strings.Split(path, "/")
+	// The project and dataset segments must both be present and non-empty; a path
+	// like `projects//datasets/d` or `projects/p/datasets/` is malformed and must
+	// not be treated as a valid dataset for allowlist filtering.
+	if len(parts) < 4 || parts[0] != "projects" || parts[2] != "datasets" || parts[1] == "" || parts[3] == "" {
+		return "", "", false
+	}
+	return parts[1], parts[3], true
+}
+
+// filterSearchCatalogByAllowedDatasets keeps only the results whose dataset is
+// permitted by the source's allowedDatasets. When an allowlist is configured,
+// entries that aren't dataset-scoped (connections, project-level policies) are
+// dropped too, since the allowlist is meant to confine access to those
+// datasets. The other BigQuery tools enforce the allowlist inline; search
+// results come back from Dataplex unfiltered, so this filters them on the way
+// out.
+func (s *Source) filterSearchCatalogByAllowedDatasets(results []searchcatalog.DataplexSearchResponse) []searchcatalog.DataplexSearchResponse {
+	if len(s.AllowedDatasets) == 0 {
+		return results
+	}
+	filtered := make([]searchcatalog.DataplexSearchResponse, 0, len(results))
+	for _, r := range results {
+		projectID, datasetID, ok := bigQueryDatasetFromResource(r.Resource)
+		if ok && s.IsDatasetAllowed(projectID, datasetID) {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }
