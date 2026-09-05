@@ -38,7 +38,7 @@ kind: tool
 name: execute_sql
 type: postgres-execute-sql
 source: cloudsql-pg-source
-description: Use this tool to execute a single SQL statement.
+description: Executes a single PostgreSQL statement and returns result rows as JSON. Prefer the dedicated schema tools (list_tables, list_schemas, list_views, list_indexes) for inspecting database objects; use this for queries they do not cover.
 ---
 kind: tool
 name: list_tables
