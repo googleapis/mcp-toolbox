@@ -313,6 +313,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbupdatemany"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbupdateone"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlexecutesql"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlgetdatabaseobjectsourcecode"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqllisttables"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlsql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mysql/mysqlexecutesql"

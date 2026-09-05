@@ -33,8 +33,16 @@ type: mssql-list-tables
 source: mssql-source
 description: Lists detailed schema information (object type, columns, constraints, indexes, triggers, comment) as JSON for user-created tables (ordinary or partitioned). Filters by a comma-separated list of names. If names are omitted, lists all tables in user schemas.
 ---
+kind: tool
+name: get_database_object_source_code
+type: mssql-get-database-object-source-code
+source: mssql-source
+description: Executes a query to retrieve source code for all coding objects.
+---
 kind: toolset
 name: data
 tools:
 - execute_sql
 - list_tables
+- get_database_object_source_code
+
