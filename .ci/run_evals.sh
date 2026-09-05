@@ -108,6 +108,16 @@ done
 
 ulimit -n 4096
 
+# The token every per-build resource name is built from, so concurrent builds
+# cannot collide. Left hyphenated: BigQuery is the only consumer that cannot
+# take it as-is.
+export EVAL_RUN_ID="${BUILD_ID:-local}"
+
+# BigQuery dataset ids reject hyphens. Derived here rather than in
+# evals/setup/bigquery.sh because the evalset loader expands it into scenario
+# prompts too.
+export EVAL_BQ_DATASET="toolbox_evals_${EVAL_RUN_ID//-/_}"
+
 # Lower bound for teardown, so it cannot reach resources that predate this build.
 # Its absence is also how teardown knows the evals never ran.
 date -u +%Y-%m-%dT%H:%M:%SZ > "/workspace/eval-start-${TOOLBOX_PREBUILT}"
