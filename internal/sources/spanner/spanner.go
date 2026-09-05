@@ -22,13 +22,17 @@ import (
 
 	dataplexapi "cloud.google.com/go/dataplex/apiv1"
 	"cloud.google.com/go/spanner"
+	database "cloud.google.com/go/spanner/admin/database/apiv1"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/dataplex/searchcatalog"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/oauth2"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
 const SourceType string = "spanner"
@@ -71,6 +75,14 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		return nil, fmt.Errorf("unable to create client: %w", err)
 	}
 
+	var adminClient *database.DatabaseAdminClient
+	if !r.UseClientOAuth {
+		adminClient, err = initSpannerAdminClient(ctx, tracer, r.Name)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create database admin client: %w", err)
+		}
+	}
+
 	onDataplexEvict := func(key string, value interface{}) {
 		if client, ok := value.(*dataplexapi.CatalogClient); ok && client != nil {
 			client.Close()
@@ -78,8 +90,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	}
 
 	s := &Source{
-		Config: r,
-		Client: client,
+		Config:      r,
+		Client:      client,
+		AdminClient: adminClient,
 		dataplexMgr: &searchcatalog.DataplexClientManager{
 			UseClientOAuth: r.UseClientOAuth,
 			Cache:          sources.NewCache(onDataplexEvict),
@@ -93,6 +106,7 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	Client      *spanner.Client
+	AdminClient *database.DatabaseAdminClient
 	dataplexMgr *searchcatalog.DataplexClientManager
 }
 
@@ -225,6 +239,70 @@ func initSpannerClient(ctx context.Context, tracer trace.Tracer, name, project, 
 	}
 
 	return client, nil
+}
+
+func initSpannerAdminClient(ctx context.Context, tracer trace.Tracer, name string) (*database.DatabaseAdminClient, error) {
+	if tracer != nil {
+		var span trace.Span
+		ctx, span = sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+		defer span.End()
+	}
+
+	userAgent, err := util.UserAgentFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	client, err := database.NewDatabaseAdminClient(ctx, option.WithUserAgent(userAgent))
+	if err != nil {
+		return nil, fmt.Errorf("unable to create database admin client: %w", err)
+	}
+	return client, nil
+}
+
+func (s *Source) getDatabaseAdminClient(ctx context.Context, tokenString string) (*database.DatabaseAdminClient, bool, error) {
+	if s.UseClientOAuth {
+		userAgent, err := util.UserAgentFromContext(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		opts := []option.ClientOption{
+			option.WithUserAgent(userAgent),
+		}
+		if tokenString != "" {
+			opts = append(opts, option.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: tokenString})))
+		}
+		client, err := database.NewDatabaseAdminClient(ctx, opts...)
+		if err != nil {
+			return nil, false, err
+		}
+		return client, true, nil
+	}
+	if s.AdminClient != nil {
+		return s.AdminClient, false, nil
+	}
+	client, err := initSpannerAdminClient(ctx, nil, s.Name)
+	if err != nil {
+		return nil, false, err
+	}
+	return client, true, nil
+}
+
+func (s *Source) GetDatabaseDdl(ctx context.Context, tokenString string) ([]string, error) {
+	client, shouldClose, err := s.getDatabaseAdminClient(ctx, tokenString)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get database admin client: %w", err)
+	}
+	if shouldClose {
+		defer client.Close()
+	}
+	dbPath := fmt.Sprintf("projects/%s/instances/%s/databases/%s", s.Project, s.Instance, s.Database)
+	resp, err := client.GetDatabaseDdl(ctx, &databasepb.GetDatabaseDdlRequest{
+		Database: dbPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to get database DDL: %w", err)
+	}
+	return resp.GetStatements(), nil
 }
 
 func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any, tokenStr string) ([]searchcatalog.DataplexSearchResponse, error) {
