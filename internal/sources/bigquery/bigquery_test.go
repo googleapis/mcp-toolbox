@@ -360,6 +360,26 @@ func TestParseFromYamlBigQuery(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "with sql commenter",
+			in: `
+			kind: source
+			name: my-instance
+			type: bigquery
+			project: my-project
+			sqlCommenter: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-instance": bigquery.Config{
+					Name:               "my-instance",
+					Type:               bigquery.SourceType,
+					Project:            "my-project",
+					SQLCommenter:       boolPtr(true),
+					WriteMode:          "allowed",
+					MaxQueryResultRows: 50,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -564,6 +584,10 @@ func TestNormalizeValue(t *testing.T) {
 			}
 		})
 	}
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 func TestBigQuerySource_IsReadOnly(t *testing.T) {

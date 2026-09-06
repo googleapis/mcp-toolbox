@@ -157,3 +157,39 @@ useClientOAuth: true
 | maxQueryResultRows             |   int    |    false     | The maximum number of rows to return from a query. Defaults to 50. |
 | maximumBytesBilled             |  int64   |    false     | The maximum bytes billed per query. When set, queries that exceed this limit fail before executing. |
 | apiEndpoint                    |  string  |    false     | Override the BigQuery API endpoint. |
+| sqlCommenter                   | boolean  |    false     | Overrides the global `--sql-commenter` flag for this source. When set, it takes priority; when omitted, the global flag applies. See [SQL Commenter: Job Labels](#sql-commenter-job-labels). |
+
+## Advanced Usage
+
+### SQL Commenter: Job Labels
+
+BigQuery does not retain SQL-text comments in its logs, so instead of
+prepending a comment, [SQL Commenter](../../documentation/monitoring/sql_commenter.md)
+attaches the same attributes as native
+[job labels](https://cloud.google.com/bigquery/docs/adding-labels#job-label)
+on every query job executed by the `bigquery-execute-sql` and `bigquery-sql`
+tools. Labels appear in `INFORMATION_SCHEMA.JOBS`, the Jobs API, audit logs,
+and billing exports — no query text parsing is needed to recover them.
+
+Attribute names and values are sanitized to satisfy BigQuery label
+constraints (lowercase letters, digits, underscores, and dashes; at most 63
+characters): dots in attribute names become underscores (`tool.name` →
+`tool_name`), and any other disallowed character in a value is replaced with
+an underscore (`genai-toolbox/1.1.0` → `genai-toolbox_1_1_0`). Labels set
+explicitly by tools (such as `mcp-toolbox-tool`) always take precedence over
+SQLCommenter attributes on key collisions. BigQuery's limit of 64 labels per
+job is left to the API to enforce: a job that would exceed it fails with a
+clear error rather than silently dropping telemetry.
+
+For example, to see per-tool bytes billed for agent-issued queries:
+
+```sql
+SELECT
+  (SELECT value FROM UNNEST(labels) WHERE key = 'tool_name') AS tool_name,
+  (SELECT value FROM UNNEST(labels) WHERE key = 'client') AS client,
+  SUM(total_bytes_billed) AS total_bytes_billed
+FROM `region-us`.INFORMATION_SCHEMA.JOBS
+WHERE EXISTS (SELECT 1 FROM UNNEST(labels) WHERE key = 'tool_name')
+GROUP BY tool_name, client
+ORDER BY total_bytes_billed DESC;
+```

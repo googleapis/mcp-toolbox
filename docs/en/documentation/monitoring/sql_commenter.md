@@ -40,6 +40,7 @@ If you are exporting telemetry using OpenTelemetry, the `traceparent` attribute 
 SQL Commenter is supported on the following database sources:
 
 * `alloydb-postgres`
+* `bigquery` (as [job labels](../../integrations/bigquery/source.md#sql-commenter-job-labels))
 * `cloud-sql-postgres`
 * `cloud-sql-mysql`
 * `postgres`
