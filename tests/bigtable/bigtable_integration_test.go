@@ -150,7 +150,7 @@ func TestBigtableToolEndpoints(t *testing.T) {
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	runBigTableAdminToolsGetTest(t)
 	// TODO: re-enable once GCP write quota issues are resolved.
-	// runBigTableAdminToolsTest(t, sourceConfig["instance"].(string))
+	// runBigTableAdminToolsTest(t, sourceConfig["instance"].(string), adminClient, ctx)
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
 		tests.WithNameFieldArray(nameFieldArray),
 		tests.WithNameColFilter(nameColFilter),
@@ -363,7 +363,7 @@ func assertMCPSuccess(t *testing.T, toolName string, args map[string]any) *tests
 }
 
 // runBigTableAdminToolsTest verifies all 20 Bigtable admin lifecycle tools for instances, clusters, tables, and logical views.
-func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
+func runBigTableAdminToolsTest(t *testing.T, instanceId string, adminClient *bigtable.AdminClient, ctx context.Context) {
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableName := "admin_test_table_" + uniqueID
 	viewName := "admin_test_view_" + uniqueID
@@ -564,6 +564,20 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 	listSchemasResp := assertMCPSuccess(t, "bigtable-list-schemas", map[string]any{})
 	if len(listSchemasResp.Result.Content) == 0 {
 		t.Fatalf("bigtable-list-schemas returned empty content")
+	}
+
+	// wait for tables to be present
+	t.Log("waiting for tables to be present")
+	for attempt := 0; attempt < 3; attempt++ {
+		tables, err := adminClient.Tables(ctx)
+		if err == nil && slices.Contains(tables, tableName) {
+			t.Logf("tables created at attempt %d", attempt)
+			break
+		} else {
+			t.Logf("tables not created yet at attempt %d", attempt)
+		}
+
+		time.Sleep(3 * time.Second)
 	}
 	var schemas struct {
 		Tables []struct {
