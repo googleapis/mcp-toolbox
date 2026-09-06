@@ -2262,7 +2262,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"looker_dev_tools": group.GroupConfig{
 					Name:        "looker_dev_tools",
 					Description: "These skills are built for LookML developers, data engineers, and administrators who manage the backbone of Looker.",
-					ToolNames:   []string{"health_pulse", "health_analyze", "health_vacuum", "dev_mode", "get_projects", "get_project_files", "get_project_file", "create_project_file", "update_project_file", "delete_project_file", "get_project_directories", "create_project_directory", "delete_project_directory", "validate_project", "get_connections", "get_connection_schemas", "get_connection_databases", "get_connection_tables", "get_connection_table_columns", "get_lookml_tests", "run_lookml_tests", "create_view_from_table", "list_git_branches", "get_git_branch", "create_git_branch", "switch_git_branch", "delete_git_branch"},
+					ToolNames:   []string{"health_pulse", "health_analyze", "health_vacuum", "dev_mode", "get_projects", "get_project_files", "get_project_file", "create_project_file", "update_project_file", "delete_project_file", "get_project_directories", "create_project_directory", "delete_project_directory", "validate_project", "get_connections", "get_connection_schemas", "get_connection_databases", "get_connection_tables", "get_connection_table_columns", "get_lookml_tests", "run_lookml_tests", "create_view_from_table", "list_git_branches", "get_git_branch", "create_git_branch", "switch_git_branch", "delete_git_branch", "deploy_to_production", "reset_to_production", "reset_to_remote", "project_commit", "push_branch"},
 				},
 			},
 		},
