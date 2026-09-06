@@ -427,6 +427,9 @@ func UnmarshalYAMLAuthServiceConfig(ctx context.Context, name string, r map[stri
 			if len(actual.ScopesRequired) > 0 {
 				return nil, fmt.Errorf("`scopesRequired` is not allowed when `mcpEnabled` is false")
 			}
+			if actual.ForceIntrospection {
+				return nil, fmt.Errorf("`forceIntrospection` is not allowed when `mcpEnabled` is false")
+			}
 		}
 		return actual, nil
 	default:
