@@ -105,6 +105,73 @@ func TestBaseToolAuthorized(t *testing.T) {
 	}
 }
 
+func TestAccessTokenParseBearerToken(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		header  tools.AccessToken
+		want    string
+		wantErr bool
+	}{
+		{
+			desc:   "valid bearer token",
+			header: "Bearer abc123",
+			want:   "abc123",
+		},
+		{
+			desc:   "multiple spaces between scheme and token",
+			header: "Bearer  abc123",
+			want:   "abc123",
+		},
+		{
+			desc:   "surrounding whitespace",
+			header: "  Bearer abc123  ",
+			want:   "abc123",
+		},
+		{
+			desc:   "case-insensitive scheme",
+			header: "bearer abc123",
+			want:   "abc123",
+		},
+		{
+			desc:    "empty bearer token",
+			header:  "Bearer ",
+			wantErr: true,
+		},
+		{
+			desc:    "scheme only",
+			header:  "Bearer",
+			wantErr: true,
+		},
+		{
+			desc:    "too many parts",
+			header:  "Bearer abc123 extra",
+			wantErr: true,
+		},
+		{
+			desc:    "missing bearer scheme",
+			header:  "abc123",
+			wantErr: true,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got, err := tc.header.ParseBearerToken()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ParseBearerToken() error = nil, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseBearerToken() error = %v, want nil", err)
+			}
+			if got != tc.want {
+				t.Errorf("ParseBearerToken() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBaseToolRequiresClientAuthorization(t *testing.T) {
 	b := tools.NewBaseTool(tools.ConfigBase{}, nil, tools.Manifest{}, nil)
 	got, err := b.RequiresClientAuthorization(nil)
