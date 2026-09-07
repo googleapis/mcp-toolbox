@@ -10,11 +10,7 @@
         "toolbox__get_query_plan"
       ],
       "kind": "tools",
-      "max_turns": 3,
-      "binary_rubric": [
-        "Agent inspects columnar configurations before checking recommended columns.",
-        "Agent generates an EXPLAIN query plan without executing the SQL statement."
-      ]
+      "max_turns": 3
     },
     {
       "id": "alloydbomni-health-01",
@@ -26,11 +22,7 @@
         "toolbox__list_invalid_indexes"
       ],
       "kind": "tools",
-      "max_turns": 3,
-      "binary_rubric": [
-        "Agent queries dead-tuple bloat statistics and autovacuum configuration parameters.",
-        "Agent inspects for invalid indexes without attempting schema modifications."
-      ]
+      "max_turns": 3
     },
     {
       "id": "alloydbomni-monitor-01",
@@ -42,11 +34,7 @@
         "toolbox__long_running_transactions"
       ],
       "kind": "tools",
-      "max_turns": 3,
-      "binary_rubric": [
-        "Agent inspects active queries and investigates lock contention.",
-        "Agent identifies long-running open transactions to diagnose latency spikes."
-      ]
+      "max_turns": 3
     },
     {
       "id": "alloydbomni-data-01",
@@ -57,10 +45,7 @@
         "toolbox__list_tables"
       ],
       "kind": "tools",
-      "max_turns": 1,
-      "binary_rubric": [
-        "Agent provides a complete inventory of user schemas and tables."
-      ]
+      "max_turns": 1
     }
   ]
 }

@@ -160,8 +160,12 @@ steps:
           echo "Evals skipped; not starting AlloyDB Omni container."
           exit 0
         fi
-        PATTERN="(^|/)internal/prebuiltconfigs/tools/alloydb-omni.yaml|(^|/)evals/evalsets/alloydb-omni.json"
-        if [ -n "$_PR_NUMBER" ] && [ -s /workspace/changed_files.txt ] && ! grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+        COMMON_PATTERN='(^|/)evals/(run_configs|model_configs|setup|teardown)/|(^|/)internal/tools/|\.ci/evals\.cloudbuild\.yaml|\.ci/run_evals\.sh'
+        if [ -s /workspace/changed_files.txt ] && \
+           ! grep -qxF -e "evals/evalsets/alloydb-omni.json" \
+                       -e "internal/prebuiltconfigs/tools/alloydb-omni.yaml" \
+                       /workspace/changed_files.txt && \
+           ! grep -qE "$$COMMON_PATTERN" /workspace/changed_files.txt; then
           echo "alloydb-omni not affected by changes; skipping container start."
           exit 0
         fi
