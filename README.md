@@ -1061,6 +1061,16 @@ Toolbox emits traces and metrics via OpenTelemetry. Use `--telemetry-otlp=<endpo
 to export to any OTLP-compatible backend like Google Cloud Monitoring, Agnost AI, or 
 others. See the [telemetry docs](https://mcp-toolbox.dev/documentation/monitoring/export_telemetry/) for details.
 
+### Response Encoding
+
+By default, tool results are returned as JSON. Setting `--response-encoding=gcf`
+returns each tool's result set as a single [Graph Compact Format](https://gcformat.com)
+block instead of one JSON object per row: the repeated field names of the uniform
+record arrays these tools return are factored into a single header, cutting the token
+cost of large query results (~30% fewer on a typical row set) when they cross the LLM
+boundary. It is opt-in and conservative — GCF is used only when it is smaller than the
+JSON and decodes back to it exactly, so a result is never grown or altered.
+
 ### Generate Agent Skills
 
 The `skills-generate` command allows you to convert a **toolset** into an **Agent Skill** compatible with the [Agent Skill specification](https://agentskills.io/specification). This is useful for distributing tools as portable skill packages.

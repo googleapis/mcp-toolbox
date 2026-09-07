@@ -423,15 +423,28 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 		sliceRes = []any{results}
 	}
 
-	for _, d := range sliceRes {
-		text := TextContent{Type: "text"}
-		dM, err := json.Marshal(d)
-		if err != nil {
-			text.Text = fmt.Sprintf("fail to marshal: %s, result: %s", err, d)
-		} else {
-			text.Text = string(dM)
+	// When --response-encoding=gcf, offer the whole result set as a single Graph
+	// Compact Format block instead of one JSON block per row. EncodeGCFToolResult
+	// returns ok=false unless GCF is smaller and a lossless round-trip, so the JSON
+	// path is used whenever GCF would not strictly help.
+	gcfUsed := false
+	if util.ResponseEncodingFromContext(ctx) == "gcf" {
+		if wire, ok := util.EncodeGCFToolResult(sliceRes); ok {
+			content = append(content, TextContent{Type: "text", Text: wire})
+			gcfUsed = true
 		}
-		content = append(content, text)
+	}
+	if !gcfUsed {
+		for _, d := range sliceRes {
+			text := TextContent{Type: "text"}
+			dM, err := json.Marshal(d)
+			if err != nil {
+				text.Text = fmt.Sprintf("fail to marshal: %s, result: %s", err, d)
+			} else {
+				text.Text = string(dM)
+			}
+			content = append(content, text)
+		}
 	}
 
 	return jsonrpc.JSONRPCResponse{

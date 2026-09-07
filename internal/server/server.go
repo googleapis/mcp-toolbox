@@ -56,6 +56,7 @@ import (
 type Server struct {
 	version             string
 	sqlCommenterEnabled bool
+	responseEncoding    string
 	toolboxUrl          string
 	prmURL              string
 	srv                 *http.Server
@@ -498,6 +499,7 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 	s := &Server{
 		version:             cfg.Version,
 		sqlCommenterEnabled: cfg.SQLCommenter,
+		responseEncoding:    cfg.ResponseEncoding.String(),
 		srv:                 srv,
 		root:                r,
 		logger:              l,

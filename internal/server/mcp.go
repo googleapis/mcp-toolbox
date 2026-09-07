@@ -210,6 +210,7 @@ func (s *stdioSession) readInputStream(ctx context.Context) error {
 	sessionStart := time.Now()
 	ctx = util.WithUserAgent(ctx, s.server.version)
 	ctx = util.WithSQLCommenterEnabled(ctx, s.server.sqlCommenterEnabled)
+	ctx = util.WithResponseEncoding(ctx, s.server.responseEncoding)
 
 	// Define attributes for session metrics
 	// Note: mcp.protocol.version is added dynamically after protocol negotiation
@@ -503,6 +504,7 @@ func httpHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	ctx = util.WithLogger(ctx, s.logger)
 	ctx = util.WithUserAgent(ctx, s.version)
 	ctx = util.WithSQLCommenterEnabled(ctx, s.sqlCommenterEnabled)
+	ctx = util.WithResponseEncoding(ctx, s.responseEncoding)
 
 	queryParams := r.URL.Query()
 	urlParams := make(map[string]string)

@@ -77,6 +77,9 @@ type ServerConfig struct {
 	TelemetryServiceName string
 	// SQLCommenter enables prepending SQLCommenter-format comments to SQL statements.
 	SQLCommenter bool
+	// ResponseEncoding is the encoding for tool responses sent to clients:
+	// "json" (default) or "gcf" (Graph Compact Format).
+	ResponseEncoding responseEncoding
 	// Stdio indicates if Toolbox is listening via MCP stdio.
 	Stdio bool
 	// DisableReload indicates if the user has disabled dynamic reloading for Toolbox.
@@ -131,6 +134,32 @@ func (f *logFormat) Set(v string) error {
 // Type is used in Cobra help text
 func (f *logFormat) Type() string {
 	return "logFormat"
+}
+
+type responseEncoding string
+
+// String is used by both fmt.Print and by Cobra in help text
+func (e *responseEncoding) String() string {
+	if string(*e) != "" {
+		return strings.ToLower(string(*e))
+	}
+	return "json"
+}
+
+// Set validates the response-encoding flag
+func (e *responseEncoding) Set(v string) error {
+	switch lowered := strings.ToLower(v); lowered {
+	case "json", "gcf":
+		*e = responseEncoding(lowered)
+		return nil
+	default:
+		return fmt.Errorf(`response encoding must be one of "json", or "gcf"`)
+	}
+}
+
+// Type is used in Cobra help text
+func (e *responseEncoding) Type() string {
+	return "responseEncoding"
 }
 
 type StringLevel string

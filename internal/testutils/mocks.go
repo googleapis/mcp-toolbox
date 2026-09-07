@@ -99,6 +99,9 @@ type MockTool struct {
 	unauthorized               bool
 	requireClientAuthorization bool
 	ReturnParamsInInvoke       bool
+	// RowResult, when set, is returned verbatim from Invoke. Used to exercise
+	// result serialization (e.g. the response-encoding path) with real row data.
+	RowResult []any
 }
 
 var _ tools.Tool = MockTool{}
@@ -136,6 +139,9 @@ func (t MockTool) RequiresClientAuthorization(sources.Source) (bool, error) {
 }
 
 func (t MockTool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, token tools.AccessToken) (any, util.ToolboxError) {
+	if t.RowResult != nil {
+		return t.RowResult, nil
+	}
 	mock := []any{t.Cfg.Name}
 	if t.ReturnParamsInInvoke && len(params) > 0 {
 		for _, p := range params {
