@@ -63,6 +63,7 @@ allowedPaths:
 | `description` | string                                 | No           | A brief explanation of what the resource contains.                                                           |
 | `title`       | string                                 | No           | Human-readable title for the resource.                                                                       |
 | `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files. |
+| `ui`          | [UIConfig](./apps.md#ui-resource-schema) | No         | Security policy (CSP), device permissions, and display settings for MCP Apps.                                |
 | `annotations` | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Resource Template Schema (`kind: resourceTemplate`)
@@ -77,6 +78,7 @@ allowedPaths:
 | `description`    | string                                 | No           | A brief explanation of what the resource template exposes.                                                   |
 | `title`          | string                                 | No           | Human-readable title for the resource template.                                                              |
 | `mimeType`       | string                                 | No           | The default MIME type for content returned by this template.                                                 |
+| `ui`             | [UIConfig](./apps.md#ui-resource-schema) | No         | Security policy (CSP), device permissions, and display settings for MCP Apps.                                |
 | `annotations`    | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Annotations Schema
@@ -96,3 +98,4 @@ Toolbox supports the following resource primitives:
 - [**Text Resources**](./text.md): Static text content embedded directly in your configuration file.
 - [**File Resources**](./file.md): Specific files stored on disk and served as read-only resources.
 - [**Resource Templates**](./template.md): Parameterized URI templates that dynamically read matching files from sandboxed directories.
+- [**MCP Apps & UI Resources**](./apps.md): Interactive HTML web applications and tool visual interfaces for clients supporting the MCP Apps extension.
