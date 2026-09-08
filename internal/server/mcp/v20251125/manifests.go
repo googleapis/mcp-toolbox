@@ -16,7 +16,6 @@ package v20251125
 
 import (
 	"fmt"
-	"maps"
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
@@ -130,18 +129,25 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 		}
 		var uiMeta map[string]any
 		if uiMetaOrig := tool.GetToolUIMetadata(); uiMetaOrig != nil {
-			uiMeta = maps.Clone(uiMetaOrig)
-			if resName, ok := uiMeta["resource"].(string); ok && resName != "" {
+			if uiMetaOrig.Resource != "" {
 				var uri string
-				if res, hasRes := pMgr.GetResource(resName); hasRes {
+				if res, hasRes := pMgr.GetResource(uiMetaOrig.Resource); hasRes {
 					uri = res.GetURI()
-				} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(resName); hasTmpl {
+				} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(uiMetaOrig.Resource); hasTmpl {
 					uri = tmpl.GetURITemplate()
 				} else {
-					return ListToolsResult{}, fmt.Errorf("unable to retrieve UI resource %q for tool %q", resName, toolName)
+					return ListToolsResult{}, fmt.Errorf("unable to retrieve UI resource %q for tool %q", uiMetaOrig.Resource, toolName)
 				}
-				delete(uiMeta, "resource")
-				uiMeta["resourceUri"] = uri
+				uiMeta = map[string]any{
+					"resourceUri": uri,
+				}
+				if len(uiMetaOrig.Visibility) > 0 {
+					vis := make([]string, len(uiMetaOrig.Visibility))
+					for i, v := range uiMetaOrig.Visibility {
+						vis[i] = string(v)
+					}
+					uiMeta["visibility"] = vis
+				}
 			}
 		}
 		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams, uiMeta)
