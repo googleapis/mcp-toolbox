@@ -418,6 +418,9 @@ func TestServerDiscoverHandler(t *testing.T) {
 						if _, ok := discoverRes.Capabilities.Extensions["com.google.cloud/toolbox.v1"]; !ok {
 							t.Errorf("expected com.google.cloud/toolbox.v1 in discover capabilities extensions, got %v", discoverRes.Capabilities.Extensions)
 						}
+						if _, ok := discoverRes.Capabilities.Extensions["io.modelcontextprotocol/ui"]; !ok {
+							t.Errorf("expected io.modelcontextprotocol/ui in discover capabilities extensions, got %v", discoverRes.Capabilities.Extensions)
+						}
 					}
 				}
 				res, ok := got.(jsonrpc.JSONRPCResponse)
@@ -430,6 +433,9 @@ func TestServerDiscoverHandler(t *testing.T) {
 				}
 				if discoverResult.Capabilities.Extensions == nil || discoverResult.Capabilities.Extensions["com.google.cloud/toolbox.v1"] == nil {
 					t.Errorf("expected %s in Extensions capabilities, got %v", "com.google.cloud/toolbox.v1", discoverResult.Capabilities.Extensions)
+				}
+				if discoverResult.Capabilities.Extensions == nil || discoverResult.Capabilities.Extensions["io.modelcontextprotocol/ui"] == nil {
+					t.Errorf("expected %s in Extensions capabilities, got %v", "io.modelcontextprotocol/ui", discoverResult.Capabilities.Extensions)
 				}
 			}
 		})
