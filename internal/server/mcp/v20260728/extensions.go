@@ -19,7 +19,7 @@ import "slices"
 // SupportedExtensions lists all MCP extension URIs supported by Toolbox by default.
 var SupportedExtensions = map[string]any{
 	"com.google.cloud/toolbox.v1": map[string]any{},
-	"io.modelcontextprotocol/ui": map[string]any{},
+	"io.modelcontextprotocol/ui":  map[string]any{},
 }
 
 // ServerExtensions is the map of extension URIs enabled on this server.

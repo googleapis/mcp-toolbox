@@ -1027,6 +1027,7 @@ func TestMcpEndpoint(t *testing.T) {
 							"capabilities": map[string]any{
 								"extensions": map[string]any{
 									"com.google.cloud/toolbox.v1": map[string]any{},
+									"io.modelcontextprotocol/ui":  map[string]any{},
 								},
 								"tools":     map[string]any{"listChanged": false},
 								"prompts":   map[string]any{"listChanged": false},
