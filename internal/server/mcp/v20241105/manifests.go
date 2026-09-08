@@ -16,6 +16,7 @@ package v20241105
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
@@ -125,8 +126,9 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 		if err != nil {
 			return ListToolsResult{}, fmt.Errorf("error getting parameters for tool %q: %w", toolName, err)
 		}
-		uiMeta := tool.GetToolUIMetadata()
-		if uiMeta != nil {
+		var uiMeta map[string]any
+		if uiMetaOrig := tool.GetToolUIMetadata(); uiMetaOrig != nil {
+			uiMeta = maps.Clone(uiMetaOrig)
 			if resName, ok := uiMeta["resource"].(string); ok && resName != "" {
 				var uri string
 				if res, hasRes := pMgr.GetResource(resName); hasRes {

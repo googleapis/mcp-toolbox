@@ -24,9 +24,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
-	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
@@ -109,27 +109,27 @@ func TestGenerateToolManifest(t *testing.T) {
 					"string-param": {"my-google-auth-service", "other-auth-service"},
 				},
 			},
+		},
+		{
+			desc:        "with ui metadata",
+			name:        "basic",
+			description: "foo bar",
+			authInvoke:  []string{},
+			params:      parameters.Parameters{parameters.NewStringParameter("string-param", "string parameter")},
+			annotations: nil,
+			uiMetadata: map[string]any{
+				"resourceUri": "mcp://my-app",
+				"visibility":  []string{"model", "app"},
 			},
-			{
-				desc:        "with ui metadata",
-				name:        "basic",
-				description: "foo bar",
-				authInvoke:  []string{},
-				params:      parameters.Parameters{parameters.NewStringParameter("string-param", "string parameter")},
-				annotations: nil,
-				uiMetadata: map[string]any{
+			wantMetadata: map[string]any{
+				"ui": map[string]any{
 					"resourceUri": "mcp://my-app",
 					"visibility":  []string{"model", "app"},
 				},
-				wantMetadata: map[string]any{
-					"ui": map[string]any{
-						"resourceUri": "mcp://my-app",
-						"visibility":  []string{"model", "app"},
-					},
-				},
 			},
-		}
-		for _, tc := range tcs {
+		},
+	}
+	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			got := generateToolManifest(tc.name, tc.description, tc.authInvoke, tc.params, tc.annotations, nil, tc.uiMetadata)
 			gotM := got.Metadata
@@ -322,7 +322,7 @@ func TestGenerateListToolsResult(t *testing.T) {
 		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
 		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
 		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
-		
+
 		res, err := GenerateListToolsResult(pMgr, g, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -344,7 +344,7 @@ func TestGenerateListToolsResult(t *testing.T) {
 		toolsMap := map[string]tools.Tool{"tool-invalid": toolInvalid}
 		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
 		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-invalid"}})
-		
+
 		_, err := GenerateListToolsResult(pMgr, g, nil)
 		if err == nil {
 			t.Fatal("expected error, got nil")
