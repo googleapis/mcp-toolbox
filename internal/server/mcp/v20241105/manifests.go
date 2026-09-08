@@ -26,7 +26,7 @@ import (
 )
 
 // generateToolManifest generates Tool for list tools result
-func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string) Tool {
+func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string, uiMetadata map[string]any) Tool {
 	inputSchema, authParams := generateParamManifest(params, urlParams)
 
 	var toolAnnotations *ToolAnnotations
@@ -50,6 +50,9 @@ func generateToolManifest(name, desc string, authInvoke []string, params paramet
 	}
 	if len(authParams) > 0 {
 		metadata["toolbox/authParam"] = authParams
+	}
+	if uiMetadata != nil {
+		metadata["ui"] = uiMetadata
 	}
 	if len(metadata) > 0 {
 		mcpManifest.Metadata = metadata
@@ -122,7 +125,22 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 		if err != nil {
 			return ListToolsResult{}, fmt.Errorf("error getting parameters for tool %q: %w", toolName, err)
 		}
-		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams)
+		uiMeta := tool.GetToolUIMetadata()
+		if uiMeta != nil {
+			if resName, ok := uiMeta["resource"].(string); ok && resName != "" {
+				var uri string
+				if res, hasRes := pMgr.GetResource(resName); hasRes {
+					uri = res.GetURI()
+				} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(resName); hasTmpl {
+					uri = tmpl.GetURITemplate()
+				} else {
+					return ListToolsResult{}, fmt.Errorf("unable to retrieve UI resource %q for tool %q", resName, toolName)
+				}
+				delete(uiMeta, "resource")
+				uiMeta["resourceUri"] = uri
+			}
+		}
+		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams, uiMeta)
 		mcpManifest = append(mcpManifest, toolManifest)
 	}
 	return ListToolsResult{Tools: mcpManifest}, nil
