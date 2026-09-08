@@ -276,13 +276,47 @@ func TestRunSQLExecutesDML(t *testing.T) {
 	}
 
 	// Invoke RunSQL with readOnly=false to force the DML execution path.
+	readOnly := false
 	_, err = src.RunSQL(context.Background(),
-		"UPDATE users SET email='x' WHERE id=1", nil, false)
+		"UPDATE users SET email='x' WHERE id=1", nil, &readOnly)
 
 	// We expect an error because the mock database cannot execute the query.
 	// If err is nil, it implies the logic skipped the execution block.
 	if err == nil {
 		t.Fatal("expected error from fake DB execution, but got nil; " +
 			"DML path may not have been executed")
+	}
+}
+
+// TestRunSQLReadOnlyRunsInTransaction verifies that RunSQL opens a transaction
+// for read-only statements instead of querying the pool directly, which is what
+// lets Oracle reject locking statements such as `SELECT ... FOR UPDATE`.
+func TestRunSQLReadOnlyRunsInTransaction(t *testing.T) {
+	db, err := sql.Open("oracle", "oracle://user:pass@localhost:1521/service")
+	if err != nil {
+		t.Fatalf("failed to open mock db: %v", err)
+	}
+	defer db.Close()
+
+	src := &Source{
+		Config: Config{
+			Name: "test-read-only-source",
+			Type: SourceType,
+			User: "test-user",
+		},
+		DB: db,
+	}
+
+	readOnly := true
+	_, err = src.RunSQL(context.Background(), "SELECT * FROM users FOR UPDATE", nil, &readOnly)
+
+	// The fake database cannot be reached, so the failure has to come from
+	// starting the transaction. Any other error means the read-only path no
+	// longer begins one.
+	if err == nil {
+		t.Fatal("expected error from fake DB execution, but got nil")
+	}
+	if !strings.Contains(err.Error(), "unable to begin transaction") {
+		t.Fatalf("expected the read-only path to begin a transaction, got: %v", err)
 	}
 }
