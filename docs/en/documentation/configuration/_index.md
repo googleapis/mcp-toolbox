@@ -157,6 +157,12 @@ allowedPaths:
 For more details on configuring different types of resources, see
 [Resources](./resources/_index.md).
 
+### MCP Apps
+
+Toolbox supports the [MCP Apps](./mcp-apps/) extension (`io.modelcontextprotocol/ui`), allowing standard resources (`kind: resource` or `kind: resourceTemplate`) to function as interactive web applications by setting `ui: true`. Tools can bind to these UI resources so clients render interactive visual interfaces.
+
+For more details, see [MCP Apps](./mcp-apps/).
+
 ### Read-Only Configuration
 
 Toolbox provides mechanisms to ensure data safety and prevent unintended modifications. Here is how you can configure read-only access and ensure safety:

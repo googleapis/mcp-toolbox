@@ -1,7 +1,7 @@
 ---
-title: "MCP Apps & UI Resources"
+title: "MCP Apps"
 type: docs
-weight: 4
+weight: 10
 description: >
   Interactive HTML UI resources and tool visual interfaces for MCP clients supporting the MCP Apps extension.
 ---
@@ -14,45 +14,50 @@ Support for the MCP Apps extension is advertised via `io.modelcontextprotocol/ui
 
 ## Defining a UI Resource
 
-In Toolbox, UI capabilities are configured directly on standard resources (`kind: resource` or `kind: resourceTemplate`) using the optional `ui:` field.
+In Toolbox, UI capabilities are configured directly on standard [resources](../resources/) (`kind: resource` or `kind: resourceTemplate`) by setting `ui: true`.
 
-Any `file` or `text` resource can function as an interactive MCP App simply by serving HTML content (typically with `mimeType: text/html;profile=mcp-app`) and specifying the `ui:` block for security policies (CSP) and device permissions.
+Any type of resource can function as an interactive MCP App simply by setting `ui: true`. When `ui: true` is set:
+- `mimeType` defaults to `text/html;profile=mcp-app` if omitted.
+- `uri` defaults to `ui://{name}` if omitted.
+- Security policies (CSP), device permissions, application domain, and container display settings can be configured.
 
 ```yaml
 kind: resource
 name: customer_dashboard
 type: file
 path: "./ui/dashboard.html"
-mimeType: "text/html;profile=mcp-app"
 description: "Interactive customer metrics dashboard."
-ui:
-  prefersBorder: true
-  csp:
-    connectDomains:
-      - "https://api.example.com"
-    resourceDomains:
-      - "https://cdn.example.com"
-  permissions:
-    - clipboardWrite
+ui: true
+domain: "https://example.com"
+prefersBorder: true
+csp:
+  connectDomains:
+    - "https://api.example.com"
+  resourceDomains:
+    - "https://cdn.example.com"
+permissions:
+  - clipboardWrite
 ```
 
-### UI Resource Schema
+### UI Resource Configuration
 
-The `ui` field on `kind: resource` and `kind: resourceTemplate` supports the following options:
+When `ui: true` is enabled on `kind: resource` or `kind: resourceTemplate`, the following fields can be configured:
 
 | **field**       | **type**                                      | **required** | **description**                                                                                           |
 |-----------------|-----------------------------------------------|--------------|-----------------------------------------------------------------------------------------------------------|
+| `ui`            | bool                                          | Yes          | Set to `true` to designate this resource as an interactive MCP UI application.                            |
+| `domain`        | string                                        | No           | Application domain. Must be a valid absolute URI with an `http` or `https` scheme (e.g., `https://example.com`). |
 | `csp`           | [CSPConfig](#content-security-policy-csp)     | No           | Content Security Policy restricting the domains that the UI app can communicate with or load assets from.|
 | `permissions`   | []string                                      | No           | List of browser device permissions requested by the app (e.g., `camera`, `microphone`, `geolocation`, `clipboardWrite`). |
 | `prefersBorder` | bool                                          | No           | Suggests whether the host client should render a visible border around the app container.                |
 
 ### Content Security Policy (CSP)
 
-To safeguard client environments from untrusted origins, Toolbox allows you to define a strict Content Security Policy for your UI resources. All origins must include a valid protocol scheme (`http`, `https`, `ws`, or `wss`) and domain:
+To safeguard client environments from untrusted origins, Toolbox allows you to define a strict Content Security Policy for your UI resources. All origins must include a valid protocol scheme (`http` or `https`) and host:
 
 | **field**         | **type** | **description**                                                                         |
 |-------------------|----------|-----------------------------------------------------------------------------------------|
-| `connectDomains`  | []string | Allowed origins for fetch, XMLHttpRequest, and WebSocket connections (`connect-src`).   |
+| `connectDomains`  | []string | Allowed origins for fetch and XMLHttpRequest connections (`connect-src`).               |
 | `resourceDomains` | []string | Allowed origins for scripts, styles, images, and fonts (`script-src`, `img-src`, etc.). |
 | `frameDomains`    | []string | Allowed origins for nested iframes (`frame-src`).                                       |
 | `baseUriDomains`  | []string | Allowed origins for document base URIs (`base-uri`).                                    |
@@ -68,7 +73,7 @@ The `permissions` field specifies browser capabilities requested by the UI app. 
 
 ## Linking Tools to UI Resources
 
-Tools can link directly to a UI resource so clients know which visual interface to render when executing the tool.
+[Tools](../tools/) can link directly to a UI resource so clients know which visual interface to render when executing the tool.
 
 To associate a tool with a UI resource, add the `ui` block to the tool's configuration:
 

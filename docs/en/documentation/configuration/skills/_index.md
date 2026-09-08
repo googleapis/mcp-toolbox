@@ -1,7 +1,7 @@
 ---
 title: "Agent Skills"
 type: docs
-weight: 11
+weight: 12
 description: >
   How to generate agent skills from a toolset.
 ---

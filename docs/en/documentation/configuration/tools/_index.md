@@ -586,9 +586,9 @@ For a comprehensive guide, see the [URL Parameter Binding](./url_parameter_bindi
 
 ## Tool UI Metadata (MCP Apps)
 
-Tools can be associated with an interactive visual interface provided by an MCP resource (such as an interactive dashboard, custom form, or chart). This capability is part of the [MCP Apps](../resources/apps.md) extension.
+Tools can be associated with an interactive visual interface provided by an MCP resource (such as an interactive dashboard, custom form, or chart). This capability is part of the [MCP Apps](../mcp-apps/) extension.
 
-UI capabilities are configured directly on standard resources (`kind: resource` or `kind: resourceTemplate`) using the optional `ui:` field. Tools reference the target resource by its `name`.
+UI capabilities are configured directly on standard resources (`kind: resource` or `kind: resourceTemplate`) by setting `ui: true`. Tools reference the target resource by its `name`.
 
 To link a tool to a UI resource, specify the `ui` configuration block:
 
@@ -615,7 +615,7 @@ ui:
 | `resource`     | string    | Yes          | The `name` of a configured `resource` or `resourceTemplate` providing the UI for this tool.                               |
 | `visibility`   | []string  | No           | Controls who can see the tool. Allowed values are `model` and `app`. Defaults to `["model", "app"]` if omitted.          |
 
-When serving `tools/list` responses, Toolbox automatically resolves the `resource` name into the target resource's full URI (`resourceUri`) in the tool manifest's `_meta.ui` block. For details on defining UI resources, Content Security Policy, and device permissions, see the [MCP Apps & UI Resources](../resources/apps.md) documentation.
+For details on defining UI resources, Content Security Policy, and device permissions, see the [MCP Apps](../mcp-apps/) documentation.
 
 ## Using tools with MCP Toolbox Client SDKs
 

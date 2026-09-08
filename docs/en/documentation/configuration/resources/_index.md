@@ -62,8 +62,8 @@ allowedPaths:
 | `uri`         | string                                 | No           | Unique URI for the resource. Defaults to `text://{name}` for text resources, or `file:///{normalized_path}` for file resources. |
 | `description` | string                                 | No           | A brief explanation of what the resource contains.                                                           |
 | `title`       | string                                 | No           | Human-readable title for the resource.                                                                       |
-| `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files. |
-| `ui`          | [UIConfig](./apps.md#ui-resource-schema) | No         | Security policy (CSP), device permissions, and display settings for MCP Apps.                                |
+| `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files; defaults to `text/html;profile=mcp-app` when `ui: true`. |
+| `ui`          | bool                                   | No           | Set to `true` to designate this resource as an interactive UI app. See [MCP Apps](../mcp-apps/).             |
 | `annotations` | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Resource Template Schema (`kind: resourceTemplate`)
@@ -77,8 +77,8 @@ allowedPaths:
 | `maxSize`       | int64 / string                         | No           | Maximum allowed file size in bytes (e.g., `5242880` or `5MB`). Defaults to 5MB.                             |
 | `description`    | string                                 | No           | A brief explanation of what the resource template exposes.                                                   |
 | `title`          | string                                 | No           | Human-readable title for the resource template.                                                              |
-| `mimeType`       | string                                 | No           | The default MIME type for content returned by this template.                                                 |
-| `ui`             | [UIConfig](./apps.md#ui-resource-schema) | No         | Security policy (CSP), device permissions, and display settings for MCP Apps.                                |
+| `mimeType`       | string                                 | No           | The default MIME type for content returned by this template. Defaults to `text/html;profile=mcp-app` when `ui: true`. |
+| `ui`             | bool                                   | No           | Set to `true` to designate this resource template as an interactive UI app. See [MCP Apps](../mcp-apps/).    |
 | `annotations`    | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Annotations Schema
@@ -98,4 +98,4 @@ Toolbox supports the following resource primitives:
 - [**Text Resources**](./text.md): Static text content embedded directly in your configuration file.
 - [**File Resources**](./file.md): Specific files stored on disk and served as read-only resources.
 - [**Resource Templates**](./template.md): Parameterized URI templates that dynamically read matching files from sandboxed directories.
-- [**MCP Apps & UI Resources**](./apps.md): Interactive HTML web applications and tool visual interfaces for clients supporting the MCP Apps extension.
+- [**MCP Apps**](../mcp-apps/): Interactive HTML web applications and tool visual interfaces for clients supporting the MCP Apps extension.
