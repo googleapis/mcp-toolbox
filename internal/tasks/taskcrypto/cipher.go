@@ -28,8 +28,8 @@ import (
 // TaskTokenPayload represents the metadata embedded inside an encrypted task ID.
 type TaskTokenPayload struct {
 	Source    string `json:"src"` // Configured Toolbox source name
-	Engine    string `json:"eng"` // Engine identifier (e.g., "bigquery", "dataplex")
-	NativeID  string `json:"nid"` // Driver native ID (jobId, operationId, queryId)
+	Engine    string `json:"eng"` // Engine identifier
+	NativeID  string `json:"nid"` // Driver native ID
 	CreatedAt int64  `json:"cat"` // Creation Unix timestamp
 }
 
@@ -38,7 +38,7 @@ var (
 	ErrInvalidToken = errors.New("invalid task token")
 	
 	// ErrMissingEncryptionKey is returned when the encryption key is missing or invalid.
-	ErrMissingEncryptionKey = errors.New("MCP_TOOLBOX_TASK_ENCRYPTION_KEY environment variable is not set or invalid (must be 32 bytes)")
+	ErrMissingEncryptionKey = errors.New("MCP_TOOLBOX_TASK_ENCRYPTION_KEY environment variable is not set or invalid")
 )
 
 // GetEncryptionKey retrieves the AES key from environment variables or Secret Manager.
