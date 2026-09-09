@@ -145,6 +145,12 @@ func collectAttributes(ctx context.Context, dbSystemName string) map[string]stri
 // rejects excess labels with a clear error rather than silently dropping
 // telemetry.
 //
+// Sanitization is lossy: values longer than 63 characters are silently
+// truncated, so two values sharing a long prefix can become
+// indistinguishable, and in principle two attribute names could sanitize to
+// the same label key. Attributes are applied in sorted name order, so any
+// such collision resolves deterministically.
+//
 // sourceOverride behaves as in PrependComment: when non-nil it takes
 // priority over the global sql-commenter flag from the context. Returns the
 // input labels unchanged (including nil) when the commenter is disabled or
@@ -163,13 +169,25 @@ func AppendLabels(ctx context.Context, labels map[string]string, dbSystemName st
 		return labels
 	}
 
+	// Sanitization is lossy: truncation to 63 characters, character mapping,
+	// and key prefixing can in principle map two distinct attributes to the
+	// same label key (impossible with the current fixed attribute set, whose
+	// sanitized keys are all distinct). Iterate in sorted attribute order so
+	// that if that ever happens, the surviving value is deterministic (the
+	// lexicographically last attribute wins) rather than varying per run.
+	names := make([]string, 0, len(pairs))
+	for k := range pairs {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+
 	merged := make(map[string]string, len(labels)+len(pairs))
-	for k, v := range pairs {
+	for _, k := range names {
 		key := sanitizeLabelKey(k)
 		if key == "" {
 			continue
 		}
-		merged[key] = sanitizeLabelPart(v)
+		merged[key] = sanitizeLabelPart(pairs[k])
 	}
 	for k, v := range labels {
 		merged[k] = v
@@ -208,8 +226,10 @@ func sanitizeLabelPart(s string) string {
 
 // sanitizeLabelKey sanitizes s for use as a BigQuery label key. Keys must
 // begin with a lowercase letter, so a leading non-letter is prefixed with
-// "x". An empty input yields an empty result, which callers should treat
-// as an unusable key.
+// "x" (which could in principle collide with a key that already starts
+// with "x"; callers iterate attributes in sorted order so any collision
+// resolves deterministically). An empty input yields an empty result,
+// which callers should treat as an unusable key.
 func sanitizeLabelKey(s string) string {
 	out := sanitizeLabelPart(s)
 	if out == "" {

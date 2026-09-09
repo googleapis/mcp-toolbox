@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // sqlCommenterCtx returns a context with sql-commenter enabled.
@@ -411,5 +412,57 @@ func TestAppendLabels_MergePrecedence(t *testing.T) {
 	}
 	if got["db_system_name"] != "bigquery" {
 		t.Errorf("expected commenter attribute merged, got: %v", got)
+	}
+}
+
+// TestAppendLabels_Traceparent verifies that the traceparent attribute's
+// hyphenated W3C structure (00-<trace_id>-<span_id>-<flags>) survives
+// sanitization unchanged.
+func TestAppendLabels_Traceparent(t *testing.T) {
+	ctx := sqlCommenterCtx()
+	traceID, _ := trace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
+	spanID, _ := trace.SpanIDFromHex("00f067aa0ba902b7")
+	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+	})
+	ctx = trace.ContextWithSpanContext(ctx, spanCtx)
+
+	labels := AppendLabels(ctx, nil, "bigquery", nil)
+
+	want := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	if labels["traceparent"] != want {
+		t.Errorf("traceparent label = %q, want %q", labels["traceparent"], want)
+	}
+}
+
+// TestAppendLabels_EmptyAttributeValues verifies that attributes with empty
+// values are omitted entirely rather than emitted as empty labels.
+func TestAppendLabels_EmptyAttributeValues(t *testing.T) {
+	ctx := sqlCommenterCtx()
+	ctx = util.WithTelemetryAttributes(ctx, &util.TelemetryAttributes{})
+
+	labels := AppendLabels(ctx, nil, "bigquery", nil)
+
+	expected := map[string]string{"db_system_name": "bigquery"}
+	if !reflect.DeepEqual(labels, expected) {
+		t.Errorf("expected only db_system_name, got: %v", labels)
+	}
+}
+
+// TestAppendLabels_ValueTruncation verifies end-to-end that a value longer
+// than 63 characters is truncated on the resulting label.
+func TestAppendLabels_ValueTruncation(t *testing.T) {
+	ctx := sqlCommenterCtx()
+	ctx = util.WithTelemetryAttributes(ctx, &util.TelemetryAttributes{
+		ClientUserID: strings.Repeat("u", 100),
+	})
+
+	labels := AppendLabels(ctx, nil, "", nil)
+
+	want := strings.Repeat("u", 63)
+	if labels["client_user_id"] != want {
+		t.Errorf("client_user_id length = %d, want 63", len(labels["client_user_id"]))
 	}
 }

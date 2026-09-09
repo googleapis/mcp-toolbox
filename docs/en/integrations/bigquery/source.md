@@ -167,9 +167,13 @@ BigQuery does not retain SQL-text comments in its logs, so instead of
 prepending a comment, [SQL Commenter](../../documentation/monitoring/sql_commenter.md)
 attaches the same attributes as native
 [job labels](https://cloud.google.com/bigquery/docs/adding-labels#job-label)
-on every query job executed by the `bigquery-execute-sql` and `bigquery-sql`
-tools. Labels appear in `INFORMATION_SCHEMA.JOBS`, the Jobs API, audit logs,
-and billing exports — no query text parsing is needed to recover them.
+on every query job executed through the source's SQL execution path — the
+`bigquery-execute-sql`, `bigquery-sql`, `bigquery-forecast`, and
+`bigquery-analyze-contribution` tools. (The internal model-creation
+statement of `bigquery-analyze-contribution` runs outside that path and
+carries only the `mcp-toolbox-tool` label.) Labels appear in
+`INFORMATION_SCHEMA.JOBS`, the Jobs API, audit logs, and billing exports —
+no query text parsing is needed to recover them.
 
 Attribute names and values are sanitized to satisfy BigQuery label
 constraints (lowercase letters, digits, underscores, and dashes; at most 63
@@ -177,7 +181,10 @@ characters): dots in attribute names become underscores (`tool.name` →
 `tool_name`), and any other disallowed character in a value is replaced with
 an underscore (`genai-toolbox/1.1.0` → `genai-toolbox_1_1_0`). Labels set
 explicitly by tools (such as `mcp-toolbox-tool`) always take precedence over
-SQLCommenter attributes on key collisions. BigQuery's limit of 64 labels per
+SQLCommenter attributes on key collisions. Values longer than 63 characters
+are silently truncated, so two values sharing a long prefix can become
+indistinguishable; attributes are applied in sorted name order so any
+collision resolves deterministically. BigQuery's limit of 64 labels per
 job is left to the API to enforce: a job that would exceed it fails with a
 clear error rather than silently dropping telemetry.
 

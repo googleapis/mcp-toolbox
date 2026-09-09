@@ -374,7 +374,7 @@ func TestParseFromYamlBigQuery(t *testing.T) {
 					Name:               "my-instance",
 					Type:               bigquery.SourceType,
 					Project:            "my-project",
-					SQLCommenter:       boolPtr(true),
+					SQLCommenter:       testutils.BoolPtr(true),
 					WriteMode:          "allowed",
 					MaxQueryResultRows: 50,
 				},
@@ -586,10 +586,6 @@ func TestNormalizeValue(t *testing.T) {
 	}
 }
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 func TestBigQuerySource_IsReadOnly(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -663,7 +659,6 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 	}
 	ctx = util.WithUserAgent(ctx, "test-agent")
 	tracer := noop.NewTracerProvider().Tracer("")
-	boolPtr := func(b bool) *bool { return &b }
 
 	tests := []struct {
 		name          string
@@ -676,7 +671,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		{
 			name: "readOnly: true with empty writeMode defaults to blocked",
 			cfg: bigquery.Config{
-				ReadOnly:       boolPtr(true),
+				ReadOnly:       testutils.BoolPtr(true),
 				UseClientOAuth: "true",
 			},
 			wantWriteMode: bigquery.WriteModeBlocked,
@@ -685,7 +680,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		{
 			name: "readOnly: false with empty writeMode defaults to allowed",
 			cfg: bigquery.Config{
-				ReadOnly:       boolPtr(false),
+				ReadOnly:       testutils.BoolPtr(false),
 				UseClientOAuth: "true",
 			},
 			wantWriteMode: bigquery.WriteModeAllowed,
@@ -702,7 +697,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		{
 			name: "readOnly: true with explicit writeMode: blocked",
 			cfg: bigquery.Config{
-				ReadOnly:       boolPtr(true),
+				ReadOnly:       testutils.BoolPtr(true),
 				WriteMode:      bigquery.WriteModeBlocked,
 				UseClientOAuth: "true",
 			},
@@ -713,7 +708,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		{
 			name: "readOnly: true + writeMode: allowed",
 			cfg: bigquery.Config{
-				ReadOnly:  boolPtr(true),
+				ReadOnly:  testutils.BoolPtr(true),
 				WriteMode: bigquery.WriteModeAllowed,
 			},
 			wantErr: `conflicting source configuration: readOnly is true, but writeMode is "allowed"`,
@@ -721,7 +716,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		{
 			name: "readOnly: false + writeMode: blocked",
 			cfg: bigquery.Config{
-				ReadOnly:  boolPtr(false),
+				ReadOnly:  testutils.BoolPtr(false),
 				WriteMode: bigquery.WriteModeBlocked,
 			},
 			wantErr: `conflicting source configuration: readOnly is false, but writeMode is "blocked"`,
@@ -729,7 +724,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		{
 			name: "readOnly: false + writeMode: protected",
 			cfg: bigquery.Config{
-				ReadOnly:  boolPtr(false),
+				ReadOnly:  testutils.BoolPtr(false),
 				WriteMode: bigquery.WriteModeProtected,
 			},
 			wantErr: `conflicting source configuration: readOnly is false, but writeMode is "protected"`,
