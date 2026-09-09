@@ -364,15 +364,21 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 	return toolsMap, groupsMap, nil
 }
 
-// validateToolUIResources validates that all UI resources referenced by tools exist in either resourcesMap or resourceTemplatesMap.
+// validateToolUIResources validates that all UI resources referenced by tools exist in either resourcesMap or resourceTemplatesMap and are valid UI resources.
 func validateToolUIResources(toolsMap map[string]tools.Tool, resourcesMap map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate) error {
 	for toolName, tool := range toolsMap {
 		uiMeta := tool.GetToolUIMetadata()
 		if uiMeta != nil && uiMeta.Resource != "" {
-			_, hasRes := resourcesMap[uiMeta.Resource]
-			_, hasTmpl := resourceTemplatesMap[uiMeta.Resource]
+			res, hasRes := resourcesMap[uiMeta.Resource]
+			tmpl, hasTmpl := resourceTemplatesMap[uiMeta.Resource]
 			if !hasRes && !hasTmpl {
 				return fmt.Errorf("unable to retrieve UI resource %q for tool %q", uiMeta.Resource, toolName)
+			}
+			if hasRes && res.GetResourceUIMetadata() == nil {
+				return fmt.Errorf("resource %q referenced by tool %q is not a UI resource (ui: true is required)", uiMeta.Resource, toolName)
+			}
+			if hasTmpl && tmpl.GetResourceUIMetadata() == nil {
+				return fmt.Errorf("resource template %q referenced by tool %q is not a UI resource (ui: true is required)", uiMeta.Resource, toolName)
 			}
 		}
 	}
@@ -449,13 +455,17 @@ func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string
 	slices.Sort(allPromptNames)
 
 	allResourceNames := make([]string, 0, len(resourcesMap))
-	for name := range resourcesMap {
-		allResourceNames = append(allResourceNames, name)
+	for name, res := range resourcesMap {
+		if res.GetResourceUIMetadata() == nil {
+			allResourceNames = append(allResourceNames, name)
+		}
 	}
 	slices.Sort(allResourceNames)
 	allResourceTemplateNames := make([]string, 0, len(resourceTemplatesMap))
-	for name := range resourceTemplatesMap {
-		allResourceTemplateNames = append(allResourceTemplateNames, name)
+	for name, tmpl := range resourceTemplatesMap {
+		if tmpl.GetResourceUIMetadata() == nil {
+			allResourceTemplateNames = append(allResourceTemplateNames, name)
+		}
 	}
 	slices.Sort(allResourceTemplateNames)
 
