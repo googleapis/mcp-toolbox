@@ -244,9 +244,15 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
+	var clientExts map[string]any
+	var supportsUI bool
+	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
+		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
+		supportsUI = ClientSupportsUI(req.Params.Meta.MetaClientCapabilities)
+	}
+	supportedExts := ParseSupportedExtensions(clientExts)
 	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
-	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport)
+	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
@@ -874,9 +880,15 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
+	var clientExts map[string]any
+	var supportsUI bool
+	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
+		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
+		supportsUI = ClientSupportsUI(req.Params.Meta.MetaClientCapabilities)
+	}
+	supportedExts := ParseSupportedExtensions(clientExts)
 	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
-	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, hasSecureParamsSupport)
+	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
@@ -1100,6 +1112,17 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
 
+	var contentMeta map[string]any
+	var uiMeta any
+	if res != nil {
+		uiMeta = res.GetResourceUIMetadata()
+	} else if resTmpl != nil {
+		uiMeta = resTmpl.GetResourceUIMetadata()
+	}
+	if uiMeta != nil {
+		contentMeta = map[string]any{"ui": uiMeta}
+	}
+
 	result := &ReadResourceResult{
 		Result: Result{
 			ResultType: resultTypeComplete,
@@ -1116,6 +1139,7 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 				ResourceContents: ResourceContents{
 					Uri:      uri,
 					MimeType: mimeType,
+					Metadata: contentMeta,
 				},
 				Text: textContent,
 			},

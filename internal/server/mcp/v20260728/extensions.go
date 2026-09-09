@@ -14,12 +14,23 @@
 
 package v20260728
 
-import "slices"
+import (
+	"encoding/json"
+	"mime"
+	"slices"
+)
+
+const (
+	// UIExtensionURI is the extension URI for MCP Apps UI support.
+	UIExtensionURI = "io.modelcontextprotocol/ui"
+	// UIMimeType is the required MIME type for MCP Apps UI resources.
+	UIMimeType = "text/html;profile=mcp-app"
+)
 
 // SupportedExtensions lists all MCP extension URIs supported by Toolbox by default.
 var SupportedExtensions = map[string]any{
 	"com.google.cloud/toolbox.v1": map[string]any{},
-	"io.modelcontextprotocol/ui":  map[string]any{},
+	UIExtensionURI:                map[string]any{},
 }
 
 // ServerExtensions is the map of extension URIs enabled on this server.
@@ -47,4 +58,43 @@ func ParseSupportedExtensions(clientExtensions map[string]any) map[string]any {
 		}
 	}
 	return supported
+}
+
+// GetUiCapability extracts McpUiClientCapabilities from client capabilities if present.
+// Returns nil if client capabilities are missing or do not contain the UI extension.
+func GetUiCapability(clientCaps *ClientCapabilities) *McpUiClientCapabilities {
+	if clientCaps == nil || len(clientCaps.Extensions) == 0 {
+		return nil
+	}
+	extVal, ok := clientCaps.Extensions[UIExtensionURI]
+	if !ok || extVal == nil {
+		return nil
+	}
+	data, err := json.Marshal(extVal)
+	if err != nil {
+		return nil
+	}
+	var uiCaps McpUiClientCapabilities
+	if err := json.Unmarshal(data, &uiCaps); err != nil {
+		return nil
+	}
+	return &uiCaps
+}
+
+// ClientSupportsUI checks whether client capabilities advertise support for the MCP Apps UI extension.
+func ClientSupportsUI(clientCaps *ClientCapabilities) bool {
+	uiCaps := GetUiCapability(clientCaps)
+	if uiCaps == nil {
+		return false
+	}
+	for _, mt := range uiCaps.MimeTypes {
+		if mt == UIMimeType {
+			return true
+		}
+		mediaType, params, err := mime.ParseMediaType(mt)
+		if err == nil && mediaType == "text/html" && params["profile"] == "mcp-app" {
+			return true
+		}
+	}
+	return false
 }

@@ -15,6 +15,7 @@
 package v20260728
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -159,6 +160,99 @@ func TestServerExtensions(t *testing.T) {
 			_, ok := ServerExtensions[tc.expectedUri]
 			if ok != tc.expectedVal {
 				t.Errorf("ServerExtensions[%q] presence = %v, want %v", tc.expectedUri, ok, tc.expectedVal)
+			}
+		})
+	}
+}
+
+func TestGetUiCapability(t *testing.T) {
+	tests := []struct {
+		name       string
+		clientCaps *ClientCapabilities
+		wantNil    bool
+		wantMimes  []string
+		supportsUI bool
+	}{
+		{
+			name:       "nil client capabilities",
+			clientCaps: nil,
+			wantNil:    true,
+			supportsUI: false,
+		},
+		{
+			name:       "empty extensions",
+			clientCaps: &ClientCapabilities{},
+			wantNil:    true,
+			supportsUI: false,
+		},
+		{
+			name: "other extension only",
+			clientCaps: &ClientCapabilities{
+				Extensions: map[string]any{
+					"com.google.cloud/toolbox.v1": map[string]any{},
+				},
+			},
+			wantNil:    true,
+			supportsUI: false,
+		},
+		{
+			name: "valid UI extension with correct mimeType",
+			clientCaps: &ClientCapabilities{
+				Extensions: map[string]any{
+					UIExtensionURI: map[string]any{
+						"mimeTypes": []any{"text/html;profile=mcp-app"},
+					},
+				},
+			},
+			wantNil:    false,
+			wantMimes:  []string{"text/html;profile=mcp-app"},
+			supportsUI: true,
+		},
+		{
+			name: "valid UI extension with space in mimeType",
+			clientCaps: &ClientCapabilities{
+				Extensions: map[string]any{
+					UIExtensionURI: map[string]any{
+						"mimeTypes": []any{"text/html; profile=mcp-app"},
+					},
+				},
+			},
+			wantNil:    false,
+			wantMimes:  []string{"text/html; profile=mcp-app"},
+			supportsUI: true,
+		},
+		{
+			name: "UI extension with unsupported mimeType",
+			clientCaps: &ClientCapabilities{
+				Extensions: map[string]any{
+					UIExtensionURI: map[string]any{
+						"mimeTypes": []any{"application/json"},
+					},
+				},
+			},
+			wantNil:    false,
+			wantMimes:  []string{"application/json"},
+			supportsUI: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := GetUiCapability(tc.clientCaps)
+			if tc.wantNil {
+				if got != nil {
+					t.Fatalf("expected nil McpUiClientCapabilities, got %+v", got)
+				}
+			} else {
+				if got == nil {
+					t.Fatalf("expected non-nil McpUiClientCapabilities, got nil")
+				}
+				if !slices.Equal(got.MimeTypes, tc.wantMimes) {
+					t.Errorf("expected mimeTypes %v, got %v", tc.wantMimes, got.MimeTypes)
+				}
+			}
+			if ClientSupportsUI(tc.clientCaps) != tc.supportsUI {
+				t.Errorf("ClientSupportsUI() = %v, want %v", ClientSupportsUI(tc.clientCaps), tc.supportsUI)
 			}
 		})
 	}
