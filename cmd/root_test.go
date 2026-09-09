@@ -266,6 +266,13 @@ func TestServerConfigFlags(t *testing.T) {
 				DisableExt: []string{"io.modelcontextprotocol/tasks"},
 			}),
 		},
+		{
+			desc: "disable version check",
+			args: []string{"--disable-version-check"},
+			want: withDefaults(server.ServerConfig{
+				DisableVersionCheck: true,
+			}),
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
