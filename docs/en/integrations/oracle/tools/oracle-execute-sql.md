@@ -18,10 +18,13 @@ statement against the `source`.
 > human-in-the-loop and shouldn't be used for production agents.
 
 By default the statement runs as given, so the tool can both read and write. Set
-`readOnly` to `true` to run statements inside an Oracle read-only transaction,
-which makes the database reject writes and locking reads such as
-`SELECT ... FOR UPDATE` with `ORA-01456`. Set it to `false` to run the statement
-as DML and report the number of affected rows instead of returning rows.
+`readOnly` to `true` to run it as a read-only transaction, so the database itself
+rejects writes and locking reads. Set it to `false` to run the statement as DML,
+which reports the number of affected rows instead of returning rows.
+
+> **Note:** A read-only transaction does not stop DDL, which commits implicitly,
+> so `readOnly` alone does not make this tool safe for untrusted input. Grant the
+> source's database user only the privileges it needs.
 
 ## Compatible Sources
 

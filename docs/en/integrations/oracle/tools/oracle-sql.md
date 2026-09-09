@@ -15,19 +15,15 @@ The specified SQL statement is executed using [prepared statements][oracle-stmt]
 for security and performance. It expects parameter placeholders in the SQL query
 to be in the native Oracle format (e.g., `:1`, `:2`).
 
-By default, the statement runs as a query. To execute data modification
-statements (INSERT, UPDATE, DELETE), you must explicitly set the `readOnly`
-field to `false`; the tool then reports the number of affected rows instead of
-returning rows.
+By default, the statement runs as a query. Set `readOnly` to `true` to run it as
+a read-only transaction, so the database itself rejects writes and locking reads.
+Set it to `false` to run the statement as DML, which reports the number of
+affected rows instead of returning rows.
 
-Set `readOnly` to `true` to have the **database** enforce that the tool only
-reads: the statement runs inside an Oracle read-only transaction, so writes and
-locking reads such as `SELECT ... FOR UPDATE` fail with `ORA-01456` instead of
-taking effect and holding row locks.
-
-> **Note:** A read-only transaction does not stop PL/SQL that writes in its own
-> autonomous transaction (`PRAGMA AUTONOMOUS_TRANSACTION`). Grant the source's
-> database user only the privileges the tools need.
+> **Note:** A read-only transaction does not stop DDL, which commits implicitly,
+> or PL/SQL that writes in its own autonomous transaction
+> (`PRAGMA AUTONOMOUS_TRANSACTION`). Grant the source's database user only the
+> privileges the tools need.
 
 [oracle-stmt]: https://docs.oracle.com/javase/tutorial/jdbc/basics/prepared.html
 
