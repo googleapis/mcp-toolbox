@@ -284,6 +284,10 @@ steps:
           if grep -qE "(^|/)bigtable/" /workspace/changed_files.txt; then
             export RUN_EXPENSIVE_TESTS="true"
           fi
+          if [ "$$RUN_EXPENSIVE_TESTS" != "true" ]; then
+            # Admin tool tests are skipped here, so their packages go uncovered.
+            export COVERAGE_THRESHOLD=40
+          fi
           .ci/test_with_coverage.sh \
             "Bigtable" \
             bigtable \
