@@ -152,6 +152,16 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 		"description": "Verify that read-only Oracle tools reject writes.",
 	}
 
+	// `oracle-execute-sql` takes its statement at call time, so `readOnly: true`
+	// has to be enforced on whatever the caller supplies rather than on a
+	// statement fixed in the config.
+	toolsMap["my-readonly-exec-sql-tool"] = map[string]any{
+		"type":        "oracle-execute-sql",
+		"source":      "my-instance",
+		"readOnly":    true,
+		"description": "Verify that read-only oracle-execute-sql tools reject writes.",
+	}
+
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
@@ -193,6 +203,14 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	// inside a READ ONLY transaction).
 	testToolResponseContains(t, "my-readonly-locking-tool", `{}`, "ORA-01456")
 	testToolResponseContains(t, "my-readonly-update-tool", `{}`, "ORA-01456")
+
+	// The same contract applies to the statement `oracle-execute-sql` is handed.
+	testToolResponseContains(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "UPDATE %s SET \"name\" = 'Mallory' WHERE \"id\" = 1"}`, tableNameParam),
+		"ORA-01456")
+	testToolResponseContains(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "SELECT \"name\" FROM %s WHERE \"id\" = 1 FOR UPDATE"}`, tableNameParam),
+		"ORA-01456")
 
 	// The rows must be untouched and unlocked afterwards.
 	testToolResponseContains(t, "my-tool", `{"id": 1, "name": "Alice"}`, `\"name\":\"UpdatedAlice\"`)
