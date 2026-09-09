@@ -1869,8 +1869,12 @@ func TestResourcesReadHandler(t *testing.T) {
 	}
 	ctx = util.WithLogger(ctx, testLogger)
 
+	prefersBorder := true
 	mockResources := []testutils.MockResource{
 		testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
+		testutils.NewMockUIResource("ui_res", "ui://test/dashboard", "Dashboard", "UI Dashboard", "text/html;profile=mcp-app", nil, nil, &resources.CSPConfig{
+			ConnectDomains: []string{"https://api.example.com"},
+		}, nil, "custom-domain", &prefersBorder),
 	}
 	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, nil, mockResources, nil)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
@@ -1881,6 +1885,7 @@ func TestResourcesReadHandler(t *testing.T) {
 		rawBody     []byte
 		wantErr     bool
 		errContains string
+		verifyFunc  func(t *testing.T, resp any)
 	}{
 		{
 			name:        "invalid json request",
@@ -1907,6 +1912,43 @@ func TestResourcesReadHandler(t *testing.T) {
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "success UI resource includes _meta.ui",
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "ui://test/dashboard",
+				},
+			},
+			wantErr: false,
+			verifyFunc: func(t *testing.T, resp any) {
+				jsonResp, ok := resp.(jsonrpc.JSONRPCResponse)
+				if !ok {
+					t.Fatalf("expected JSONRPCResponse, got %T", resp)
+				}
+				readRes, ok := jsonResp.Result.(*ReadResourceResult)
+				if !ok {
+					t.Fatalf("expected *ReadResourceResult, got %T", jsonResp.Result)
+				}
+				if len(readRes.Contents) != 1 {
+					t.Fatalf("expected 1 content item, got %d", len(readRes.Contents))
+				}
+				metaUI, ok := readRes.Contents[0].Metadata["ui"]
+				if !ok || metaUI == nil {
+					t.Fatalf("expected Contents[0].Metadata to have 'ui', got %v", readRes.Contents[0].Metadata)
+				}
+			},
 		},
 		{
 			name: "not found",
@@ -1956,6 +1998,9 @@ func TestResourcesReadHandler(t *testing.T) {
 				}
 				if got == nil {
 					t.Errorf("expected valid response, got nil")
+				}
+				if tt.verifyFunc != nil {
+					tt.verifyFunc(t, got)
 				}
 			}
 		})

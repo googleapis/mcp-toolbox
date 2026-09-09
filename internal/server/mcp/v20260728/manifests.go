@@ -118,7 +118,7 @@ func generateParamManifest(ps parameters.Parameters, urlParams map[string]string
 }
 
 // GenerateListToolsResult generates tools/list method result according to mcp schema
-func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool) (ListToolsResult, error) {
+func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool, supportsUI bool) (ListToolsResult, error) {
 	mcpManifest := make([]Tool, 0, len(g.ToolNames))
 	for _, toolName := range g.ToolNames {
 		tool, ok := pMgr.GetTool(toolName)
@@ -143,25 +143,27 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 			continue
 		}
 		var uiMeta map[string]any
-		if uiMetaOrig := tool.GetToolUIMetadata(); uiMetaOrig != nil {
-			if uiMetaOrig.Resource != "" {
-				var uri string
-				if res, hasRes := pMgr.GetResource(uiMetaOrig.Resource); hasRes {
-					uri = res.GetURI()
-				} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(uiMetaOrig.Resource); hasTmpl {
-					uri = tmpl.GetURITemplate()
-				} else {
-					return ListToolsResult{}, fmt.Errorf("unable to retrieve UI resource %q for tool %q", uiMetaOrig.Resource, toolName)
-				}
-				uiMeta = map[string]any{
-					"resourceUri": uri,
-				}
-				if len(uiMetaOrig.Visibility) > 0 {
-					vis := make([]string, len(uiMetaOrig.Visibility))
-					for i, v := range uiMetaOrig.Visibility {
-						vis[i] = string(v)
+		if supportsUI {
+			if uiMetaOrig := tool.GetToolUIMetadata(); uiMetaOrig != nil {
+				if uiMetaOrig.Resource != "" {
+					var uri string
+					if res, hasRes := pMgr.GetResource(uiMetaOrig.Resource); hasRes {
+						uri = res.GetURI()
+					} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(uiMetaOrig.Resource); hasTmpl {
+						uri = tmpl.GetURITemplate()
+					} else {
+						return ListToolsResult{}, fmt.Errorf("unable to retrieve UI resource %q for tool %q", uiMetaOrig.Resource, toolName)
 					}
-					uiMeta["visibility"] = vis
+					uiMeta = map[string]any{
+						"resourceUri": uri,
+					}
+					if len(uiMetaOrig.Visibility) > 0 {
+						vis := make([]string, len(uiMetaOrig.Visibility))
+						for i, v := range uiMetaOrig.Visibility {
+							vis[i] = string(v)
+						}
+						uiMeta["visibility"] = vis
+					}
 				}
 			}
 		}
@@ -324,8 +326,8 @@ func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g gr
 }
 
 // GenerateGetGroupResult generates the groups/get result for a single group's primitives.
-func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool) (GetGroupResult, error) {
-	listToolsResult, err := GenerateListToolsResult(pMgr, g, urlParams, supportsSecureParams)
+func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool, supportsUI bool) (GetGroupResult, error) {
+	listToolsResult, err := GenerateListToolsResult(pMgr, g, urlParams, supportsSecureParams, supportsUI)
 	if err != nil {
 		return GetGroupResult{}, fmt.Errorf("error generating tools manifest: %w", err)
 	}
