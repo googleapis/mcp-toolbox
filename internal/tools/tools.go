@@ -140,6 +140,7 @@ type Tool interface {
 	GetScopesRequired() []string
 	ValidateSource(sources.Source) error
 	HasSecureParams() bool
+	GetAsyncSetting() (*AsyncConfig, bool)
 }
 
 // PrimitiveManagerI defines the minimal view of the primitives.PrimitiveManager
@@ -171,6 +172,12 @@ func IsAuthorized(authRequiredSources []string, verifiedAuthServices []string) b
 	return false
 }
 
+// AsyncConfig defines the asynchronous configuration for a tool.
+type AsyncConfig struct {
+	PollIntervalMs int64 `yaml:"pollIntervalMs" json:"pollIntervalMs"`
+	TTLMs          int64 `yaml:"ttlMs" json:"ttlMs"`
+}
+
 // ToolMeta is the read-only view BaseTool needs of any tool's Config. Tools
 // satisfy it for free by embedding ConfigBase.
 type ToolMeta interface {
@@ -178,6 +185,7 @@ type ToolMeta interface {
 	GetDescription() string
 	GetAuthRequired() []string
 	GetScopesRequired() []string
+	GetAsyncSetting() (*AsyncConfig, bool)
 }
 
 // ConfigBase owns the YAML fields that every tool's Config shares and that
@@ -186,16 +194,23 @@ type ToolMeta interface {
 // configs omit description: and rely on a canned per-tool string), so
 // post-Initialize ConfigBase.Description holds the resolved value.
 type ConfigBase struct {
-	Name           string   `yaml:"name"           validate:"required"`
-	Description    string   `yaml:"description"`
-	AuthRequired   []string `yaml:"authRequired"`
-	ScopesRequired []string `yaml:"scopesRequired"`
+	Name           string       `yaml:"name"           validate:"required"`
+	Description    string       `yaml:"description"`
+	AuthRequired   []string     `yaml:"authRequired"`
+	ScopesRequired []string     `yaml:"scopesRequired"`
+	EnableAsync    *AsyncConfig `yaml:"enableAsync,omitempty"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
 func (c ConfigBase) GetDescription() string      { return c.Description }
 func (c ConfigBase) GetAuthRequired() []string   { return c.AuthRequired }
 func (c ConfigBase) GetScopesRequired() []string { return c.ScopesRequired }
+func (c ConfigBase) GetAsyncSetting() (*AsyncConfig, bool) {
+	if c.EnableAsync == nil {
+		return nil, false
+	}
+	return c.EnableAsync, true
+}
 
 // BaseTool provides default implementations of various methods on the Tool
 // interface. Tools embed BaseTool to drop their boilerplate and override
@@ -234,6 +249,7 @@ func (b BaseTool[T]) GetAuthRequired() []string                        { return 
 func (b BaseTool[T]) HasSecureParams() bool                            { return b.hasSecureParams }
 func (b BaseTool[T]) GetScopesRequired() []string                      { return b.Cfg.GetScopesRequired() }
 func (b BaseTool[T]) GetAnnotations(_ sources.Source) *ToolAnnotations { return b.annotations }
+func (b BaseTool[T]) GetAsyncSetting() (*AsyncConfig, bool)            { return b.Cfg.GetAsyncSetting() }
 
 // Manifest returns the precomputed metadata. It and GetParameters stay trivial
 // and never call each other: embedded methods have no virtual dispatch, so a
