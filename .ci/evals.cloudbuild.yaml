@@ -41,8 +41,8 @@ steps:
         fi
 
         # Blobless: --name-only needs tree entries, not file contents.
-        git fetch --unshallow --filter=blob:none || true
-        git fetch --filter=blob:none origin main > /dev/null 2>&1
+        git fetch --unshallow --filter=blob:none --no-tags || true
+        git fetch --quiet --filter=blob:none --no-tags origin main
         git diff --name-only origin/main...HEAD > /workspace/changed_files.txt
         cat /workspace/changed_files.txt
 
