@@ -22,9 +22,13 @@ By default the statement runs as given, so the tool can both read and write. Set
 rejects writes and locking reads. Set it to `false` to run the statement as DML,
 which reports the number of affected rows instead of returning rows.
 
-> **Note:** A read-only transaction does not stop DDL, which commits implicitly,
-> so `readOnly` alone does not make this tool safe for untrusted input. Grant the
-> source's database user only the privileges it needs.
+> **Note:** `readOnly` guards against accidental writes; it is not a security
+> boundary. A read-only transaction does not stop DDL, which commits implicitly,
+> so a statement that performs DDL before writing escapes it entirely. Because
+> this tool runs whatever SQL it is given, enforce read-only in the database for
+> untrusted or model-generated input — see [Read-Only Access][ro-access].
+
+[ro-access]: ../source.md#read-only-access
 
 ## Compatible Sources
 

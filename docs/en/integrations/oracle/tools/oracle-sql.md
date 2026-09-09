@@ -22,8 +22,10 @@ affected rows instead of returning rows.
 
 > **Note:** A read-only transaction does not stop DDL, which commits implicitly,
 > or PL/SQL that writes in its own autonomous transaction
-> (`PRAGMA AUTONOMOUS_TRANSACTION`). Grant the source's database user only the
-> privileges the tools need.
+> (`PRAGMA AUTONOMOUS_TRANSACTION`). See [Read-Only Access][ro-access] for
+> enforcing this in the database instead.
+
+[ro-access]: ../source.md#read-only-access
 
 [oracle-stmt]: https://docs.oracle.com/javase/tutorial/jdbc/basics/prepared.html
 
