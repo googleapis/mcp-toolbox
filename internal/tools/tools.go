@@ -174,8 +174,8 @@ func IsAuthorized(authRequiredSources []string, verifiedAuthServices []string) b
 
 // AsyncConfig defines the asynchronous configuration for a tool.
 type AsyncConfig struct {
-	PollIntervalMs int64 `yaml:"pollIntervalMs" json:"pollIntervalMs"`
-	TTLMs          int64 `yaml:"ttlMs" json:"ttlMs"`
+	PollIntervalMs int64 `yaml:"pollIntervalMs" json:"pollIntervalMs" validate:"required,gt=0"`
+	TTLMs          int64 `yaml:"ttlMs" json:"ttlMs" validate:"required,gt=0"`
 }
 
 // ToolMeta is the read-only view BaseTool needs of any tool's Config. Tools
