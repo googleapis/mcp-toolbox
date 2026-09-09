@@ -9,7 +9,9 @@ description: >
 A `resource` represents read-only data or content that can be discovered and retrieved by MCP clients to provide contextual information to Large Language Models (LLMs).
 
 {{< notice note >}}
-You can use [Groups](../groups/) to organize resources and resource templates into collections. When you connect to a group's endpoint /mcp/{name}, resources/list and resources/templates/list return only the items in that group, and resources/read strictly enforces that requested URIs belong to that group. The default endpoint /mcp provides access to all resources.
+You can use [Groups](../groups/) to organize resources and resource templates into collections. When you connect to a group's endpoint `/mcp/{name}`, `resources/list` and `resources/templates/list` return only the items in that group, and `resources/read` strictly enforces that requested URIs belong to that group. The default endpoint `/mcp` provides access to all resources.
+
+Interactive UI resources (`ui: true`) are not scoped to specific groups and do not appear in `resources/list` or `resources/templates/list`. They are globally accessible across all endpoints via `resources/read`. See [MCP Apps](../mcp-apps/) for more information.
 {{< /notice >}}
 
 Resources are analogous to file attachments or contextual snippets: they allow the model to inspect data (such as documentation, schema definitions or log files) without needing to invoke executable tools. The Toolbox server implements the following methods from the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/docs/concepts/resources) specification:
@@ -63,7 +65,7 @@ allowedPaths:
 | `description` | string                                 | No           | A brief explanation of what the resource contains.                                                           |
 | `title`       | string                                 | No           | Human-readable title for the resource.                                                                       |
 | `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files; defaults to `text/html;profile=mcp-app` when `ui: true`. |
-| `ui`          | bool                                   | No           | Set to `true` to designate this resource as an interactive UI app. See [MCP Apps](../mcp-apps/).             |
+| `ui`          | bool                                   | No           | Set to `true` to designate this resource as an interactive UI app. UI resources are globally accessible and omitted from `resources/list`. See [MCP Apps](../mcp-apps/). |
 | `annotations` | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Resource Template Schema (`kind: resourceTemplate`)
@@ -78,7 +80,7 @@ allowedPaths:
 | `description`    | string                                 | No           | A brief explanation of what the resource template exposes.                                                   |
 | `title`          | string                                 | No           | Human-readable title for the resource template.                                                              |
 | `mimeType`       | string                                 | No           | The default MIME type for content returned by this template. Defaults to `text/html;profile=mcp-app` when `ui: true`. |
-| `ui`             | bool                                   | No           | Set to `true` to designate this resource template as an interactive UI app. See [MCP Apps](../mcp-apps/).    |
+| `ui`             | bool                                   | No           | Set to `true` to designate this resource template as an interactive UI app. UI resource templates are globally accessible and omitted from `resources/templates/list`. See [MCP Apps](../mcp-apps/). |
 | `annotations`    | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Annotations Schema

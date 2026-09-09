@@ -9,7 +9,7 @@ description: >
 The **MCP Apps** extension (`io.modelcontextprotocol/ui`) allows MCP servers to serve interactive web applications (HTML/CSS/JS) directly as resources and bind them to tools. When supported by an MCP client, the client can render an interactive user interface alongside or in place of standard tool outputs.
 
 {{< notice note >}}
-Support for the MCP Apps extension is advertised via `io.modelcontextprotocol/ui` in server capabilities starting with MCP protocol version `2026-07-28`.
+Support for the MCP Apps extension is advertised via `io.modelcontextprotocol/ui` in server capabilities exclusively for MCP protocol version `2026-07-28`. Older protocol versions (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`) do not support extensions and will not advertise UI capabilities or tool UI metadata.
 {{< /notice >}}
 
 ## Defining a UI Resource
@@ -108,18 +108,10 @@ ui:
 - `app`: The tool is exposed to the interactive UI application for direct invocation.
 - Both (`["model", "app"]`): The default setting, allowing both the model and the UI app to call the tool.
 
-## Group Scoping & Validation
+## Global Availability & Group Scoping
 
-When using [Groups](../groups/), Toolbox enforces strict consistency between tools and their associated UI resources:
+Unlike standard tools, prompts, or resources that are scoped to specific [Groups](../groups/), **UI resources are globally accessible and are not scoped to specific groups** (similar to authentication services and embedding models):
 
-1. **Existence Check**: Toolbox verifies during server startup that every `ui.resource` referenced by a tool exists. If the resource is missing, server initialization fails.
-2. **Group Boundary Enforcement**: If a tool is included in a group (`kind: group`), its referenced `ui.resource` **must also be included in the same group**. Attempting to configure a group with a tool whose UI resource is not in the group will fail validation:
-
-```yaml
-kind: group
-name: analytics_group
-tools:
-  - view_customer_dashboard
-resources:
-  - customer_dashboard # Required because view_customer_dashboard references it
-```
+1. **Server-Wide Availability**: Tools in any group can link to UI resources without needing to declare the UI resource in that group.
+2. **Existence Check**: Toolbox verifies during server startup that every `ui.resource` referenced by a tool exists across all loaded resources and resource templates. If the referenced resource is missing, server initialization fails.
+3. **Omitted from Resource Listing**: UI resources (`ui: true`) are intentionally excluded from `resources/list` and `resources/templates/list` so they do not clutter standard LLM context. Clients obtain the UI resource URI directly from the tool's manifest metadata and retrieve it via `resources/read`.

@@ -615,7 +615,7 @@ ui:
 | `resource`     | string    | Yes          | The `name` of a configured `resource` or `resourceTemplate` providing the UI for this tool.                               |
 | `visibility`   | []string  | No           | Controls who can see the tool. Allowed values are `model` and `app`. Defaults to `["model", "app"]` if omitted.          |
 
-For details on defining UI resources, Content Security Policy, and device permissions, see the [MCP Apps](../mcp-apps/) documentation.
+UI resources are globally accessible across all groups and do not need to be declared in the tool's group. For details on defining UI resources, Content Security Policy, and device permissions, see the [MCP Apps](../mcp-apps/) documentation.
 
 ## Using tools with MCP Toolbox Client SDKs
 
