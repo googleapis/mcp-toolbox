@@ -74,7 +74,6 @@ steps:
       - "TOOLBOX_PREBUILT=cloud-sql-postgres"
       - "EVAL_DATASET=evals/evalsets/cloud-sql-postgres.json"
       - "EVAL_ENV_PREFIX=CLOUD_SQL_POSTGRES"
-      - "EVAL_HARNESSES=claude_cli gemini_cli"
 
       - "CLOUD_SQL_POSTGRES_PROJECT=$PROJECT_ID"
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
@@ -132,6 +131,24 @@ steps:
       - "CLOUD_SQL_POSTGRES_REGION=${_REGION}"
       - "CLOUD_SQL_POSTGRES_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
 
+  # BIGQUERY_READONLY is load-bearing: an empty writeMode defaults to
+  # "allowed", giving execute_sql DROP rights.
+  - id: "evals-bigquery"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=bigquery"
+      - "EVAL_DATASET=evals/evalsets/bigquery.json"
+      - "EVAL_ENV_PREFIX=BIGQUERY"
+
+      - "BIGQUERY_PROJECT=$PROJECT_ID"
+      - "BIGQUERY_LOCATION=US"
+      - "BIGQUERY_READONLY=true"
+
   # Turns the allowFailure steps back into a red build. No waitFor, which means
   # every step above, so a new database needs no edit here.
   - id: "report-failures"
@@ -168,6 +185,8 @@ options:
   machineType: E2_HIGHCPU_32
   env:
     - "TOOLBOX_BIN=/workspace/toolbox"
+    # A substitution, not an env var, so run_evals.sh cannot read it otherwise.
+    - "BUILD_ID=$BUILD_ID"
     - "EVAL_HARNESSES=${_EVAL_HARNESSES}"
     - "EVAL_GEMINI_MODEL=${_GEMINI_MODEL}"
     - "EVAL_CLAUDE_MODEL=${_CLAUDE_MODEL}"
