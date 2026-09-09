@@ -103,18 +103,6 @@ func (gc GroupConfig) Initialize(toolsMap map[string]tools.Tool, promptsMap map[
 		templateNameSet[name] = struct{}{}
 	}
 
-	for _, toolName := range gc.ToolNames {
-		tool := toolsMap[toolName]
-		uiMeta := tool.GetToolUIMetadata()
-		if uiMeta != nil && uiMeta.Resource != "" {
-			_, hasRes := resourceNameSet[uiMeta.Resource]
-			_, hasTmpl := templateNameSet[uiMeta.Resource]
-			if !hasRes && !hasTmpl {
-				return Group{}, fmt.Errorf("tool %q requires UI resource %q which is not included in group %q", toolName, uiMeta.Resource, gc.Name)
-			}
-		}
-	}
-
 	return Group{
 		GroupConfig:             gc,
 		toolNameSet:             toolNameSet,

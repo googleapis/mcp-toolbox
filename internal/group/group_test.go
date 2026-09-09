@@ -82,12 +82,12 @@ func TestGroupConfig_Initialize(t *testing.T) {
 			wantRes:   []string{"res1"},
 		},
 		{
-			name: "failure when ui resource not in group",
+			name: "success when tool with ui resource is in group without ui resource in group",
 			config: group.GroupConfig{
-				Name:      "invalid-group",
+				Name:      "valid-group-no-ui-res",
 				ToolNames: []string{"tool-with-ui"},
 			},
-			wantErr: "requires UI resource \"res1\" which is not included in group",
+			wantTools: []string{"tool-with-ui"},
 		},
 		{
 			name: "all primitives",
