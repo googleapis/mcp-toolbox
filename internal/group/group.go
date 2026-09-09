@@ -89,16 +89,24 @@ func (gc GroupConfig) Initialize(toolsMap map[string]tools.Tool, promptsMap map[
 
 	resourceNameSet := make(map[string]struct{}, len(gc.ResourceNames))
 	for _, name := range gc.ResourceNames {
-		if _, ok := resourcesMap[name]; !ok {
+		res, ok := resourcesMap[name]
+		if !ok {
 			return Group{}, fmt.Errorf("resource does not exist: %q", name)
+		}
+		if res.GetResourceUIMetadata() != nil {
+			return Group{}, fmt.Errorf("UI resource %q cannot be included in group %q: UI resources are globally accessible and cannot be scoped to groups", name, gc.Name)
 		}
 		resourceNameSet[name] = struct{}{}
 	}
 
 	templateNameSet := make(map[string]struct{}, len(gc.ResourceTemplateNames))
 	for _, name := range gc.ResourceTemplateNames {
-		if _, ok := templatesMap[name]; !ok {
+		tmpl, ok := templatesMap[name]
+		if !ok {
 			return Group{}, fmt.Errorf("resource template does not exist: %q", name)
+		}
+		if tmpl.GetResourceUIMetadata() != nil {
+			return Group{}, fmt.Errorf("UI resource template %q cannot be included in group %q: UI resources are globally accessible and cannot be scoped to groups", name, gc.Name)
 		}
 		templateNameSet[name] = struct{}{}
 	}

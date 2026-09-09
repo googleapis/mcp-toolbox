@@ -1596,6 +1596,7 @@ func TestInitializeConfigs(t *testing.T) {
 					ResourceConfigBase: resources.ResourceConfigBase{
 						ConfigBase: resources.ConfigBase{
 							Name: "valid-resource",
+							UI:   true,
 						},
 					},
 				},
@@ -1606,6 +1607,70 @@ func TestInitializeConfigs(t *testing.T) {
 		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
 		if err != nil {
 			t.Fatalf("expected InitializeConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("fails when referenced resource is not a UI resource", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ToolConfigs: map[string]tools.ToolConfig{
+				"tool-with-ui": testutils.MockToolConfig{
+					ConfigBase: tools.ConfigBase{
+						Name: "tool-with-ui",
+						UI: &tools.ToolUIMetadata{
+							Resource: "not-ui-resource",
+						},
+					},
+				},
+			},
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"not-ui-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "not-ui-resource",
+							UI:   false,
+						},
+					},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail")
+		}
+		if !strings.Contains(err.Error(), "resource \"not-ui-resource\" referenced by tool \"tool-with-ui\" is not a UI resource") {
+			t.Fatalf("expected not a UI resource error, got: %v", err)
+		}
+	})
+
+	t.Run("fails when group directly includes a UI resource", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"ui-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "ui-resource",
+							UI:   true,
+						},
+					},
+				},
+			},
+			GroupConfigs: map[string]group.GroupConfig{
+				"mygroup": {
+					Name:          "mygroup",
+					ResourceNames: []string{"ui-resource"},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail")
+		}
+		if !strings.Contains(err.Error(), "UI resource \"ui-resource\" cannot be included in group \"mygroup\"") {
+			t.Fatalf("expected UI resource cannot be included in group error, got: %v", err)
 		}
 	})
 
@@ -1649,6 +1714,7 @@ func TestInitializeConfigs(t *testing.T) {
 					ResourceConfigBase: resources.ResourceConfigBase{
 						ConfigBase: resources.ConfigBase{
 							Name: "valid-resource",
+							UI:   true,
 						},
 					},
 				},
