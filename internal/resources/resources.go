@@ -30,6 +30,9 @@ import (
 
 type contextKey string
 
+// UIMimeType is the required MIME type for MCP Apps UI resources.
+const UIMimeType = "text/html;profile=mcp-app"
+
 // BaseDirKey is the context key for storing the base directory path during config parsing.
 const BaseDirKey contextKey = "baseDir"
 
@@ -153,14 +156,24 @@ func (c *ConfigBase) SetDefaults() {
 		c.Annotations.Priority = &p
 	}
 	if c.UI && c.MimeType == "" {
-		c.MimeType = "text/html;profile=mcp-app"
+		c.MimeType = UIMimeType
 	}
 }
 
 // Validate performs base configuration validation, including validating the MIME type,
 // checking for duplicate audiences, and validating the lastModified timestamp format.
 func (c *ConfigBase) Validate() error {
-	if c.MimeType != "" {
+	if c.UI {
+		if c.MimeType == "" {
+			c.MimeType = UIMimeType
+		} else {
+			mediaType, params, err := mime.ParseMediaType(c.MimeType)
+			if err != nil || mediaType != "text/html" || params["profile"] != "mcp-app" {
+				return fmt.Errorf("invalid mimeType %q for UI resource %q: must be %q", c.MimeType, c.Name, UIMimeType)
+			}
+			c.MimeType = UIMimeType
+		}
+	} else if c.MimeType != "" {
 		mt, _, err := mime.ParseMediaType(c.MimeType)
 		if err != nil || !strings.Contains(mt, "/") {
 			return fmt.Errorf("invalid mimeType %q: must be a valid media type (e.g. text/plain)", c.MimeType)
