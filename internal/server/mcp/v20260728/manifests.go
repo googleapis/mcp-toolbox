@@ -264,6 +264,10 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if !ok {
 			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
 		}
+		// If Resource is of type UI skip adding it to the list/resources response.
+		if res.GetResourceUIMetadata() != nil {
+			continue
+		}
 		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
 	}
 	return ListResourcesResult{
@@ -300,6 +304,10 @@ func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g gr
 		tmpl, ok := pMgr.GetResourceTemplate(name)
 		if !ok {
 			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
+		}
+		// If Resource Template is of type UI skip adding it to the resources/templates/list response.
+		if tmpl.GetResourceUIMetadata() != nil {
+			continue
 		}
 		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetTitle(), tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType(), tmpl.GetAnnotations()))
 	}

@@ -151,6 +151,38 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 	return copiedMap
 }
 
+// GetUIResources returns a copy of all registered UI resources sorted by name.
+func (r *PrimitiveManager) GetUIResources() []resources.Resource {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var uiResources []resources.Resource
+	for _, res := range r.resources {
+		if res.GetResourceUIMetadata() != nil {
+			uiResources = append(uiResources, res)
+		}
+	}
+	slices.SortFunc(uiResources, func(a, b resources.Resource) int {
+		return cmp.Compare(a.GetName(), b.GetName())
+	})
+	return uiResources
+}
+
+// GetUIResourceTemplates returns a copy of all registered UI resource templates sorted by name.
+func (r *PrimitiveManager) GetUIResourceTemplates() []resources.ResourceTemplate {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var uiTemplates []resources.ResourceTemplate
+	for _, rt := range r.resourceTemplates {
+		if rt.GetResourceUIMetadata() != nil {
+			uiTemplates = append(uiTemplates, rt)
+		}
+	}
+	slices.SortFunc(uiTemplates, func(a, b resources.ResourceTemplate) int {
+		return cmp.Compare(a.GetName(), b.GetName())
+	})
+	return uiTemplates
+}
+
 // GroupsList returns a copy of the groups list sorted alphabetically by name
 func (r *PrimitiveManager) GroupsList() []group.Group {
 	r.mu.RLock()

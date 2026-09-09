@@ -103,3 +103,31 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, sources (-want +got):\n%s", diff)
 	}
 }
+
+func TestGetUIResourcesAndTemplates(t *testing.T) {
+	regularRes := testutils.NewMockResource("regular-res", "file:///reg", "", "", "", nil, nil)
+	uiRes := testutils.NewMockUIResource("ui-res", "ui://test", "", "", "", nil, nil, nil, nil, "", nil)
+	resourcesMap := map[string]resources.Resource{
+		"regular-res": regularRes,
+		"ui-res":      uiRes,
+	}
+
+	regularTmpl := testutils.NewMockResourceTemplate("regular-tmpl", "file:///tmpl/{path}", "", "", "", nil)
+	uiTmpl := testutils.NewMockUIResourceTemplate("ui-tmpl", "ui://tmpl/{path}", "", "", "", nil, nil, nil, "", nil)
+	templatesMap := map[string]resources.ResourceTemplate{
+		"regular-tmpl": regularTmpl,
+		"ui-tmpl":      uiTmpl,
+	}
+
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, templatesMap, nil)
+
+	gotUIResources := primMgr.GetUIResources()
+	if len(gotUIResources) != 1 || gotUIResources[0].GetName() != "ui-res" {
+		t.Errorf("expected 1 UI resource named 'ui-res', got %v", gotUIResources)
+	}
+
+	gotUITemplates := primMgr.GetUIResourceTemplates()
+	if len(gotUITemplates) != 1 || gotUITemplates[0].GetName() != "ui-tmpl" {
+		t.Errorf("expected 1 UI template named 'ui-tmpl', got %v", gotUITemplates)
+	}
+}
