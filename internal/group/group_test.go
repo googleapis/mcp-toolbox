@@ -35,19 +35,21 @@ func testFixtures() (map[string]tools.Tool, map[string]prompts.Prompt, map[strin
 	toolsMap := map[string]tools.Tool{
 		"tool1":        testutils.NewMockTool("tool1", "first tool", "", []parameters.Parameter{}, false, false),
 		"tool2":        testutils.NewMockTool("tool2", "second tool", "", []parameters.Parameter{}, false, false),
-		"tool-with-ui": testutils.NewMockToolWithUI("tool-with-ui", "tool with ui", "", []parameters.Parameter{}, false, false, "res1"),
+		"tool-with-ui": testutils.NewMockToolWithUI("tool-with-ui", "tool with ui", "", []parameters.Parameter{}, false, false, "ui-res"),
 	}
 	promptsMap := map[string]prompts.Prompt{
 		"prompt1": testutils.NewMockPrompt("prompt1", "first prompt", prompts.Arguments{}),
 		"prompt2": testutils.NewMockPrompt("prompt2", "second prompt", prompts.Arguments{}),
 	}
 	resourcesMap := map[string]resources.Resource{
-		"res1": testutils.NewMockResource("res1", "file://res1", "Title 1", "Desc 1", "", nil, nil),
-		"res2": testutils.NewMockResource("res2", "file://res2", "Title 2", "Desc 2", "", nil, nil),
+		"res1":   testutils.NewMockResource("res1", "file://res1", "Title 1", "Desc 1", "", nil, nil),
+		"res2":   testutils.NewMockResource("res2", "file://res2", "Title 2", "Desc 2", "", nil, nil),
+		"ui-res": testutils.NewMockUIResource("ui-res", "ui://test", "UI Title", "", "", nil, nil, nil, nil, "", nil),
 	}
 	resourceTemplatesMap := map[string]resources.ResourceTemplate{
-		"tmpl1": testutils.NewMockResourceTemplate("tmpl1", "file://tmpl1", "Title 1", "Desc 1", "", nil),
-		"tmpl2": testutils.NewMockResourceTemplate("tmpl2", "file://tmpl2", "Title 2", "Desc 2", "", nil),
+		"tmpl1":   testutils.NewMockResourceTemplate("tmpl1", "file://tmpl1", "Title 1", "Desc 1", "", nil),
+		"tmpl2":   testutils.NewMockResourceTemplate("tmpl2", "file://tmpl2", "Title 2", "Desc 2", "", nil),
+		"ui-tmpl": testutils.NewMockUIResourceTemplate("ui-tmpl", "ui://test/{path}", "UI Template Title", "", "", nil, nil, nil, "", nil),
 	}
 	return toolsMap, promptsMap, resourcesMap, resourceTemplatesMap
 }
@@ -72,14 +74,20 @@ func TestGroupConfig_Initialize(t *testing.T) {
 		wantCacheScope string
 	}{
 		{
-			name: "success when ui resource is in group",
+			name: "failure when ui resource is in group",
 			config: group.GroupConfig{
-				Name:          "valid-group",
-				ToolNames:     []string{"tool-with-ui"},
-				ResourceNames: []string{"res1"},
+				Name:          "invalid-group-res",
+				ResourceNames: []string{"ui-res"},
 			},
-			wantTools: []string{"tool-with-ui"},
-			wantRes:   []string{"res1"},
+			wantErr: "UI resource \"ui-res\" cannot be included in group \"invalid-group-res\": UI resources are globally accessible and cannot be scoped to groups",
+		},
+		{
+			name: "failure when ui resource template is in group",
+			config: group.GroupConfig{
+				Name:                  "invalid-group-tmpl",
+				ResourceTemplateNames: []string{"ui-tmpl"},
+			},
+			wantErr: "UI resource template \"ui-tmpl\" cannot be included in group \"invalid-group-tmpl\": UI resources are globally accessible and cannot be scoped to groups",
 		},
 		{
 			name: "success when tool with ui resource is in group without ui resource in group",
