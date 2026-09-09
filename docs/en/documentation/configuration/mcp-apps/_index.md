@@ -122,3 +122,67 @@ Unlike standard tools, prompts, or resources that are scoped to specific [Groups
    UI resource "<name>" cannot be included in group "<group>": UI resources are globally accessible and cannot be scoped to groups
    ```
 4. **Omitted from Resource Listing**: UI resources (`ui: true`) are intentionally excluded from `resources/list` and `resources/templates/list` across all endpoints (including the default `/mcp` group endpoint) so they do not clutter standard LLM context. Clients obtain the UI resource URI directly from the tool's manifest metadata and retrieve it via `resources/read`.
+
+## Capability Negotiation & Graceful Degradation
+
+MCP Apps employs client capability negotiation to ensure backwards compatibility with standard text-only MCP clients:
+
+1. **Client Advertising**: During initialization, clients that support interactive apps advertise the extension in their initialization parameters:
+   ```json
+   {
+     "capabilities": {
+       "extensions": {
+         "io.modelcontextprotocol/ui": {
+           "mimeTypes": ["text/html;profile=mcp-app"]
+         }
+       }
+     }
+   }
+   ```
+2. **Graceful Degradation**:
+   - When a client **supports** the UI extension, Toolbox advertises UI metadata on tools in `tools/list` under `_meta.ui`:
+     ```json
+     {
+       "name": "view_customer_dashboard",
+       "description": "Retrieves customer records and displays an interactive dashboard.",
+       "_meta": {
+         "ui": {
+           "resourceUri": "ui://customer_dashboard",
+           "visibility": ["model", "app"]
+         }
+       }
+     }
+     ```
+   - When a client **does not support** the UI extension (or omits `io.modelcontextprotocol/ui`), Toolbox automatically strips `_meta.ui` from tool definitions, serving the tool as a standard text-based tool.
+   - All tools continue to return standard structured text output in their `content` array regardless of UI mode.
+
+## Reading UI Resources
+
+When a client or host application requests a UI resource via `resources/read`, Toolbox delivers the HTML document along with the declared security policies in the content item's `_meta.ui`:
+
+```json
+{
+  "contents": [
+    {
+      "uri": "ui://customer_dashboard",
+      "mimeType": "text/html;profile=mcp-app",
+      "text": "<!DOCTYPE html><html>...</html>",
+      "_meta": {
+        "ui": {
+          "csp": {
+            "connectDomains": ["https://api.example.com"],
+            "resourceDomains": ["https://cdn.example.com"]
+          },
+          "permissions": {
+            "clipboardWrite": {}
+          },
+          "domain": "https://example.com",
+          "prefersBorder": true
+        }
+      }
+    }
+  ]
+}
+```
+
+The host application uses this `_meta.ui` payload to configure iframe sandbox policies, enforce Content Security Policy headers, and apply frame boundary styling.
