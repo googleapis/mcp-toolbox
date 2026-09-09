@@ -270,3 +270,78 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 		})
 	}
 }
+
+// TestSQLiteResponseEncodingGCF is an end-to-end test of the --response-encoding=gcf
+// flag: it boots the toolbox server against a real SQLite source, invokes a query
+// tool over the MCP JSON-RPC transport, and asserts the result set comes back as a
+// single Graph Compact Format block instead of per-row JSON.
+func TestSQLiteResponseEncodingGCF(t *testing.T) {
+	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer teardownDb(t)
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Enough uniform rows/columns that GCF's header-factoring beats the per-row JSON
+	// (clearing the never-grow guard).
+	tableName := "gcf_e2e_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	createStmt := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INTEGER PRIMARY KEY, name TEXT, region TEXT, status TEXT);", tableName)
+	if _, err := db.ExecContext(ctx, createStmt); err != nil {
+		t.Fatalf("create table: %s", err)
+	}
+	insertStmt := fmt.Sprintf("INSERT INTO %s (name, region, status) VALUES (?, ?, ?);", tableName)
+	for i := 0; i < 15; i++ {
+		if _, err := db.ExecContext(ctx, insertStmt, fmt.Sprintf("instance-%02d", i), "us-central1", "RUNNABLE"); err != nil {
+			t.Fatalf("insert: %s", err)
+		}
+	}
+
+	sourceConfig := getSQLiteVars(t)
+	sourceConfig["database"] = sqliteDb
+	toolsFile := map[string]any{
+		"sources": map[string]any{"my-instance": sourceConfig},
+		"tools": map[string]any{
+			"list-rows": map[string]any{
+				"type":        SQLiteToolType,
+				"source":      "my-instance",
+				"description": "List all rows.",
+				"statement":   fmt.Sprintf("SELECT id, name, region, status FROM %s;", tableName),
+			},
+		},
+	}
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, "--response-encoding=gcf")
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWait()
+	if out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out); err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	_, resp, err := tests.InvokeMCPTool(t, "list-rows", map[string]any{}, nil)
+	if err != nil {
+		t.Fatalf("InvokeMCPTool: %s", err)
+	}
+	if len(resp.Result.Content) != 1 {
+		t.Fatalf("expected 1 content block with --response-encoding=gcf, got %d", len(resp.Result.Content))
+	}
+	text := resp.Result.Content[0].Text
+	if !strings.HasPrefix(text, "GCF profile=generic") {
+		t.Fatalf("expected a GCF block, got: %q", text)
+	}
+	if !strings.Contains(text, "{id,name,region,status}") {
+		t.Errorf("expected the field names factored into one header, got: %q", text)
+	}
+	if !strings.Contains(text, "instance-00") {
+		t.Errorf("expected row data in the GCF block, got: %q", text)
+	}
+}

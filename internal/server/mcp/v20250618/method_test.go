@@ -27,6 +27,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
 // Dummy JSONRPC ID for testing
@@ -640,5 +642,79 @@ func TestPromptsGetHandler(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestToolsCallHandlerResponseEncoding(t *testing.T) {
+	testLogger, err := log.NewStdLogger(os.Stdout, os.Stderr, "info")
+	if err != nil {
+		t.Fatalf("unable to initialize logger: %s", err)
+	}
+	ctx := util.WithLogger(context.Background(), testLogger)
+
+	// A tool returning a uniform, multi-row result set: the shape where GCF's
+	// header-factoring is smaller than the per-row JSON blocks.
+	rows := make([]any, 0, 20)
+	for i := 0; i < 20; i++ {
+		r := orderedmap.Row{}
+		r.Add("id", int64(60+i))
+		r.Add("name", "svc")
+		r.Add("region", "us-central1")
+		rows = append(rows, r)
+	}
+	rowsTool := testutils.NewMockTool("rows_tool", "", "", []parameters.Parameter{}, false, false)
+	rowsTool.RowResult = rows
+
+	// SetUpResources indexes at least two tools; the second is unused by this test.
+	toolsMap, promptsMap, groups := testutils.SetUpResources(t, []testutils.MockTool{rowsTool, testutils.MockTool1}, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, groups)
+
+	body, err := json.Marshal(CallToolRequest{
+		Request: jsonrpc.Request{Method: "tools/call"},
+		Params: struct {
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments,omitempty"`
+		}{Name: "rows_tool"},
+	})
+	if err != nil {
+		t.Fatalf("unable to marshal request: %s", err)
+	}
+
+	callContent := func(t *testing.T, callCtx context.Context) []TextContent {
+		t.Helper()
+		got, err := toolsCallHandler(callCtx, dummyID, mustGroup(t, primitiveMgr), primitiveMgr, body, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resp, ok := got.(jsonrpc.JSONRPCResponse)
+		if !ok {
+			t.Fatalf("unexpected response type %T", got)
+		}
+		res, ok := resp.Result.(CallToolResult)
+		if !ok {
+			t.Fatalf("unexpected result type %T", resp.Result)
+		}
+		return res.Content
+	}
+
+	// Default encoding: one JSON block per row, no GCF.
+	content := callContent(t, ctx)
+	if len(content) != 20 {
+		t.Errorf("default encoding: expected 20 per-row JSON blocks, got %d", len(content))
+	}
+	if strings.HasPrefix(content[0].Text, "GCF profile=") {
+		t.Errorf("default encoding emitted a GCF block: %q", content[0].Text)
+	}
+
+	// gcf encoding: the whole result set collapses into one GCF generic block.
+	content = callContent(t, util.WithResponseEncoding(ctx, "gcf"))
+	if len(content) != 1 {
+		t.Fatalf("gcf encoding: expected 1 GCF block, got %d", len(content))
+	}
+	if !strings.HasPrefix(content[0].Text, "GCF profile=generic") {
+		t.Errorf("gcf encoding did not emit a GCF block: %q", content[0].Text)
+	}
+	if !strings.Contains(content[0].Text, "{id,name,region}") {
+		t.Errorf("gcf block missing factored header: %q", content[0].Text)
 	}
 }

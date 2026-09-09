@@ -28,6 +28,7 @@ require (
 	github.com/MicahParks/jwkset v0.11.0
 	github.com/MicahParks/keyfunc/v3 v3.8.0
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
+	github.com/blackwell-systems/gcf-go v1.7.1
 	github.com/cenkalti/backoff/v6 v6.0.1
 	github.com/cockroachdb/cockroach-go/v2 v2.4.3
 	github.com/couchbase/gocb/v2 v2.12.4

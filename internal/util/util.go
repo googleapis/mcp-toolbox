@@ -312,6 +312,22 @@ func TelemetryAttributesFromContext(ctx context.Context) *TelemetryAttributes {
 
 const sqlCommenterEnabledKey contextKey = "sqlCommenterEnabled"
 
+const responseEncodingKey contextKey = "responseEncoding"
+
+// WithResponseEncoding adds the tool-response output encoding to the context.
+func WithResponseEncoding(ctx context.Context, encoding string) context.Context {
+	return context.WithValue(ctx, responseEncodingKey, encoding)
+}
+
+// ResponseEncodingFromContext retrieves the tool-response output encoding; it
+// returns "json" when unset or empty.
+func ResponseEncodingFromContext(ctx context.Context) string {
+	if e, ok := ctx.Value(responseEncodingKey).(string); ok && e != "" {
+		return e
+	}
+	return "json"
+}
+
 // WithSQLCommenterEnabled adds the sql-commenter-enabled flag to the context
 func WithSQLCommenterEnabled(ctx context.Context, enabled bool) context.Context {
 	return context.WithValue(ctx, sqlCommenterEnabledKey, enabled)

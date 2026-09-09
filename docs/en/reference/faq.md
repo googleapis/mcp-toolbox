@@ -34,6 +34,15 @@ If you run Toolbox with `--telemetry-gcp`, make sure Application Default Credent
 
 This avoids "no project found" errors when exporting telemetry to Google Cloud.
 
+## How do I reduce the token cost of large tool results?
+
+Set `--response-encoding=gcf` to return tool results as [Graph Compact Format](https://gcformat.com)
+instead of JSON. For the uniform record arrays these tools return, GCF factors the repeated
+field names into a single header, cutting token usage on large results (~30% on a typical row
+set) when they cross the LLM boundary. It is opt-in and lossless: GCF is used only when it is
+smaller than the JSON and round-trips back to the same values, otherwise JSON is returned. See
+the [`--response-encoding` flag](./cli.md) for details.
+
 ## Does Toolbox take contributions from external users?
 
 Absolutely! Please check out our [DEVELOPER.md][] for instructions on how to get
