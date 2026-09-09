@@ -99,7 +99,7 @@ ui:
 
 | **field**      | **type**  | **required** | **description**                                                                                                            |
 |----------------|-----------|--------------|----------------------------------------------------------------------------------------------------------------------------|
-| `resource`     | string    | Yes          | The `name` of a configured `resource` or `resourceTemplate` providing the UI for this tool.                               |
+| `resource`     | string    | Yes          | The `name` of a configured `resource` or `resourceTemplate` providing the UI for this tool (must have `ui: true`).        |
 | `visibility`   | []string  | No           | Controls who can see the tool. Allowed values are `model` and `app`. Defaults to `["model", "app"]` if omitted.          |
 
 #### Visibility Options
@@ -110,8 +110,15 @@ ui:
 
 ## Global Availability & Group Scoping
 
-Unlike standard tools, prompts, or resources that are scoped to specific [Groups](../groups/), **UI resources are globally accessible and are not scoped to specific groups** (similar to authentication services and embedding models):
+Unlike standard tools, prompts, or resources that are scoped to specific [Groups](../groups/), **UI resources are strictly global and cannot be scoped to groups**:
 
-1. **Server-Wide Availability**: Tools in any group can link to UI resources without needing to declare the UI resource in that group.
-2. **Existence Check**: Toolbox verifies during server startup that every `ui.resource` referenced by a tool exists across all loaded resources and resource templates. If the referenced resource is missing, server initialization fails.
-3. **Omitted from Resource Listing**: UI resources (`ui: true`) are intentionally excluded from `resources/list` and `resources/templates/list` so they do not clutter standard LLM context. Clients obtain the UI resource URI directly from the tool's manifest metadata and retrieve it via `resources/read`.
+1. **Server-Wide Tool References**: Tools in any group can link to UI resources without needing to declare the UI resource in that group.
+2. **UI Resource Requirement**: Toolbox validates that every `ui.resource` referenced by a tool exists and is explicitly configured as a UI resource (`ui: true`). Referencing a standard (non-UI) resource or template will fail startup validation with an error:
+   ```text
+   resource "<name>" referenced by tool "<tool>" is not a UI resource (ui: true is required)
+   ```
+3. **Forbidden in Groups**: UI resources and UI resource templates (`ui: true`) **cannot** be included in `groups[].resources` or `groups[].resourceTemplates`. Attempting to add a UI resource to a group will fail startup validation with an error:
+   ```text
+   UI resource "<name>" cannot be included in group "<group>": UI resources are globally accessible and cannot be scoped to groups
+   ```
+4. **Omitted from Resource Listing**: UI resources (`ui: true`) are intentionally excluded from `resources/list` and `resources/templates/list` across all endpoints (including the default `/mcp` group endpoint) so they do not clutter standard LLM context. Clients obtain the UI resource URI directly from the tool's manifest metadata and retrieve it via `resources/read`.
