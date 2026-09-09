@@ -17,7 +17,7 @@ Support for the MCP Apps extension is advertised via `io.modelcontextprotocol/ui
 In Toolbox, UI capabilities are configured directly on standard [resources](../resources/) (`kind: resource` or `kind: resourceTemplate`) by setting `ui: true`.
 
 Any type of resource can function as an interactive MCP App simply by setting `ui: true`. When `ui: true` is set:
-- `mimeType` defaults to `text/html;profile=mcp-app` if omitted.
+- `mimeType` must be `text/html;profile=mcp-app` (defaults automatically if omitted; explicit non-conforming types are rejected).
 - `uri` defaults to `ui://{name}` if omitted.
 - Security policies (CSP), device permissions, application domain, and container display settings can be configured.
 
@@ -46,6 +46,7 @@ When `ui: true` is enabled on `kind: resource` or `kind: resourceTemplate`, the 
 | **field**       | **type**                                      | **required** | **description**                                                                                           |
 |-----------------|-----------------------------------------------|--------------|-----------------------------------------------------------------------------------------------------------|
 | `ui`            | bool                                          | Yes          | Set to `true` to designate this resource as an interactive MCP UI application.                            |
+| `mimeType`      | string                                        | No           | MIME type of the UI resource. Must be `text/html;profile=mcp-app` (defaults automatically if omitted).  |
 | `domain`        | string                                        | No           | Application domain. Must be a valid absolute URI with an `http` or `https` scheme (e.g., `https://example.com`). |
 | `csp`           | [CSPConfig](#content-security-policy-csp)     | No           | Content Security Policy restricting the domains that the UI app can communicate with or load assets from.|
 | `permissions`   | []string                                      | No           | List of browser device permissions requested by the app (e.g., `camera`, `microphone`, `geolocation`, `clipboardWrite`). |
