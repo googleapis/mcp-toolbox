@@ -36,7 +36,7 @@ type TaskTokenPayload struct {
 var (
 	// ErrInvalidToken is returned when a task token cannot be decrypted or parsed.
 	ErrInvalidToken = errors.New("invalid task token")
-	
+
 	// ErrMissingEncryptionKey is returned when the encryption key is missing or invalid.
 	ErrMissingEncryptionKey = errors.New("MCP_TOOLBOX_TASK_ENCRYPTION_KEY environment variable is not set or invalid")
 )
