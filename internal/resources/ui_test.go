@@ -453,3 +453,75 @@ func TestGetResourceUIMetadata_OmittedFields(t *testing.T) {
 		})
 	}
 }
+
+func TestUIResource_MimeTypeValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       resources.ConfigBase
+		wantError string
+	}{
+		{
+			name: "default mimeType when omitted",
+			cfg: resources.ConfigBase{
+				Name: "test-res",
+				UI:   true,
+			},
+		},
+		{
+			name: "explicit valid mimeType",
+			cfg: resources.ConfigBase{
+				Name:     "test-res",
+				UI:       true,
+				MimeType: "text/html;profile=mcp-app",
+			},
+		},
+		{
+			name: "explicit valid mimeType with space",
+			cfg: resources.ConfigBase{
+				Name:     "test-res",
+				UI:       true,
+				MimeType: "text/html; profile=mcp-app",
+			},
+		},
+		{
+			name: "invalid mimeType for UI resource",
+			cfg: resources.ConfigBase{
+				Name:     "test-res",
+				UI:       true,
+				MimeType: "text/plain",
+			},
+			wantError: `invalid mimeType "text/plain" for UI resource "test-res": must be "text/html;profile=mcp-app"`,
+		},
+		{
+			name: "invalid mimeType application/json for UI resource",
+			cfg: resources.ConfigBase{
+				Name:     "test-res",
+				UI:       true,
+				MimeType: "application/json",
+			},
+			wantError: `invalid mimeType "application/json" for UI resource "test-res": must be "text/html;profile=mcp-app"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.cfg.SetDefaults()
+			err := tt.cfg.Validate()
+			if tt.wantError != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantError)
+				}
+				if !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("expected error %q, got %q", tt.wantError, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if tt.cfg.MimeType != resources.UIMimeType {
+					t.Errorf("expected MimeType %q, got %q", resources.UIMimeType, tt.cfg.MimeType)
+				}
+			}
+		})
+	}
+}
