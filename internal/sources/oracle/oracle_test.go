@@ -307,14 +307,19 @@ func TestRunSQLReadOnlyRunsInTransaction(t *testing.T) {
 		DB: db,
 	}
 
-	readOnly := true
-	_, err = src.RunSQL(context.Background(), "SELECT * FROM users FOR UPDATE", nil, &readOnly)
+	// Cancel the context up front: BeginTx then fails immediately without any
+	// network I/O, so the test neither depends on what happens to be listening
+	// on the DSN's port nor waits for a TCP timeout.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
-	// The fake database cannot be reached, so the failure has to come from
-	// starting the transaction. Any other error means the read-only path no
-	// longer begins one.
+	readOnly := true
+	_, err = src.RunSQL(ctx, "SELECT * FROM users FOR UPDATE", nil, &readOnly)
+
+	// The failure has to come from starting the transaction. Any other error
+	// means the read-only path no longer begins one.
 	if err == nil {
-		t.Fatal("expected error from fake DB execution, but got nil")
+		t.Fatal("expected an error from the cancelled context, but got nil")
 	}
 	if !strings.Contains(err.Error(), "unable to begin transaction") {
 		t.Fatalf("expected the read-only path to begin a transaction, got: %v", err)
