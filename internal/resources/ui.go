@@ -24,10 +24,10 @@ import (
 
 // CSPConfig defines allowed external origins for the UI Resource.
 type CSPConfig struct {
-	ConnectDomains  []string `yaml:"connectDomains,omitempty" json:"connectDomains,omitempty"`
-	ResourceDomains []string `yaml:"resourceDomains,omitempty" json:"resourceDomains,omitempty"`
-	FrameDomains    []string `yaml:"frameDomains,omitempty" json:"frameDomains,omitempty"`
-	BaseUriDomains  []string `yaml:"baseUriDomains,omitempty" json:"baseUriDomains,omitempty"`
+	ConnectDomains  []string `yaml:"connectDomains,omitempty"`
+	ResourceDomains []string `yaml:"resourceDomains,omitempty"`
+	FrameDomains    []string `yaml:"frameDomains,omitempty"`
+	BaseUriDomains  []string `yaml:"baseUriDomains,omitempty"`
 }
 
 // validateHTTPOrigin checks that a string is a valid absolute URI with an http or https scheme and a host.
@@ -113,31 +113,10 @@ func (p *PermissionsConfig) UnmarshalYAML(b []byte) error {
 	return nil
 }
 
-// ToUIMetadata converts PermissionsConfig to _meta.ui.permissions format.
-func (p *PermissionsConfig) ToUIMetadata() map[string]any {
-	if p == nil {
-		return nil
-	}
-	meta := make(map[string]any)
-	add := func(key string, enabled *bool) {
-		if enabled != nil && *enabled {
-			meta[key] = map[string]any{}
-		}
-	}
-	add("camera", p.Camera)
-	add("microphone", p.Microphone)
-	add("geolocation", p.Geolocation)
-	add("clipboardWrite", p.ClipboardWrite)
-	if len(meta) == 0 {
-		return nil
-	}
-	return meta
-}
-
-// ResourceUIMetadata represents the metadata for a UI Resource.
-type ResourceUIMetadata struct {
-	CSP           *CSPConfig     `yaml:"csp,omitempty" json:"csp,omitempty"`
-	Permissions   map[string]any `yaml:"permissions,omitempty" json:"permissions,omitempty"`
-	Domain        string         `yaml:"domain,omitempty" json:"domain,omitempty"`
-	PrefersBorder *bool          `yaml:"prefersBorder,omitempty" json:"prefersBorder,omitempty"`
+// UIMetadata represents the UI-specific configuration for a resource or template.
+type UIMetadata struct {
+	CSP           *CSPConfig         `yaml:"csp,omitempty"`
+	Permissions   *PermissionsConfig `yaml:"permissions,omitempty"`
+	Domain        string             `yaml:"domain,omitempty"`
+	PrefersBorder *bool              `yaml:"prefersBorder,omitempty"`
 }

@@ -908,3 +908,67 @@ func TestGenerateListResourceTemplatesResult(t *testing.T) {
 		t.Fatalf("unexpected list resource templates result (-want +got):\n%s", diff)
 	}
 }
+
+func TestGenerateResourceUIMetadata(t *testing.T) {
+	tVal := true
+	tests := []struct {
+		name  string
+		input *resources.UIMetadata
+		want  *UIResourceMeta
+	}{
+		{
+			name:  "nil input returns nil",
+			input: nil,
+			want:  nil,
+		},
+		{
+			name:  "empty metadata returns default struct",
+			input: &resources.UIMetadata{},
+			want:  &UIResourceMeta{},
+		},
+		{
+			name: "full metadata with all fields",
+			input: &resources.UIMetadata{
+				CSP: &resources.CSPConfig{
+					ConnectDomains:  []string{"https://api.example.com"},
+					ResourceDomains: []string{"https://cdn.example.com"},
+					FrameDomains:    []string{"https://embed.example.com"},
+					BaseUriDomains:  []string{"https://base.example.com"},
+				},
+				Permissions: &resources.PermissionsConfig{
+					Camera:         &tVal,
+					Microphone:     &tVal,
+					Geolocation:    &tVal,
+					ClipboardWrite: &tVal,
+				},
+				Domain:        "https://example.com",
+				PrefersBorder: &tVal,
+			},
+			want: &UIResourceMeta{
+				CSP: &McpUiResourceCsp{
+					ConnectDomains:  []string{"https://api.example.com"},
+					ResourceDomains: []string{"https://cdn.example.com"},
+					FrameDomains:    []string{"https://embed.example.com"},
+					BaseUriDomains:  []string{"https://base.example.com"},
+				},
+				Permissions: &McpUiResourcePermissions{
+					Camera:         &struct{}{},
+					Microphone:     &struct{}{},
+					Geolocation:    &struct{}{},
+					ClipboardWrite: &struct{}{},
+				},
+				Domain:        "https://example.com",
+				PrefersBorder: &tVal,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := generateResourceUIMetadata(tt.input)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("generateResourceUIMetadata() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
