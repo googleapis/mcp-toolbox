@@ -158,7 +158,7 @@ func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource,
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, res := range r.resources {
-		if res.GetResourceUIMetadata() != nil && res.GetURI() == uri {
+		if res.IsUI() && res.GetURI() == uri {
 			return res, true
 		}
 	}
@@ -188,7 +188,7 @@ func (r *PrimitiveManager) GetUIResourceTemplateByURI(uri string) (resources.Res
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, rt := range r.resourceTemplates {
-		if rt.GetResourceUIMetadata() != nil {
+		if rt.IsUI() {
 			if params, ok := MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
 				return rt, params, true
 			}

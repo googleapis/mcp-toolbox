@@ -145,3 +145,89 @@ func TestGetUIResourcesAndTemplates(t *testing.T) {
 		t.Errorf("expected nonexistent URI to not be matched by GetUIResourceTemplateByURI")
 	}
 }
+
+func TestMatchResourceTemplateURI(t *testing.T) {
+	tests := []struct {
+		name       string
+		tmpl       string
+		uri        string
+		wantParams map[string]any
+		wantOk     bool
+	}{
+		{
+			name:       "valid match simple path",
+			tmpl:       "ui://tmpl/{path}",
+			uri:        "ui://tmpl/dashboard.html",
+			wantParams: map[string]any{"path": "dashboard.html"},
+			wantOk:     true,
+		},
+		{
+			name:       "valid match nested path",
+			tmpl:       "ui://tmpl/{path}",
+			uri:        "ui://tmpl/sub/nested/app.js",
+			wantParams: map[string]any{"path": "sub/nested/app.js"},
+			wantOk:     true,
+		},
+		{
+			name:       "valid match with suffix",
+			tmpl:       "file:///static/{path}.html",
+			uri:        "file:///static/index.html",
+			wantParams: map[string]any{"path": "index"},
+			wantOk:     true,
+		},
+		{
+			name:       "valid match empty path",
+			tmpl:       "ui://tmpl/{path}",
+			uri:        "ui://tmpl/",
+			wantParams: map[string]any{"path": ""},
+			wantOk:     true,
+		},
+		{
+			name:       "valid match with regex special characters in template",
+			tmpl:       "ui://app-v1.0[test]/{path}",
+			uri:        "ui://app-v1.0[test]/main.js",
+			wantParams: map[string]any{"path": "main.js"},
+			wantOk:     true,
+		},
+		{
+			name:       "mismatched prefix",
+			tmpl:       "ui://tmpl/{path}",
+			uri:        "ui://other/dashboard.html",
+			wantParams: nil,
+			wantOk:     false,
+		},
+		{
+			name:       "mismatched suffix",
+			tmpl:       "ui://tmpl/{path}.html",
+			uri:        "ui://tmpl/dashboard.css",
+			wantParams: nil,
+			wantOk:     false,
+		},
+		{
+			name:       "template without path variable",
+			tmpl:       "ui://static/exact",
+			uri:        "ui://static/exact",
+			wantParams: nil,
+			wantOk:     false,
+		},
+		{
+			name:       "uri does not match anchored template",
+			tmpl:       "ui://tmpl/{path}",
+			uri:        "prefix-ui://tmpl/dashboard.html",
+			wantParams: nil,
+			wantOk:     false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotParams, gotOk := primitives.MatchResourceTemplateURI(tc.tmpl, tc.uri)
+			if gotOk != tc.wantOk {
+				t.Fatalf("MatchResourceTemplateURI(%q, %q) ok = %v, want %v", tc.tmpl, tc.uri, gotOk, tc.wantOk)
+			}
+			if diff := cmp.Diff(tc.wantParams, gotParams); diff != "" {
+				t.Errorf("MatchResourceTemplateURI(%q, %q) params mismatch (-want +got):\n%s", tc.tmpl, tc.uri, diff)
+			}
+		})
+	}
+}

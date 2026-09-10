@@ -1555,30 +1555,6 @@ func TestInitializeConfigs(t *testing.T) {
 			t.Fatalf("unexpected error: want %s, got %s", wantErr, err.Error())
 		}
 	})
-	t.Run("fails when UI resource is missing globally", func(t *testing.T) {
-		cfg := server.ServerConfig{
-			ToolConfigs: map[string]tools.ToolConfig{
-				"tool-with-ui": testutils.MockToolConfig{
-					ConfigBase: tools.ConfigBase{
-						Name: "tool-with-ui",
-						UI: &tools.ToolUIMetadata{
-							Resource: "missing-resource",
-						},
-					},
-				},
-			},
-			SkipSourceValidation: true,
-		}
-
-		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
-		if err == nil {
-			t.Fatal("expected InitializeConfigs to fail")
-		}
-		if !strings.Contains(err.Error(), "unable to retrieve UI resource \"missing-resource\"") {
-			t.Fatalf("expected missing resource error, got: %v", err)
-		}
-	})
-
 	t.Run("succeeds when UI resource is present globally", func(t *testing.T) {
 		cfg := server.ServerConfig{
 			ToolConfigs: map[string]tools.ToolConfig{
@@ -1610,24 +1586,14 @@ func TestInitializeConfigs(t *testing.T) {
 		}
 	})
 
-	t.Run("fails when referenced resource is not a UI resource", func(t *testing.T) {
+	t.Run("succeeds when tool references an unverified UI resource", func(t *testing.T) {
 		cfg := server.ServerConfig{
 			ToolConfigs: map[string]tools.ToolConfig{
 				"tool-with-ui": testutils.MockToolConfig{
 					ConfigBase: tools.ConfigBase{
 						Name: "tool-with-ui",
 						UI: &tools.ToolUIMetadata{
-							Resource: "not-ui-resource",
-						},
-					},
-				},
-			},
-			ResourceConfigs: map[string]resources.ResourceConfig{
-				"not-ui-resource": &testutils.MockResourceConfig{
-					ResourceConfigBase: resources.ResourceConfigBase{
-						ConfigBase: resources.ConfigBase{
-							Name: "not-ui-resource",
-							UI:   false,
+							Resource: "unverified-resource",
 						},
 					},
 				},
@@ -1636,11 +1602,8 @@ func TestInitializeConfigs(t *testing.T) {
 		}
 
 		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
-		if err == nil {
-			t.Fatal("expected InitializeConfigs to fail")
-		}
-		if !strings.Contains(err.Error(), "resource \"not-ui-resource\" referenced by tool \"tool-with-ui\" is not a UI resource") {
-			t.Fatalf("expected not a UI resource error, got: %v", err)
+		if err != nil {
+			t.Fatalf("expected InitializeConfigs to succeed without checking UI resource, got: %v", err)
 		}
 	})
 
@@ -1671,29 +1634,6 @@ func TestInitializeConfigs(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "UI resource \"ui-resource\" cannot be included in group \"mygroup\"") {
 			t.Fatalf("expected UI resource cannot be included in group error, got: %v", err)
-		}
-	})
-
-	t.Run("fails when UI resource is missing globally in offline mode", func(t *testing.T) {
-		cfg := server.ServerConfig{
-			ToolConfigs: map[string]tools.ToolConfig{
-				"tool-with-ui": testutils.MockToolConfig{
-					ConfigBase: tools.ConfigBase{
-						Name: "tool-with-ui",
-						UI: &tools.ToolUIMetadata{
-							Resource: "missing-resource",
-						},
-					},
-				},
-			},
-		}
-
-		_, _, err := server.InitializeOfflineConfigs(ctx, cfg)
-		if err == nil {
-			t.Fatal("expected InitializeOfflineConfigs to fail")
-		}
-		if !strings.Contains(err.Error(), "unable to retrieve UI resource \"missing-resource\"") {
-			t.Fatalf("expected missing resource error, got: %v", err)
 		}
 	})
 
