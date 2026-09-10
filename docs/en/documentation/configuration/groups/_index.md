@@ -8,7 +8,7 @@ description: >
 
 A Group is a single named collection that scopes MCP primitives together — including [**tools**](../tools/_index.md), [**prompts**](../prompts/_index.md), [**resources**](../resources/_index.md), and [**resource templates**](../resources/template/_index.md). Where a [Toolset](../toolsets/_index.md) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
 
-Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. When querying `resources/read`, requests are verified to ensure that the requested URI belongs to the target group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
+Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
 
 ## Defining Groups
 
