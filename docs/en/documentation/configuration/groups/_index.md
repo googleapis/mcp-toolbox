@@ -8,7 +8,7 @@ description: >
 
 A Group is a single named collection that scopes MCP primitives together — currently **tools** and **prompts**, with more (such as resources) planned. Where a [Toolset](../toolsets/) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
 
-Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list` and `prompts/list`) to that group.
+Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list` and `prompts/list`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
 
 ## Defining Groups
 
@@ -17,7 +17,7 @@ Declare a group as a `kind: group` document in your configuration file. A group 
 | Field         | Required | Description                                                                                    |
 | ------------- | -------- | -----------------------------------------------------------------------------------------------|
 | `name`        | Yes\*    | Unique name for the group. Used as the endpoint path (`/mcp/{name}`).                          |
-| `description` | No       | Human-readable description of the group.                                                       |
+| `description` | No       | Human-readable description of the group, surfaced via `groups/list`.                           |
 | `tools`       | No       | List of tool names to include in the group.                                                    |
 | `prompts`     | No       | List of prompt names to include in the group.                                                  |
 | `ttlMs`       | No       | Time-to-live in milliseconds for cached group list responses. ([MCP TTL Spec](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field )). Defaults to `300000` (5 minutes).|
