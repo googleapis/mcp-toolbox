@@ -441,7 +441,7 @@ permissions:
 			t.Fatalf("Expected *file.TemplateConfig, got %T", tmpls["ui-template-app"])
 		}
 
-		if !tmplCfg.UI {
+		if !tmplCfg.IsUI() {
 			t.Errorf("Expected IsUI() to be true")
 		}
 
@@ -451,8 +451,8 @@ permissions:
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
-		if tmpl.GetResourceUIMetadata() == nil {
-			t.Errorf("Expected GetResourceUIMetadata() to not be nil")
+		if !tmpl.IsUI() {
+			t.Errorf("Expected IsUI() to be true")
 		}
 		if tmpl.GetMimeType() != "text/html;profile=mcp-app" {
 			t.Errorf("Expected default MimeType 'text/html;profile=mcp-app', got %q", tmpl.GetMimeType())
@@ -466,18 +466,19 @@ permissions:
 			t.Errorf("Expected %q, got %q", dashboardContent, data)
 		}
 
-		uiMeta := tmpl.GetResourceUIMetadata()
-		expectedMeta := resources.ResourceUIMetadata{
+		uiMeta := tmpl.GetUIMeta()
+		tVal := true
+		expectedMeta := &resources.UIMetadata{
 			Domain: "https://example.com",
 			CSP: &resources.CSPConfig{
 				ConnectDomains: []string{"https://api.example.com"},
 			},
-			Permissions: map[string]any{
-				"camera": map[string]any{},
+			Permissions: &resources.PermissionsConfig{
+				Camera: &tVal,
 			},
 		}
 		if diff := cmp.Diff(expectedMeta, uiMeta); diff != "" {
-			t.Errorf("GetResourceUIMetadata() mismatch (-want +got):\n%s", diff)
+			t.Errorf("GetUIMeta() mismatch (-want +got):\n%s", diff)
 		}
 	})
 

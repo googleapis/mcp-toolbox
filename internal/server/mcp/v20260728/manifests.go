@@ -242,6 +242,54 @@ func generateAnnotations(internalAnns *resources.ResourceAnnotations) *Annotatio
 	return annotations
 }
 
+// generateResourceUIMetadata converts internal resource UI metadata to versioned UIResourceMeta.
+func generateResourceUIMetadata(uiMeta *resources.UIMetadata) *UIResourceMeta {
+	if uiMeta == nil {
+		return nil
+	}
+	var csp *McpUiResourceCsp
+	if uiMeta.CSP != nil {
+		csp = &McpUiResourceCsp{
+			ConnectDomains:  uiMeta.CSP.ConnectDomains,
+			ResourceDomains: uiMeta.CSP.ResourceDomains,
+			FrameDomains:    uiMeta.CSP.FrameDomains,
+			BaseUriDomains:  uiMeta.CSP.BaseUriDomains,
+		}
+	}
+
+	var perms *McpUiResourcePermissions
+	if rawPerms := uiMeta.Permissions; rawPerms != nil {
+		var camera, mic, geo, clip *struct{}
+		if rawPerms.Camera != nil && *rawPerms.Camera {
+			camera = &struct{}{}
+		}
+		if rawPerms.Microphone != nil && *rawPerms.Microphone {
+			mic = &struct{}{}
+		}
+		if rawPerms.Geolocation != nil && *rawPerms.Geolocation {
+			geo = &struct{}{}
+		}
+		if rawPerms.ClipboardWrite != nil && *rawPerms.ClipboardWrite {
+			clip = &struct{}{}
+		}
+		if camera != nil || mic != nil || geo != nil || clip != nil {
+			perms = &McpUiResourcePermissions{
+				Camera:         camera,
+				Microphone:     mic,
+				Geolocation:    geo,
+				ClipboardWrite: clip,
+			}
+		}
+	}
+
+	return &UIResourceMeta{
+		CSP:           csp,
+		Permissions:   perms,
+		Domain:        uiMeta.Domain,
+		PrefersBorder: uiMeta.PrefersBorder,
+	}
+}
+
 // generateResourceManifest generates a version-specific Resource manifest for list/resources
 func generateResourceManifest(name, title, desc, uri, mimeType string, size *int64, internalAnns *resources.ResourceAnnotations) Resource {
 	annotations := generateAnnotations(internalAnns)

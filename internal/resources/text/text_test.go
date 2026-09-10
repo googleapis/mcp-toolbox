@@ -426,7 +426,7 @@ permissions:
 			t.Fatalf("Expected *text.Config, got %T", configs["quick-status"])
 		}
 
-		if !resCfg.UI {
+		if !resCfg.IsUI() {
 			t.Errorf("Expected IsUI() to be true")
 		}
 		if resCfg.URI != "ui://quick-status" {
@@ -442,8 +442,8 @@ permissions:
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
-		if res.GetResourceUIMetadata() == nil {
-			t.Errorf("Expected GetResourceUIMetadata() to not be nil")
+		if !res.IsUI() {
+			t.Errorf("Expected IsUI() to be true")
 		}
 		if res.GetMimeType() != "text/html;profile=mcp-app" {
 			t.Errorf("Expected res.GetMimeType() to be 'text/html;profile=mcp-app', got %q", res.GetMimeType())
@@ -457,18 +457,19 @@ permissions:
 			t.Errorf("Expected %q, got %q", htmlContent, content)
 		}
 
-		uiMeta := res.GetResourceUIMetadata()
-		expectedMeta := resources.ResourceUIMetadata{
+		uiMeta := res.GetUIMeta()
+		tVal := true
+		expectedMeta := &resources.UIMetadata{
 			Domain: "https://example.com",
 			CSP: &resources.CSPConfig{
 				ConnectDomains: []string{"https://api.example.com"},
 			},
-			Permissions: map[string]any{
-				"camera": map[string]any{},
+			Permissions: &resources.PermissionsConfig{
+				Camera: &tVal,
 			},
 		}
 		if diff := cmp.Diff(expectedMeta, uiMeta); diff != "" {
-			t.Errorf("GetResourceUIMetadata() mismatch (-want +got):\n%s", diff)
+			t.Errorf("GetUIMeta() mismatch (-want +got):\n%s", diff)
 		}
 	})
 

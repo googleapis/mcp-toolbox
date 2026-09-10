@@ -1131,11 +1131,11 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 	}
 
 	var contentMeta map[string]any
-	var uiMeta any
+	var uiMeta *UIResourceMeta
 	if res != nil && res.IsUI() {
-		uiMeta = res.GetResourceUIMetadata()
+		uiMeta = generateResourceUIMetadata(res.GetUIMeta())
 	} else if resTmpl != nil && resTmpl.IsUI() {
-		uiMeta = resTmpl.GetResourceUIMetadata()
+		uiMeta = generateResourceUIMetadata(resTmpl.GetUIMeta())
 	}
 	if uiMeta != nil {
 		contentMeta = map[string]any{"ui": uiMeta}

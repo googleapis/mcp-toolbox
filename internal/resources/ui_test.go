@@ -86,13 +86,13 @@ permissions:
 		t.Errorf("Expected camera, microphone, and clipboardWrite to be true, got %+v", perms)
 	}
 
-	meta := cfg.GetResourceUIMetadata()
+	meta := cfg.GetUIMeta()
 	if meta == nil {
-		t.Fatalf("Expected GetResourceUIMetadata() to not be nil")
+		t.Fatalf("Expected GetUIMeta() to not be nil")
 	}
 
 	tVal := true
-	expectedMeta := resources.ResourceUIMetadata{
+	expectedMeta := &resources.UIMetadata{
 		Domain:        "https://example.com",
 		PrefersBorder: &tVal,
 		CSP: &resources.CSPConfig{
@@ -101,15 +101,15 @@ permissions:
 			FrameDomains:    []string{"https://embed.example.com"},
 			BaseUriDomains:  []string{"https://base.example.com"},
 		},
-		Permissions: map[string]any{
-			"camera":         map[string]any{},
-			"microphone":     map[string]any{},
-			"clipboardWrite": map[string]any{},
+		Permissions: &resources.PermissionsConfig{
+			Camera:         &tVal,
+			Microphone:     &tVal,
+			ClipboardWrite: &tVal,
 		},
 	}
 
 	if diff := cmp.Diff(expectedMeta, meta); diff != "" {
-		t.Errorf("GetResourceUIMetadata() mismatch (-want +got):\n%s", diff)
+		t.Errorf("GetUIMeta() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -417,16 +417,16 @@ func TestPermissions_Validation(t *testing.T) {
 	}
 }
 
-func TestGetResourceUIMetadata_OmittedFields(t *testing.T) {
+func TestGetUIMeta_OmittedFields(t *testing.T) {
 	tests := []struct {
 		name      string
 		cfg       resources.ConfigBase
-		checkFunc func(*testing.T, any)
+		checkFunc func(*testing.T, *resources.UIMetadata)
 	}{
 		{
 			name: "UIFalseReturnsNil",
 			cfg:  resources.ConfigBase{Name: "test", Type: "mock", UI: false},
-			checkFunc: func(t *testing.T, meta any) {
+			checkFunc: func(t *testing.T, meta *resources.UIMetadata) {
 				if meta != nil {
 					t.Errorf("Expected nil for UI: false, got %v", meta)
 				}
@@ -435,11 +435,11 @@ func TestGetResourceUIMetadata_OmittedFields(t *testing.T) {
 		{
 			name: "UITrueEmptyMeta",
 			cfg:  resources.ConfigBase{Name: "test", Type: "mock", UI: true},
-			checkFunc: func(t *testing.T, meta any) {
+			checkFunc: func(t *testing.T, meta *resources.UIMetadata) {
 				if meta == nil {
-					t.Fatalf("Expected non-nil map for UI: true")
+					t.Fatalf("Expected non-nil struct for UI: true")
 				}
-				if !reflect.DeepEqual(meta, resources.ResourceUIMetadata{}) {
+				if !reflect.DeepEqual(meta, &resources.UIMetadata{}) {
 					t.Errorf("Expected empty struct when no optional fields are set, got %v", meta)
 				}
 			},
@@ -448,7 +448,7 @@ func TestGetResourceUIMetadata_OmittedFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta := tt.cfg.GetResourceUIMetadata()
+			meta := tt.cfg.GetUIMeta()
 			tt.checkFunc(t, meta)
 		})
 	}

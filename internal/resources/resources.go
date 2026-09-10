@@ -67,7 +67,7 @@ type Resource interface {
 	GetSize() *int64
 	Read(ctx context.Context, params map[string]any) (any, error)
 	ToConfig() ResourceConfig
-	GetResourceUIMetadata() any
+	GetUIMeta() *UIMetadata
 	IsUI() bool
 }
 
@@ -119,20 +119,16 @@ func (c ConfigBase) IsUI() bool {
 	return c.UI
 }
 
-// GetResourceUIMetadata returns the UI metadata conforming to the MCP Ext-Apps specification.
-func (c ConfigBase) GetResourceUIMetadata() any {
+// GetUIMeta returns the UI configuration if UI is enabled for the resource or template.
+func (c ConfigBase) GetUIMeta() *UIMetadata {
 	if !c.UI {
 		return nil
 	}
-	var permMeta map[string]any
-	if c.Permissions != nil {
-		permMeta = c.Permissions.ToUIMetadata()
-	}
-	return ResourceUIMetadata{
+	return &UIMetadata{
 		CSP:           c.CSP,
+		Permissions:   c.Permissions,
 		Domain:        c.Domain,
 		PrefersBorder: c.PrefersBorder,
-		Permissions:   permMeta,
 	}
 }
 
@@ -352,7 +348,7 @@ type ResourceTemplate interface {
 	GetURITemplate() string
 	Read(ctx context.Context, params map[string]any) (any, error)
 	ToConfig() ResourceTemplateConfig
-	GetResourceUIMetadata() any
+	GetUIMeta() *UIMetadata
 	IsUI() bool
 }
 
