@@ -1,0 +1,26 @@
+{
+  "scenarios": [
+    {
+      "id": "cloudsqlpg-admin-01",
+      "starting_prompt": "I am auditing our Cloud SQL fleet in this project. Which instances do we have, and what tier and region is ${CLOUD_SQL_POSTGRES_INSTANCE} running on?",
+      "conversation_plan": "The user wants a fleet listing followed by details for one named instance. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_instances",
+        "toolbox__get_instance"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "cloudsqlpg-admin-02",
+      "starting_prompt": "I am about to run a risky schema migration on ${CLOUD_SQL_POSTGRES_INSTANCE}. Take an on-demand backup first and tell me once it has actually finished.",
+      "conversation_plan": "The user wants the backup confirmed as complete, not just started. If the assistant only reports that the backup was requested, ask it to confirm the operation finished. Then end the conversation.",
+      "expected_trajectory": [
+        "toolbox__create_backup",
+        "toolbox__wait_for_operation"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    }
+  ]
+}
