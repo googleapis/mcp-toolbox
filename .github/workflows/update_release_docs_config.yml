@@ -107,32 +107,44 @@ jobs:
           # Generate a pre-filled PR creation link
           # ---------------------------------------------------------
           
-          PR_TITLE="chore: update docs config for ${TARGET_VERSION}"
-          PR_BODY="Automated update to \`hugo.cloudflare.toml\` for upcoming release **${TARGET_VERSION}**.
-          
-          Merge this into \`main\` just before merging Release PR #${PR_NUMBER}. Release Please will automatically sync this into the release PR."
-          
-          # URL-encode the title and body safely using Python
-          ENCODED_TITLE=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_TITLE")
-          ENCODED_BODY=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_BODY")
-          
-          # Construct the GitHub Compare URL
-          COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${NEW_BRANCH}?expand=1&title=${ENCODED_TITLE}&body=${ENCODED_BODY}"
+          # Check if the PR was already opened by the user previously
+          EXISTING_PR=$(gh pr list --head "$NEW_BRANCH" --base main --json url --jq '.[0].url' || true)
 
-          COMMENT_BODY="### ⚠️ Action Required: Docs Config Update
-          
-          GitHub Actions is restricted from opening Pull Requests automatically. However, the update script has run and the branch is ready!
-          
-          👉 **[Click here to open the docs config PR yourself]($COMPARE_URL)**
-          
-          *Because you open it, your credentials are used, and CI checks will run normally. Please open and merge that PR into \`main\` before merging this Release PR.*"
+          if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+            # The user already opened the PR! Give them a direct link.
+            COMMENT_BODY="### ✅ Docs Config Update Prepared
+            
+            The docs config branch has been automatically updated with the latest changes! 
+            👉 **[Review and merge your open PR]($EXISTING_PR)**
+            
+            *Please review and merge that PR into \`main\` before merging this Release PR.*"
+          else
+            # PR doesn't exist yet, generate the creation link.
+            PR_TITLE="chore: update docs config for ${TARGET_VERSION}"
+            PR_BODY="Automated update to \`hugo.cloudflare.toml\` for upcoming release **${TARGET_VERSION}**.
+            
+            Merge this into \`main\` just before merging Release PR #${PR_NUMBER}. Release Please will automatically sync this into the release PR."
+            
+            ENCODED_TITLE=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_TITLE")
+            ENCODED_BODY=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_BODY")
+            
+            COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${NEW_BRANCH}?expand=1&title=${ENCODED_TITLE}&body=${ENCODED_BODY}"
+            
+            COMMENT_BODY="### ⚠️ Action Required: Docs Config Update
+            
+            GitHub Actions is restricted from opening Pull Requests automatically. However, the update script has run and the branch is ready!
+            
+            👉 **[Click here to open the docs config PR yourself]($COMPARE_URL)**
+            
+            *Because you open it, your credentials are used, and CI checks will run normally. Please open and merge that PR into \`main\` before merging this Release PR.*"
+          fi
 
-          # Search for an existing comment starting with our specific string
+          # Search for an existing comment starting with our specific header
           COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-            -q '.[] | select(.body | startswith("### ⚠️ Action Required: Docs Config Update")) | .id' | head -n 1)
+            -q '.[] | select(.body | contains("Action Required: Docs Config Update") or contains("Docs Config Update Prepared")) | .id' | head -n 1)
 
           if [ -n "$COMMENT_ID" ]; then
-            # Update existing comment
+            # Update existing comment to prevent spam
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
               -f body="$COMMENT_BODY" > /dev/null
           else
