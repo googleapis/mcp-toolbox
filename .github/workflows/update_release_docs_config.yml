@@ -101,11 +101,10 @@ jobs:
 
           git commit -m "chore: update docs version config for ${TARGET_VERSION}"
           
-          # The GITHUB_TOKEN has contents: write, so it CAN push new branches
           git push origin "$NEW_BRANCH" --force
 
           # ---------------------------------------------------------
-          # ZERO-TOKEN WORKAROUND: Generate a pre-filled PR creation link
+          # Generate a pre-filled PR creation link
           # ---------------------------------------------------------
           
           PR_TITLE="chore: update docs config for ${TARGET_VERSION}"
