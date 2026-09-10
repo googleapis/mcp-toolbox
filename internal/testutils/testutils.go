@@ -233,3 +233,9 @@ func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPromp
 
 	return toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups
 }
+
+// BoolPtr returns a pointer to the given bool, for constructing optional
+// boolean config fields in tests.
+func BoolPtr(b bool) *bool {
+	return &b
+}
