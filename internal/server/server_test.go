@@ -49,7 +49,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
-	"github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
+	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/postgres"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/sqlite"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
@@ -412,10 +412,10 @@ func TestUpdateServer(t *testing.T) {
 	}
 
 	newSources := map[string]sources.Source{
-		"example-source": &alloydbpg.Source{
-			Config: alloydbpg.Config{
-				Name: "example-alloydb-source",
-				Type: "alloydb-postgres",
+		"example-source": testutils.MockSource{
+			MockSourceConfig: testutils.MockSourceConfig{
+				Name: "example-source",
+				Type: "mock-source",
 			},
 		},
 	}
@@ -1497,7 +1497,7 @@ func TestInitializeConfigs(t *testing.T) {
 	ctx = util.WithInstrumentation(ctx, instrumentation)
 	t.Run("valid initialization", func(t *testing.T) {
 		sourceConfig1 := testutils.MockSourceConfig{Name: "my-source", Type: "mock-source"}
-		source1, _ := sourceConfig1.Initialize(ctx, nil)
+		source1, _ := sourceConfig1.Initialize(ctx, nil, false)
 		tools1 := testutils.NewMockTool("my-tool", "mock tool for offline config", "my-source", nil, false, false)
 		validCfg := server.ServerConfig{
 			Version: "0.0.0",

@@ -107,6 +107,11 @@ type ServerConfig struct {
 	DisableExt []string
 	// DisableVersionCheck skips checking for newer Toolbox versions on startup.
 	DisableVersionCheck bool
+	// DeferSourceConnect connects each source on first use instead of at startup.
+	DeferSourceConnect bool
+	// DeferEnvVarParsing resolves an unset ${VAR} to its own name instead of
+	// failing startup. Requires DeferSourceConnect.
+	DeferEnvVarParsing bool
 }
 
 type logFormat string

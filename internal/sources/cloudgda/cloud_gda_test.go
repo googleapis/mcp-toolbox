@@ -158,7 +158,7 @@ func TestInitialize(t *testing.T) {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
-			src, err := tc.cfg.Initialize(ctx, tracer)
+			src, err := tc.cfg.Initialize(ctx, tracer, false)
 			if err != nil {
 				t.Fatalf("failed to initialize source: %v", err)
 			}
@@ -169,11 +169,11 @@ func TestInitialize(t *testing.T) {
 			}
 
 			// Check that the client is non-nil
-			if gdaSrc.Client == nil && !tc.wantClientOAuth {
+			if gdaSrc.Client() == nil && !tc.wantClientOAuth {
 				t.Fatal("expected non-nil HTTP client for ADC, got nil")
 			}
 			// When client OAuth is true, the source's client should be nil.
-			if gdaSrc.Client != nil && tc.wantClientOAuth {
+			if gdaSrc.Client() != nil && tc.wantClientOAuth {
 				t.Fatal("expected nil HTTP client for client OAuth config, got non-nil")
 			}
 

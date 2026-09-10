@@ -47,6 +47,7 @@ func TestParseEnv(t *testing.T) {
 		err          bool
 		errString    string
 		wantOptional []string
+		wantMissing  []string
 		lenient      bool
 	}{
 		{
@@ -71,17 +72,33 @@ func TestParseEnv(t *testing.T) {
 			errString: `environment variable not found: "HOST" (line 1, column 4)`,
 		},
 		{
-			desc:    "without default without env, lenient",
-			in:      "${FOO}",
-			want:    "FOO",
-			lenient: true,
+			desc:        "without default without env, lenient",
+			in:          "${FOO}",
+			want:        "FOO",
+			lenient:     true,
+			wantMissing: []string{"FOO"},
 		},
 		{
-			desc:    "missing required mixed with env, lenient",
-			in:      "project: ${PROJECT}, region: ${REGION}",
-			env:     map[string]string{"REGION": "us-central1"},
-			want:    "project: PROJECT, region: us-central1",
-			lenient: true,
+			desc:        "missing required mixed with env, lenient",
+			in:          "project: ${PROJECT}, region: ${REGION}",
+			env:         map[string]string{"REGION": "us-central1"},
+			want:        "project: PROJECT, region: us-central1",
+			lenient:     true,
+			wantMissing: []string{"PROJECT"},
+		},
+		{
+			desc:        "repeated missing var recorded once, lenient",
+			in:          "a: ${HOST}, b: ${HOST}",
+			want:        "a: HOST, b: HOST",
+			lenient:     true,
+			wantMissing: []string{"HOST"},
+		},
+		{
+			desc:        "tool config env vars are recorded too",
+			in:          "sources:\n  s: ${DB_PASSWORD}\ntools:\n  t: ${TOOL_TOKEN}\n",
+			want:        "sources:\n  s: DB_PASSWORD\ntools:\n  t: TOOL_TOKEN\n",
+			lenient:     true,
+			wantMissing: []string{"DB_PASSWORD", "TOOL_TOKEN"},
 		},
 		{
 			desc: "without default with env",
@@ -246,6 +263,9 @@ func TestParseEnv(t *testing.T) {
 				if v != tc.wantOptional[i] {
 					t.Errorf("OptionalEnvVars element %d mismatch: got %q, want %q", i, v, tc.wantOptional[i])
 				}
+			}
+			if diff := cmp.Diff(tc.wantMissing, parser.MissingEnvVars); diff != "" {
+				t.Errorf("MissingEnvVars mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

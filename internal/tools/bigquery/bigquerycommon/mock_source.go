@@ -79,7 +79,7 @@ func (m *MockSource) BigQuerySession() bigqueryds.BigQuerySessionProvider {
 	}
 }
 
-func (m *MockSource) RetrieveClientAndService(tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
+func (m *MockSource) RetrieveClientAndService(context.Context, tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
 	return m.Client, m.Service, nil
 }
 
