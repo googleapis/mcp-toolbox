@@ -18,7 +18,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -26,7 +25,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
+	v20251125 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20251125"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 )
@@ -121,8 +122,6 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
-
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -141,7 +140,7 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	tmplSelectCombined, tmplSelectFilterCombined := getSQLiteTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, SQLiteToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -160,11 +159,22 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: SQL logic error: near \"SELEC\": syntax error (1)"}],"isError":true}}`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"1\":1}"}]}}`
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	// Keep credential-dependent helpers in separate subtests so that discovery
+	// and template parameters can also be exercised without Google credentials.
+	t.Run("list_tools", func(t *testing.T) {
+		expectedTools := tests.GetBaseMCPExpectedTools()
+		expectedTools = append(expectedTools, tests.GetTemplateParamMCPExpectedTools()...)
+		tests.RunMCPToolsListMethod(t, expectedTools)
+	})
+	t.Run("invoke", func(t *testing.T) {
+		tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest(), tests.WithMCP())
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam, tests.WithMCPTemplate())
+	})
 }
 
 func TestSQLiteExecuteSqlTool(t *testing.T) {
@@ -201,8 +211,7 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolConfig, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolConfig)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -218,54 +227,54 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 
 	// Table-driven test cases
 	testCases := []struct {
-		name       string
-		sql        string
-		wantStatus int
-		wantBody   string
+		name        string
+		arguments   map[string]any
+		wantContent []v20251125.TextContent
+		wantError   string
 	}{
 		{
-			name:       "select existing row",
-			sql:        fmt.Sprintf("SELECT name FROM %s WHERE id = 1", tableName),
-			wantStatus: 200,
-			wantBody:   "Bob",
+			name:        "select existing row",
+			arguments:   map[string]any{"sql": fmt.Sprintf("SELECT name FROM %s WHERE id = 1", tableName)},
+			wantContent: []v20251125.TextContent{{Type: "text", Text: `{"name":"Bob"}`}},
 		},
 		{
-			name:       "select no rows",
-			sql:        fmt.Sprintf("SELECT name FROM %s WHERE id = 999", tableName),
-			wantStatus: 200,
-			wantBody:   "[]",
+			name:        "select no rows",
+			arguments:   map[string]any{"sql": fmt.Sprintf("SELECT name FROM %s WHERE id = 999", tableName)},
+			wantContent: []v20251125.TextContent{},
 		},
 		{
-			name:       "invalid SQL",
-			sql:        "SELEC name FROM not_a_table",
-			wantStatus: 200,
-			wantBody:   "error processing request: unable to execute query: SQL logic error",
+			name:      "invalid SQL",
+			arguments: map[string]any{"sql": "SELEC name FROM not_a_table"},
+			wantError: "error processing request: unable to execute query: SQL logic error",
+		},
+		{
+			name:      "missing SQL",
+			arguments: map[string]any{},
+			wantError: `parameter "sql" is required`,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			api := "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke"
-			reqBody := strings.NewReader(fmt.Sprintf(`{"sql":"%s"}`, tc.sql))
-			req, err := http.NewRequest("POST", api, reqBody)
+			status, resp, err := tests.InvokeMCPTool(t, "my-exec-sql-tool", tc.arguments, nil)
 			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
+				t.Fatalf("unable to invoke tool: %s", err)
 			}
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
+			if status != http.StatusOK {
+				t.Fatalf("unexpected HTTP status: got %d, want %d", status, http.StatusOK)
 			}
-			defer resp.Body.Close()
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("unable to read response: %s", err)
+			if resp.Error != nil {
+				t.Fatalf("unexpected JSON-RPC error: %+v", resp.Error)
 			}
-			if resp.StatusCode != tc.wantStatus {
-				t.Fatalf("unexpected status: %d, body: %s", resp.StatusCode, string(bodyBytes))
+			if got, want := resp.Result.IsError, tc.wantError != ""; got != want {
+				t.Fatalf("unexpected isError: got %t, want %t; content: %+v", got, want, resp.Result.Content)
 			}
-			if tc.wantBody != "" && !strings.Contains(string(bodyBytes), tc.wantBody) {
-				t.Fatalf("expected body to contain %q, got: %s", tc.wantBody, string(bodyBytes))
+			if tc.wantError != "" {
+				tests.AssertMCPError(t, resp, tc.wantError)
+				return
+			}
+			if diff := cmp.Diff(tc.wantContent, resp.Result.Content); diff != "" {
+				t.Fatalf("unexpected MCP content (-want +got):\n%s", diff)
 			}
 		})
 	}
