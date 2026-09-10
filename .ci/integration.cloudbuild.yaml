@@ -1325,6 +1325,34 @@ steps:
           exit 0
         fi
 
+  - id: "iceberg"
+    name: golang:1
+    waitFor: ["compile-test-binary", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+      - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
+    secretEnv:
+      ["CLIENT_ID"]
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)iceberg/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Iceberg tests..."
+          .ci/test_with_coverage.sh \
+            "Iceberg" \
+            iceberg \
+            iceberg
+        else
+          echo "No relevant changes for Iceberg. Skipping shard."
+          exit 0
+        fi
+
   - id: "snowflake"
     name: golang:1
     waitFor: ["compile-test-binary", "detect-changes"]
