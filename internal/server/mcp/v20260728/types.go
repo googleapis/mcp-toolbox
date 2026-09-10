@@ -682,6 +682,6 @@ type GetGroupResult struct {
 	Name              string             `json:"name"`
 	Tools             []Tool             `json:"tools"`
 	Prompts           []Prompt           `json:"prompts"`
-  Resources         []Resource         `json:"resources"`
+	Resources         []Resource         `json:"resources"`
 	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
 }
