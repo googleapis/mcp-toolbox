@@ -10,37 +10,9 @@ Resource templates allow you to expose an entire directory tree of files dynamic
 
 ## Examples
 
-### Sandboxed Log Directory Template
+### Project Documentation Template
 
-Here is an example exposing an application's log directory:
-
-```yaml
-kind: resourceTemplate
-name: app_logs
-type: file
-title: "Application Logs"
-description: "Dynamically read application log files."
-uriTemplate: "file:///var/log/my-app/{path}"
-allowedPaths:
-  - "/var/log/my-app"
-```
-
-When a client queries `resources/templates/list`, it receives `uriTemplate: "file:///var/log/my-app/{path}"`. The client can then call `resources/read` with:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "resources/read",
-  "params": {
-    "uri": "file:///var/log/my-app/service-errors.log"
-  }
-}
-```
-
-### Documentation Directory with Relative Paths
-
-You can use relative paths for `allowedPaths`. Relative paths are resolved relative to the directory containing your configuration file:
+You can configure a template dedicated to documentation files with a custom `mimeType`. Note that `allowedPaths` can also use relative paths (such as `./docs`), which are automatically resolved relative to the directory containing your configuration file:
 
 ```yaml
 kind: resourceTemplate
@@ -50,8 +22,44 @@ title: "Project Documentation"
 description: "Markdown documentation for the project."
 uriTemplate: "file:///docs/{path}"
 allowedPaths:
-  - "./documentation"
+  - "/docs"
 mimeType: "text/markdown"
+```
+
+When queried via `resources/templates/list`, the response includes the defined `mimeType`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "resourceTemplates": [
+      {
+        "name": "project_docs",
+        "title": "Project Documentation",
+        "uriTemplate": "file:///docs/{path}",
+        "description": "Markdown documentation for the project.",
+        "mimeType": "text/markdown",
+        "annotations": {
+          "priority": 1
+        }
+      }
+    ]
+  }
+}
+```
+
+The client can then retrieve markdown documentation using `resources/read`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "resources/read",
+  "params": {
+    "uri": "file:///docs/guide.md"
+  }
+}
 ```
 
 ## Reference
@@ -68,7 +76,7 @@ mimeType: "text/markdown"
 | `description`    | string                             | No           | A brief explanation of what the resource template exposes.                                                    |
 | `title`          | string                             | No           | Human-readable title for client display.                                                                      |
 | `mimeType`       | string                             | No           | Default MIME type for content returned by this template.                                                      |
-| `annotations`    | [Annotations](./_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
+| `annotations`    | [Annotations](../_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
 
 ## Guardrails & Security Model
 

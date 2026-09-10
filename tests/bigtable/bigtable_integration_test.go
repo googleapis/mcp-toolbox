@@ -18,8 +18,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -149,14 +151,18 @@ func TestBigtableToolEndpoints(t *testing.T) {
 	)
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	runBigTableAdminToolsGetTest(t)
-	// TODO: re-enable once GCP write quota issues are resolved.
-	// runBigTableAdminToolsTest(t, sourceConfig["instance"].(string))
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
+	if os.Getenv("RUN_EXPENSIVE_TESTS") == "true" {
+		runBigTableAdminToolsTest(t, sourceConfig["instance"].(string))
+	} else {
+		t.Log("Skipping expensive Bigtable admin tools tests (RUN_EXPENSIVE_TESTS is not true)")
+	}
+	opts := []tests.TemplateParamOption{
 		tests.WithNameFieldArray(nameFieldArray),
 		tests.WithNameColFilter(nameColFilter),
 		tests.DisableDdlTest(),
 		tests.DisableInsertTest(),
-	)
+	}
+	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam, opts...)
 }
 
 func convertToBytes(v int) []byte {
@@ -341,7 +347,6 @@ func addTemplateParamConfig(t *testing.T, config map[string]any) map[string]any 
 	return config
 }
 
-/*
 // assertMCPSuccess invokes an MCP tool and strictly asserts that the HTTP status is 200,
 // no JSON-RPC error is returned, and Result.IsError is false.
 func assertMCPSuccess(t *testing.T, toolName string, args map[string]any) *tests.MCPCallToolResponse {
@@ -656,7 +661,6 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 		t.Fatalf("bigtable-list-materialized-views returned nil content")
 	}
 }
-*/
 
 func addBigTableAdminToolsConfig(t *testing.T, config map[string]any) map[string]any {
 	toolsMap, ok := config["tools"].(map[string]any)
