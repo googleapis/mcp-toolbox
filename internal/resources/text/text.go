@@ -34,11 +34,9 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (resourc
 	cfg := &Config{
 		ResourceConfigBase: resources.ResourceConfigBase{
 			ConfigBase: resources.ConfigBase{
-				Name:     name,
-				Type:     resourceType,
-				MimeType: "text/plain",
+				Name: name,
+				Type: resourceType,
 			},
-			URI: fmt.Sprintf("text://%s", name),
 		},
 	}
 	if err := decoder.DecodeContext(ctx, cfg); err != nil {
@@ -54,6 +52,14 @@ type Config struct {
 }
 
 var _ resources.ResourceConfig = &Config{}
+
+// SetDefaults applies system defaults for unspecified optional fields.
+func (c *Config) SetDefaults() {
+	c.ResourceConfigBase.SetDefaults()
+	if c.MimeType == "" {
+		c.MimeType = "text/plain"
+	}
+}
 
 // ResourceConfigType returns the resource type identifier.
 func (c *Config) ResourceConfigType() string {

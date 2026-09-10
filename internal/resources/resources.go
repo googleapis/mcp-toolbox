@@ -15,21 +15,23 @@
 package resources
 
 import (
-	"mime"
-	"time"
-
 	"context"
 	"fmt"
+	"mime"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/yosida95/uritemplate/v3"
 )
 
 type contextKey string
+
+// UIMimeType is the required MIME type for MCP Apps UI resources.
+const UIMimeType = "text/html;profile=mcp-app"
 
 // BaseDirKey is the context key for storing the base directory path during config parsing.
 const BaseDirKey contextKey = "baseDir"
@@ -65,6 +67,7 @@ type Resource interface {
 	GetSize() *int64
 	Read(ctx context.Context, params map[string]any) (any, error)
 	ToConfig() ResourceConfig
+	GetResourceUIMetadata() any
 }
 
 type ResourceAnnotations struct {
@@ -75,12 +78,17 @@ type ResourceAnnotations struct {
 
 // ConfigBase contains the common fields for all resource and template configurations.
 type ConfigBase struct {
-	Name        string               `yaml:"name" validate:"required"`
-	Type        string               `yaml:"type" validate:"required"`
-	Description string               `yaml:"description,omitempty"`
-	Title       string               `yaml:"title,omitempty"`
-	MimeType    string               `yaml:"mimeType,omitempty"`
-	Annotations *ResourceAnnotations `yaml:"annotations,omitempty"`
+	Name          string               `yaml:"name" validate:"required"`
+	Type          string               `yaml:"type" validate:"required"`
+	Description   string               `yaml:"description,omitempty"`
+	Title         string               `yaml:"title,omitempty"`
+	MimeType      string               `yaml:"mimeType,omitempty"`
+	Annotations   *ResourceAnnotations `yaml:"annotations,omitempty"`
+	UI            bool                 `yaml:"ui,omitempty"`
+	CSP           *CSPConfig           `yaml:"csp,omitempty"`
+	Permissions   *PermissionsConfig   `yaml:"permissions,omitempty"`
+	Domain        string               `yaml:"domain,omitempty"`
+	PrefersBorder *bool                `yaml:"prefersBorder,omitempty"`
 }
 
 func (c ConfigBase) GetName() string                      { return c.Name }
@@ -89,10 +97,27 @@ func (c ConfigBase) GetDescription() string               { return c.Description
 func (c ConfigBase) GetMimeType() string                  { return c.MimeType }
 func (c ConfigBase) GetAnnotations() *ResourceAnnotations { return c.Annotations }
 
+// GetResourceUIMetadata returns the UI metadata conforming to the MCP Ext-Apps specification.
+func (c ConfigBase) GetResourceUIMetadata() any {
+	if !c.UI {
+		return nil
+	}
+	var permMeta map[string]any
+	if c.Permissions != nil {
+		permMeta = c.Permissions.ToUIMetadata()
+	}
+	return ResourceUIMetadata{
+		CSP:           c.CSP,
+		Domain:        c.Domain,
+		PrefersBorder: c.PrefersBorder,
+		Permissions:   permMeta,
+	}
+}
+
 // ResourceConfigBase contains the fields for a specific resource configuration.
 type ResourceConfigBase struct {
 	ConfigBase `yaml:",inline"`
-	URI        string `yaml:"uri,omitempty" validate:"required,uri"`
+	URI        string `yaml:"uri,omitempty" validate:"omitempty,uri"`
 }
 
 // GetURI returns the URI of the resource configuration.
@@ -130,12 +155,25 @@ func (c *ConfigBase) SetDefaults() {
 		p := 1.0
 		c.Annotations.Priority = &p
 	}
+	if c.UI && c.MimeType == "" {
+		c.MimeType = UIMimeType
+	}
 }
 
 // Validate performs base configuration validation, including validating the MIME type,
 // checking for duplicate audiences, and validating the lastModified timestamp format.
 func (c *ConfigBase) Validate() error {
-	if c.MimeType != "" {
+	if c.UI {
+		if c.MimeType == "" {
+			c.MimeType = UIMimeType
+		} else {
+			mediaType, params, err := mime.ParseMediaType(c.MimeType)
+			if err != nil || mediaType != "text/html" || params["profile"] != "mcp-app" {
+				return fmt.Errorf("invalid mimeType %q for UI resource %q: must be %q", c.MimeType, c.Name, UIMimeType)
+			}
+			c.MimeType = UIMimeType
+		}
+	} else if c.MimeType != "" {
 		mt, _, err := mime.ParseMediaType(c.MimeType)
 		if err != nil || !strings.Contains(mt, "/") {
 			return fmt.Errorf("invalid mimeType %q: must be a valid media type (e.g. text/plain)", c.MimeType)
@@ -157,11 +195,44 @@ func (c *ConfigBase) Validate() error {
 			}
 		}
 	}
+	if !c.UI {
+		if c.CSP != nil {
+			return fmt.Errorf("csp cannot be configured when 'ui' is false or omitted for resource %q", c.Name)
+		}
+		if c.Permissions != nil {
+			return fmt.Errorf("permissions cannot be configured when 'ui' is false or omitted for resource %q", c.Name)
+		}
+		if c.Domain != "" {
+			return fmt.Errorf("domain cannot be configured when 'ui' is false or omitted for resource %q", c.Name)
+		}
+		if c.PrefersBorder != nil {
+			return fmt.Errorf("prefersBorder cannot be configured when 'ui' is false or omitted for resource %q", c.Name)
+		}
+	} else {
+		if c.CSP != nil {
+			if err := c.CSP.Validate(); err != nil {
+				return fmt.Errorf("invalid csp for UI resource %q: %w", c.Name, err)
+			}
+		}
+		if c.Domain != "" {
+			if err := validateHTTPOrigin(c.Domain); err != nil {
+				return fmt.Errorf("invalid domain %q for UI resource %q: %w", c.Domain, c.Name, err)
+			}
+		}
+	}
 	return nil
 }
 
 // Validate performs resource-specific validation including URI scheme checks.
 func (c *ResourceConfigBase) Validate() error {
+	if c.URI == "" {
+		if c.UI {
+			c.URI = "ui://" + c.Name
+		} else {
+			c.URI = fmt.Sprintf("%s://%s", c.Type, c.Name)
+		}
+	}
+
 	if err := c.ConfigBase.Validate(); err != nil {
 		return err
 	}
@@ -173,6 +244,9 @@ func (c *ResourceConfigBase) Validate() error {
 	parsed, err := url.Parse(c.URI)
 	if err != nil || parsed.Scheme == "" {
 		return fmt.Errorf("invalid 'uri' field for resource %q: must be a valid RFC-compliant absolute URI with a scheme", c.Name)
+	}
+	if err := validateUIScheme(c.UI, parsed.Scheme, c.Name, "resource"); err != nil {
+		return err
 	}
 
 	// Normalize scheme and host to lowercase for consistent comparison and usage
@@ -256,6 +330,7 @@ type ResourceTemplate interface {
 	GetURITemplate() string
 	Read(ctx context.Context, params map[string]any) (any, error)
 	ToConfig() ResourceTemplateConfig
+	GetResourceUIMetadata() any
 }
 
 // ResourceTemplateConfigBase contains the specific fields for resource template configurations.
@@ -271,6 +346,7 @@ func (c ResourceTemplateConfigBase) GetURITemplate() string {
 
 // Validate performs base configuration validation for resource templates.
 func (c *ResourceTemplateConfigBase) Validate() error {
+
 	if err := c.ConfigBase.Validate(); err != nil {
 		return err
 	}
@@ -297,6 +373,9 @@ func (c *ResourceTemplateConfigBase) Validate() error {
 	parsed, err := url.Parse(parseableURI)
 	if err != nil || parsed.Scheme == "" {
 		return fmt.Errorf("invalid 'uriTemplate' field for resource template %q: must be a valid RFC-compliant absolute URI with a scheme", c.Name)
+	}
+	if err := validateUIScheme(c.UI, parsed.Scheme, c.Name, "resource template"); err != nil {
+		return err
 	}
 
 	return nil
@@ -355,4 +434,18 @@ func DecodeTemplateConfig(ctx context.Context, resourceType, name string, decode
 	}
 
 	return config, nil
+}
+
+func validateUIScheme(ui bool, scheme, name, entity string) error {
+	scheme = strings.ToLower(scheme)
+	if ui {
+		if scheme != "ui" {
+			return fmt.Errorf("invalid scheme for UI %s %q: must be 'ui'", entity, name)
+		}
+	} else {
+		if scheme == "ui" {
+			return fmt.Errorf("scheme 'ui' is only permitted when 'ui' is true for %s %q", entity, name)
+		}
+	}
+	return nil
 }

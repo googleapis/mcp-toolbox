@@ -55,7 +55,6 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (resourc
 				Name: name,
 				Type: resourceType,
 			},
-			URI: fmt.Sprintf("file://%s", name),
 		},
 		baseDir: resources.GetBaseDirFromContext(ctx),
 	}
@@ -101,6 +100,7 @@ func (c *Config) ResourceConfigType() string {
 var allowedExts = map[string]bool{
 	".txt": true, ".md": true, ".csv": true, ".json": true,
 	".yaml": true, ".yml": true, ".xml": true, ".sql": true,
+	".html": true, ".htm": true, ".js": true, ".css": true, ".svg": true,
 }
 
 // validateExtension checks if a file extension is allowed.
@@ -118,7 +118,7 @@ func (c *Config) Validate() error {
 		return err
 	}
 	parsed, _ := url.Parse(c.URI)
-	if parsed.Scheme != "file" {
+	if !c.UI && parsed.Scheme != "file" {
 		return fmt.Errorf("invalid scheme for file resource %q: must be 'file'", c.Name)
 	}
 
@@ -447,7 +447,7 @@ func (c *TemplateConfig) Validate() error {
 		return err
 	}
 	parsed, _ := url.Parse(strings.ReplaceAll(c.URITemplate, "{path}", "path"))
-	if parsed.Scheme != "file" {
+	if !c.UI && parsed.Scheme != "file" {
 		return fmt.Errorf("invalid scheme for file resource template %q: must be 'file'", c.Name)
 	}
 
@@ -538,7 +538,7 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 		return nil, fmt.Errorf("security violation: path %q contains backward traversal components (..)", pathStr)
 	}
 
-	// If the path is relative, reconstruct the full path from the URI template
+	// If the path is relative, reconstruct the full path
 	if !filepath.IsAbs(pathStr) {
 		uriTemplate := r.URITemplate
 		if strings.Contains(uriTemplate, "{path}") {

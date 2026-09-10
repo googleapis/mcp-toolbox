@@ -772,3 +772,159 @@ func TestFileResource_ToConfigNonRegularFile(t *testing.T) {
 		t.Errorf("Expected LastModified to be empty for non-regular file, got %q", config.Annotations.LastModified)
 	}
 }
+
+func TestFileResource_UI(t *testing.T) {
+	tmpDir := t.TempDir()
+	htmlPath := filepath.Join(tmpDir, "index.html")
+	htmlContent := "<!DOCTYPE html><html><body><h1>Hello MCP App</h1></body></html>"
+	if err := os.WriteFile(htmlPath, []byte(htmlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("DefaultURIAndMimeType", func(t *testing.T) {
+		yamlStr := fmt.Sprintf(`
+kind: resource
+name: my-app
+type: file
+ui: true
+path: %s
+csp:
+  connectDomains:
+    - "https://api.example.com"
+domain: "https://example.com"
+permissions:
+  - camera
+`, filepath.ToSlash(htmlPath))
+
+		_, _, _, _, _, configs, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err != nil {
+			t.Fatalf("UnmarshalPrimitiveConfig failed: %v", err)
+		}
+
+		resCfg, ok := configs["my-app"].(*file.Config)
+		if !ok {
+			t.Fatalf("Expected *file.Config, got %T", configs["my-app"])
+		}
+
+		if !resCfg.UI {
+			t.Errorf("Expected IsUI() to be true")
+		}
+		if resCfg.URI != "ui://my-app" {
+			t.Errorf("Expected default URI 'ui://my-app', got %q", resCfg.URI)
+		}
+		if resCfg.MimeType != "text/html;profile=mcp-app" {
+			t.Errorf("Expected default MimeType 'text/html;profile=mcp-app', got %q", resCfg.MimeType)
+		}
+
+		ctx := context.Background()
+		res, err := resCfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		if res.GetResourceUIMetadata() == nil {
+			t.Errorf("Expected GetResourceUIMetadata() to not be nil")
+		}
+		if res.GetMimeType() != "text/html;profile=mcp-app" {
+			t.Errorf("Expected res.GetMimeType() to be 'text/html;profile=mcp-app', got %q", res.GetMimeType())
+		}
+
+		content, err := res.Read(ctx, nil)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+		if content != htmlContent {
+			t.Errorf("Expected %q, got %q", htmlContent, content)
+		}
+
+		uiMeta := res.GetResourceUIMetadata()
+		expectedMeta := resources.ResourceUIMetadata{
+			Domain: "https://example.com",
+			CSP: &resources.CSPConfig{
+				ConnectDomains: []string{"https://api.example.com"},
+			},
+			Permissions: map[string]any{
+				"camera": map[string]any{},
+			},
+		}
+		if diff := cmp.Diff(expectedMeta, uiMeta); diff != "" {
+			t.Errorf("GetResourceUIMetadata() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("CustomUIURI", func(t *testing.T) {
+		yamlStr := fmt.Sprintf(`
+kind: resource
+name: custom-app
+type: file
+ui: true
+uri: "ui://custom-dashboard"
+path: %s
+`, filepath.ToSlash(htmlPath))
+
+		_, _, _, _, _, configs, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err != nil {
+			t.Fatalf("UnmarshalPrimitiveConfig failed: %v", err)
+		}
+		resCfg := configs["custom-app"].(*file.Config)
+		if resCfg.URI != "ui://custom-dashboard" {
+			t.Errorf("Expected URI 'ui://custom-dashboard', got %q", resCfg.URI)
+		}
+	})
+
+	t.Run("UIWithNonUISchemeFails", func(t *testing.T) {
+		yamlStr := fmt.Sprintf(`
+kind: resource
+name: invalid-app
+type: file
+ui: true
+uri: "file://explicit-non-ui"
+path: %s
+`, filepath.ToSlash(htmlPath))
+
+		_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err == nil || !strings.Contains(err.Error(), "must be 'ui'") {
+			t.Fatalf("Expected error for non-ui scheme with ui: true, got %v", err)
+		}
+	})
+
+	t.Run("NonUIWithUISchemeFails", func(t *testing.T) {
+		yamlStr := fmt.Sprintf(`
+kind: resource
+name: invalid-file
+type: file
+uri: "ui://invalid-file"
+path: %s
+`, filepath.ToSlash(htmlPath))
+
+		_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err == nil || !strings.Contains(err.Error(), "scheme 'ui' is only permitted when 'ui' is true") {
+			t.Fatalf("Expected error for ui scheme with ui: false, got %v", err)
+		}
+	})
+
+	t.Run("UIAllowedExtensions", func(t *testing.T) {
+		exts := []string{".html", ".htm", ".js", ".css", ".svg"}
+		for _, ext := range exts {
+			fPath := filepath.Join(tmpDir, "asset"+ext)
+			if err := os.WriteFile(fPath, []byte("asset content"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			yamlStr := fmt.Sprintf(`
+kind: resource
+name: asset-%s
+type: file
+ui: true
+path: %s
+`, strings.TrimPrefix(ext, "."), filepath.ToSlash(fPath))
+			_, _, _, _, _, configs, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+			if err != nil {
+				t.Errorf("Expected extension %s to be valid, got error: %v", ext, err)
+				continue
+			}
+			if _, err := configs[fmt.Sprintf("asset-%s", strings.TrimPrefix(ext, "."))].Initialize(context.Background()); err != nil {
+				t.Errorf("Failed to initialize file resource with ext %s: %v", ext, err)
+			}
+		}
+	})
+}

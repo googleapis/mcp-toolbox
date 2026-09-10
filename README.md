@@ -111,6 +111,7 @@ For a full list of available tools and their capabilities across all supported d
 
 ---
 
+<a id="configuration"></a>
 ## Quick Start: Custom Tools
 
 Toolbox can also be used as a framework for customized tools.
