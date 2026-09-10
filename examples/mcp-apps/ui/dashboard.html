@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sales Analytics Dashboard - MCP App</title>
+  <style>
+    :root {
+      --bg-color: #ffffff;
+      --card-bg: #f8f9fa;
+      --border-color: #dadce0;
+      --text-color: #202124;
+      --text-muted: #5f6368;
+      --primary-color: #1a73e8;
+      --primary-hover: #1765cc;
+      --accent-color: #34a853;
+      --bar-color: #4285f4;
+      --table-header-bg: #f1f3f4;
+      --table-row-hover: #f8f9fa;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #202124;
+        --card-bg: #292a2d;
+        --border-color: #3c4043;
+        --text-color: #e8eaed;
+        --text-muted: #9aa0a6;
+        --primary-color: #8ab4f8;
+        --primary-hover: #aecbfa;
+        --accent-color: #81c995;
+        --bar-color: #8ab4f8;
+        --table-header-bg: #35363a;
+        --table-row-hover: #303134;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .title-group h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--primary-color);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      background-color: #e6f4ea;
+      color: #137333;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .status-badge {
+        background-color: #132d1e;
+        color: #81c995;
+      }
+    }
+
+    .status-badge.waiting {
+      background-color: #fef7e0;
+      color: #b06000;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .status-badge.waiting {
+        background-color: #332700;
+        color: #fdd663;
+      }
+    }
+
+    .btn {
+      background-color: var(--primary-color);
+      color: #ffffff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background-color 0.2s ease;
+    }
+
+    .btn:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-color);
+    }
+
+    .chart-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text-color);
+    }
+
+    .bar-chart {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bar-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .bar-label {
+      width: 120px;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text-muted);
+    }
+
+    .bar-container {
+      flex: 1;
+      background: var(--table-header-bg);
+      height: 22px;
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: var(--bar-color);
+      border-radius: 4px;
+      transition: width 0.4s ease;
+      min-width: 4px;
+    }
+
+    .bar-value {
+      width: 90px;
+      font-weight: 500;
+      font-size: 12px;
+    }
+
+    .table-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      background: var(--table-header-bg);
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    tr:hover td {
+      background-color: var(--table-row-hover);
+    }
+
+    .star-rating {
+      color: #fbbc04;
+    }
+
+    .filters-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .filter-chip {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      padding: 4px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s ease;
+    }
+
+    .filter-chip.active {
+      background: var(--primary-color);
+      color: #ffffff;
+      border-color: var(--primary-color);
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard-header">
+    <div class="title-group">
+      <h1>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zM7 10h2v7H7zm4-3h2v10h-2zm4 6h2v4h-2z"/>
+        </svg>
+        Sales & Product Performance
+      </h1>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span class="status-badge waiting" id="statusBadge">Awaiting tool execution...</span>
+      <button class="btn" id="refreshBtn" onclick="requestRefresh()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+        </svg>
+        Refresh Data
+      </button>
+    </div>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Total Revenue</div>
+      <div class="metric-value" id="totalRevenue">$0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Units Sold</div>
+      <div class="metric-value" id="totalUnits">0</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Top Rated</div>
+      <div class="metric-value" id="topRated">-</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Categories</div>
+      <div class="metric-value" id="totalCategories">0</div>
+    </div>
+  </div>
+
+  <div class="filters-bar" id="filtersBar">
+    <button class="filter-chip active" onclick="filterCategory('All')">All Products</button>
+  </div>
+
+  <div class="chart-card">
+    <div class="card-title">Revenue by Product</div>
+    <div class="bar-chart" id="barChart">
+      <div style="color: var(--text-muted); font-size: 13px;">Waiting for data... Click "Run Tool" in the playground to load live metrics.</div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="card-title">Product Details</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Category</th>
+          <th>Units Sold</th>
+          <th>Revenue</th>
+          <th>Rating</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr>
+          <td colspan="5" style="text-align: center; color: var(--text-muted);">No records loaded yet</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    let rawItems = [];
+    let currentCategory = 'All';
+
+    // JSON-RPC helper for MCP Apps SEP-1865
+    let nextRequestId = 1;
+    const pendingRequests = new Map();
+
+    function sendRpc(method, params = {}) {
+      return new Promise((resolve, reject) => {
+        const id = nextRequestId++;
+        pendingRequests.set(id, { resolve, reject });
+        window.parent.postMessage({
+          jsonrpc: '2.0',
+          id: id,
+          method: method,
+          params: params
+        }, '*');
+      });
+    }
+
+    function sendNotification(method, params = {}) {
+      window.parent.postMessage({
+        jsonrpc: '2.0',
+        method: method,
+        params: params
+      }, '*');
+    }
+
+    // Step 1: Handshake - Send ui/initialize
+    sendRpc('ui/initialize', {
+      clientInfo: {
+        name: 'SalesDashboardMCPApp',
+        version: '1.0.0'
+      },
+      capabilities: {}
+    }).then(res => {
+      sendNotification('ui/notifications/initialized', {});
+      notifySize();
+    }).catch(err => {
+      console.warn('ui/initialize handshake fallback:', err);
+      sendNotification('ui/notifications/initialized', {});
+      notifySize();
+    });
+
+    function notifySize() {
+      const height = Math.max(520, document.documentElement.scrollHeight || document.body.scrollHeight || 520);
+      sendNotification('ui/notifications/size-changed', { height: height });
+    }
+
+    // Request tool execution from inside the app via tools/call
+    function requestRefresh() {
+      const badge = document.getElementById('statusBadge');
+      badge.textContent = 'Refreshing...';
+      badge.className = 'status-badge waiting';
+      sendRpc('tools/call', {
+        name: 'get_sales_report',
+        arguments: {}
+      }).catch(err => {
+        console.error('Failed to trigger tool execution:', err);
+      });
+    }
+
+    // Handle incoming messages from host
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg) return;
+
+      // Handle JSON-RPC response
+      if (msg.id && pendingRequests.has(msg.id)) {
+        const { resolve, reject } = pendingRequests.get(msg.id);
+        pendingRequests.delete(msg.id);
+        if (msg.error) {
+          reject(new Error(msg.error.message || 'RPC Error'));
+        } else {
+          resolve(msg.result);
+        }
+        return;
+      }
+
+      // Handle tool execution result notification
+      if (msg.method === 'ui/notifications/tool-result') {
+        const badge = document.getElementById('statusBadge');
+        badge.textContent = 'Live Data Connected';
+        badge.className = 'status-badge';
+
+        const structured = msg.params?.structuredContent;
+        let data = [];
+
+        if (Array.isArray(structured)) {
+          data = structured;
+        } else if (structured && Array.isArray(structured.data)) {
+          data = structured.data;
+        } else if (structured && structured.queryResult && Array.isArray(structured.queryResult.data)) {
+          data = structured.queryResult.data;
+        } else if (Array.isArray(msg.params?.content)) {
+          const textItem = msg.params.content.find(c => c.type === 'text');
+          if (textItem) {
+            try {
+              const parsed = JSON.parse(textItem.text);
+              data = Array.isArray(parsed) ? parsed : (parsed.data || [parsed]);
+            } catch {
+              data = [];
+            }
+          }
+        }
+
+        if (data && data.length > 0) {
+          rawItems = data;
+          buildCategoryFilters(rawItems);
+          renderDashboard();
+        }
+      }
+    });
+
+    function buildCategoryFilters(items) {
+      const categories = ['All', ...new Set(items.map(i => i.category || 'General'))];
+      const container = document.getElementById('filtersBar');
+      container.innerHTML = categories.map(cat => `
+        <button class="filter-chip ${cat === currentCategory ? 'active' : ''}" onclick="filterCategory('${cat}')">
+          ${cat === 'All' ? 'All Products' : cat}
+        </button>
+      `).join('');
+    }
+
+    function filterCategory(category) {
+      currentCategory = category;
+      const chips = document.querySelectorAll('.filter-chip');
+      chips.forEach(chip => {
+        chip.classList.toggle('active', chip.textContent.trim() === (category === 'All' ? 'All Products' : category));
+      });
+      renderDashboard();
+    }
+
+    function renderDashboard() {
+      const items = currentCategory === 'All'
+        ? rawItems
+        : rawItems.filter(i => (i.category || 'General') === currentCategory);
+
+      // 1. Calculate Metrics
+      let totalRev = 0;
+      let totalUnits = 0;
+      let topItem = null;
+      let highestRating = -1;
+      const categories = new Set();
+
+      items.forEach(item => {
+        const rev = Number(item.revenue) || 0;
+        const units = Number(item.units_sold) || 0;
+        const rating = Number(item.rating) || 0;
+
+        totalRev += rev;
+        totalUnits += units;
+        categories.add(item.category || 'General');
+
+        if (rating > highestRating) {
+          highestRating = rating;
+          topItem = item.product;
+        }
+      });
+
+      document.getElementById('totalRevenue').textContent = `$${totalRev.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('totalUnits').textContent = totalUnits.toLocaleString();
+      document.getElementById('topRated').textContent = topItem || '-';
+      document.getElementById('totalCategories').textContent = categories.size.toString();
+
+      // 2. Render Bar Chart
+      const chartContainer = document.getElementById('barChart');
+      if (items.length === 0) {
+        chartContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">No items match the selected category.</div>';
+      } else {
+        const maxRev = Math.max(...items.map(i => Number(i.revenue) || 0), 1);
+        chartContainer.innerHTML = items.map(item => {
+          const rev = Number(item.revenue) || 0;
+          const pct = Math.min(100, Math.round((rev / maxRev) * 100));
+          return `
+            <div class="bar-item">
+              <div class="bar-label" title="${item.product}">${item.product}</div>
+              <div class="bar-container">
+                <div class="bar-fill" style="width: ${pct}%;"></div>
+              </div>
+              <div class="bar-value">$${rev.toLocaleString()}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // 3. Render Table
+      const tableBody = document.getElementById('tableBody');
+      if (items.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No records found</td></tr>';
+      } else {
+        tableBody.innerHTML = items.map(item => `
+          <tr>
+            <td style="font-weight: 500;">${item.product}</td>
+            <td>${item.category || '-'}</td>
+            <td>${Number(item.units_sold || 0).toLocaleString()}</td>
+            <td>$${Number(item.revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+            <td><span class="star-rating">★</span> ${item.rating ? Number(item.rating).toFixed(1) : '-'}</td>
+          </tr>
+        `).join('');
+      }
+
+      notifySize();
+    }
+
+    // Auto notify size on resize
+    window.addEventListener('resize', notifySize);
+    window.addEventListener('load', notifySize);
+  </script>
+</body>
+</html>

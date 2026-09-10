@@ -19,6 +19,14 @@ var staticContent embed.FS
 func webRouter() (chi.Router, error) {
 	r := chi.NewRouter()
 	r.Use(middleware.StripSlashes)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	// direct routes for html pages to provide clean URLs
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) { serveHTML(w, r, "static/index.html") })
@@ -33,6 +41,10 @@ func webRouter() (chi.Router, error) {
 }
 
 func serveHTML(w http.ResponseWriter, r *http.Request, filepath string) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+
 	file, err := staticContent.Open(filepath)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)

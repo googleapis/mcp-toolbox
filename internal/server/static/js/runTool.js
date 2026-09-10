@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import { isParamIncluded } from "./toolDisplay.js";
+import { createMcpHeaders, createMcpRequestBody } from "./mcpClient.js";
 
 /**
  * Runs a specific tool using the /api/tools/toolName/invoke endpoint
@@ -23,11 +24,19 @@ import { isParamIncluded } from "./toolDisplay.js";
  * @param {!HTMLInputElement} prettifyCheckbox The checkbox to control JSON formatting.
  * @param {function(?Object): void} updateLastResults Callback to store the last results.
  */
-export async function handleRunTool(toolId, form, responseArea, parameters, prettifyCheckbox, updateLastResults, headers) {
+export async function handleRunTool(toolId, form, responseArea, parameters, prettifyCheckbox, updateLastResults, headers, uiMeta) {
     const formData = new FormData(form);
     const typedParams = {};
     responseArea.value = 'Running tool...';
     updateLastResults(null);
+
+    const isAppTool = Boolean(uiMeta && uiMeta.resourceUri);
+    const iframe = isAppTool ? document.getElementById(`mcp-app-iframe-${toolId}`) : null;
+    const statusElement = isAppTool ? document.querySelector(`#mcp-app-container-${toolId} .mcp-app-status`) : null;
+
+    if (statusElement) {
+        statusElement.textContent = 'Running tool...';
+    }
 
     for (const param of parameters) {
         const NAME = param.name;
@@ -49,11 +58,24 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
             }
 
             // process remaining types
-            if (VALUE_TYPE && VALUE_TYPE.startsWith('array<')) {
+            if (VALUE_TYPE && (VALUE_TYPE.startsWith('array<') || VALUE_TYPE === 'array')) {
                 typedParams[NAME] = parseArrayParameter(RAW_VALUE, VALUE_TYPE, NAME);
+            } else if (VALUE_TYPE === 'object') {
+                if (!RAW_VALUE || RAW_VALUE.trim() === '') {
+                    typedParams[NAME] = {};
+                } else if (RAW_VALUE.trim().startsWith('{')) {
+                    try {
+                        typedParams[NAME] = JSON.parse(RAW_VALUE.trim());
+                    } catch (e) {
+                        throw new Error(`Invalid JSON object format for ${NAME}: ${e.message}`);
+                    }
+                } else {
+                    typedParams[NAME] = RAW_VALUE;
+                }
             } else {
                 switch (VALUE_TYPE) {
                     case 'number':
+                    case 'integer':
                         if (RAW_VALUE === "") {
                             console.debug(`Param ${NAME} was empty, setting to empty string.`)
                             typedParams[NAME] = "";
@@ -74,27 +96,19 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
         } catch (error) {
             console.error('Error processing parameter:', NAME, error);
             responseArea.value = `Error for ${NAME}: ${error.message}`;
+            if (statusElement) statusElement.textContent = 'Error';
             return; 
         }
     }
 
     console.debug('Running tool:', toolId, 'with typed params:', typedParams);
     try {
-        const body = {
-            jsonrpc: "2.0",
-            id: "2",
-            method: "tools/call",
-            params: {
-                name: toolId,
-                arguments: typedParams
-            }
-        };
+        const body = createMcpRequestBody("tools/call", {
+            name: toolId,
+            arguments: typedParams
+        }, "2");
 
-        const mcpHeaders = { 
-            ...headers, 
-            'Content-Type': 'application/json',
-            'MCP-Protocol-Version': '2025-11-25'
-        };
+        const mcpHeaders = createMcpHeaders("tools/call", toolId, headers);
 
         const response = await fetch(`/mcp`, {
             method: 'POST',
@@ -110,9 +124,104 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
         const results = await response.json();
         updateLastResults(results);
         displayResults(results, responseArea, prettifyCheckbox.checked);
+
+        if (statusElement) {
+            statusElement.textContent = results.error ? 'Tool Error' : 'App Active';
+        }
+
+        // Send MCP App postMessage to iframe if this is an App tool
+        if (iframe && iframe.contentWindow) {
+            let parsedData = null;
+            try {
+                if (results.result && Array.isArray(results.result.content)) {
+                    const textItems = results.result.content.filter(c => c.type === 'text');
+                    if (textItems.length === 1) {
+                        parsedData = JSON.parse(textItems[0].text);
+                    } else if (textItems.length > 1) {
+                        try {
+                            parsedData = textItems.map(c => JSON.parse(c.text));
+                        } catch {
+                            parsedData = textItems.map(c => c.text);
+                        }
+                    }
+                } else if (results.result) {
+                    parsedData = results.result;
+                }
+            } catch (e) {
+                parsedData = results.result;
+            }
+
+            let structuredContent = results.result?.structuredContent;
+            if (!structuredContent) {
+                if (parsedData !== null && typeof parsedData === 'object') {
+                    if (Array.isArray(parsedData)) {
+                        structuredContent = { data: parsedData };
+                    } else {
+                        structuredContent = { ...parsedData };
+                    }
+                } else if (parsedData !== null) {
+                    structuredContent = { result: parsedData };
+                } else {
+                    structuredContent = {};
+                }
+            }
+
+            // If tabular or visualization data is present, attach queryData and visualizationData for visualization components
+            const rawData = structuredContent.data || (Array.isArray(parsedData) ? parsedData : []);
+            if (!structuredContent.visualizationData && (rawData.length > 0 || structuredContent.vis_config || structuredContent.fields)) {
+                let visConfig = { type: 'table' };
+                if (structuredContent.vis_config) {
+                    try {
+                        visConfig = typeof structuredContent.vis_config === 'string' ? JSON.parse(structuredContent.vis_config) : structuredContent.vis_config;
+                    } catch (e) {
+                        visConfig = { type: structuredContent.vis_config };
+                    }
+                }
+
+                structuredContent.visualizationData = {
+                    queryResult: {
+                        data: rawData,
+                        fields: structuredContent.fields,
+                        pivots: structuredContent.pivots || [],
+                        totals_data: structuredContent.totals_data
+                    },
+                    visConfig: visConfig,
+                    title: visConfig?.title || structuredContent.title || (structuredContent.explore ? `${structuredContent.explore} query` : 'Visualization'),
+                    query: {
+                        id: structuredContent.query_id || structuredContent.qid || typedParams?.query_id,
+                        model: structuredContent.model || typedParams?.model,
+                        view: structuredContent.explore || structuredContent.view || typedParams?.explore,
+                        fields: structuredContent.fields || typedParams?.fields,
+                        filters: structuredContent.filters || typedParams?.filters,
+                        pivots: structuredContent.pivots || typedParams?.pivots,
+                        sorts: structuredContent.sorts || typedParams?.sorts,
+                        limit: structuredContent.limit || typedParams?.limit
+                    }
+                };
+            }
+            if (rawData.length > 0 && !structuredContent.queryData) {
+                structuredContent.queryData = rawData;
+            }
+
+            const toolResultNotification = {
+                jsonrpc: "2.0",
+                method: "ui/notifications/tool-result",
+                params: {
+                    content: results.result?.content || [
+                        { type: "text", text: typeof results.result === 'string' ? results.result : JSON.stringify(results.result) }
+                    ],
+                    isError: !!results.error,
+                    structuredContent: structuredContent
+                }
+            };
+
+            console.debug("Sending MCP App notification to iframe:", toolResultNotification);
+            iframe.contentWindow.postMessage(toolResultNotification, '*');
+        }
     } catch (error) {
         console.error('Error running tool:', error);
         responseArea.value = `Error: ${error.message}`;
+        if (statusElement) statusElement.textContent = 'Error';
         updateLastResults(null);
     }
 }
@@ -126,16 +235,29 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
  * @throws {Error} If parsing or type validation fails.
  */
 function parseArrayParameter(rawValue, valueType, paramName) {
-    const ELEMENT_TYPE = valueType.substring(6, valueType.length - 1);
+    if (!rawValue || typeof rawValue !== 'string' || rawValue.trim() === '') {
+        return [];
+    }
+
+    const trimmed = rawValue.trim();
+    const ELEMENT_TYPE = valueType.startsWith('array<')
+        ? valueType.substring(6, valueType.length - 1)
+        : 'string';
+
     let parsedArray;
-    try {
-        parsedArray = JSON.parse(rawValue);
-    } catch (e) {
-        throw new Error(`Invalid JSON format for ${paramName}. Expected an array. ${e.message}`);
+    if (trimmed.startsWith('[')) {
+        try {
+            parsedArray = JSON.parse(trimmed);
+        } catch (e) {
+            throw new Error(`Invalid JSON format for ${paramName}. Expected a JSON array (e.g. ["a", "b"]): ${e.message}`);
+        }
+    } else {
+        // Support comma-separated strings for convenience in the Playground UI
+        parsedArray = trimmed.split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(s => s.length > 0);
     }
 
     if (!Array.isArray(parsedArray)) {
-        throw new Error(`Input for ${paramName} must be a JSON array (e.g., ["a", "b"]).`);
+        throw new Error(`Input for ${paramName} must be an array (e.g., ["a", "b"] or a, b).`);
     }
 
     return parsedArray.map((item, index) => {
@@ -150,7 +272,7 @@ function parseArrayParameter(rawValue, valueType, paramName) {
                 return item === true || String(item).toLowerCase() === 'true';
             case 'string':
             default:
-                return item;
+                return String(item);
         }
     });
 }
