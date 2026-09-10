@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Create Hugo version list update PR
+      - name: Create Hugo version list update branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
@@ -100,37 +100,41 @@ jobs:
           fi
 
           git commit -m "chore: update docs version config for ${TARGET_VERSION}"
+          
+          # The GITHUB_TOKEN has contents: write, so it CAN push new branches
           git push origin "$NEW_BRANCH" --force
 
-          # Check if PR against main already exists
-          EXISTING_PR=$(gh pr list --head "$NEW_BRANCH" --base main --json url --jq '.[0].url')
+          # ---------------------------------------------------------
+          # ZERO-TOKEN WORKAROUND: Generate a pre-filled PR creation link
+          # ---------------------------------------------------------
+          
+          PR_TITLE="chore: update docs config for ${TARGET_VERSION}"
+          PR_BODY="Automated update to \`hugo.cloudflare.toml\` for upcoming release **${TARGET_VERSION}**.
+          
+          Merge this into \`main\` just before merging Release PR #${PR_NUMBER}. Release Please will automatically sync this into the release PR."
+          
+          # URL-encode the title and body safely using Python
+          ENCODED_TITLE=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_TITLE")
+          ENCODED_BODY=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_BODY")
+          
+          # Construct the GitHub Compare URL
+          COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${NEW_BRANCH}?expand=1&title=${ENCODED_TITLE}&body=${ENCODED_BODY}"
 
-          if [ -z "$EXISTING_PR" ]; then
-            PR_URL=$(gh pr create \
-              --base main \
-              --head "$NEW_BRANCH" \
-              --title "chore: update docs config for ${TARGET_VERSION}" \
-              --body "Automated update to \`hugo.cloudflare.toml\` for upcoming release **${TARGET_VERSION}**.
-              
-              Merge this into \`main\` just before merging Release PR #${PR_NUMBER}. Release Please will automatically sync this into the release PR.")
-            
-            echo "Created PR for main: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
-          else
-            PR_URL="$EXISTING_PR"
-            echo "PR for main already exists: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          COMMENT_BODY="### ⚠️ Action Required: Docs Config Update
           
-          COMMENT_BODY="Hugo config update PR is ready: **[Review and merge PR]($PR_URL)**.
+          GitHub Actions is restricted from opening Pull Requests automatically. However, the update script has run and the branch is ready!
           
-          Merge that PR into \`main\` just before merging Release PR."
+          👉 **[Click here to open the docs config PR yourself]($COMPARE_URL)**
+          
+          *Because you open it, your credentials are used, and CI checks will run normally. Please open and merge that PR into \`main\` before merging this Release PR.*"
 
           # Search for an existing comment starting with our specific string
-          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            -q '.[] | select(.body | startswith("Hugo config update PR is ready:")) | .id' | head -n 1)
+          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -q '.[] | select(.body | startswith("### ⚠️ Action Required: Docs Config Update")) | .id' | head -n 1)
 
           if [ -n "$COMMENT_ID" ]; then
             # Update existing comment
-            gh api --method PATCH "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
               -f body="$COMMENT_BODY" > /dev/null
           else
             # Create new comment
