@@ -309,10 +309,17 @@ func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, ur
 	}
 
 	return GetGroupResult{
-		Name:              g.Name,
-		Tools:             listToolsResult.Tools,
-		Prompts:           listPromptsResult.Prompts,
-		Resources:         listResourcesResult.Resources,
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      g.GetTTLMs(),
+			CacheScope: cacheScope(g.GetCacheScope()),
+		},
+		Name:    g.Name,
+		Tools:   listToolsResult.Tools,
+		Prompts: listPromptsResult.Prompts,
+    Resources:         listResourcesResult.Resources,
 		ResourceTemplates: listTemplatesResult.ResourceTemplates,
 	}, nil
 }
