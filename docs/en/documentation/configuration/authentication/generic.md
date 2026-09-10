@@ -98,7 +98,8 @@ When a request is received in this mode, the service will:
 
 1. Extract the token from the `Authorization` header after `Bearer ` prefix.
 2. Determine if the token is a JWT or an opaque token based on format (JWTs
-   contain exactly two dots).
+   contain exactly two dots), unless `forceIntrospection` is set to `true` (see
+   below), in which case every token is always treated as opaque.
 3. For **JWTs**:
    - Validates signature using JWKS fetched from `authorizationServer`.
    - Verifies expiration (`exp`) and audience (`aud`).
@@ -122,6 +123,29 @@ scopesRequired:
   - read
   - write
 ```
+
+#### Forcing Introspection-Only Validation
+
+Some identity providers issue JWT-formatted access tokens but still want
+token revocation enforced via introspection (RFC 7662) rather than trusting a
+locally-cached JWKS signature check.  Set `forceIntrospection: true` to always
+validate tokens via the introspection endpoint, even when the token is JWT-shaped.
+
+#### Authenticating to the Introspection Endpoint
+
+Some identity providers require the caller to authenticate itself when
+hitting the introspection endpoint (RFC 7662 client authentication), typically
+via an `Authorization: Basic <base64(client_id:client_secret)>` header.  Since
+a secret is required, these are set as environment variables instead:
+
+```bash
+export INTROSPECTION_CLIENT_ID="client_id"
+export INTROSPECTION_CLIENT_SECRET="client_secret"
+```
+
+If both are set, an HTTP Basic Authorization header is added to every introspection
+request it makes.  If neither are set, no Authorization header is added.  If only one is set,
+a warning is logged and is treated as if neither were set.
 
 #### Google Authentication Note
 
@@ -192,3 +216,4 @@ ${ENV_NAME} instead of hardcoding your secrets into the configuration file.
 | introspectionEndpoint  |  string  |    false     | Optional override for the token introspection URL. Useful if the provider does not list it in OIDC discovery (e.g., Google). Disallowed if `mcpEnabled` is false.                                   |
 | introspectionMethod    |  string  |    false     | HTTP method to use for introspection. Defaults to "POST". Set to "GET" for providers like Google. Disallowed if `mcpEnabled` is false.                                                               |
 | introspectionParamName |  string  |    false     | Parameter name for the token in the introspection request. Defaults to "token". Set to "access_token" for Google. Disallowed if `mcpEnabled` is false.                                               |
+| forceIntrospection     |  bool    |    false     | If true, always validates tokens via the introspection endpoint, even if the token is JWT-shaped. Disallowed if `mcpEnabled` is false.                                               |

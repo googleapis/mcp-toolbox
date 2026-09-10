@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -33,6 +34,11 @@ import (
 )
 
 const AuthServiceType string = "generic"
+
+const (
+	IntrospectionClientIDEnvVar     = "INTROSPECTION_CLIENT_ID"
+	IntrospectionClientSecretEnvVar = "INTROSPECTION_CLIENT_SECRET"
+)
 
 // validate interface
 var _ auth.AuthServiceConfig = Config{}
@@ -48,6 +54,7 @@ type Config struct {
 	IntrospectionEndpoint  string   `yaml:"introspectionEndpoint"`
 	IntrospectionMethod    string   `yaml:"introspectionMethod"`
 	IntrospectionParamName string   `yaml:"introspectionParamName"`
+	ForceIntrospection     bool     `yaml:"forceIntrospection"`
 }
 
 // Returns the auth service type
@@ -74,6 +81,9 @@ func (cfg Config) Initialize() (auth.AuthService, error) {
 		if len(cfg.ScopesRequired) > 0 {
 			return nil, fmt.Errorf("`scopesRequired` is not allowed when `mcpEnabled` is false")
 		}
+		if cfg.ForceIntrospection {
+			return nil, fmt.Errorf("`forceIntrospection` is not allowed when `mcpEnabled` is false")
+		}
 	}
 	httpClient := newSecureHTTPClient()
 
@@ -88,18 +98,31 @@ func (cfg Config) Initialize() (auth.AuthService, error) {
 		introspectionURL = cfg.IntrospectionEndpoint
 	}
 
-	// Create the keyfunc to fetch and cache the JWKS in the background
-	kf, err := keyfunc.NewDefault([]string{jwksURL})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create keyfunc from JWKS URL %s: %w", jwksURL, err)
+	var kf keyfunc.Keyfunc
+	if !cfg.ForceIntrospection {
+		// Create the keyfunc to fetch and cache the JWKS in the background
+		kf, err = keyfunc.NewDefault([]string{jwksURL})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create keyfunc from JWKS URL %s: %w", jwksURL, err)
+		}
+	}
+
+	introspectionClientID := os.Getenv(IntrospectionClientIDEnvVar)
+	introspectionClientSecret := os.Getenv(IntrospectionClientSecretEnvVar)
+	if introspectionClientID == "" || introspectionClientSecret == "" {
+		log.Printf("WARNING: Introspection client ID or secret not set in environment variables %s and %s. Will not be used until both are set.", IntrospectionClientIDEnvVar, IntrospectionClientSecretEnvVar)
+		introspectionClientID = ""
+		introspectionClientSecret = ""
 	}
 
 	a := &AuthService{
-		Config:           cfg,
-		kf:               kf,
-		client:           httpClient,
-		introspectionURL: introspectionURL,
-		issuer:           issuer,
+		Config:                    cfg,
+		kf:                        kf,
+		client:                    httpClient,
+		introspectionURL:          introspectionURL,
+		issuer:                    issuer,
+		introspectionClientID:     introspectionClientID,
+		introspectionClientSecret: introspectionClientSecret,
 	}
 	return a, nil
 }
@@ -184,10 +207,12 @@ var _ auth.MCPAuthService = AuthService{}
 // struct used to store auth service info
 type AuthService struct {
 	Config
-	kf               keyfunc.Keyfunc
-	client           *http.Client
-	introspectionURL string
-	issuer           string
+	kf                        keyfunc.Keyfunc
+	client                    *http.Client
+	introspectionURL          string
+	issuer                    string
+	introspectionClientID     string
+	introspectionClientSecret string
 }
 
 // Returns the auth service type
@@ -280,7 +305,7 @@ func (a AuthService) ValidateMCPAuth(ctx context.Context, h http.Header) (map[st
 
 	tokenStr := headerParts[1]
 
-	if isJWTFormat(tokenStr) {
+	if !a.ForceIntrospection && isJWTFormat(tokenStr) {
 		return a.validateJwtToken(ctx, tokenStr)
 	}
 	return a.validateOpaqueToken(ctx, tokenStr)
@@ -382,6 +407,10 @@ func (a AuthService) validateOpaqueToken(ctx context.Context, tokenStr string) (
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	req.Header.Set("Accept", "application/json")
+
+	if a.introspectionClientID != "" {
+		req.SetBasicAuth(a.introspectionClientID, a.introspectionClientSecret)
+	}
 
 	// Send request to auth server's introspection endpoint
 	resp, err := a.client.Do(req)
