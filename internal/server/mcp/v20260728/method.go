@@ -23,8 +23,6 @@ import (
 	"io/fs"
 	"maps"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
@@ -245,13 +243,12 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
 	var clientExts map[string]any
-	var supportsUI bool
 	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
 		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
-		supportsUI = ClientSupportsUI(req.Params.Meta.MetaClientCapabilities)
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
 	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
+	supportsUI := CheckUISupport(supportedExts)
 	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
@@ -881,13 +878,12 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
 	var clientExts map[string]any
-	var supportsUI bool
 	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
 		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
-		supportsUI = ClientSupportsUI(req.Params.Meta.MetaClientCapabilities)
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
 	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
+	supportsUI := CheckUISupport(supportedExts)
 	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
@@ -984,23 +980,6 @@ func resourceTemplatesListHandler(ctx context.Context, id jsonrpc.RequestId, pri
 	}, nil
 }
 
-// matchResourceTemplateURI matches a URI against a URI template containing {path}.
-func matchResourceTemplateURI(tmpl, uri string) (map[string]any, bool) {
-	if strings.Contains(tmpl, "{path}") {
-		regexPattern := regexp.QuoteMeta(tmpl)
-		regexPattern = strings.ReplaceAll(regexPattern, "\\{path\\}", "(.*)")
-		re, err := regexp.Compile("^" + regexPattern + "$")
-		if err != nil {
-			return nil, false
-		}
-		matches := re.FindStringSubmatch(uri)
-		if len(matches) == 2 {
-			return map[string]any{"path": matches[1]}, true
-		}
-	}
-	return nil, false
-}
-
 // getResourceOrTemplateByURI looks up a resource by exact URI match within a group.
 // If not found, it attempts to match against resource templates (e.g. file://{path}).
 // If still not found, it attempts to match against globally available UI resources/templates.
@@ -1016,23 +995,19 @@ func getResourceOrTemplateByURI(uri string, g group.Group, primitiveMgr *primiti
 
 	for _, name := range g.ResourceTemplateNames {
 		if rt, ok := primitiveMgr.GetResourceTemplate(name); ok {
-			if params, ok := matchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
+			if params, ok := primitives.MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
 				return nil, rt, params, nil
 			}
 		}
 	}
 
 	// UI resources and templates are globally accessible and not limited to specific groups.
-	for _, res := range primitiveMgr.GetUIResources() {
-		if res.GetURI() == uri {
-			return res, nil, nil, nil
-		}
+	if res, ok := primitiveMgr.GetUIResourceFromURI(uri); ok {
+		return res, nil, nil, nil
 	}
 
-	for _, rt := range primitiveMgr.GetUIResourceTemplates() {
-		if params, ok := matchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
-			return nil, rt, params, nil
-		}
+	if rt, params, ok := primitiveMgr.GetUIResourceTemplateByURI(uri); ok {
+		return nil, rt, params, nil
 	}
 
 	return nil, nil, nil, fmt.Errorf("no resource or template found for URI: %s", uri)

@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -206,7 +205,7 @@ func TestParamManifest(t *testing.T) {
 				Required: []string{"foo-string2", "foo-string3-auth", "foo-int2", "foo-float", "foo-array2", "foo-map-int", "foo-map-any"},
 			},
 			wantAuthParam: map[string][]string{
-				"foo-string3-auth": []string{"my-google-auth-service", "other-auth-service"},
+				"foo-string3-auth": {"my-google-auth-service", "other-auth-service"},
 			},
 		},
 		{
@@ -283,7 +282,7 @@ func TestGenerateListToolsResult(t *testing.T) {
 				CacheScope: cacheScopePublic,
 			},
 			Tools: []Tool{
-				Tool{
+				{
 					BaseMetadata: BaseMetadata{Name: "no_params"},
 					Description:  "",
 					ToolInputSchema: InputSchema{
@@ -292,20 +291,20 @@ func TestGenerateListToolsResult(t *testing.T) {
 						Required:   []string{},
 					},
 				},
-				Tool{
+				{
 					BaseMetadata: BaseMetadata{Name: "some_params"},
 					Description:  "",
 					ToolInputSchema: InputSchema{
 						Type: "object",
 						Properties: map[string]parameters.ParameterMcpManifest{
-							"param1": parameters.ParameterMcpManifest{
+							"param1": {
 								Type:                 "integer",
 								Description:          "This is the first parameter.",
 								Items:                nil,
 								Default:              nil,
 								AdditionalProperties: nil,
 							},
-							"param2": parameters.ParameterMcpManifest{
+							"param2": {
 								Type:                 "integer",
 								Description:          "This is the second parameter.",
 								Items:                nil,
@@ -367,18 +366,25 @@ func TestGenerateListToolsResult(t *testing.T) {
 		}
 	})
 
-	t.Run("ui metadata missing resource", func(t *testing.T) {
-		toolInvalid := testutils.NewMockToolWithUI("tool-invalid", "", "", nil, false, false, "missing-res")
-		toolsMap := map[string]tools.Tool{"tool-invalid": toolInvalid}
+	t.Run("ui metadata fallback when resource not in primitive manager", func(t *testing.T) {
+		toolDirectURI := testutils.NewMockToolWithUI("tool-direct", "", "", nil, false, false, "ui://direct-uri")
+		toolsMap := map[string]tools.Tool{"tool-direct": toolDirectURI}
 		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
-		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-invalid"}})
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-direct"}})
 
-		_, err := GenerateListToolsResult(pMgr, g, nil, false, true)
-		if err == nil {
-			t.Fatal("expected error, got nil")
+		res, err := GenerateListToolsResult(pMgr, g, nil, false, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(err.Error(), "unable to retrieve UI resource \"missing-res\" for tool \"tool-invalid\"") {
-			t.Errorf("unexpected error message: %v", err)
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		uiMeta, ok := res.Tools[0].Metadata["ui"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected metadata to have ui map, got %v", res.Tools[0].Metadata["ui"])
+		}
+		if uiMeta["resourceUri"] != "ui://direct-uri" {
+			t.Errorf("expected resourceUri=ui://direct-uri, got %v", uiMeta["resourceUri"])
 		}
 	})
 
@@ -463,16 +469,16 @@ func TestGenerateListPromptsResult(t *testing.T) {
 			CacheScope: cacheScopePublic,
 		},
 		Prompts: []Prompt{
-			Prompt{
+			{
 				BaseMetadata: BaseMetadata{Name: "prompt1"},
 				Description:  "First test prompt",
 				Arguments:    []PromptArgument{},
 			},
-			Prompt{
+			{
 				BaseMetadata: BaseMetadata{Name: "prompt2"},
 				Description:  "Second test prompt",
 				Arguments: []PromptArgument{
-					PromptArgument{
+					{
 						BaseMetadata: BaseMetadata{Name: "arg1"},
 						Description:  "Test argument",
 						Required:     true,

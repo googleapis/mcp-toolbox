@@ -16,7 +16,9 @@ package primitives
 
 import (
 	"cmp"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
@@ -151,36 +153,48 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 	return copiedMap
 }
 
-// GetUIResources returns a copy of all registered UI resources sorted by name.
-func (r *PrimitiveManager) GetUIResources() []resources.Resource {
+// GetUIResourceFromURI returns a UI resource by matching its URI.
+func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var uiResources []resources.Resource
 	for _, res := range r.resources {
-		if res.GetResourceUIMetadata() != nil {
-			uiResources = append(uiResources, res)
+		if res.GetResourceUIMetadata() != nil && res.GetURI() == uri {
+			return res, true
 		}
 	}
-	slices.SortFunc(uiResources, func(a, b resources.Resource) int {
-		return cmp.Compare(a.GetName(), b.GetName())
-	})
-	return uiResources
+	return nil, false
 }
 
-// GetUIResourceTemplates returns a copy of all registered UI resource templates sorted by name.
-func (r *PrimitiveManager) GetUIResourceTemplates() []resources.ResourceTemplate {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var uiTemplates []resources.ResourceTemplate
-	for _, rt := range r.resourceTemplates {
-		if rt.GetResourceUIMetadata() != nil {
-			uiTemplates = append(uiTemplates, rt)
+// MatchResourceTemplateURI matches a URI against a URI template containing {path}.
+func MatchResourceTemplateURI(tmpl, uri string) (map[string]any, bool) {
+	if strings.Contains(tmpl, "{path}") {
+		regexPattern := regexp.QuoteMeta(tmpl)
+		regexPattern = strings.ReplaceAll(regexPattern, "\\{path\\}", "(.*)")
+		re, err := regexp.Compile("^" + regexPattern + "$")
+		if err != nil {
+			return nil, false
+		}
+		matches := re.FindStringSubmatch(uri)
+		if len(matches) == 2 {
+			return map[string]any{"path": matches[1]}, true
 		}
 	}
-	slices.SortFunc(uiTemplates, func(a, b resources.ResourceTemplate) int {
-		return cmp.Compare(a.GetName(), b.GetName())
-	})
-	return uiTemplates
+	return nil, false
+}
+
+// GetUIResourceTemplateByURI matches a URI against registered UI resource templates
+// and returns the matching template along with extracted template parameters.
+func (r *PrimitiveManager) GetUIResourceTemplateByURI(uri string) (resources.ResourceTemplate, map[string]any, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, rt := range r.resourceTemplates {
+		if rt.GetResourceUIMetadata() != nil {
+			if params, ok := MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
+				return rt, params, true
+			}
+		}
+	}
+	return nil, nil, false
 }
 
 // GroupsList returns a copy of the groups list sorted alphabetically by name
