@@ -639,6 +639,126 @@ type TextResourceContents struct {
 	Text string `json:"text"`
 }
 
+// Content Security Policy configuration for UI resources.
+//
+// Servers declare which origins their UI requires. Hosts use this to enforce appropriate CSP headers.
+//
+// MCP App HTML runs in a sandboxed iframe with no same-origin server.
+// All origins must be declared—including where your bundled JS/CSS is
+// served from (localhost in dev, your CDN in production).
+type McpUiResourceCsp struct {
+	// Origins for network requests (fetch/XHR/WebSocket).
+	//
+	// - Maps to CSP connect-src directive
+	// - Empty or omitted → no network connections (secure default)
+	ConnectDomains []string `yaml:"connectDomains,omitempty" json:"connectDomains,omitempty"`
+	// Origins for static resources (images, scripts, stylesheets, fonts, media).
+	//
+	// - Maps to CSP img-src, script-src, style-src, font-src, media-src directives
+	// - Wildcard subdomains supported: https://*.example.com
+	// - Empty or omitted → no network resources (secure default)
+	ResourceDomains []string `yaml:"resourceDomains,omitempty" json:"resourceDomains,omitempty"`
+	// Origins for nested iframes.
+	//
+	// - Maps to CSP frame-src directive
+	// - Empty or omitted → no nested iframes allowed (frame-src 'none')
+	FrameDomains []string `yaml:"frameDomains,omitempty" json:"frameDomains,omitempty"`
+	// Allowed base URIs for the document.
+	//
+	// - Maps to CSP base-uri directive
+	// - Empty or omitted → only same origin allowed (base-uri 'self')
+	BaseUriDomains []string `yaml:"baseUriDomains,omitempty" json:"baseUriDomains,omitempty"`
+}
+
+// Sandbox permissions requested by the UI resource.
+//
+// Servers declare which browser capabilities their UI needs.
+// Hosts MAY honor these by setting appropriate iframe allow attributes.
+// Apps SHOULD NOT assume permissions are granted; use JS feature detection as fallback.
+type McpUiResourcePermissions struct {
+	// Request camera access.
+	//
+	// Maps to Permission Policy camera feature.
+	Camera *struct{} `yaml:"camera,omitempty" json:"camera,omitempty"`
+	// Request microphone access.
+	//
+	// Maps to Permission Policy microphone feature.
+	Microphone *struct{} `yaml:"microphone,omitempty" json:"microphone,omitempty"`
+	// Request geolocation access.
+	//
+	// Maps to Permission Policy geolocation feature.
+	Geolocation *struct{} `yaml:"geolocation,omitempty" json:"geolocation,omitempty"`
+	// Request clipboard write access.
+	//
+	// Maps to Permission Policy clipboard-write feature.
+	ClipboardWrite *struct{} `yaml:"clipboardWrite,omitempty" json:"clipboardWrite,omitempty"`
+}
+
+// UI Resource metadata for security and rendering configuration.
+type McpUiResourceMeta struct {
+	// Content Security Policy configuration for UI resources.
+	CSP *McpUiResourceCsp `yaml:"csp,omitempty" json:"csp,omitempty"`
+	// Sandbox permissions requested by the UI resource.
+	Permissions *McpUiResourcePermissions `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+	// Dedicated origin for view sandbox.
+	//
+	// Useful when views need stable, dedicated origins for OAuth callbacks, CORS policies, or API key allowlists.
+	//
+	// Host-dependent: The format and validation rules for this field are determined by each host.
+	// Servers MUST consult host-specific documentation for the expected domain format. Common patterns include:
+	// - Hash-based subdomains (e.g., {hash}.claudemcpcontent.com)
+	// - URL-derived subdomains (e.g., www-example-com.oaiusercontent.com)
+	//
+	// If omitted, host uses default sandbox origin (typically per-conversation).
+	Domain string `yaml:"domain,omitempty" json:"domain,omitempty"`
+	// Visual boundary preference - true if view prefers a visible border.
+	//
+	// Boolean requesting whether a visible border and background is provided by the host.
+	// Specifying an explicit value for this is recommended because hosts' defaults may vary.
+	//
+	// - true: request visible border + background
+	// - false: request no visible border + background
+	// - omitted: host decides border
+	PrefersBorder *bool `yaml:"prefersBorder,omitempty" json:"prefersBorder,omitempty"`
+}
+
+// Tool visibility scope - who can access the tool.
+type McpUiToolVisibility string
+
+const (
+	McpUiToolVisibilityModel McpUiToolVisibility = "model"
+	McpUiToolVisibilityApp   McpUiToolVisibility = "app"
+)
+
+// UI-related metadata for tools.
+type McpUiToolMeta struct {
+	// URI of the UI resource to display for this tool, if any.
+	ResourceURI string `yaml:"resourceUri,omitempty" json:"resourceUri,omitempty"`
+	// Who can access this tool. Default: ["model", "app"]
+	// - "model": Tool visible to and callable by the agent
+	// - "app": Tool callable by the app from this server only
+	Visibility []McpUiToolVisibility `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+
+	// `csp` belongs on the UI **resource** (see McpUiResourceMeta),
+	// not the tool. Hosts read it from the `resources/read` content item
+	// (with `resources/list` entry as fallback) and ignore it here.
+	CSP any `yaml:"csp,omitempty" json:"csp,omitempty"`
+	// `permissions` belongs on the UI **resource** (see McpUiResourceMeta),
+	// not the tool. Hosts ignore it here.
+	Permissions any `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+}
+
+// McpUiClientCapabilities represents MCP Apps capability settings advertised by clients to servers.
+//
+// Clients advertise these capabilities via the extensions field in their
+// capabilities during MCP initialization. Servers can check for MCP Apps
+// support using getUiCapability.
+type McpUiClientCapabilities struct {
+	// Array of supported MIME types for UI resources.
+	// Must include "text/html;profile=mcp-app" for MCP Apps support.
+	MimeTypes []string `yaml:"mimeTypes,omitempty" json:"mimeTypes,omitempty"`
+}
+
 /* Groups */
 
 // ListGroupsRequest is sent from the client to request the list of groups the

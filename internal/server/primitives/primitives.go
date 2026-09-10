@@ -16,7 +16,9 @@ package primitives
 
 import (
 	"cmp"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
@@ -149,6 +151,50 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 		copiedMap[k] = v
 	}
 	return copiedMap
+}
+
+// GetUIResourceFromURI returns a UI resource by matching its URI.
+func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, res := range r.resources {
+		if res.IsUI() && res.GetURI() == uri {
+			return res, true
+		}
+	}
+	return nil, false
+}
+
+// MatchResourceTemplateURI matches a URI against a URI template containing {path}.
+func MatchResourceTemplateURI(tmpl, uri string) (map[string]any, bool) {
+	if strings.Contains(tmpl, "{path}") {
+		regexPattern := regexp.QuoteMeta(tmpl)
+		regexPattern = strings.ReplaceAll(regexPattern, "\\{path\\}", "(.*)")
+		re, err := regexp.Compile("^" + regexPattern + "$")
+		if err != nil {
+			return nil, false
+		}
+		matches := re.FindStringSubmatch(uri)
+		if len(matches) == 2 {
+			return map[string]any{"path": matches[1]}, true
+		}
+	}
+	return nil, false
+}
+
+// GetUIResourceTemplateByURI matches a URI against registered UI resource templates
+// and returns the matching template along with extracted template parameters.
+func (r *PrimitiveManager) GetUIResourceTemplateByURI(uri string) (resources.ResourceTemplate, map[string]any, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, rt := range r.resourceTemplates {
+		if rt.IsUI() {
+			if params, ok := MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
+				return rt, params, true
+			}
+		}
+	}
+	return nil, nil, false
 }
 
 // GroupsList returns a copy of the groups list sorted alphabetically by name

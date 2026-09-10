@@ -23,8 +23,6 @@ import (
 	"io/fs"
 	"maps"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
@@ -260,9 +258,14 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
+	var clientExts map[string]any
+	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
+		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
+	}
+	supportedExts := ParseSupportedExtensions(clientExts)
 	_, hasSecureParamsSupport := supportedExts[ToolboxExtensionURI]
-	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport)
+	supportsUI := CheckUISupport(supportedExts)
+	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
@@ -911,9 +914,15 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
+	var clientExts map[string]any
+	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
+		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
+	}
+	supportedExts := ParseSupportedExtensions(clientExts)
+	supportsUI := CheckUISupport(supportedExts)
 	// validateToolboxExtension above already established that the client
 	// declared the extension, so secure params are always supported here.
-	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, true)
+	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, true, supportsUI)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
@@ -1016,6 +1025,7 @@ func resourceTemplatesListHandler(ctx context.Context, id jsonrpc.RequestId, pri
 
 // getResourceOrTemplateByURI looks up a resource by exact URI match within a group.
 // If not found, it attempts to match against resource templates (e.g. file://{path}).
+// If still not found, it attempts to match against globally available UI resources/templates.
 // Returns the matched resource OR template, plus extracted params if a template was matched.
 func getResourceOrTemplateByURI(uri string, g group.Group, primitiveMgr *primitives.PrimitiveManager) (resources.Resource, resources.ResourceTemplate, map[string]any, error) {
 	for _, name := range g.ResourceNames {
@@ -1028,21 +1038,21 @@ func getResourceOrTemplateByURI(uri string, g group.Group, primitiveMgr *primiti
 
 	for _, name := range g.ResourceTemplateNames {
 		if rt, ok := primitiveMgr.GetResourceTemplate(name); ok {
-			tmpl := rt.GetURITemplate()
-			if strings.Contains(tmpl, "{path}") {
-				regexPattern := regexp.QuoteMeta(tmpl)
-				regexPattern = strings.ReplaceAll(regexPattern, "\\{path\\}", "(.*)")
-				re, err := regexp.Compile("^" + regexPattern + "$")
-				if err != nil {
-					continue
-				}
-				matches := re.FindStringSubmatch(uri)
-				if len(matches) == 2 {
-					return nil, rt, map[string]any{"path": matches[1]}, nil
-				}
+			if params, ok := primitives.MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
+				return nil, rt, params, nil
 			}
 		}
 	}
+
+	// UI resources and templates are globally accessible and not limited to specific groups.
+	if res, ok := primitiveMgr.GetUIResourceFromURI(uri); ok {
+		return res, nil, nil, nil
+	}
+
+	if rt, params, ok := primitiveMgr.GetUIResourceTemplateByURI(uri); ok {
+		return nil, rt, params, nil
+	}
+
 	return nil, nil, nil, fmt.Errorf("no resource or template found for URI: %s", uri)
 }
 
@@ -1120,6 +1130,17 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
 
+	var contentMeta map[string]any
+	var uiMeta any
+	if res != nil && res.IsUI() {
+		uiMeta = res.GetResourceUIMetadata()
+	} else if resTmpl != nil && resTmpl.IsUI() {
+		uiMeta = resTmpl.GetResourceUIMetadata()
+	}
+	if uiMeta != nil {
+		contentMeta = map[string]any{"ui": uiMeta}
+	}
+
 	result := &ReadResourceResult{
 		Result: Result{
 			ResultType: resultTypeComplete,
@@ -1136,6 +1157,7 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 				ResourceContents: ResourceContents{
 					Uri:      uri,
 					MimeType: mimeType,
+					Metadata: contentMeta,
 				},
 				Text: textContent,
 			},

@@ -27,7 +27,7 @@ import (
 )
 
 // generateToolManifest generates Tool for list tools result
-func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string) Tool {
+func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string, uiMetadata map[string]any) Tool {
 	var standardParams parameters.Parameters
 	var secureParams parameters.Parameters
 	for _, p := range params {
@@ -66,6 +66,9 @@ func generateToolManifest(name, desc string, authInvoke []string, params paramet
 	}
 	if len(authParams) > 0 {
 		metadata["com.google.cloud/authParam"] = authParams
+	}
+	if uiMetadata != nil {
+		metadata["ui"] = uiMetadata
 	}
 	if len(metadata) > 0 {
 		mcpManifest.Metadata = metadata
@@ -115,7 +118,7 @@ func generateParamManifest(ps parameters.Parameters, urlParams map[string]string
 }
 
 // GenerateListToolsResult generates tools/list method result according to mcp schema
-func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool) (ListToolsResult, error) {
+func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool, supportsUI bool) (ListToolsResult, error) {
 	mcpManifest := make([]Tool, 0, len(g.ToolNames))
 	for _, toolName := range g.ToolNames {
 		tool, ok := pMgr.GetTool(toolName)
@@ -139,7 +142,32 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 		if tool.HasSecureParams() && !supportsSecureParams {
 			continue
 		}
-		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams)
+		var uiMeta map[string]any
+		if supportsUI {
+			if uiMetaOrig := tool.GetToolUIMetadata(); uiMetaOrig != nil {
+				if uiMetaOrig.Resource != "" {
+					var uri string
+					if res, hasRes := pMgr.GetResource(uiMetaOrig.Resource); hasRes {
+						uri = res.GetURI()
+					} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(uiMetaOrig.Resource); hasTmpl {
+						uri = tmpl.GetURITemplate()
+					} else {
+						uri = ""
+					}
+					uiMeta = map[string]any{
+						"resourceUri": uri,
+					}
+					if len(uiMetaOrig.Visibility) > 0 {
+						vis := make([]string, len(uiMetaOrig.Visibility))
+						for i, v := range uiMetaOrig.Visibility {
+							vis[i] = string(v)
+						}
+						uiMeta["visibility"] = vis
+					}
+				}
+			}
+		}
+		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams, uiMeta)
 		mcpManifest = append(mcpManifest, toolManifest)
 	}
 	res := ListToolsResult{
@@ -238,6 +266,10 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if !ok {
 			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
 		}
+		// If Resource is of type UI skip adding it to the list/resources response.
+		if res.IsUI() {
+			continue
+		}
 		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
 	}
 	return ListResourcesResult{
@@ -275,6 +307,10 @@ func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g gr
 		if !ok {
 			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
 		}
+		// If Resource Template is of type UI skip adding it to the resources/templates/list response.
+		if tmpl.IsUI() {
+			continue
+		}
 		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetTitle(), tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType(), tmpl.GetAnnotations()))
 	}
 	return ListResourceTemplatesResult{
@@ -290,8 +326,8 @@ func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g gr
 }
 
 // GenerateGetGroupResult generates the groups/get result for a single group's primitives.
-func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool) (GetGroupResult, error) {
-	listToolsResult, err := GenerateListToolsResult(pMgr, g, urlParams, supportsSecureParams)
+func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsSecureParams bool, supportsUI bool) (GetGroupResult, error) {
+	listToolsResult, err := GenerateListToolsResult(pMgr, g, urlParams, supportsSecureParams, supportsUI)
 	if err != nil {
 		return GetGroupResult{}, fmt.Errorf("error generating tools manifest: %w", err)
 	}
