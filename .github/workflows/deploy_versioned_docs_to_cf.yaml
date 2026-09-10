@@ -40,7 +40,7 @@ jobs:
         with:
           ref: cloudflare-pages
           path: cf-pages-branch
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Prune old versions from cloudflare-pages
         run: |
@@ -154,7 +154,7 @@ jobs:
         with:
           ref: cloudflare-pages
           path: cf-pages-root-temp
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Deploy to root
         env:
