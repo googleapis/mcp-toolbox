@@ -354,6 +354,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 
 	toolParams, err := tool.GetParameters(src)
 	if err != nil {
+		err = fmt.Errorf("error getting parameters for tool: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
 
@@ -1190,6 +1191,10 @@ func validateAndMergeSecureParams(ctx context.Context, req *CallToolRequest, par
 				}
 			}
 		}
+	}
+
+	if req.Params.Arguments == nil && req.Params.SecureArguments == nil {
+		return nil, nil, nil
 	}
 
 	// Merge standard arguments and secure arguments.
