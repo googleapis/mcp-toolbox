@@ -780,3 +780,30 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestSource_AppendJobLabels(t *testing.T) {
+	ctx := util.WithSQLCommenterEnabled(context.Background(), false)
+	ctx = util.WithGenAIMetricAttrs(ctx, &util.GenAIMetricAttrs{ToolName: "analyze_contribution"})
+	explicit := map[string]string{"mcp-toolbox-tool": "bigquery-analyze-contribution"}
+
+	tcs := []struct {
+		desc                string
+		sqlCommenter        *bool
+		wantCommenterLabels bool
+	}{
+		{desc: "override on adds commenter labels", sqlCommenter: testutils.BoolPtr(true), wantCommenterLabels: true},
+		{desc: "override off returns labels unchanged", sqlCommenter: testutils.BoolPtr(false), wantCommenterLabels: false},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			s := &bigquery.Source{Config: bigquery.Config{SQLCommenter: tc.sqlCommenter}}
+			got := s.AppendJobLabels(ctx, explicit)
+			if got["mcp-toolbox-tool"] != "bigquery-analyze-contribution" {
+				t.Errorf("explicit label not preserved: %v", got)
+			}
+			if hasToolName := got["tool_name"] != ""; hasToolName != tc.wantCommenterLabels {
+				t.Errorf("tool_name present = %v, want %v (labels: %v)", hasToolName, tc.wantCommenterLabels, got)
+			}
+		})
+	}
+}

@@ -87,3 +87,9 @@ func (m *MockSource) RunSQL(ctx context.Context, client *bigqueryapi.Client, sql
 	m.CalledSQL = sql
 	return m.RunSQLResult, m.RunSQLError
 }
+
+// AppendJobLabels returns the given labels unchanged; the mock does not
+// simulate SQLCommenter attributes.
+func (m *MockSource) AppendJobLabels(_ context.Context, labels map[string]string) map[string]string {
+	return labels
+}
