@@ -152,7 +152,7 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 					} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(uiMetaOrig.Resource); hasTmpl {
 						uri = tmpl.GetURITemplate()
 					} else {
-						uri = uiMetaOrig.Resource
+						uri = ""
 					}
 					uiMeta = map[string]any{
 						"resourceUri": uri,
