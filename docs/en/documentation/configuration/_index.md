@@ -159,7 +159,9 @@ For more details on configuring different types of resources, see
 
 ### Read-Only Configuration
 
-Toolbox provides mechanisms to ensure data safety and prevent unintended modifications. Here is how you can configure read-only access and ensure safety:
+Toolbox provides an end-to-end defense-in-depth architecture to ensure data safety and prevent unintended modifications across both custom tools and prebuilt servers.
+
+For the comprehensive guide covering protocol-level session locks, write tool suppression, and MCP annotations across PostgreSQL, MySQL, AlloyDB, and BigQuery, see the dedicated **[Read-Only Tools Guide](./security/read-only.md)**.
 
 #### Custom Tools and SQL Injection Protection
 
@@ -183,9 +185,9 @@ parameters:
 statement: SELECT * FROM hotels WHERE name ILIKE '%' || $1 || '%';
 ```
 
-#### BigQuery Source Read-Only Mode
+#### Source Read-Only Mode
 
-For BigQuery sources, you can configure read-only access at the source level. This provides a hard boundary at the source connection level, ensuring that no modification operations can be performed regardless of the tool configuration.
+You can configure read-only access directly at the source level (e.g., `readOnly: true` in your source definition) or via environment variables for prebuilt servers. This establishes an immutable boundary at the database protocol level, ensuring that no modification operations can be performed regardless of tool configuration.
 
 #### Database Permissions
 
