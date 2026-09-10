@@ -9,7 +9,9 @@ description: >
 A `resource` represents read-only data or content that can be discovered and retrieved by MCP clients to provide contextual information to Large Language Models (LLMs).
 
 {{< notice note >}}
-You can use [Groups](../groups/) to organize resources and resource templates into collections. When you connect to a group's endpoint /mcp/{name}, resources/list and resources/templates/list return only the items in that group, and resources/read strictly enforces that requested URIs belong to that group. The default endpoint /mcp provides access to all resources.
+You can use [Groups](../groups/) to organize resources and resource templates into collections. When you connect to a group's endpoint `/mcp/{name}`, `resources/list` and `resources/templates/list` return only the items in that group, and `resources/read` strictly enforces that requested URIs belong to that group. The default endpoint `/mcp` provides access to all resources.
+
+Interactive UI resources (`ui: true`) are strictly global: they cannot be added to `groups[].resources` or `groups[].resourceTemplates`, and do not appear in `resources/list` or `resources/templates/list`. They are globally accessible across all endpoints via `resources/read`. See [MCP Apps](../mcp-apps/) for more information.
 {{< /notice >}}
 
 Resources are analogous to file attachments or contextual snippets: they allow the model to inspect data (such as documentation, schema definitions or log files) without needing to invoke executable tools. The Toolbox server implements the following methods from the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/docs/concepts/resources) specification:
@@ -62,7 +64,8 @@ allowedPaths:
 | `uri`         | string                                 | No           | Unique URI for the resource. Defaults to `text://{name}` for text resources, or `file:///{normalized_path}` for file resources. |
 | `description` | string                                 | No           | A brief explanation of what the resource contains.                                                           |
 | `title`       | string                                 | No           | Human-readable title for the resource.                                                                       |
-| `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files. |
+| `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files; defaults to `text/html;profile=mcp-app` when `ui: true`. |
+| `ui`          | bool                                   | No           | Set to `true` to designate this resource as an interactive UI app. UI resources are globally accessible and omitted from `resources/list`. See [MCP Apps](../mcp-apps/). |
 | `annotations` | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Resource Template Schema (`kind: resourceTemplate`)
@@ -76,7 +79,8 @@ allowedPaths:
 | `maxSize`       | int64 / string                         | No           | Maximum allowed file size in bytes (e.g., `5242880` or `5MB`). Defaults to 5MB.                             |
 | `description`    | string                                 | No           | A brief explanation of what the resource template exposes.                                                   |
 | `title`          | string                                 | No           | Human-readable title for the resource template.                                                              |
-| `mimeType`       | string                                 | No           | The default MIME type for content returned by this template.                                                 |
+| `mimeType`       | string                                 | No           | The default MIME type for content returned by this template. Defaults to `text/html;profile=mcp-app` when `ui: true`. |
+| `ui`             | bool                                   | No           | Set to `true` to designate this resource template as an interactive UI app. UI resource templates are globally accessible and omitted from `resources/templates/list`. See [MCP Apps](../mcp-apps/). |
 | `annotations`    | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Annotations Schema
@@ -90,3 +94,10 @@ Annotations provide hints to the client about how the resource content should be
 | `lastModified` | string     | No           | An RFC 3339 formatted timestamp indicating when the resource was last modified (computed dynamically for file resources).    |
 
 ## Types of Resources
+Toolbox supports the following resource primitives:
+
+- [**Text Resources**](./text/): Static text content embedded directly in your configuration file.
+- [**File Resources**](./file/): Specific files stored on disk and served as read-only resources.
+- [**Resource Templates**](./template/): Parameterized URI templates that dynamically read matching files from sandboxed directories.
+- [**MCP Apps**](../mcp-apps/): Interactive HTML web applications and tool visual interfaces for clients supporting the MCP Apps extension.
+

@@ -73,6 +73,7 @@ At startup, Toolbox validates groups:
 - **Default group restrictions.** The default group may set only a `description`; declaring `tools`, `prompts`, `resources`, `resourceTemplates`, or any other primitive list on it is an error.
 - **No duplicate names across toolsets and groups.** A `kind: toolset` is parsed as a group, so defining the same name as both a `kind: toolset` and a `kind: group` is a duplicate-name error.
 - **Valid parameters.** If specified, `ttlMs` must be non-negative (>=0), and `cacheScope` must be either `public` or `private`.
+- **No UI resources in groups.** UI resources and UI resource templates (`ui: true`) are strictly global and cannot be included in `resources` or `resourceTemplates` of any group. Attempting to add a UI resource to a group fails startup validation. (See [MCP Apps](../mcp-apps/) for details on linking tools to UI resources.)
 
 ## Relationship to toolsets
 

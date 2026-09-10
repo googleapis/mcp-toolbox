@@ -1,7 +1,7 @@
 ---
 title: "Toolbox UI"
 type: docs
-weight: 10
+weight: 11
 description: >
   How to effectively use Toolbox UI.
 ---

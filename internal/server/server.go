@@ -285,6 +285,11 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resource templates: %s", len(resourceTemplatesMap), strings.Join(resourceTemplateNames, ", ")))
 
+	// Validate that any UI resources referenced by tools exist in the resources or resource templates maps.
+	if err := validateToolUIResources(toolsMap, resourcesMap, resourceTemplatesMap); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
+
 	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
@@ -346,12 +351,38 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 		resourceTemplatesMap[name] = rt
 	}
 
+	// Validate that any UI resources referenced by tools exist in the resources or resource templates maps.
+	if err := validateToolUIResources(toolsMap, resourcesMap, resourceTemplatesMap); err != nil {
+		return nil, nil, err
+	}
+
 	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return toolsMap, groupsMap, nil
+}
+
+// validateToolUIResources validates that all UI resources referenced by tools exist in either resourcesMap or resourceTemplatesMap and are valid UI resources.
+func validateToolUIResources(toolsMap map[string]tools.Tool, resourcesMap map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate) error {
+	for toolName, tool := range toolsMap {
+		uiMeta := tool.GetToolUIMetadata()
+		if uiMeta != nil && uiMeta.Resource != "" {
+			res, hasRes := resourcesMap[uiMeta.Resource]
+			tmpl, hasTmpl := resourceTemplatesMap[uiMeta.Resource]
+			if !hasRes && !hasTmpl {
+				return fmt.Errorf("unable to retrieve UI resource %q for tool %q", uiMeta.Resource, toolName)
+			}
+			if hasRes && res.GetResourceUIMetadata() == nil {
+				return fmt.Errorf("resource %q referenced by tool %q is not a UI resource (ui: true is required)", uiMeta.Resource, toolName)
+			}
+			if hasTmpl && tmpl.GetResourceUIMetadata() == nil {
+				return fmt.Errorf("resource template %q referenced by tool %q is not a UI resource (ui: true is required)", uiMeta.Resource, toolName)
+			}
+		}
+	}
+	return nil
 }
 
 // initializeTools initializes and validates the tools from the config.
