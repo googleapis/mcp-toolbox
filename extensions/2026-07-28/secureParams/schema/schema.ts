@@ -1,3 +1,17 @@
+// Copyright 2024 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /**
  * Extension Identifier: com.google.cloud/toolbox.v1
  * Protocol Version: 2026-07-28
@@ -6,118 +20,41 @@
  * under the com.google.cloud/toolbox.v1 MCP extension.
  */
 
+import type { CallToolRequestParams, Tool } from "./spec.types.js";
+
 /**
  * Extension identifier constant.
  */
 export const TOOLBOX_EXTENSION_ID = "com.google.cloud/toolbox.v1";
 
 /**
- * Client capabilities metadata structure advertising support for com.google.cloud/toolbox.v1.
- */
-export interface SecureParamsClientCapabilities {
-  extensions?: {
-    [TOOLBOX_EXTENSION_ID]?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-}
-
-/**
- * Augmented JSON Schema object representing parameters.
- */
-export interface ParameterSchema {
-  type: "object";
-  properties?: Record<string, Record<string, unknown>>;
-  required?: string[];
-  [key: string]: unknown;
-}
-
-/**
  * Tool definition in `tools/list` results augmented with `secureInputSchema`.
+ *
+ * @category `secure_params`
  */
-export interface ToolWithSecureParams {
-  /**
-   * The unique name of the tool.
-   */
-  name: string;
-
-  /**
-   * Human-readable description of the tool (prompt hint for the LLM).
-   */
-  description?: string;
-
-  /**
-   * JSON Schema object defining standard parameters exposed to the LLM agent.
-   */
-  inputSchema: ParameterSchema;
-
+export interface ToolWithSecureParams extends Tool {
   /**
    * JSON Schema object defining sensitive runtime parameters hidden from the LLM agent
    * and passed out-of-band by the calling application.
    */
-  secureInputSchema?: ParameterSchema;
-
-  /**
-   * Optional tool annotations.
-   */
-  annotations?: {
-    destructiveHint?: boolean;
-    idempotentHint?: boolean;
-    openWorldHint?: boolean;
-    readOnlyHint?: boolean;
-    [key: string]: unknown;
-  };
-
-  /**
-   * Optional metadata fields (e.g. authInvoke, authParam).
-   */
-  _meta?: Record<string, unknown>;
+  secureInputSchema?: { $schema?: string; type: "object"; [key: string]: unknown };
 }
 
 /**
  * Augmented request parameters for `tools/call`.
+ *
+ * @category `secure_params`
  */
-export interface CallToolParamsWithSecureParams {
-  /**
-   * The name of the tool to execute.
-   */
-  name: string;
-
+export interface CallToolRequestParamsWithSecureParams extends CallToolRequestParams {
   /**
    * Standard parameters passed by the LLM agent or caller.
    * Secure parameters MUST NOT be included in this object.
    */
-  arguments?: Record<string, unknown>;
+  arguments?: { [key: string]: unknown };
 
   /**
    * Secure parameters passed out-of-band by the client application.
    * Non-secure parameters MUST NOT be included in this object.
    */
-  secureArguments?: Record<string, unknown>;
-
-  /**
-   * Request metadata including protocol version and client capabilities.
-   */
-  _meta?: {
-    "io.modelcontextprotocol/protocolVersion"?: string;
-    "io.modelcontextprotocol/clientCapabilities"?: SecureParamsClientCapabilities;
-    [key: string]: unknown;
-  };
-}
-
-/**
- * JSON-RPC Error codes related to Secure Parameters.
- */
-export enum SecureParamsErrorCode {
-  /**
-   * Returned when invoking a tool requiring secure parameters, but the client
-   * did not declare support for `com.google.cloud/toolbox.v1` in client capabilities.
-   */
-  MissingRequiredClientCapability = -32021,
-
-  /**
-   * Returned when parameter routing constraints are violated:
-   * - A secure parameter is passed in standard `arguments`
-   * - A non-secure parameter is passed in `secureArguments`
-   */
-  InvalidParams = -32602,
+  secureArguments?: { [key: string]: unknown };
 }
