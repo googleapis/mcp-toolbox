@@ -27,10 +27,13 @@ const (
 	UIMimeType = "text/html;profile=mcp-app"
 )
 
+// ToolboxExtensionURI identifies the experimental Toolbox MCP extension.
+const ToolboxExtensionURI = "com.google.cloud/toolbox.v1"
+
 // SupportedExtensions lists all MCP extension URIs supported by Toolbox by default.
 var SupportedExtensions = map[string]any{
-	"com.google.cloud/toolbox.v1": map[string]any{},
-	UIExtensionURI:                map[string]any{},
+	ToolboxExtensionURI: map[string]any{},
+	UIExtensionURI:      map[string]any{},
 }
 
 // ServerExtensions is the map of extension URIs enabled on this server.
@@ -60,34 +63,9 @@ func ParseSupportedExtensions(clientExtensions map[string]any) map[string]any {
 	return supported
 }
 
-// GetUiCapability extracts McpUiClientCapabilities from client capabilities if present.
-// Returns nil if client capabilities are missing or do not contain the UI extension.
-func GetUiCapability(clientCaps *ClientCapabilities) *McpUiClientCapabilities {
-	if clientCaps == nil || len(clientCaps.Extensions) == 0 {
-		return nil
-	}
-	extVal, ok := clientCaps.Extensions[UIExtensionURI]
-	if !ok || extVal == nil {
-		return nil
-	}
-	data, err := json.Marshal(extVal)
-	if err != nil {
-		return nil
-	}
-	var uiCaps McpUiClientCapabilities
-	if err := json.Unmarshal(data, &uiCaps); err != nil {
-		return nil
-	}
-	return &uiCaps
-}
-
-// ClientSupportsUI checks whether client capabilities advertise support for the MCP Apps UI extension.
-func ClientSupportsUI(clientCaps *ClientCapabilities) bool {
-	uiCaps := GetUiCapability(clientCaps)
-	if uiCaps == nil {
-		return false
-	}
-	for _, mt := range uiCaps.MimeTypes {
+// ValidateUISupport checks whether the capability payload advertises valid MCP Apps UI support.
+func ValidateUISupport(cap McpUiClientCapabilities) bool {
+	for _, mt := range cap.MimeTypes {
 		if mt == UIMimeType {
 			return true
 		}
@@ -97,4 +75,21 @@ func ClientSupportsUI(clientCaps *ClientCapabilities) bool {
 		}
 	}
 	return false
+}
+
+// CheckUISupport checks whether the negotiated extensions contain valid MCP Apps UI capability.
+func CheckUISupport(supportedExts map[string]any) bool {
+	extVal, ok := supportedExts[UIExtensionURI]
+	if !ok || extVal == nil {
+		return false
+	}
+	data, err := json.Marshal(extVal)
+	if err != nil {
+		return false
+	}
+	var uiCaps McpUiClientCapabilities
+	if err := json.Unmarshal(data, &uiCaps); err != nil {
+		return false
+	}
+	return ValidateUISupport(uiCaps)
 }

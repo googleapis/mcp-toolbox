@@ -23,8 +23,6 @@ import (
 	"io/fs"
 	"maps"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
@@ -62,6 +60,10 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 		return promptsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case PROMPTS_GET:
 		return promptsGetHandler(ctx, id, g, primitiveMgr, body, header)
+	case GROUPS_LIST:
+		return groupsListHandler(ctx, id, primitiveMgr, body, header)
+	case GROUPS_GET:
+		return groupsGetHandler(ctx, id, primitiveMgr, body, header)
 	default:
 		err := fmt.Errorf("invalid method %s", method)
 		return jsonrpc.NewError(id, jsonrpc.METHOD_NOT_FOUND, err.Error(), nil), err
@@ -126,6 +128,18 @@ func validateHeader(id jsonrpc.RequestId, header http.Header, method, name strin
 	if headerName != name {
 		err := fmt.Errorf("Mcp-Name header value '%s' does not match body value '%s'", headerName, name)
 		return jsonrpc.NewHeaderMismatchedError(id, err), err
+	}
+	return nil, nil
+}
+
+// validateToolboxExtension checks that the client negotiated the Toolbox
+// extension. Methods that are only part of the extension must not be served to
+// clients that did not declare it.
+func validateToolboxExtension(id jsonrpc.RequestId, params RequestParams, method string) (any, error) {
+	supportedExts := ParseSupportedExtensions(params.Meta.MetaClientCapabilities.Extensions)
+	if _, ok := supportedExts[ToolboxExtensionURI]; !ok {
+		err := fmt.Errorf("missing required client capability: method %q requires %s extension which is not supported by the client", method, ToolboxExtensionURI)
+		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 	return nil, nil
 }
@@ -245,13 +259,12 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
 	var clientExts map[string]any
-	var supportsUI bool
 	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
 		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
-		supportsUI = ClientSupportsUI(req.Params.Meta.MetaClientCapabilities)
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
+	_, hasSecureParamsSupport := supportedExts[ToolboxExtensionURI]
+	supportsUI := CheckUISupport(supportedExts)
 	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
@@ -321,9 +334,9 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	}
 
 	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
+	_, hasSecureParamsSupport := supportedExts[ToolboxExtensionURI]
 	if tool.HasSecureParams() && !hasSecureParamsSupport {
-		err = fmt.Errorf("missing required client capability: tool %q requires com.google.cloud/toolbox.v1 extension which is not supported by the client", toolName)
+		err = fmt.Errorf("missing required client capability: tool %q requires %s extension which is not supported by the client", toolName, ToolboxExtensionURI)
 		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 
@@ -817,9 +830,13 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	if err != nil {
 		return validateHeaderErr, err
 	}
-	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	validateErr, err := validateMetadata(id, req.Params, header == nil)
 	if err != nil {
 		return validateErr, err
+	}
+	extErr, err := validateToolboxExtension(id, req.Params, GROUPS_LIST)
+	if err != nil {
+		return extErr, err
 	}
 
 	groupsList := primitiveMgr.GroupsList()
@@ -828,10 +845,22 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 		groups = append(groups, Group{Name: v.Name, Description: v.Description})
 	}
 	logger.DebugContext(ctx, fmt.Sprintf("returning %d groups", len(groups)))
+	meta, err := getResultMetadata(ctx, nil)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
 	return jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
 		Id:      id,
-		Result:  ListGroupsResult{Groups: groups},
+		Result: ListGroupsResult{
+			Result: Result{
+				ResultType: resultTypeComplete,
+				Result: jsonrpc.Result{
+					Meta: meta,
+				},
+			},
+			Groups: groups,
+		},
 	}, nil
 }
 
@@ -858,6 +887,10 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	if err != nil {
 		return validateErr, err
 	}
+	extErr, err := validateToolboxExtension(id, req.Params.RequestParams, GROUPS_GET)
+	if err != nil {
+		return extErr, err
+	}
 
 	groupName := req.Params.Name
 	logger.DebugContext(ctx, fmt.Sprintf("group name: %s", groupName))
@@ -881,17 +914,22 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
 	var clientExts map[string]any
-	var supportsUI bool
 	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
 		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
-		supportsUI = ClientSupportsUI(req.Params.Meta.MetaClientCapabilities)
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
-	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
+	supportsUI := CheckUISupport(supportedExts)
+	// validateToolboxExtension above already established that the client
+	// declared the extension, so secure params are always supported here.
+	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, true, supportsUI)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
 
 	return jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
@@ -984,23 +1022,6 @@ func resourceTemplatesListHandler(ctx context.Context, id jsonrpc.RequestId, pri
 	}, nil
 }
 
-// matchResourceTemplateURI matches a URI against a URI template containing {path}.
-func matchResourceTemplateURI(tmpl, uri string) (map[string]any, bool) {
-	if strings.Contains(tmpl, "{path}") {
-		regexPattern := regexp.QuoteMeta(tmpl)
-		regexPattern = strings.ReplaceAll(regexPattern, "\\{path\\}", "(.*)")
-		re, err := regexp.Compile("^" + regexPattern + "$")
-		if err != nil {
-			return nil, false
-		}
-		matches := re.FindStringSubmatch(uri)
-		if len(matches) == 2 {
-			return map[string]any{"path": matches[1]}, true
-		}
-	}
-	return nil, false
-}
-
 // getResourceOrTemplateByURI looks up a resource by exact URI match within a group.
 // If not found, it attempts to match against resource templates (e.g. file://{path}).
 // If still not found, it attempts to match against globally available UI resources/templates.
@@ -1016,23 +1037,19 @@ func getResourceOrTemplateByURI(uri string, g group.Group, primitiveMgr *primiti
 
 	for _, name := range g.ResourceTemplateNames {
 		if rt, ok := primitiveMgr.GetResourceTemplate(name); ok {
-			if params, ok := matchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
+			if params, ok := primitives.MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
 				return nil, rt, params, nil
 			}
 		}
 	}
 
 	// UI resources and templates are globally accessible and not limited to specific groups.
-	for _, res := range primitiveMgr.GetUIResources() {
-		if res.GetURI() == uri {
-			return res, nil, nil, nil
-		}
+	if res, ok := primitiveMgr.GetUIResourceFromURI(uri); ok {
+		return res, nil, nil, nil
 	}
 
-	for _, rt := range primitiveMgr.GetUIResourceTemplates() {
-		if params, ok := matchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
-			return nil, rt, params, nil
-		}
+	if rt, params, ok := primitiveMgr.GetUIResourceTemplateByURI(uri); ok {
+		return nil, rt, params, nil
 	}
 
 	return nil, nil, nil, fmt.Errorf("no resource or template found for URI: %s", uri)
@@ -1052,7 +1069,7 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 		err = fmt.Errorf("invalid mcp resources read request: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
 	}
-	validateHeaderErr, err := validateHeader(id, header, RESOURCES_READ, "")
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_READ, req.Params.Uri)
 	if err != nil {
 		return validateHeaderErr, err
 	}

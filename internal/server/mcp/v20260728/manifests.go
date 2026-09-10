@@ -152,7 +152,7 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 					} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(uiMetaOrig.Resource); hasTmpl {
 						uri = tmpl.GetURITemplate()
 					} else {
-						return ListToolsResult{}, fmt.Errorf("unable to retrieve UI resource %q for tool %q", uiMetaOrig.Resource, toolName)
+						uri = uiMetaOrig.Resource
 					}
 					uiMeta = map[string]any{
 						"resourceUri": uri,
@@ -345,6 +345,13 @@ func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, ur
 	}
 
 	return GetGroupResult{
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      g.GetTTLMs(),
+			CacheScope: cacheScope(g.GetCacheScope()),
+		},
 		Name:              g.Name,
 		Tools:             listToolsResult.Tools,
 		Prompts:           listPromptsResult.Prompts,

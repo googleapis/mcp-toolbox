@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1086,11 +1087,23 @@ func TestGroupsListHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
+	ctx = util.WithToolboxVersionKey(ctx, fakeVersionString)
+	Initialize(nil)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
 	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
+		ProtocolVersion: PROTOCOL_VERSION,
+		ClientInfo: Implementation{
+			BaseMetadata: BaseMetadata{Name: "TestClient"},
+			Version:      "1.0",
+		},
+		MetaClientCapabilities: &ClientCapabilities{
+			Extensions: map[string]any{"com.google.cloud/toolbox.v1": map[string]any{}},
+		},
+	}
+	noExtensionMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
 		ClientInfo: Implementation{
 			BaseMetadata: BaseMetadata{Name: "TestClient"},
@@ -1115,14 +1128,20 @@ func TestGroupsListHandler(t *testing.T) {
 			errContains: "invalid mcp groups list request",
 		},
 		{
+			name: "client did not declare the toolbox extension",
+			body: ListGroupsRequest{
+				Request: jsonrpc.Request{Method: GROUPS_LIST},
+				Params:  RequestParams{Meta: noExtensionMeta},
+			},
+			header:      http.Header{"Mcp-Method": []string{GROUPS_LIST}},
+			wantErr:     true,
+			errContains: `missing required client capability: method "groups/list" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
+		},
+		{
 			name: "success excludes default group and sorts",
 			body: ListGroupsRequest{
-				PaginatedRequest: PaginatedRequest{
-					Request: jsonrpc.Request{Method: GROUPS_LIST},
-					Params: PaginatedRequestParams{
-						RequestParams: RequestParams{Meta: validMeta},
-					},
-				},
+				Request: jsonrpc.Request{Method: GROUPS_LIST},
+				Params:  RequestParams{Meta: validMeta},
 			},
 			header:    http.Header{"Mcp-Method": []string{GROUPS_LIST}},
 			wantErr:   false,
@@ -1162,6 +1181,12 @@ func TestGroupsListHandler(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected ListGroupsResult, got %T", res.Result)
 			}
+			if result.ResultType != resultTypeComplete {
+				t.Errorf("result.ResultType = %q, want %q", result.ResultType, resultTypeComplete)
+			}
+			if result.Meta == nil {
+				t.Error("result.Meta = nil, want server info metadata")
+			}
 			gotNames := make([]string, 0, len(result.Groups))
 			for _, g := range result.Groups {
 				gotNames = append(gotNames, g.Name)
@@ -1186,11 +1211,23 @@ func TestGroupsGetHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
+	ctx = util.WithToolboxVersionKey(ctx, fakeVersionString)
+	Initialize(nil)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
 	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
+		ProtocolVersion: PROTOCOL_VERSION,
+		ClientInfo: Implementation{
+			BaseMetadata: BaseMetadata{Name: "TestClient"},
+			Version:      "1.0",
+		},
+		MetaClientCapabilities: &ClientCapabilities{
+			Extensions: map[string]any{"com.google.cloud/toolbox.v1": map[string]any{}},
+		},
+	}
+	noExtensionMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
 		ClientInfo: Implementation{
 			BaseMetadata: BaseMetadata{Name: "TestClient"},
@@ -1207,12 +1244,26 @@ func TestGroupsGetHandler(t *testing.T) {
 		wantErr     bool
 		errContains string
 		wantName    string
+		wantTools   []string
 	}{
 		{
 			name:        "invalid json body",
 			rawBody:     []byte(`{invalid json}`),
 			wantErr:     true,
 			errContains: "invalid mcp groups/get request",
+		},
+		{
+			name: "client did not declare the toolbox extension",
+			body: GetGroupRequest{
+				Request: jsonrpc.Request{Method: GROUPS_GET},
+				Params: GetGroupRequestParams{
+					RequestParams: RequestParams{Meta: noExtensionMeta},
+					Name:          "tool1_only",
+				},
+			},
+			header:      http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool1_only"}},
+			wantErr:     true,
+			errContains: `missing required client capability: method "groups/get" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
 		},
 		{
 			name: "group does not exist",
@@ -1236,9 +1287,26 @@ func TestGroupsGetHandler(t *testing.T) {
 					Name:          "tool1_only",
 				},
 			},
-			header:   http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool1_only"}},
-			wantErr:  false,
-			wantName: "tool1_only",
+			header:    http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool1_only"}},
+			wantErr:   false,
+			wantName:  "tool1_only",
+			wantTools: []string{"no_params"},
+		},
+		{
+			// An omitted name resolves to the default group, matching
+			// GET /api/toolset. groups/list hides the default group, so this is
+			// the only way to reach it.
+			name: "omitted name returns the default group",
+			body: GetGroupRequest{
+				Request: jsonrpc.Request{Method: GROUPS_GET},
+				Params: GetGroupRequestParams{
+					RequestParams: RequestParams{Meta: validMeta},
+				},
+			},
+			header:    http.Header{"Mcp-Method": []string{GROUPS_GET}},
+			wantErr:   false,
+			wantName:  "",
+			wantTools: []string{"no_params", "some_params"},
 		},
 	}
 
@@ -1276,6 +1344,26 @@ func TestGroupsGetHandler(t *testing.T) {
 			}
 			if result.Name != tt.wantName {
 				t.Errorf("result.Name = %q, want %q", result.Name, tt.wantName)
+			}
+			gotTools := make([]string, 0, len(result.Tools))
+			for _, tool := range result.Tools {
+				gotTools = append(gotTools, tool.Name)
+			}
+			slices.Sort(gotTools)
+			if !slices.Equal(gotTools, tt.wantTools) {
+				t.Errorf("result tools = %v, want %v", gotTools, tt.wantTools)
+			}
+			if result.ResultType != resultTypeComplete {
+				t.Errorf("result.ResultType = %q, want %q", result.ResultType, resultTypeComplete)
+			}
+			if result.Meta == nil {
+				t.Error("result.Meta = nil, want server info metadata")
+			}
+			if result.TtlMs != group.DefaultTTLMs {
+				t.Errorf("result.TtlMs = %d, want %d", result.TtlMs, group.DefaultTTLMs)
+			}
+			if string(result.CacheScope) != group.DefaultCacheScope {
+				t.Errorf("result.CacheScope = %q, want %q", result.CacheScope, group.DefaultCacheScope)
 			}
 		})
 	}
@@ -1881,6 +1969,7 @@ func TestResourcesReadHandler(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		header      http.Header
 		body        ReadResourceRequest
 		rawBody     []byte
 		wantErr     bool
@@ -1894,7 +1983,31 @@ func TestResourcesReadHandler(t *testing.T) {
 			errContains: "invalid mcp resources read request",
 		},
 		{
-			name: "success",
+			name: "success without headers (stdio transport)",
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///res1",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "success with valid Mcp-Name and Mcp-Method headers",
+			header: http.Header{
+				"Mcp-Method": []string{RESOURCES_READ},
+				"Mcp-Name":   []string{"file:///res1"},
+			},
 			body: ReadResourceRequest{
 				Request: jsonrpc.Request{Method: "resources/read"},
 				Params: ReadResourceRequestParams{
@@ -1951,6 +2064,56 @@ func TestResourcesReadHandler(t *testing.T) {
 			},
 		},
 		{
+			name: "mismatched Mcp-Name header",
+			header: http.Header{
+				"Mcp-Method": []string{RESOURCES_READ},
+				"Mcp-Name":   []string{"file:///wrong"},
+			},
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///res1",
+				},
+			},
+			wantErr:     true,
+			errContains: "Mcp-Name header value 'file:///wrong' does not match body value 'file:///res1'",
+		},
+		{
+			name: "mismatched Mcp-Method header",
+			header: http.Header{
+				"Mcp-Method": []string{"wrong-method"},
+				"Mcp-Name":   []string{"file:///res1"},
+			},
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///res1",
+				},
+			},
+			wantErr:     true,
+			errContains: "Mcp-Method header value 'wrong-method' does not match body value 'resources/read'",
+		},
+		{
 			name: "not found",
 			body: ReadResourceRequest{
 				Request: jsonrpc.Request{Method: "resources/read"},
@@ -1984,7 +2147,7 @@ func TestResourcesReadHandler(t *testing.T) {
 				}
 			}
 
-			got, err := resourcesReadHandler(ctx, dummyID, primitiveMgr, mustGroup(t, primitiveMgr), body, nil)
+			got, err := resourcesReadHandler(ctx, dummyID, primitiveMgr, mustGroup(t, primitiveMgr), body, tt.header)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")

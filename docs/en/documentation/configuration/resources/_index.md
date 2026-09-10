@@ -94,10 +94,10 @@ Annotations provide hints to the client about how the resource content should be
 | `lastModified` | string     | No           | An RFC 3339 formatted timestamp indicating when the resource was last modified (computed dynamically for file resources).    |
 
 ## Types of Resources
-
 Toolbox supports the following resource primitives:
 
-- [**Text Resources**](./text.md): Static text content embedded directly in your configuration file.
-- [**File Resources**](./file.md): Specific files stored on disk and served as read-only resources.
-- [**Resource Templates**](./template.md): Parameterized URI templates that dynamically read matching files from sandboxed directories.
+- [**Text Resources**](./text/): Static text content embedded directly in your configuration file.
+- [**File Resources**](./file/): Specific files stored on disk and served as read-only resources.
+- [**Resource Templates**](./template/): Parameterized URI templates that dynamically read matching files from sandboxed directories.
 - [**MCP Apps**](../mcp-apps/): Interactive HTML web applications and tool visual interfaces for clients supporting the MCP Apps extension.
+

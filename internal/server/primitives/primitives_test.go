@@ -121,13 +121,27 @@ func TestGetUIResourcesAndTemplates(t *testing.T) {
 
 	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, templatesMap, nil)
 
-	gotUIResources := primMgr.GetUIResources()
-	if len(gotUIResources) != 1 || gotUIResources[0].GetName() != "ui-res" {
-		t.Errorf("expected 1 UI resource named 'ui-res', got %v", gotUIResources)
+	// Test GetUIResourceFromURI
+	gotUIResource, ok := primMgr.GetUIResourceFromURI("ui://test")
+	if !ok || gotUIResource.GetName() != "ui-res" {
+		t.Errorf("expected UI resource 'ui-res' for URI ui://test, got %v (ok=%v)", gotUIResource, ok)
+	}
+	if _, ok := primMgr.GetUIResourceFromURI("file:///reg"); ok {
+		t.Errorf("expected regular resource to not be returned by GetUIResourceFromURI")
+	}
+	if _, ok := primMgr.GetUIResourceFromURI("ui://nonexistent"); ok {
+		t.Errorf("expected nonexistent URI to not be returned by GetUIResourceFromURI")
 	}
 
-	gotUITemplates := primMgr.GetUIResourceTemplates()
-	if len(gotUITemplates) != 1 || gotUITemplates[0].GetName() != "ui-tmpl" {
-		t.Errorf("expected 1 UI template named 'ui-tmpl', got %v", gotUITemplates)
+	// Test GetUIResourceTemplateByURI
+	gotUITemplate, params, ok := primMgr.GetUIResourceTemplateByURI("ui://tmpl/sub/file.html")
+	if !ok || gotUITemplate.GetName() != "ui-tmpl" || params["path"] != "sub/file.html" {
+		t.Errorf("expected UI template 'ui-tmpl' with path 'sub/file.html', got %v (params=%v, ok=%v)", gotUITemplate, params, ok)
+	}
+	if _, _, ok := primMgr.GetUIResourceTemplateByURI("file:///tmpl/sub/file.html"); ok {
+		t.Errorf("expected regular template to not be matched by GetUIResourceTemplateByURI")
+	}
+	if _, _, ok := primMgr.GetUIResourceTemplateByURI("ui://nonexistent/path"); ok {
+		t.Errorf("expected nonexistent URI to not be matched by GetUIResourceTemplateByURI")
 	}
 }
