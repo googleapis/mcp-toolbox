@@ -17,6 +17,12 @@
 			&lt;/tr&gt;
 			&lt;tr&gt;
 					&lt;td&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;--disable-ext&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Specifies MCP extension URIs disabled on this server.&lt;/td&gt;
+					&lt;td&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;/td&gt;
 					&lt;td&gt;&lt;code&gt;--disable-reload&lt;/code&gt;&lt;/td&gt;
 					&lt;td&gt;Disables dynamic reloading config.&lt;/td&gt;
 					&lt;td&gt;&lt;/td&gt;

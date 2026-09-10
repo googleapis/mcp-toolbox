@@ -239,5 +239,11 @@ browser) for each request.&lt;/li&gt;
 					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
 					&lt;td&gt;If true, the source will use client-side OAuth for authorization. Otherwise, it will use Application Default Credentials. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/td&gt;
 			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;readOnly&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;boolean&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
+					&lt;td&gt;When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/td&gt;
+			&lt;/tr&gt;
 	&lt;/tbody&gt;
 &lt;/table&gt;</description></item></channel></rss>

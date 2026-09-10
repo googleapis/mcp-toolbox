@@ -5,6 +5,11 @@
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_PROJECT&lt;/code&gt;: The GCP project ID.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_LOCATION&lt;/code&gt;: (Optional) The dataset location.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;BIGQUERY_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, enforces read-only
+mode across all tools (defaults &lt;code&gt;BIGQUERY_WRITE_MODE&lt;/code&gt; to &lt;code&gt;blocked&lt;/code&gt;).
+Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;BIGQUERY_WRITE_MODE&lt;/code&gt;: (Optional) Controls write behavior: &lt;code&gt;allowed&lt;/code&gt;,
+&lt;code&gt;blocked&lt;/code&gt; (strict read-only), or &lt;code&gt;protected&lt;/code&gt; (session scratchpad).&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_USE_CLIENT_OAUTH&lt;/code&gt;: (Optional) If &lt;code&gt;true&lt;/code&gt;, forwards the client&amp;rsquo;s
 OAuth access token for authentication. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_SCOPES&lt;/code&gt;: (Optional) A comma-separated list of OAuth scopes to

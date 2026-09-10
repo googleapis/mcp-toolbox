@@ -13,6 +13,7 @@ IAM authentication if unspecified.&lt;/li&gt;
 user. Defaults to IAM authentication if unspecified.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_IP_TYPE&lt;/code&gt;: (Optional) The IP type i.e. &amp;ldquo;Public&amp;rdquo; or
 &amp;ldquo;Private&amp;rdquo; (Default: Public).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, enforces read-only execution at the database session level (&lt;code&gt;cloudsql_session_read_only=locked&lt;/code&gt;) and suppresses write-capable tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;

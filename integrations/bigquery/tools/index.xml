@@ -41,21 +41,41 @@ SQL or Python code, the data retrieved, and the final text answer.&lt;/p&gt;</de
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;dry_run&lt;/code&gt;&lt;/strong&gt; (optional): If set to &lt;code&gt;true&lt;/code&gt;, the query is validated but not
 run, returning information about the execution instead. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;The behavior of this tool is influenced by the &lt;code&gt;writeMode&lt;/code&gt; setting on its
-&lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;allowed&lt;/code&gt; (default):&lt;/strong&gt; All SQL statements are permitted.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;blocked&lt;/code&gt;:&lt;/strong&gt; Only &lt;code&gt;SELECT&lt;/code&gt; statements are allowed. Any other type of
-statement (e.g., &lt;code&gt;INSERT&lt;/code&gt;, &lt;code&gt;UPDATE&lt;/code&gt;, &lt;code&gt;CREATE&lt;/code&gt;) will be rejected.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;protected&lt;/code&gt;:&lt;/strong&gt; This mode enables session-based execution. &lt;code&gt;SELECT&lt;/code&gt;
-statements can be used on all tables, while write operations are allowed only
-for the session&amp;rsquo;s temporary dataset (e.g., &lt;code&gt;CREATE TEMP TABLE ...&lt;/code&gt;). This
-prevents modifications to permanent datasets while allowing stateful,
-multi-step operations within a secure session.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;The tool&amp;rsquo;s behavior is influenced by the &lt;code&gt;allowedDatasets&lt;/code&gt; restriction on the
-&lt;code&gt;bigquery&lt;/code&gt; source. Similar to &lt;code&gt;writeMode&lt;/code&gt;, this setting provides an additional
-layer of security by controlling which datasets can be accessed:&lt;/p&gt;</description></item><item><title>bigquery-forecast</title><link>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The behavior of this tool is influenced by the combination of the &lt;code&gt;readOnly&lt;/code&gt;
+and &lt;code&gt;writeMode&lt;/code&gt; settings on its &lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th style="text-align: left"&gt;&lt;code&gt;readOnly&lt;/code&gt;&lt;/th&gt;
+					&lt;th style="text-align: left"&gt;&lt;code&gt;writeMode&lt;/code&gt;&lt;/th&gt;
+					&lt;th style="text-align: left"&gt;Tool Behavior&lt;/th&gt;
+					&lt;th style="text-align: left"&gt;MCP Tool Annotations&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;false&lt;/code&gt; &lt;em&gt;(default)&lt;/em&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;allowed&lt;/code&gt; &lt;em&gt;(default)&lt;/em&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;All SQL statements are permitted.&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;em&gt;(Default / none)&lt;/em&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;true&lt;/code&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;blocked&lt;/code&gt; &lt;em&gt;(default if &lt;code&gt;readOnly: true&lt;/code&gt;)&lt;/em&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;Only &lt;code&gt;SELECT&lt;/code&gt; statements are allowed. Any other type of statement (e.g., &lt;code&gt;INSERT&lt;/code&gt;, &lt;code&gt;UPDATE&lt;/code&gt;, &lt;code&gt;CREATE&lt;/code&gt;) will be rejected.&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;readOnlyHint: true&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;true&lt;/code&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;protected&lt;/code&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;Enables session-based execution. &lt;code&gt;SELECT&lt;/code&gt; statements can be used on all tables, while write operations are allowed only for the session&amp;rsquo;s temporary dataset (e.g., &lt;code&gt;CREATE TEMP TABLE ...&lt;/code&gt;).&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;readOnlyHint: true&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Note:&lt;/strong&gt; Conflicting configurations, such as &lt;code&gt;readOnly: true&lt;/code&gt; combined with
+&lt;code&gt;writeMode: allowed&lt;/code&gt;, are rejected during server startup.&lt;/p&gt;</description></item><item><title>bigquery-forecast</title><link>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;bigquery-forecast&lt;/code&gt; tool forecasts time series data in BigQuery.&lt;/p&gt;
 &lt;p&gt;&lt;code&gt;bigquery-forecast&lt;/code&gt; constructs and executes a &lt;code&gt;SELECT * FROM AI.FORECAST(...)&lt;/code&gt;
 query based on the provided parameters:&lt;/p&gt;
@@ -181,16 +201,20 @@ DATASET, MODEL, ROUTINE, TABLE, VIEW.&lt;/li&gt;
 &lt;div class="compatibility-section"&gt;
  &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>bigquery-sql</title><link>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;bigquery-sql&lt;/code&gt; tool executes a pre-defined SQL statement.&lt;/p&gt;
-&lt;p&gt;The behavior of this tool is influenced by the &lt;code&gt;writeMode&lt;/code&gt; setting on its
-&lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
+&lt;p&gt;The behavior of this tool is influenced by the &lt;code&gt;readOnly&lt;/code&gt; and &lt;code&gt;writeMode&lt;/code&gt;
+settings on its &lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;allowed&lt;/code&gt; (default) and &lt;code&gt;blocked&lt;/code&gt;:&lt;/strong&gt; These modes do not impose any
-restrictions on the &lt;code&gt;bigquery-sql&lt;/code&gt; tool. The pre-defined SQL statement will be
-executed as-is.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;protected&lt;/code&gt;:&lt;/strong&gt; This mode enables session-based execution. The tool will
-operate within the same BigQuery session as other tools using the same source,
-allowing it to interact with temporary resources like &lt;code&gt;TEMP&lt;/code&gt; tables created
-within that session.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Read-Only Mode:&lt;/strong&gt; When a source is configured with
+&lt;code&gt;readOnly: true&lt;/code&gt; (or &lt;code&gt;writeMode: blocked&lt;/code&gt; / &lt;code&gt;writeMode: protected&lt;/code&gt;),
+&lt;code&gt;bigquery-sql&lt;/code&gt; tools default to write-capable annotations (&lt;code&gt;readOnlyHint: false&lt;/code&gt;)
+and are automatically suppressed from registration during server startup to
+protect data integrity and optimize agent context window. To keep a pre-defined
+read-only query active in read-only mode, explicitly annotate the tool with
+&lt;code&gt;readOnlyHint: true&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;protected&lt;/code&gt;:&lt;/strong&gt; This mode enables session-based
+execution. The tool will operate within the same BigQuery session as other
+tools using the same source, allowing it to interact with temporary resources
+like &lt;code&gt;TEMP&lt;/code&gt; tables created within that session.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
 

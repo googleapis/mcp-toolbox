@@ -645,21 +645,41 @@ SQL or Python code, the data retrieved, and the final text answer.&lt;/p&gt;</de
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;dry_run&lt;/code&gt;&lt;/strong&gt; (optional): If set to &lt;code&gt;true&lt;/code&gt;, the query is validated but not
 run, returning information about the execution instead. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;The behavior of this tool is influenced by the &lt;code&gt;writeMode&lt;/code&gt; setting on its
-&lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;allowed&lt;/code&gt; (default):&lt;/strong&gt; All SQL statements are permitted.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;blocked&lt;/code&gt;:&lt;/strong&gt; Only &lt;code&gt;SELECT&lt;/code&gt; statements are allowed. Any other type of
-statement (e.g., &lt;code&gt;INSERT&lt;/code&gt;, &lt;code&gt;UPDATE&lt;/code&gt;, &lt;code&gt;CREATE&lt;/code&gt;) will be rejected.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;protected&lt;/code&gt;:&lt;/strong&gt; This mode enables session-based execution. &lt;code&gt;SELECT&lt;/code&gt;
-statements can be used on all tables, while write operations are allowed only
-for the session&amp;rsquo;s temporary dataset (e.g., &lt;code&gt;CREATE TEMP TABLE ...&lt;/code&gt;). This
-prevents modifications to permanent datasets while allowing stateful,
-multi-step operations within a secure session.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;The tool&amp;rsquo;s behavior is influenced by the &lt;code&gt;allowedDatasets&lt;/code&gt; restriction on the
-&lt;code&gt;bigquery&lt;/code&gt; source. Similar to &lt;code&gt;writeMode&lt;/code&gt;, this setting provides an additional
-layer of security by controlling which datasets can be accessed:&lt;/p&gt;</description></item><item><title>bigquery-forecast</title><link>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The behavior of this tool is influenced by the combination of the &lt;code&gt;readOnly&lt;/code&gt;
+and &lt;code&gt;writeMode&lt;/code&gt; settings on its &lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th style="text-align: left"&gt;&lt;code&gt;readOnly&lt;/code&gt;&lt;/th&gt;
+					&lt;th style="text-align: left"&gt;&lt;code&gt;writeMode&lt;/code&gt;&lt;/th&gt;
+					&lt;th style="text-align: left"&gt;Tool Behavior&lt;/th&gt;
+					&lt;th style="text-align: left"&gt;MCP Tool Annotations&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;false&lt;/code&gt; &lt;em&gt;(default)&lt;/em&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;allowed&lt;/code&gt; &lt;em&gt;(default)&lt;/em&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;All SQL statements are permitted.&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;em&gt;(Default / none)&lt;/em&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;true&lt;/code&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;blocked&lt;/code&gt; &lt;em&gt;(default if &lt;code&gt;readOnly: true&lt;/code&gt;)&lt;/em&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;Only &lt;code&gt;SELECT&lt;/code&gt; statements are allowed. Any other type of statement (e.g., &lt;code&gt;INSERT&lt;/code&gt;, &lt;code&gt;UPDATE&lt;/code&gt;, &lt;code&gt;CREATE&lt;/code&gt;) will be rejected.&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;readOnlyHint: true&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;true&lt;/code&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;protected&lt;/code&gt;&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;Enables session-based execution. &lt;code&gt;SELECT&lt;/code&gt; statements can be used on all tables, while write operations are allowed only for the session&amp;rsquo;s temporary dataset (e.g., &lt;code&gt;CREATE TEMP TABLE ...&lt;/code&gt;).&lt;/td&gt;
+					&lt;td style="text-align: left"&gt;&lt;code&gt;readOnlyHint: true&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Note:&lt;/strong&gt; Conflicting configurations, such as &lt;code&gt;readOnly: true&lt;/code&gt; combined with
+&lt;code&gt;writeMode: allowed&lt;/code&gt;, are rejected during server startup.&lt;/p&gt;</description></item><item><title>bigquery-forecast</title><link>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-forecast/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;bigquery-forecast&lt;/code&gt; tool forecasts time series data in BigQuery.&lt;/p&gt;
 &lt;p&gt;&lt;code&gt;bigquery-forecast&lt;/code&gt; constructs and executes a &lt;code&gt;SELECT * FROM AI.FORECAST(...)&lt;/code&gt;
 query based on the provided parameters:&lt;/p&gt;
@@ -785,16 +805,20 @@ DATASET, MODEL, ROUTINE, TABLE, VIEW.&lt;/li&gt;
 &lt;div class="compatibility-section"&gt;
  &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>bigquery-sql</title><link>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/bigquery/tools/bigquery-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;bigquery-sql&lt;/code&gt; tool executes a pre-defined SQL statement.&lt;/p&gt;
-&lt;p&gt;The behavior of this tool is influenced by the &lt;code&gt;writeMode&lt;/code&gt; setting on its
-&lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
+&lt;p&gt;The behavior of this tool is influenced by the &lt;code&gt;readOnly&lt;/code&gt; and &lt;code&gt;writeMode&lt;/code&gt;
+settings on its &lt;code&gt;bigquery&lt;/code&gt; source:&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;allowed&lt;/code&gt; (default) and &lt;code&gt;blocked&lt;/code&gt;:&lt;/strong&gt; These modes do not impose any
-restrictions on the &lt;code&gt;bigquery-sql&lt;/code&gt; tool. The pre-defined SQL statement will be
-executed as-is.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;protected&lt;/code&gt;:&lt;/strong&gt; This mode enables session-based execution. The tool will
-operate within the same BigQuery session as other tools using the same source,
-allowing it to interact with temporary resources like &lt;code&gt;TEMP&lt;/code&gt; tables created
-within that session.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Read-Only Mode:&lt;/strong&gt; When a source is configured with
+&lt;code&gt;readOnly: true&lt;/code&gt; (or &lt;code&gt;writeMode: blocked&lt;/code&gt; / &lt;code&gt;writeMode: protected&lt;/code&gt;),
+&lt;code&gt;bigquery-sql&lt;/code&gt; tools default to write-capable annotations (&lt;code&gt;readOnlyHint: false&lt;/code&gt;)
+and are automatically suppressed from registration during server startup to
+protect data integrity and optimize agent context window. To keep a pre-defined
+read-only query active in read-only mode, explicitly annotate the tool with
+&lt;code&gt;readOnlyHint: true&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;protected&lt;/code&gt;:&lt;/strong&gt; This mode enables session-based
+execution. The tool will operate within the same BigQuery session as other
+tools using the same source, allowing it to interact with temporary resources
+like &lt;code&gt;TEMP&lt;/code&gt; tables created within that session.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
 
@@ -2858,6 +2882,12 @@ names, or other parts of the query.&lt;/p&gt;</description></item><item><title>C
 			&lt;/tr&gt;
 			&lt;tr&gt;
 					&lt;td&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;--disable-ext&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Specifies MCP extension URIs disabled on this server.&lt;/td&gt;
+					&lt;td&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;/td&gt;
 					&lt;td&gt;&lt;code&gt;--disable-reload&lt;/code&gt;&lt;/td&gt;
 					&lt;td&gt;Disables dynamic reloading config.&lt;/td&gt;
 					&lt;td&gt;&lt;/td&gt;
@@ -3129,7 +3159,7 @@ human-in-the-loop and shouldn&amp;rsquo;t be used for production agents.&lt;/p&g
 &lt;p&gt;The &lt;code&gt;cloud-gemini-data-analytics-query&lt;/code&gt; tool allows you to send natural language questions to the Gemini Data Analytics API and receive structured responses containing SQL queries, natural language answers, and explanations. For details on defining data agent context for database data sources, see the official &lt;a href="https://docs.cloud.google.com/gemini/docs/conversational-analytics-api/data-agent-authored-context-databases"&gt;documentation&lt;/a&gt;.&lt;/p&gt;
 &lt;blockquote&gt;
 &lt;p&gt;[!NOTE]
-Only &lt;code&gt;alloydb&lt;/code&gt;, &lt;code&gt;spannerReference&lt;/code&gt;, and &lt;code&gt;cloudSqlReference&lt;/code&gt; are supported as &lt;a href="https://clouddocs.devsite.corp.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences"&gt;datasource references&lt;/a&gt;.&lt;/p&gt;
+Only &lt;code&gt;alloydb&lt;/code&gt;, &lt;code&gt;spannerReference&lt;/code&gt;, and &lt;code&gt;cloudSqlReference&lt;/code&gt; are supported as &lt;a href="https://cloud.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences"&gt;datasource references&lt;/a&gt;.&lt;/p&gt;
 &lt;/blockquote&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
 
@@ -6583,7 +6613,16 @@ of a LookML project.&lt;/p&gt;
  &lt;/span&gt;Note&lt;/p&gt;&lt;p&gt;&lt;strong&gt;⚠️ Best Effort Maintenance&lt;/strong&gt;&lt;/p&gt;
 &lt;p&gt;This integration is maintained on a best-effort basis by the project
 team/community. While we strive to address issues and provide workarounds when
-resources are available, there are no guaranteed response times or code fixes.&lt;/p&gt;</description></item><item><title>firebird-execute-sql</title><link>https://mcp-toolbox.dev/integrations/firebird/tools/firebird-execute-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/firebird/tools/firebird-execute-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+resources are available, there are no guaranteed response times or code fixes.&lt;/p&gt;</description></item><item><title>falkordb-cypher</title><link>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-cypher/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-cypher/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;falkordb-cypher&lt;/code&gt; tool executes a pre-defined Cypher statement against the
+graph configured on a FalkorDB source. The specified Cypher statement is
+executed as a &lt;a href="https://docs.falkordb.com/cypher/cypher_support.html"&gt;parameterized statement&lt;/a&gt;, and specified
+parameters will be used according to their name: e.g. &lt;code&gt;$id&lt;/code&gt;.&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Note:&lt;/strong&gt; This tool uses parameterized queries to prevent injections. Query
+parameters can be used as substitutes for arbitrary expressions. Parameters
+cannot be used as substitutes for identifiers, labels, relationship types,
+or other parts of the query.&lt;/p&gt;</description></item><item><title>firebird-execute-sql</title><link>https://mcp-toolbox.dev/integrations/firebird/tools/firebird-execute-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/firebird/tools/firebird-execute-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;firebird-execute-sql&lt;/code&gt; tool executes a SQL statement against a Firebird
 database.&lt;/p&gt;
 &lt;p&gt;&lt;code&gt;firebird-execute-sql&lt;/code&gt; takes one input parameter &lt;code&gt;sql&lt;/code&gt; and runs the sql
@@ -7030,6 +7069,184 @@ not provided, it lists all root-level collections in the database.&lt;/p&gt;
 					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
 					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
 					&lt;td&gt;Name of the Firestore source to list collections from.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;description&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;</description></item><item><title>firestore-mongodb-execute-mql</title><link>https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-execute-mql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-execute-mql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;firestore-mongodb-execute-mql&lt;/code&gt; tool executes MongoDB Query Language (MQL) statements or aggregation pipelines against Firestore.&lt;/p&gt;
+&lt;p&gt;This tool allows data agents and LLMs to run dynamic MQL queries such as aggregation pipelines or document queries directly against Firestore databases.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/source/"&gt;Firestore Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Parameter&lt;/th&gt;
+					&lt;th&gt;Type&lt;/th&gt;
+					&lt;th&gt;Required&lt;/th&gt;
+					&lt;th&gt;Description&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;query&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;string&lt;/td&gt;
+					&lt;td&gt;true&lt;/td&gt;
+					&lt;td&gt;The MQL query or aggregation pipeline to execute against Firestore.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;execute_mql&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;firestore-mongodb-execute-mql&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-firestore-source&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;Use this tool to execute MQL queries against Firestore.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;&lt;strong&gt;field&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
+					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;type&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Must be &amp;ldquo;firestore-mongodb-execute-mql&amp;rdquo;.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;source&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Name of the Firestore source to execute queries against.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;description&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;</description></item><item><title>firestore-mongodb-get-schema</title><link>https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-get-schema/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-get-schema/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;firestore-mongodb-get-schema&lt;/code&gt; tool retrieves schema information and inferred document structures for Firestore collections.&lt;/p&gt;
+&lt;p&gt;This tool introspects collections to detect field names, nested maps, and data types (such as string, integer, double, boolean, timestamp, geopoint, and reference), returning structured schema definitions.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/source/"&gt;Firestore Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;Parameter&lt;/th&gt;
+					&lt;th&gt;Type&lt;/th&gt;
+					&lt;th&gt;Required&lt;/th&gt;
+					&lt;th&gt;Description&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;code&gt;collection&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;string&lt;/td&gt;
+					&lt;td&gt;false&lt;/td&gt;
+					&lt;td&gt;Optional name or relative path of a specific collection. If omitted, schemas for all root collections are returned.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;get_schema&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;firestore-mongodb-get-schema&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-firestore-source&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;Use this tool to retrieve schemas for Firestore collections.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;&lt;strong&gt;field&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
+					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;type&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Must be &amp;ldquo;firestore-mongodb-get-schema&amp;rdquo;.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;source&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Name of the Firestore source to introspect.&lt;/td&gt;
 			&lt;/tr&gt;
 			&lt;tr&gt;
 					&lt;td&gt;description&lt;/td&gt;
@@ -11053,7 +11270,7 @@ returned. Otherwise, the selection is not guaranteed.&lt;/p&gt;
 &lt;p&gt;The tool returns a single JSON object representing the document, wrapped in a
 JSON array.&lt;/p&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
-&lt;h2 id="hahahugoshortcode355s0hbhb"&gt;
+&lt;h2 id="hahahugoshortcode304s0hbhb"&gt;
 
 
 
@@ -12512,7 +12729,23 @@ actual project ID):&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;gcloud config &lt;span class="nb"&gt;set&lt;/span&gt; project YOUR_PROJECT_ID
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;export&lt;/span&gt; &lt;span class="nv"&gt;GOOGLE_CLOUD_PROJECT&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;YOUR_PROJECT_ID
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Toolbox and the client libraries will use this project for BigQuery, unless
-overridden in configurations.&lt;/p&gt;</description></item><item><title>Quickstart (MCP with Neo4j)</title><link>https://mcp-toolbox.dev/integrations/neo4j/samples/mcp_quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/neo4j/samples/mcp_quickstart/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
+overridden in configurations.&lt;/p&gt;</description></item><item><title>Quickstart (MCP with FalkorDB)</title><link>https://mcp-toolbox.dev/integrations/falkordb/samples/mcp_quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/samples/mcp_quickstart/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://modelcontextprotocol.io"&gt;Model Context Protocol&lt;/a&gt; is an open protocol
+that standardizes how applications provide context to LLMs. Check out this page
+on how to &lt;a href="https://mcp-toolbox.dev/documentation/connect-to/mcp-client/"&gt;connect to Toolbox via
+MCP&lt;/a&gt;.&lt;/p&gt;
+&lt;h2 id="step-1-set-up-your-falkordb-graph-and-data"&gt;Step 1: Set up your FalkorDB graph and data&lt;/h2&gt;
+&lt;p&gt;In this section, you&amp;rsquo;ll start a FalkorDB instance and populate it with sample
+data for a movies-related agent.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Start FalkorDB.&lt;/strong&gt; The quickest way is Docker:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;docker run -d --name falkordb -p 6379:6379 falkordb/falkordb
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Populate the graph with data.&lt;/strong&gt; Using &lt;code&gt;redis-cli&lt;/code&gt; (or the FalkorDB
+browser at &lt;code&gt;http://localhost:3000&lt;/code&gt; if you expose it), create a small movie
+graph:&lt;/p&gt;</description></item><item><title>Quickstart (MCP with Neo4j)</title><link>https://mcp-toolbox.dev/integrations/neo4j/samples/mcp_quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/neo4j/samples/mcp_quickstart/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
 &lt;p&gt;&lt;a href="https://modelcontextprotocol.io"&gt;Model Context Protocol&lt;/a&gt; is an open protocol that standardizes how applications provide context to LLMs. Check out this page on how to &lt;a href="https://mcp-toolbox.dev/documentation/connect-to/mcp-client/"&gt;connect to Toolbox via MCP&lt;/a&gt;.&lt;/p&gt;
 &lt;h2 id="step-1-set-up-your-neo4j-database-and-data"&gt;Step 1: Set up your Neo4j Database and Data&lt;/h2&gt;
 &lt;p&gt;In this section, you&amp;rsquo;ll set up a database and populate it with sample data for a movies-related agent. This guide assumes you have a running Neo4j instance, either locally or in the cloud.&lt;/p&gt;
@@ -13305,6 +13538,12 @@ browser) for each request.&lt;/li&gt;
 					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
 					&lt;td&gt;If true, the source will use client-side OAuth for authorization. Otherwise, it will use Application Default Credentials. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/td&gt;
 			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;readOnly&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;boolean&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
+					&lt;td&gt;When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/td&gt;
+			&lt;/tr&gt;
 	&lt;/tbody&gt;
 &lt;/table&gt;</description></item><item><title>AlloyDB for PostgreSQL Source</title><link>https://mcp-toolbox.dev/integrations/alloydb/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/alloydb/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;&lt;a href="https://cloud.google.com/alloydb/docs"&gt;AlloyDB for PostgreSQL&lt;/a&gt; is a fully-managed, PostgreSQL-compatible
@@ -13961,6 +14200,12 @@ browser) for each request.&lt;/li&gt;
 					&lt;td style="text-align: center"&gt;boolean&lt;/td&gt;
 					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
 					&lt;td&gt;If true, the source will use client-side OAuth for authorization. Otherwise, it will use Application Default Credentials. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;readOnly&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;boolean&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
+					&lt;td&gt;When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/td&gt;
 			&lt;/tr&gt;
 	&lt;/tbody&gt;
 &lt;/table&gt;</description></item><item><title>Cloud SQL for SQL Server Source</title><link>https://mcp-toolbox.dev/integrations/cloud-sql-mssql/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloud-sql-mssql/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
@@ -15142,7 +15387,98 @@ for more information.&lt;/p&gt;
 &lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
 &lt;h3 id="api-key"&gt;API Key&lt;/h3&gt;
 &lt;p&gt;Toolbox uses an &lt;a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-create-api-key.html"&gt;API key&lt;/a&gt; to authorize and authenticate when
-interacting with &lt;a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html"&gt;Elasticsearch&lt;/a&gt;.&lt;/p&gt;</description></item><item><title>Firebird Source</title><link>https://mcp-toolbox.dev/integrations/firebird/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/firebird/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+interacting with &lt;a href="https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html"&gt;Elasticsearch&lt;/a&gt;.&lt;/p&gt;</description></item><item><title>FalkorDB Source</title><link>https://mcp-toolbox.dev/integrations/falkordb/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://docs.falkordb.com/"&gt;FalkorDB&lt;/a&gt; is a low-latency graph database that speaks the
+openCypher query language over the Redis protocol. A single FalkorDB instance
+can host many independent graphs, and its native vector and full-text indexes
+make it a popular knowledge-graph backend for GenAI applications.&lt;/p&gt;
+&lt;p&gt;The source connects to one instance and designates a default graph; tools can
+optionally target other graphs on the same instance.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;FalkorDB Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-cypher/"&gt;&lt;strong&gt;falkordb-cypher&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-cypher&amp;#34; tool executes a pre-defined Cypher statement against a FalkorDB graph.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-execute-cypher/"&gt;&lt;strong&gt;falkordb-execute-cypher&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-execute-cypher&amp;#34; tool executes an arbitrary Cypher query against a FalkorDB graph.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-schema/"&gt;&lt;strong&gt;falkordb-schema&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-schema&amp;#34; tool extracts the schema of a FalkorDB graph.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-list-graphs/"&gt;&lt;strong&gt;falkordb-list-graphs&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-list-graphs&amp;#34; tool lists the graphs stored on a FalkorDB instance.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="database-user"&gt;Database User&lt;/h3&gt;
+&lt;p&gt;FalkorDB instances without access control can be used with no credentials
+(e.g. a local &lt;code&gt;docker run -p 6379:6379 falkordb/falkordb&lt;/code&gt; instance). For
+instances with authentication enabled, such as FalkorDB Cloud, provide the
+&lt;code&gt;username&lt;/code&gt; and &lt;code&gt;password&lt;/code&gt; fields, and enable &lt;code&gt;tls&lt;/code&gt; for encrypted endpoints.&lt;/p&gt;</description></item><item><title>Firebird Source</title><link>https://mcp-toolbox.dev/integrations/firebird/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/firebird/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;&lt;a href="https://firebirdsql.org/"&gt;Firebird&lt;/a&gt; is a relational database management system offering many
 ANSI SQL standard features that runs on Linux, Windows, and a variety of Unix
 platforms. It is known for its small footprint, powerful features, and easy
@@ -15263,6 +15599,14 @@ basics&lt;/a&gt;.&lt;/p&gt;
  
  
  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
 
 
@@ -15308,6 +15652,18 @@ basics&lt;/a&gt;.&lt;/p&gt;
  &lt;tr&gt;
  &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/tools/firestore-list-collections/"&gt;&lt;strong&gt;firestore-list-collections&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
  &lt;td&gt;A &amp;#34;firestore-list-collections&amp;#34; tool lists collections in Firestore, either at the root level or as subcollections of a document.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-execute-mql/"&gt;&lt;strong&gt;firestore-mongodb-execute-mql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-mongodb-execute-mql&amp;#34; tool executes MongoDB Query Language (MQL) queries and aggregation pipelines against Firestore.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-get-schema/"&gt;&lt;strong&gt;firestore-mongodb-get-schema&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-mongodb-get-schema&amp;#34; tool introspects Firestore collections to infer field types and schema definitions.
 &lt;/td&gt;
  &lt;/tr&gt;
  
@@ -19055,7 +19411,16 @@ for more information.&lt;/p&gt;
 					&lt;td&gt;List of &lt;a href="https://mcp-toolbox.dev/integrations/elasticsearch/#specifying-parameters"&gt;parameters&lt;/a&gt; that will be used with the ES|QL query.&lt;br/&gt;Only supports “string”, “integer”, “float”, “boolean”.&lt;/td&gt;
 			&lt;/tr&gt;
 	&lt;/tbody&gt;
-&lt;/table&gt;</description></item><item><title>FAQ</title><link>https://mcp-toolbox.dev/reference/faq/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/reference/faq/</guid><description>&lt;h2 id="how-can-i-deploy-or-run-toolbox"&gt;How can I deploy or run Toolbox?&lt;/h2&gt;
+&lt;/table&gt;</description></item><item><title>falkordb-execute-cypher</title><link>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-execute-cypher/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-execute-cypher/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;falkordb-execute-cypher&lt;/code&gt; tool executes a Cypher query provided by the
+calling agent against the graph configured on a FalkorDB source.&lt;/p&gt;
+&lt;p&gt;When &lt;code&gt;readOnly&lt;/code&gt; is set to &lt;code&gt;true&lt;/code&gt;, queries are dispatched with FalkorDB&amp;rsquo;s
+&lt;code&gt;GRAPH.RO_QUERY&lt;/code&gt; command, so write operations are rejected by the database
+server itself rather than by client-side query inspection.&lt;/p&gt;
+&lt;p&gt;When &lt;code&gt;allowGraphOverride&lt;/code&gt; is set to &lt;code&gt;true&lt;/code&gt;, the tool exposes an additional
+&lt;code&gt;graph&lt;/code&gt; parameter that lets the agent target any graph on the instance
+instead of the source&amp;rsquo;s default graph. Leave this off (the default) when the
+instance hosts graphs the agent should not reach.&lt;/p&gt;</description></item><item><title>FAQ</title><link>https://mcp-toolbox.dev/reference/faq/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/reference/faq/</guid><description>&lt;h2 id="how-can-i-deploy-or-run-toolbox"&gt;How can I deploy or run Toolbox?&lt;/h2&gt;
 &lt;p&gt;MCP Toolbox for Databases is open-source and can be run or deployed to a
 multitude of environments. For convenience, we release &lt;a href="https://github.com/googleapis/mcp-toolbox/releases/"&gt;compiled binaries and
 docker images&lt;/a&gt; (but you can always compile yourself as well!).&lt;/p&gt;
@@ -19456,7 +19821,9 @@ on how to &lt;a href="https://mcp-toolbox.dev/documentation/connect-to/mcp-clien
 your Looker instance. Refer to the documentation
 &lt;a href="https://cloud.google.com/looker/docs/api-auth#authentication_with_an_sdk"&gt;here&lt;/a&gt;.
 You may need to ask an administrator to get the Client ID and Client Secret
-for you.&lt;/p&gt;</description></item><item><title>serverless-spark-cancel-batch</title><link>https://mcp-toolbox.dev/integrations/serverless-spark/tools/serverless-spark-cancel-batch/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/serverless-spark/tools/serverless-spark-cancel-batch/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+for you.&lt;/p&gt;</description></item><item><title>Read-Only Tools</title><link>https://mcp-toolbox.dev/documentation/configuration/security/read-only/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/documentation/configuration/security/read-only/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
+&lt;p&gt;When granting autonomous AI agents access to enterprise databases, relying on prompt instructions or application-level string matching is insufficient. Even a minor prompt injection, hallucination, or query misconfiguration can lead to irreversible data loss or unauthorized mutations.&lt;/p&gt;
+&lt;p&gt;MCP Toolbox implements an end-to-end &lt;strong&gt;Three-Layer Defense-in-Depth Architecture&lt;/strong&gt; for read-only database access. Security is enforced at the lowest level (the database engine itself), while performance and token efficiency are optimized at the highest level (the MCP protocol manifest).&lt;/p&gt;</description></item><item><title>serverless-spark-cancel-batch</title><link>https://mcp-toolbox.dev/integrations/serverless-spark/tools/serverless-spark-cancel-batch/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/serverless-spark/tools/serverless-spark-cancel-batch/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;&lt;code&gt;serverless-spark-cancel-batch&lt;/code&gt; tool cancels a running Spark batch operation in
 a Google Cloud Serverless for Apache Spark source. The cancellation request is
 asynchronous, so the batch state will not change immediately after the tool
@@ -19842,6 +20209,99 @@ for more information.&lt;/p&gt;
 					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
 					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
 					&lt;td&gt;The format of the query. Default is json. Valid values are &lt;code&gt;csv&lt;/code&gt;, &lt;code&gt;json&lt;/code&gt;, &lt;code&gt;tsv&lt;/code&gt;, &lt;code&gt;txt&lt;/code&gt;, &lt;code&gt;yaml&lt;/code&gt;, &lt;code&gt;cbor&lt;/code&gt;, &lt;code&gt;smile&lt;/code&gt;, or &lt;code&gt;arrow&lt;/code&gt;.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;</description></item><item><title>falkordb-schema</title><link>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-schema/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-schema/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;falkordb-schema&lt;/code&gt; tool extracts a complete schema description of the graph
+configured on a FalkorDB source: node labels and relationship types with
+their observed property shapes (derived from sampling up to &lt;code&gt;sampleSize&lt;/code&gt;
+entities per label or type, 100 by default), indexes (including vector and
+full-text indexes),
+constraints, and graph statistics.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/falkordb/source/"&gt;FalkorDB Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;get_schema&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;falkordb-schema&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-falkordb-instance&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;Use this tool to get the schema of the graph.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="output-format"&gt;Output Format&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-json" data-lang="json"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;graphInfo&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="nt"&gt;&amp;#34;name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;my_graph&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;nodeCount&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;edgeCount&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;},&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;nodeLabels&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="nt"&gt;&amp;#34;name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;Person&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;count&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;properties&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[{&lt;/span&gt;&lt;span class="nt"&gt;&amp;#34;name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;types&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;STRING&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;]}]}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;],&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;relationships&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="nt"&gt;&amp;#34;type&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;ACTED_IN&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;count&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;startNode&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;Person&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;endNode&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;Movie&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;properties&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[]}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;],&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;indexes&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[],&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;constraints&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[],&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;statistics&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="nt"&gt;&amp;#34;totalNodes&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nt"&gt;&amp;#34;totalRelationships&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;&lt;strong&gt;field&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
+					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;type&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Must be &amp;ldquo;falkordb-schema&amp;rdquo;.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;source&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Name of the source to extract the schema from.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;description&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;sampleSize&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;int&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
+					&lt;td&gt;Entities sampled per label or type to derive property shapes. Defaults to 100.&lt;/td&gt;
 			&lt;/tr&gt;
 	&lt;/tbody&gt;
 &lt;/table&gt;</description></item><item><title>JS Quickstart (Local)</title><link>https://mcp-toolbox.dev/documentation/getting-started/local_quickstart_js/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/documentation/getting-started/local_quickstart_js/</guid><description>&lt;h2 id="before-you-begin"&gt;Before you begin&lt;/h2&gt;
@@ -20249,7 +20709,81 @@ agent running locally.&lt;/li&gt;
 &lt;p&gt;Before deploying your agent, your MCP Toolbox server needs to be accessible from
 the cloud. We will deploy MCP Toolbox to Cloud Run.&lt;/p&gt;
 &lt;p&gt;Follow the &lt;a href="https://mcp-toolbox.dev/documentation/deploy-to/cloud-run/"&gt;Deploy to Cloud Run&lt;/a&gt; guide to deploy your MCP
-Toolbox instance.&lt;/p&gt;</description></item><item><title>Go Quickstart (Local)</title><link>https://mcp-toolbox.dev/documentation/getting-started/local_quickstart_go/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/documentation/getting-started/local_quickstart_go/</guid><description>&lt;h2 id="before-you-begin"&gt;Before you begin&lt;/h2&gt;
+Toolbox instance.&lt;/p&gt;</description></item><item><title>falkordb-list-graphs</title><link>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-list-graphs/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-list-graphs/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;falkordb-list-graphs&lt;/code&gt; tool lists the names of all graphs stored on the
+FalkorDB instance of a source (via &lt;code&gt;GRAPH.LIST&lt;/code&gt;). A FalkorDB instance can
+host many independent graphs, so this tool is typically paired with a
+&lt;code&gt;falkordb-execute-cypher&lt;/code&gt; tool configured with &lt;code&gt;allowGraphOverride: true&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/falkordb/source/"&gt;FalkorDB Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;list_graphs&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;falkordb-list-graphs&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-falkordb-instance&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;Use this tool to list the graphs stored on the instance.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="output-format"&gt;Output Format&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-json" data-lang="json"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;&lt;span class="nt"&gt;&amp;#34;graphs&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;my_graph&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;another_graph&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;]}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;&lt;strong&gt;field&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
+					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;type&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Must be &amp;ldquo;falkordb-list-graphs&amp;rdquo;.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;source&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Name of the source to list graphs from.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;description&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;</description></item><item><title>Go Quickstart (Local)</title><link>https://mcp-toolbox.dev/documentation/getting-started/local_quickstart_go/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/documentation/getting-started/local_quickstart_go/</guid><description>&lt;h2 id="before-you-begin"&gt;Before you begin&lt;/h2&gt;
 &lt;p&gt;This guide assumes you have already done the following:&lt;/p&gt;
 &lt;ol&gt;
 &lt;li&gt;Installed &lt;a href="https://go.dev/doc/install"&gt;Go (v1.24.2 or higher)&lt;/a&gt;.&lt;/li&gt;
@@ -20771,14 +21305,7 @@ already exists, &lt;code&gt;storage.objects.delete&lt;/code&gt; is also required
 &lt;/ul&gt;
 &lt;h2 id="naming-conventions"&gt;Naming Conventions&lt;/h2&gt;
 &lt;h3 id="tool-names"&gt;Tool Names&lt;/h3&gt;
-&lt;p&gt;Use &lt;code&gt;snake_case&lt;/code&gt; with the pattern &lt;code&gt;&amp;lt;action&amp;gt;_&amp;lt;resource&amp;gt;&lt;/code&gt;. Avoid product-specific prefixes, as agents can disambiguate tools by the MCP server name.&lt;/p&gt;</description></item><item><title>Toolbox UI</title><link>https://mcp-toolbox.dev/documentation/configuration/toolbox-ui/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/documentation/configuration/toolbox-ui/</guid><description>&lt;p&gt;Toolbox UI is a built-in web interface that allows users to visually inspect and
-test out configured resources such as tools and toolsets.&lt;/p&gt;
-&lt;h2 id="launching-toolbox-ui"&gt;Launching Toolbox UI&lt;/h2&gt;
-&lt;p&gt;To launch Toolbox&amp;rsquo;s interactive UI, use the &lt;code&gt;--ui&lt;/code&gt; flag.&lt;/p&gt;
-&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-sh" data-lang="sh"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./toolbox --ui
-&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Toolbox UI will be served from the same host and port as the Toolbox Server,
-with the &lt;code&gt;/ui&lt;/code&gt; suffix. Once Toolbox is launched, the following INFO log with
-Toolbox UI&amp;rsquo;s url will be shown:&lt;/p&gt;</description></item><item><title>alloydb-wait-for-operation</title><link>https://mcp-toolbox.dev/integrations/alloydb-admin/tools/alloydb-wait-for-operation/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/alloydb-admin/tools/alloydb-wait-for-operation/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;Use &lt;code&gt;snake_case&lt;/code&gt; with the pattern &lt;code&gt;&amp;lt;action&amp;gt;_&amp;lt;resource&amp;gt;&lt;/code&gt;. Avoid product-specific prefixes, as agents can disambiguate tools by the MCP server name.&lt;/p&gt;</description></item><item><title>alloydb-wait-for-operation</title><link>https://mcp-toolbox.dev/integrations/alloydb-admin/tools/alloydb-wait-for-operation/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/alloydb-admin/tools/alloydb-wait-for-operation/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;The &lt;code&gt;alloydb-wait-for-operation&lt;/code&gt; tool is a utility tool that waits for a
 long-running AlloyDB operation to complete. It does this by polling the AlloyDB
 Admin API operation status endpoint until the operation is finished, using
@@ -21888,7 +22415,14 @@ It helps identify potential incompatibilities or issues before starting the actu
 					&lt;td&gt;The target PostgreSQL major version for the upgrade (e.g., &lt;code&gt;POSTGRES_18&lt;/code&gt;). If not specified, defaults to the PostgreSQL 18.&lt;/td&gt;
 			&lt;/tr&gt;
 	&lt;/tbody&gt;
-&lt;/table&gt;</description></item><item><title>cloud-sql-connect-gce</title><link>https://mcp-toolbox.dev/integrations/cloud-sql-admin/tools/cloudsqlconnectgce/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloud-sql-admin/tools/cloudsqlconnectgce/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;/table&gt;</description></item><item><title>Toolbox UI</title><link>https://mcp-toolbox.dev/documentation/configuration/toolbox-ui/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/documentation/configuration/toolbox-ui/</guid><description>&lt;p&gt;Toolbox UI is a built-in web interface that allows users to visually inspect and
+test out configured resources such as tools and toolsets.&lt;/p&gt;
+&lt;h2 id="launching-toolbox-ui"&gt;Launching Toolbox UI&lt;/h2&gt;
+&lt;p&gt;To launch Toolbox&amp;rsquo;s interactive UI, use the &lt;code&gt;--ui&lt;/code&gt; flag.&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-sh" data-lang="sh"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;./toolbox --ui
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Toolbox UI will be served from the same host and port as the Toolbox Server,
+with the &lt;code&gt;/ui&lt;/code&gt; suffix. Once Toolbox is launched, the following INFO log with
+Toolbox UI&amp;rsquo;s url will be shown:&lt;/p&gt;</description></item><item><title>cloud-sql-connect-gce</title><link>https://mcp-toolbox.dev/integrations/cloud-sql-admin/tools/cloudsqlconnectgce/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloud-sql-admin/tools/cloudsqlconnectgce/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;The &lt;code&gt;cloud-sql-connect-gce&lt;/code&gt; tool helps an agent (or user) wire up any Cloud
 SQL instance to a Google Compute Engine VM. The engine (PostgreSQL, MySQL,
 or SQL Server) is auto-detected from the &lt;code&gt;DatabaseVersion&lt;/code&gt; returned by the
@@ -21994,6 +22528,7 @@ IAM authentication if unspecified.&lt;/li&gt;
 user. Defaults to IAM authentication if unspecified.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;ALLOYDB_POSTGRES_IP_TYPE&lt;/code&gt;: (Optional) The IP type i.e. &amp;ldquo;Public&amp;rdquo; or
 &amp;ldquo;Private&amp;rdquo; (Default: Public).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ALLOYDB_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, enforces read-only execution at the database session level (&lt;code&gt;alloydb_session_read_only=locked&lt;/code&gt;) and suppresses write-capable tools. If you encounter an unsupported parameter error, make sure your AlloyDB instance has Postgres version 17+. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
@@ -22043,6 +22578,12 @@ each database in the AlloyDB instance.&lt;/li&gt;
 &lt;/ul&gt;</description></item><item><title>AlloyDB Postgres Admin</title><link>https://mcp-toolbox.dev/integrations/alloydb-admin/prebuilt-configs/alloydb-postgres-admin/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/alloydb-admin/prebuilt-configs/alloydb-postgres-admin/</guid><description>&lt;h2 id="alloydb-postgres-admin"&gt;AlloyDB Postgres Admin&lt;/h2&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;alloydb-postgres-admin&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ALLOYDB_POSTGRES_PROJECT&lt;/code&gt;: (Optional) The GCP project ID to use as the default for AlloyDB infrastructure tools.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ALLOYDB_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools (e.g., &lt;code&gt;create_cluster&lt;/code&gt;, &lt;code&gt;create_instance&lt;/code&gt;, &lt;code&gt;create_user&lt;/code&gt;). Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;strong&gt;AlloyDB Viewer&lt;/strong&gt; (&lt;code&gt;roles/alloydb.viewer&lt;/code&gt;) is required for &lt;code&gt;list&lt;/code&gt; and
@@ -22102,6 +22643,11 @@ long-running operations.&lt;/li&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_PROJECT&lt;/code&gt;: The GCP project ID.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_LOCATION&lt;/code&gt;: (Optional) The dataset location.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;BIGQUERY_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, enforces read-only
+mode across all tools (defaults &lt;code&gt;BIGQUERY_WRITE_MODE&lt;/code&gt; to &lt;code&gt;blocked&lt;/code&gt;).
+Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;BIGQUERY_WRITE_MODE&lt;/code&gt;: (Optional) Controls write behavior: &lt;code&gt;allowed&lt;/code&gt;,
+&lt;code&gt;blocked&lt;/code&gt; (strict read-only), or &lt;code&gt;protected&lt;/code&gt; (session scratchpad).&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_USE_CLIENT_OAUTH&lt;/code&gt;: (Optional) If &lt;code&gt;true&lt;/code&gt;, forwards the client&amp;rsquo;s
 OAuth access token for authentication. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;BIGQUERY_SCOPES&lt;/code&gt;: (Optional) A comma-separated list of OAuth scopes to
@@ -22182,8 +22728,8 @@ documentation&lt;/a&gt;.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_DATABASE&lt;/code&gt;: The name of the database to connect to.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_USER&lt;/code&gt;: The database username.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_PASSWORD&lt;/code&gt;: The password for the database user.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_IP_TYPE&lt;/code&gt;: The IP type i.e. &amp;ldquo;Public
-or &amp;ldquo;Private&amp;rdquo; (Default: Public).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_IP_TYPE&lt;/code&gt;: The IP type i.e. &amp;ldquo;Public&amp;rdquo; or &amp;ldquo;Private&amp;rdquo; (Default: Public).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, enforces read-only execution on the database connection (&lt;code&gt;read_only_connection:true&lt;/code&gt;) and suppresses write-capable tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
@@ -22213,6 +22759,13 @@ primary or unique key contraint.&lt;/li&gt;
 &lt;ul&gt;
 &lt;li&gt;
 &lt;p&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-mysql-admin&lt;/code&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_PROJECT&lt;/code&gt;: (Optional) The GCP project ID to use as the default for Cloud SQL infrastructure tools.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
 &lt;/li&gt;
 &lt;li&gt;
 &lt;p&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;&lt;/p&gt;
@@ -22247,21 +22800,7 @@ all resources.
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;li&gt;
-&lt;p&gt;&lt;strong&gt;Tools:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;code&gt;create_instance&lt;/code&gt;: Creates a new Cloud SQL for MySQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;get_instance&lt;/code&gt;: Gets information about a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;list_instances&lt;/code&gt;: Lists Cloud SQL instances in a project.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;create_database&lt;/code&gt;: Creates a new database in a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;list_databases&lt;/code&gt;: Lists all databases for a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;create_user&lt;/code&gt;: Creates a new user in a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;wait_for_operation&lt;/code&gt;: Waits for a Cloud SQL operation to complete.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;clone_instance&lt;/code&gt;: Creates a clone for an existing Cloud SQL for MySQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;create_backup&lt;/code&gt;: Creates a backup on a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;restore_backup&lt;/code&gt;: Restores a backup of a Cloud SQL instance.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/li&gt;
-&lt;/ul&gt;</description></item><item><title>Cloud SQL for MySQL Observability</title><link>https://mcp-toolbox.dev/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-mysql-observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-mysql-observability/</guid><description>&lt;h2 id="cloud-sql-for-mysql-observability"&gt;Cloud SQL for MySQL Observability&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Tools:&lt;/strong&gt;&lt;/p&gt;</description></item><item><title>Cloud SQL for MySQL Observability</title><link>https://mcp-toolbox.dev/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-mysql-observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-mysql-observability/</guid><description>&lt;h2 id="cloud-sql-for-mysql-observability"&gt;Cloud SQL for MySQL Observability&lt;/h2&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-mysql-observability&lt;/code&gt;&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
@@ -22294,6 +22833,7 @@ IAM authentication if unspecified.&lt;/li&gt;
 user. Defaults to IAM authentication if unspecified.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_IP_TYPE&lt;/code&gt;: (Optional) The IP type i.e. &amp;ldquo;Public&amp;rdquo; or
 &amp;ldquo;Private&amp;rdquo; (Default: Public).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, enforces read-only execution at the database session level (&lt;code&gt;cloudsql_session_read_only=locked&lt;/code&gt;) and suppresses write-capable tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
@@ -22344,6 +22884,12 @@ each database in the postgreSQL instance.&lt;/li&gt;
 &lt;/ul&gt;</description></item><item><title>Cloud SQL for PostgreSQL Admin</title><link>https://mcp-toolbox.dev/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-postgresql-admin/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-postgresql-admin/</guid><description>&lt;h2 id="cloud-sql-for-postgresql-admin"&gt;Cloud SQL for PostgreSQL Admin&lt;/h2&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-postgres-admin&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_PROJECT&lt;/code&gt;: (Optional) The GCP project ID to use as the default for Cloud SQL infrastructure tools.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;strong&gt;Cloud SQL Viewer&lt;/strong&gt; (&lt;code&gt;roles/cloudsql.viewer&lt;/code&gt;): Provides read-only
@@ -22891,6 +23437,35 @@ documentation&lt;/a&gt;.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;execute_esql_query&lt;/code&gt;: Use this tool to execute ES|QL queries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>FalkorDB</title><link>https://mcp-toolbox.dev/integrations/falkordb/prebuilt-configs/falkordb/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/prebuilt-configs/falkordb/</guid><description>&lt;h2 id="falkordb"&gt;FalkorDB&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;falkordb&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_HOST&lt;/code&gt;: The host of the FalkorDB instance (e.g.,
+&lt;code&gt;127.0.0.1&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_PORT&lt;/code&gt;: The port of the FalkorDB instance (defaults to
+&lt;code&gt;6379&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_GRAPH&lt;/code&gt;: The name of the graph to operate on.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_USERNAME&lt;/code&gt;: The username for the FalkorDB instance
+(optional).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_PASSWORD&lt;/code&gt;: The password for the FalkorDB instance
+(optional).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database-level permissions&lt;/strong&gt; are required to execute Cypher
+queries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;execute_cypher&lt;/code&gt;: Executes a Cypher query against the graph.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_schema&lt;/code&gt;: Retrieves the schema of the graph.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_graphs&lt;/code&gt;: Lists the graphs stored on the instance.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;/ul&gt;</description></item><item><title>Firestore</title><link>https://mcp-toolbox.dev/integrations/firestore/prebuilt-configs/firestore/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/firestore/prebuilt-configs/firestore/</guid><description>&lt;h2 id="firestore"&gt;Firestore&lt;/h2&gt;

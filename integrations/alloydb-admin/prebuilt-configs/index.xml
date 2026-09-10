@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/integrations/alloydb-admin/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/integrations/alloydb-admin/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>AlloyDB Postgres Admin</title><link>https://mcp-toolbox.dev/integrations/alloydb-admin/prebuilt-configs/alloydb-postgres-admin/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/alloydb-admin/prebuilt-configs/alloydb-postgres-admin/</guid><description>&lt;h2 id="alloydb-postgres-admin"&gt;AlloyDB Postgres Admin&lt;/h2&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;alloydb-postgres-admin&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ALLOYDB_POSTGRES_PROJECT&lt;/code&gt;: (Optional) The GCP project ID to use as the default for AlloyDB infrastructure tools.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ALLOYDB_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools (e.g., &lt;code&gt;create_cluster&lt;/code&gt;, &lt;code&gt;create_instance&lt;/code&gt;, &lt;code&gt;create_user&lt;/code&gt;). Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;strong&gt;AlloyDB Viewer&lt;/strong&gt; (&lt;code&gt;roles/alloydb.viewer&lt;/code&gt;) is required for &lt;code&gt;list&lt;/code&gt; and

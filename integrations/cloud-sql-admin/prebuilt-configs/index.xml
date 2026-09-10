@@ -4,6 +4,13 @@
 &lt;p&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-mysql-admin&lt;/code&gt;&lt;/p&gt;
 &lt;/li&gt;
 &lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_PROJECT&lt;/code&gt;: (Optional) The GCP project ID to use as the default for Cloud SQL infrastructure tools.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_MYSQL_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;
 &lt;p&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;strong&gt;Cloud SQL Viewer&lt;/strong&gt; (&lt;code&gt;roles/cloudsql.viewer&lt;/code&gt;): Provides read-only
@@ -36,23 +43,15 @@ all resources.
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;li&gt;
-&lt;p&gt;&lt;strong&gt;Tools:&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;code&gt;create_instance&lt;/code&gt;: Creates a new Cloud SQL for MySQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;get_instance&lt;/code&gt;: Gets information about a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;list_instances&lt;/code&gt;: Lists Cloud SQL instances in a project.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;create_database&lt;/code&gt;: Creates a new database in a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;list_databases&lt;/code&gt;: Lists all databases for a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;create_user&lt;/code&gt;: Creates a new user in a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;wait_for_operation&lt;/code&gt;: Waits for a Cloud SQL operation to complete.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;clone_instance&lt;/code&gt;: Creates a clone for an existing Cloud SQL for MySQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;create_backup&lt;/code&gt;: Creates a backup on a Cloud SQL instance.&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;restore_backup&lt;/code&gt;: Restores a backup of a Cloud SQL instance.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/li&gt;
-&lt;/ul&gt;</description></item><item><title>Cloud SQL for PostgreSQL Admin</title><link>https://mcp-toolbox.dev/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-postgresql-admin/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-postgresql-admin/</guid><description>&lt;h2 id="cloud-sql-for-postgresql-admin"&gt;Cloud SQL for PostgreSQL Admin&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;Tools:&lt;/strong&gt;&lt;/p&gt;</description></item><item><title>Cloud SQL for PostgreSQL Admin</title><link>https://mcp-toolbox.dev/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-postgresql-admin/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-postgresql-admin/</guid><description>&lt;h2 id="cloud-sql-for-postgresql-admin"&gt;Cloud SQL for PostgreSQL Admin&lt;/h2&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-postgres-admin&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_PROJECT&lt;/code&gt;: (Optional) The GCP project ID to use as the default for Cloud SQL infrastructure tools.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, suppresses write-capable admin tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;strong&gt;Cloud SQL Viewer&lt;/strong&gt; (&lt;code&gt;roles/cloudsql.viewer&lt;/code&gt;): Provides read-only

@@ -52,6 +52,14 @@ basics&lt;/a&gt;.&lt;/p&gt;
  
  
  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
 
 
 
@@ -97,6 +105,18 @@ basics&lt;/a&gt;.&lt;/p&gt;
  &lt;tr&gt;
  &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/tools/firestore-list-collections/"&gt;&lt;strong&gt;firestore-list-collections&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
  &lt;td&gt;A &amp;#34;firestore-list-collections&amp;#34; tool lists collections in Firestore, either at the root level or as subcollections of a document.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-execute-mql/"&gt;&lt;strong&gt;firestore-mongodb-execute-mql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-mongodb-execute-mql&amp;#34; tool executes MongoDB Query Language (MQL) queries and aggregation pipelines against Firestore.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-get-schema/"&gt;&lt;strong&gt;firestore-mongodb-get-schema&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-mongodb-get-schema&amp;#34; tool introspects Firestore collections to infer field types and schema definitions.
 &lt;/td&gt;
  &lt;/tr&gt;
  

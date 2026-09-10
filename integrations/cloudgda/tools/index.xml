@@ -2,7 +2,7 @@
 &lt;p&gt;The &lt;code&gt;cloud-gemini-data-analytics-query&lt;/code&gt; tool allows you to send natural language questions to the Gemini Data Analytics API and receive structured responses containing SQL queries, natural language answers, and explanations. For details on defining data agent context for database data sources, see the official &lt;a href="https://docs.cloud.google.com/gemini/docs/conversational-analytics-api/data-agent-authored-context-databases"&gt;documentation&lt;/a&gt;.&lt;/p&gt;
 &lt;blockquote&gt;
 &lt;p&gt;[!NOTE]
-Only &lt;code&gt;alloydb&lt;/code&gt;, &lt;code&gt;spannerReference&lt;/code&gt;, and &lt;code&gt;cloudSqlReference&lt;/code&gt; are supported as &lt;a href="https://clouddocs.devsite.corp.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences"&gt;datasource references&lt;/a&gt;.&lt;/p&gt;
+Only &lt;code&gt;alloydb&lt;/code&gt;, &lt;code&gt;spannerReference&lt;/code&gt;, and &lt;code&gt;cloudSqlReference&lt;/code&gt; are supported as &lt;a href="https://cloud.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences"&gt;datasource references&lt;/a&gt;.&lt;/p&gt;
 &lt;/blockquote&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Samples on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/integrations/falkordb/samples/</link><description>Recent content in Samples on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/integrations/falkordb/samples/index.xml" rel="self" type="application/rss+xml"/><item><title>Quickstart (MCP with FalkorDB)</title><link>https://mcp-toolbox.dev/integrations/falkordb/samples/mcp_quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/falkordb/samples/mcp_quickstart/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://modelcontextprotocol.io"&gt;Model Context Protocol&lt;/a&gt; is an open protocol
+that standardizes how applications provide context to LLMs. Check out this page
+on how to &lt;a href="https://mcp-toolbox.dev/documentation/connect-to/mcp-client/"&gt;connect to Toolbox via
+MCP&lt;/a&gt;.&lt;/p&gt;
+&lt;h2 id="step-1-set-up-your-falkordb-graph-and-data"&gt;Step 1: Set up your FalkorDB graph and data&lt;/h2&gt;
+&lt;p&gt;In this section, you&amp;rsquo;ll start a FalkorDB instance and populate it with sample
+data for a movies-related agent.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Start FalkorDB.&lt;/strong&gt; The quickest way is Docker:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;docker run -d --name falkordb -p 6379:6379 falkordb/falkordb
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Populate the graph with data.&lt;/strong&gt; Using &lt;code&gt;redis-cli&lt;/code&gt; (or the FalkorDB
+browser at &lt;code&gt;http://localhost:3000&lt;/code&gt; if you expose it), create a small movie
+graph:&lt;/p&gt;</description></item></channel></rss>

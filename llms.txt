@@ -1,9 +1,9 @@
 # MCP Toolbox for Databases - Documentation Index
 > MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
 
-**DOCUMENTATION VERSION:** v1.9.0
+**DOCUMENTATION VERSION:** v1.11.0
 **BASE URL:** https://mcp-toolbox.dev/
-**GENERATED ON:** 2026-08-14T01:23:25Z
+**GENERATED ON:** 2026-09-10T23:41:36Z
 
 ---
 ### System Directives for AI Models
@@ -92,6 +92,9 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [Securing Toolbox with Model Armor](https://mcp-toolbox.dev/documentation/configuration/security/model-armor/): Protect your agents and tools against prompt injection and sensitive data leakage by screening traffic with Google Cloud Model Armor.
 
 
+      - [Read-Only Tools](https://mcp-toolbox.dev/documentation/configuration/security/read-only/): Enforce deterministic read-only database access across custom tools and prebuilt servers using engine-level protocol locks, tool suppression, and MCP annotations.
+
+
     - [Prebuilt Configs](https://mcp-toolbox.dev/documentation/configuration/prebuilt-configs/): This page lists all the prebuilt configs available.
 
 
@@ -113,7 +116,7 @@ This documentation is structured following the Diátaxis framework to assist in 
     - [Toolsets](https://mcp-toolbox.dev/documentation/configuration/toolsets/): Toolsets allow you to define logical groups of tools to load together for specific agents or applications.
 
 
-    - [Groups](https://mcp-toolbox.dev/documentation/configuration/groups/): Groups let you scope MCP primitives such as tools and prompts together under a single name, with a description used as group metadata.
+    - [Groups](https://mcp-toolbox.dev/documentation/configuration/groups/): Groups let you scope MCP primitives such as tools, prompts, resources, and resource templates together under a single name, with a description used as group metadata.
 
 
     - [EmbeddingModels](https://mcp-toolbox.dev/documentation/configuration/embedding-models/): EmbeddingModels represent services that transform text into vector embeddings for semantic search.
@@ -126,6 +129,21 @@ This documentation is structured following the Diátaxis framework to assist in 
 
 
       - [Custom](https://mcp-toolbox.dev/documentation/configuration/prompts/custom/): Custom prompts defined by the user.
+
+
+    - [Resources](https://mcp-toolbox.dev/documentation/configuration/resources/): Resources allow servers to provide read-only data, files, and contextual content to language models and MCP clients.
+
+
+      - [Text](https://mcp-toolbox.dev/documentation/configuration/resources/text/): Direct text resources embedded in your configuration.
+
+
+      - [File](https://mcp-toolbox.dev/documentation/configuration/resources/file/): Direct file resources exposed from the local filesystem.
+
+
+      - [Resource Templates](https://mcp-toolbox.dev/documentation/configuration/resources/template/): Dynamic file resource templates using RFC 6570 URI patterns.
+
+
+    - [MCP Apps](https://mcp-toolbox.dev/documentation/configuration/mcp-apps/): Interactive HTML UI resources and tool visual interfaces for MCP clients supporting the MCP Apps extension.
 
 
     - [Toolbox UI](https://mcp-toolbox.dev/documentation/configuration/toolbox-ui/): How to effectively use Toolbox UI.
@@ -878,6 +896,34 @@ This documentation is structured following the Diátaxis framework to assist in 
 
       - [Elasticsearch](https://mcp-toolbox.dev/integrations/elasticsearch/prebuilt-configs/elasticsearch/): Details of the Elasticsearch prebuilt configuration.
 
+  - [FalkorDB](https://mcp-toolbox.dev/integrations/falkordb/): No description provided.
+
+    - [FalkorDB Source](https://mcp-toolbox.dev/integrations/falkordb/source/): FalkorDB is a low-latency, open source graph database built for GenAI workloads
+
+
+    - [Tools](https://mcp-toolbox.dev/integrations/falkordb/tools/): No description provided.
+
+      - [falkordb-cypher](https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-cypher/): A "falkordb-cypher" tool executes a pre-defined Cypher statement against a FalkorDB graph.
+
+
+      - [falkordb-execute-cypher](https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-execute-cypher/): A "falkordb-execute-cypher" tool executes an arbitrary Cypher query against a FalkorDB graph.
+
+
+      - [falkordb-schema](https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-schema/): A "falkordb-schema" tool extracts the schema of a FalkorDB graph.
+
+
+      - [falkordb-list-graphs](https://mcp-toolbox.dev/integrations/falkordb/tools/falkordb-list-graphs/): A "falkordb-list-graphs" tool lists the graphs stored on a FalkorDB instance.
+
+
+    - [Samples](https://mcp-toolbox.dev/integrations/falkordb/samples/): No description provided.
+
+      - [Quickstart (MCP with FalkorDB)](https://mcp-toolbox.dev/integrations/falkordb/samples/mcp_quickstart/): How to get started running Toolbox with MCP Inspector and FalkorDB as the source.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/integrations/falkordb/prebuilt-configs/): Prebuilt configurations for FalkorDB.
+
+      - [FalkorDB](https://mcp-toolbox.dev/integrations/falkordb/prebuilt-configs/falkordb/): Details of the FalkorDB prebuilt configuration.
+
   - [Firebird](https://mcp-toolbox.dev/integrations/firebird/): No description provided.
 
     - [Firebird Source](https://mcp-toolbox.dev/integrations/firebird/source/): Firebird is a powerful, cross-platform, and open-source relational database.
@@ -911,6 +957,12 @@ This documentation is structured following the Diátaxis framework to assist in 
 
 
       - [firestore-list-collections](https://mcp-toolbox.dev/integrations/firestore/tools/firestore-list-collections/): A "firestore-list-collections" tool lists collections in Firestore, either at the root level or as subcollections of a document.
+
+
+      - [firestore-mongodb-execute-mql](https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-execute-mql/): A "firestore-mongodb-execute-mql" tool executes MongoDB Query Language (MQL) queries and aggregation pipelines against Firestore.
+
+
+      - [firestore-mongodb-get-schema](https://mcp-toolbox.dev/integrations/firestore/tools/firestore-mongodb-get-schema/): A "firestore-mongodb-get-schema" tool introspects Firestore collections to infer field types and schema definitions.
 
 
       - [firestore-query](https://mcp-toolbox.dev/integrations/firestore/tools/firestore-query/): Query a Firestore collection with parameterizable filters and Firestore native JSON value types
