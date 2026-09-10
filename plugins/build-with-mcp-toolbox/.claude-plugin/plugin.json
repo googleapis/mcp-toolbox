@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "build-with-mcp-toolbox",
+  "displayName": "MCP Toolbox for Databases",
+  "version": "1.9.0",
+  "description": "Build applications with MCP Toolbox for Databases.",
+  "author": {
+    "name": "Google LLC",
+    "email": "senseai-eco@google.com"
+  },
+  "homepage": "https://mcp-toolbox.dev",
+  "repository": "https://github.com/googleapis/mcp-toolbox",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "toolbox",
+    "database",
+    "agent",
+    "llm",
+    "genai"
+  ]
+}
