@@ -487,6 +487,8 @@ func TestMcpEndpoint(t *testing.T) {
 		wantToolsCallWithURLParam              map[string]any
 		wantToolsCallWithURLParamOverrideError map[string]any
 		wantToolsCallWithParamError            map[string]any
+		wantGroupsList                         map[string]any
+		wantGroupsGet                          map[string]any
 	}{
 		{
 			name:     "version 2024-11-05",
@@ -505,7 +507,7 @@ func TestMcpEndpoint(t *testing.T) {
 				},
 			},
 
-			invalidMethods: []string{"server/discover"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
 		},
 		{
 			name:     "version 2025-03-26",
@@ -523,7 +525,7 @@ func TestMcpEndpoint(t *testing.T) {
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
 		},
 		{
 			name:      "version 2025-06-18",
@@ -542,7 +544,7 @@ func TestMcpEndpoint(t *testing.T) {
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
 		},
 		{
 			name:      "version 2025-11-25",
@@ -561,7 +563,7 @@ func TestMcpEndpoint(t *testing.T) {
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
 		},
 		{
 			name:           "version 2026-07-28",
@@ -813,6 +815,26 @@ func TestMcpEndpoint(t *testing.T) {
 					"_meta": map[string]any{
 						"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 					},
+				},
+			},
+			// This version's `meta` declares no extensions, so the groups
+			// methods are reachable but refused. The served path needs a client
+			// that declares com.google.cloud/toolbox.v1 and is covered by
+			// TestMcpGroupsMethods.
+			wantGroupsList: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-list",
+				"error": map[string]any{
+					"code":    -32021.0,
+					"message": `missing required client capability: method "groups/list" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
+				},
+			},
+			wantGroupsGet: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-get",
+				"error": map[string]any{
+					"code":    -32021.0,
+					"message": `missing required client capability: method "groups/get" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
 				},
 			},
 		},
@@ -1405,6 +1427,37 @@ func TestMcpEndpoint(t *testing.T) {
 					},
 					wantOverwrite: vtc.wantToolsCallWithParamError,
 				},
+				{
+					name: "groups/list",
+					url:  "/",
+					body: jsonrpc.JSONRPCRequest{
+						Jsonrpc: jsonrpcVersion,
+						Id:      "groups-list",
+						Request: jsonrpc.Request{
+							Method: "groups/list",
+						},
+					},
+					methodName:     "groups/list",
+					wantStatusCode: http.StatusOK,
+					wantOverwrite:  vtc.wantGroupsList,
+				},
+				{
+					name: "groups/get",
+					url:  "/",
+					body: jsonrpc.JSONRPCRequest{
+						Jsonrpc: jsonrpcVersion,
+						Id:      "groups-get",
+						Request: jsonrpc.Request{
+							Method: "groups/get",
+						},
+						Params: map[string]any{
+							"name": "tool1_only",
+						},
+					},
+					methodName:     "groups/get",
+					wantStatusCode: http.StatusOK,
+					wantOverwrite:  vtc.wantGroupsGet,
+				},
 			}
 			for i := range testCases {
 				tc := *testCases[i]
@@ -1420,7 +1473,7 @@ func TestMcpEndpoint(t *testing.T) {
 					if slices.Contains(vtc.reqHeader, "Mcp-Method") {
 						header["Mcp-Method"] = tc.methodName
 					}
-					if slices.Contains(vtc.reqHeader, "Mcp-Name") && (tc.methodName == "tools/call" || tc.methodName == "prompts/get") {
+					if slices.Contains(vtc.reqHeader, "Mcp-Name") && (tc.methodName == "tools/call" || tc.methodName == "prompts/get" || tc.methodName == "groups/get") {
 						params := tc.body.Params.(map[string]any)
 						header["Mcp-Name"] = params["name"].(string)
 					}
@@ -1483,6 +1536,114 @@ func TestMcpEndpoint(t *testing.T) {
 						}
 					}
 				})
+			}
+		})
+	}
+}
+
+// TestMcpGroupsMethods checks that groups/list and groups/get are served to a
+// client that declared the com.google.cloud/toolbox.v1 extension. The refusal
+// paths — an earlier protocol version, and 2026-07-28 without the extension —
+// are covered by TestMcpEndpoint, whose per-version `meta` declares no
+// extensions.
+func TestMcpGroupsMethods(t *testing.T) {
+	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
+	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
+	r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, groups)
+	defer shutdown()
+	ts := runServer(r, false)
+	defer ts.Close()
+
+	meta := map[string]any{
+		"io.modelcontextprotocol/protocolVersion": protocolVersion20260728,
+		"io.modelcontextprotocol/clientInfo": map[string]any{
+			"version": "client-temp-version",
+			"name":    "client-name",
+		},
+		"io.modelcontextprotocol/clientCapabilities": map[string]any{
+			"extensions": map[string]any{"com.google.cloud/toolbox.v1": map[string]any{}},
+		},
+	}
+	serverInfoMeta := map[string]any{
+		"io.modelcontextprotocol/serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
+	}
+
+	testCases := []struct {
+		name   string
+		method string
+		params map[string]any
+		want   map[string]any
+	}{
+		{
+			name:   "groups/list with extension",
+			method: "groups/list",
+			params: map[string]any{"_meta": meta},
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"result": map[string]any{
+					"resultType": "complete",
+					"groups": []any{
+						map[string]any{"name": "tool1_only"},
+						map[string]any{"name": "tool2_only"},
+					},
+					"_meta": serverInfoMeta,
+				},
+			},
+		},
+		{
+			name:   "groups/get with extension",
+			method: "groups/get",
+			params: map[string]any{"name": "tool1_only", "_meta": meta},
+			want: map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "groups-req",
+				"result": map[string]any{
+					"resultType": "complete",
+					"name":       "tool1_only",
+					"tools": []any{
+						map[string]any{"name": "no_params", "inputSchema": basicInputSchema},
+					},
+					"prompts":    []any{},
+					"ttlMs":      300000.0,
+					"cacheScope": "public",
+					"_meta":      serverInfoMeta,
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := jsonrpc.JSONRPCRequest{
+				Jsonrpc: jsonrpcVersion,
+				Id:      "groups-req",
+				Request: jsonrpc.Request{Method: tc.method},
+				Params:  tc.params,
+			}
+			reqMarshal, err := json.Marshal(body)
+			if err != nil {
+				t.Fatalf("unexpected error during marshaling of body: %s", err)
+			}
+
+			header := map[string]string{
+				"Mcp-Protocol-Version": protocolVersion20260728,
+				"Mcp-Method":           tc.method,
+			}
+			if tc.method == "groups/get" {
+				header["Mcp-Name"] = tc.params["name"].(string)
+			}
+
+			_, respBody, err := runRequest(ts, http.MethodPost, "/", bytes.NewBuffer(reqMarshal), header)
+			if err != nil {
+				t.Fatalf("unexpected error during request: %s", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(respBody, &got); err != nil {
+				t.Fatalf("unexpected error unmarshalling body: %s", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("unexpected response: got %#v, want %#v", got, tc.want)
 			}
 		})
 	}
