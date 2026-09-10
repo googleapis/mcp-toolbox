@@ -1770,8 +1770,8 @@ func TestMcpEndpoint(t *testing.T) {
 // extensions.
 func TestMcpGroupsMethods(t *testing.T) {
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
-	r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 	defer shutdown()
 	ts := runServer(r, false)
 	defer ts.Close()
@@ -1826,10 +1826,12 @@ func TestMcpGroupsMethods(t *testing.T) {
 					"tools": []any{
 						map[string]any{"name": "no_params", "inputSchema": basicInputSchema},
 					},
-					"prompts":    []any{},
-					"ttlMs":      300000.0,
-					"cacheScope": "public",
-					"_meta":      serverInfoMeta,
+					"prompts":           []any{},
+					"resources":         []any{},
+					"resourceTemplates": []any{},
+					"ttlMs":             300000.0,
+					"cacheScope":        "public",
+					"_meta":             serverInfoMeta,
 				},
 			},
 		},
