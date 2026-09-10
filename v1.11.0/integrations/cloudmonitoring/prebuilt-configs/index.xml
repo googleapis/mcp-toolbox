@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>AlloyDB Postgres Observability</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/alloydb-postgres-observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/alloydb-postgres-observability/</guid><description>&lt;h2 id="alloydb-postgres-observability"&gt;AlloyDB Postgres Observability&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;alloydb-postgres-observability&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;) is required on the project to view system and query time-series metrics.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Database Insights Viewer&lt;/strong&gt; (&lt;code&gt;roles/databaseinsights.viewer&lt;/code&gt;) is required to retrieve aggregated query statistics, wait events, historical trends, and index advisor recommendations.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;get_system_metrics&lt;/code&gt;: Fetches system level cloud monitoring data (timeseries metrics) for an AlloyDB instance using a PromQL query.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_query_metrics&lt;/code&gt;: Fetches query level cloud monitoring data (timeseries metrics) for queries running in an AlloyDB instance using a PromQL query.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_advanced_aggregated_query_stats&lt;/code&gt;: Fetches aggregated query execution statistics for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, as well as pagination. Returns statistics including query ID, database name, total execution time (&lt;code&gt;sum(execution_time)&lt;/code&gt;), average execution time (&lt;code&gt;avg(execution_time)&lt;/code&gt;), total execution count (&lt;code&gt;sum(count)&lt;/code&gt;), total wait time (&lt;code&gt;sum(wait_time)&lt;/code&gt;), and normalized query text. Requires Advanced Query Insights to be enabled.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_advanced_aggregated_wait_event_stats&lt;/code&gt;: Fetches aggregated wait event statistics to identify performance bottlenecks for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, selecting the aggregation level (by wait class or granular wait event), as well as pagination. Returns statistics including wait class or event name, total time spent (&lt;code&gt;sum(time_spent)&lt;/code&gt;), average time spent (&lt;code&gt;avg(time_spent)&lt;/code&gt;), and total wait count (&lt;code&gt;sum(count)&lt;/code&gt;). Requires Advanced Query Insights to be enabled.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_advanced_time_series_query_stats&lt;/code&gt;: Fetches time-series history of query execution statistics to analyze trends and spikes for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID. Returns time-series data including rates of execution time (&lt;code&gt;rate(execution_time)&lt;/code&gt;) and wait time (&lt;code&gt;rate(wait_time)&lt;/code&gt;). Requires Advanced Query Insights to be enabled.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_advanced_time_series_wait_event_stats&lt;/code&gt;: Fetches time-series history of wait event statistics to analyze contention trends for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, as well as selecting the aggregation level (by wait class or granular wait event). Returns time-series data including rate of time spent (&lt;code&gt;rate(time_spent)&lt;/code&gt;) grouped by wait class or event. Requires Advanced Query Insights to be enabled.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_index_recommendations&lt;/code&gt;: Fetches index advisor suggestions to optimize performance for a requested AlloyDB instance. Supports requesting recommendations for specific databases and a list of query IDs. Returns index recommendations including SQL commands (&lt;code&gt;CREATE INDEX&lt;/code&gt;), target schema, relation, and columns, estimated storage size, and predicted query performance improvements (current vs estimated execution duration).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Available Toolsets (Filtered Groups):&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;alloydb_postgres_cloud_monitoring_tools&lt;/code&gt;: Exposes only the 2 Cloud Monitoring metrics tools (&lt;code&gt;get_system_metrics&lt;/code&gt;, &lt;code&gt;get_query_metrics&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;alloydb_postgres_database_insights_tools&lt;/code&gt;: Exposes only the 5 Database Insights diagnostic tools (&lt;code&gt;get_advanced_...&lt;/code&gt; and &lt;code&gt;get_index_recommendations&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;alloydb_postgres_observability_tools&lt;/code&gt;: Exposes all 7 observability tools.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="additional-resources"&gt;Additional Resources&lt;/h2&gt;
+&lt;p&gt;These tools are also available via the remote Google Cloud OneMCP server for AlloyDB. For detailed reference documentation on remote OneMCP integration and index advisor capabilities, see:&lt;/p&gt;</description></item><item><title>Cloud SQL for MySQL Observability</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-mysql-observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-mysql-observability/</guid><description>&lt;h2 id="cloud-sql-for-mysql-observability"&gt;Cloud SQL for MySQL Observability&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-mysql-observability&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;) is required on the
+project to view monitoring data.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;get_system_metrics&lt;/code&gt;: Fetches system level cloud monitoring data
+(timeseries metrics) for a MySQL instance using a PromQL query.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_query_metrics&lt;/code&gt;: Fetches query level cloud monitoring data
+(timeseries metrics) for queries running in a MySQL instance using a
+PromQL query.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>Cloud SQL for PostgreSQL Observability</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-postgresql-observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-postgresql-observability/</guid><description>&lt;h2 id="cloud-sql-for-postgresql-observability"&gt;Cloud SQL for PostgreSQL Observability&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-postgres-observability&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;) is required on the
+project to view monitoring data.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;get_system_metrics&lt;/code&gt;: Fetches system level cloud monitoring data
+(timeseries metrics) for a Postgres instance using a PromQL query.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_query_metrics&lt;/code&gt;: Fetches query level cloud monitoring data
+(timeseries metrics) for queries running in Postgres instance using a
+PromQL query.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>Cloud SQL for SQL Server Observability</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-sql-server-observability/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-sql-server-observability/</guid><description>&lt;h2 id="cloud-sql-for-sql-server-observability"&gt;Cloud SQL for SQL Server Observability&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-mssql-observability&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;) is required on the
+project to view monitoring data.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;get_system_metrics&lt;/code&gt;: Fetches system level cloud monitoring data
+(timeseries metrics) for a SQL Server instance using a PromQL query.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

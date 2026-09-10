@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>FalkorDB</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/prebuilt-configs/falkordb/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/prebuilt-configs/falkordb/</guid><description>&lt;h2 id="falkordb"&gt;FalkorDB&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;falkordb&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_HOST&lt;/code&gt;: The host of the FalkorDB instance (e.g.,
+&lt;code&gt;127.0.0.1&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_PORT&lt;/code&gt;: The port of the FalkorDB instance (defaults to
+&lt;code&gt;6379&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_GRAPH&lt;/code&gt;: The name of the graph to operate on.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_USERNAME&lt;/code&gt;: The username for the FalkorDB instance
+(optional).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FALKORDB_PASSWORD&lt;/code&gt;: The password for the FalkorDB instance
+(optional).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database-level permissions&lt;/strong&gt; are required to execute Cypher
+queries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;execute_cypher&lt;/code&gt;: Executes a Cypher query against the graph.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_schema&lt;/code&gt;: Retrieves the schema of the graph.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_graphs&lt;/code&gt;: Lists the graphs stored on the instance.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

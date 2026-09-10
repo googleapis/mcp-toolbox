@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>Neo4j</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/prebuilt-configs/neo4j/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/prebuilt-configs/neo4j/</guid><description>&lt;h2 id="neo4j"&gt;Neo4j&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;neo4j&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;NEO4J_URI&lt;/code&gt;: The URI of the Neo4j instance (e.g.,
+&lt;code&gt;bolt://localhost:7687&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;NEO4J_DATABASE&lt;/code&gt;: The name of the Neo4j database to connect to.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;NEO4J_USERNAME&lt;/code&gt;: The username for the Neo4j instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;NEO4J_PASSWORD&lt;/code&gt;: The password for the Neo4j instance.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database-level permissions&lt;/strong&gt; are required to execute Cypher queries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;execute_cypher&lt;/code&gt;: Executes a Cypher query.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_schema&lt;/code&gt;: Retrieves the schema of the Neo4j database.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

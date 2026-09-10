@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>vector-assist-apply-spec</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-apply-spec/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-apply-spec/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-apply-spec&lt;/code&gt; tool automatically executes all the SQL recommendations associated with a specific vector specification (spec_id) or table. It runs the necessary commands in the correct sequence to provision the workload, marking each step as applied once successful.&lt;/p&gt;
+&lt;p&gt;Use this tool when the user has reviewed the generated recommendations from a defined (or modified) spec and is ready to apply the changes directly to their database instance to finalize the vector search setup. Under the hood, this tool connects to the target database and executes the &lt;code&gt;vector_assist.apply_spec&lt;/code&gt; function.&lt;/p&gt;</description></item><item><title>vector-assist-define-spec</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-define-spec/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-define-spec/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-define-spec&lt;/code&gt; tool defines a new vector specification by capturing the user&amp;rsquo;s intent and requirements for a vector search workload. It generates a complete, ordered set of SQL recommendations required to set up the database, embeddings, and vector indexes.&lt;/p&gt;
+&lt;p&gt;Use this tool at the very beginning of the vector setup process when an agent or user first wants to configure a table for vector search, generate embeddings, or create a new vector index. Under the hood, this tool connects to the target database and executes the &lt;code&gt;vector_assist.define_spec&lt;/code&gt; function to generate the necessary specifications.&lt;/p&gt;</description></item><item><title>vector-assist-delete-spec</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-delete-spec/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-delete-spec/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-delete-spec&lt;/code&gt; tool deletes an existing vector specification using its &lt;code&gt;spec_id&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;Use this tool when a user explicitly requests to delete, remove, or clean up an existing vector specification which was created in the context of the vector assist tools. Under the hood, this tool connects to the target database and executes the &lt;code&gt;vector_assist.delete_spec&lt;/code&gt; function.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/source/"&gt;Cloud SQL for PostgreSQL Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;div class="notice tip" &gt;
+ &lt;p class="notice-title"&gt;
+ &lt;span class="icon-notice baseline"&gt;
+ &lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="300.5 134 300 300"&gt;
+ &lt;path d="M551.281 252.36c0-3.32-1.172-6.641-3.515-8.985l-17.774-17.578c-2.344-2.344-5.469-3.711-8.789-3.711-3.32 0-6.445 1.367-8.789 3.71l-79.687 79.493-44.141-44.14c-2.344-2.344-5.469-3.712-8.79-3.712-3.32 0-6.444 1.368-8.788 3.711l-17.774 17.579c-2.343 2.343-3.515 5.664-3.515 8.984 0 3.32 1.172 6.445 3.515 8.789l70.704 70.703c2.343 2.344 5.664 3.711 8.789 3.711 3.32 0 6.64-1.367 8.984-3.71l106.055-106.056c2.343-2.343 3.515-5.468 3.515-8.789ZM600.5 284c0 82.813-67.188 150-150 150-82.813 0-150-67.188-150-150 0-82.813 67.188-150 150-150 82.813 0 150 67.188 150 150Z"/&gt;
+&lt;/svg&gt;
+
+ &lt;/span&gt;Tip&lt;/p&gt;</description></item><item><title>vector-assist-generate-query</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-generate-query/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-generate-query/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-generate-query&lt;/code&gt; tool generates optimized SQL queries for vector search by leveraging the metadata and vector specifications defined in a specific spec_id. It serves as the primary actionable tool for generating the executable SQL required to retrieve relevant results based on vector similarity.&lt;/p&gt;
+&lt;p&gt;The tool contextually understands requirements such as distance functions, quantization, and filtering to ensure the resulting query is compatible with the corresponding vector index. Additionally, it can automatically handle iterative index scans for filtered queries and calculate the necessary search parameters (like ef_search) to meet a target recall.&lt;/p&gt;</description></item><item><title>vector-assist-get-spec</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-get-spec/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-get-spec/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-get-spec&lt;/code&gt; tool retrieves the details of an existing vector specification using its unique &lt;code&gt;spec_id&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;Use this tool to retrieve a vector specification which was created in the context of the vector assist tools. It allows users to inspect the detailed parameters and current state of a particular vector setup. Under the hood, this tool connects to the target database and executes the &lt;code&gt;vector_assist.get_spec&lt;/code&gt; function.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>vector-assist-improve-query-recall</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-improve-query-recall/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-improve-query-recall/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-improve-query-recall&lt;/code&gt; tool is designed to troubleshoot and optimize existing vector search workloads when a user reports irrelevant results, poor accuracy, or degraded recall.&lt;/p&gt;
+&lt;p&gt;It determines the optimal tuning parameter (such as &lt;code&gt;hnsw.ef_search&lt;/code&gt;) for an active vector index to improve the search results. The tool evaluates the target recall and outputs an actionable SQL query recommendation (e.g., &lt;code&gt;SET hnsw.ef_search TO ...&lt;/code&gt;) that must be executed as a next action using the &lt;code&gt;execute_sql&lt;/code&gt; tool.&lt;/p&gt;</description></item><item><title>vector-assist-list-specs</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-list-specs/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-list-specs/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-list-specs&lt;/code&gt; tool lists all defined vector specifications for a given table and column name.&lt;/p&gt;
+&lt;p&gt;Use this tool to list vector specifications which were created in the context of the vector assist tools. It provides a high-level overview of existing vector setups. Under the hood, this tool connects to the target database and executes the &lt;code&gt;vector_assist.list_specs&lt;/code&gt; function.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>vector-assist-modify-spec</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-modify-spec/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-modify-spec/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;vector-assist-modify-spec&lt;/code&gt; tool modifies an existing vector specification (identified by a required &lt;code&gt;spec_id&lt;/code&gt;) with new parameters or overrides. Upon modification, it automatically recalculates and refreshes the list of generated recommendations by &lt;code&gt;vector_assist.define-spec&lt;/code&gt; to match the updated spec requirements.&lt;/p&gt;
+&lt;p&gt;Use this tool when a user or agent wants to adjust or fine-tune the configuration of an already defined vector spec (such as changing the target recall, embedding model, or quantization) before actually executing the setup commands. Under the hood, this tool connects to the target database and executes the &lt;code&gt;vector_assist.modify_spec&lt;/code&gt; function to generate the updated specifications.&lt;/p&gt;</description></item></channel></rss>

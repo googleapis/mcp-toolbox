@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Database Insights on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/</link><description>Recent content in Database Insights on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/index.xml" rel="self" type="application/rss+xml"/><item><title>Database Insights Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;databaseinsights&lt;/code&gt; source provides a client to interact with the Google Cloud Database Insights API (&lt;code&gt;databaseinsights.googleapis.com&lt;/code&gt;). This source supports the Advanced Query Insights tools that are available via the remote &lt;a href="https://docs.cloud.google.com/alloydb/docs/reference/mcp/databaseinsights/mcp"&gt;Database Insights MCP Server&lt;/a&gt;, allowing tools to retrieve query performance statistics, wait event metrics, time-series trends, and index recommendations for Google Cloud databases like AlloyDB.&lt;/p&gt;
+&lt;p&gt;Authentication is handled via Application Default Credentials (ADC) using OAuth 2.0 access tokens.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;Database Insights Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-query-stats/"&gt;&lt;strong&gt;databaseinsights-get-advanced-aggregated-query-stats&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Fetches aggregated query performance statistics (latency, execution count, wait time) for AlloyDB instances.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-wait-event-stats/"&gt;&lt;strong&gt;databaseinsights-get-advanced-aggregated-wait-event-stats&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Fetches aggregated wait event statistics for AlloyDB instances to identify performance bottlenecks.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-query-stats/"&gt;&lt;strong&gt;databaseinsights-get-advanced-time-series-query-stats&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Fetches time-series performance trends for queries executed on AlloyDB instances.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-wait-event-stats/"&gt;&lt;strong&gt;databaseinsights-get-advanced-time-series-wait-event-stats&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Fetches time-series wait event statistics for AlloyDB instances over time.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-index-recommendations/"&gt;&lt;strong&gt;databaseinsights-get-index-recommendations&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Fetches index recommendations for specified query IDs across databases on AlloyDB instances.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="api-enablement"&gt;API Enablement&lt;/h3&gt;
+&lt;p&gt;Enable the required Google Cloud APIs on your target project:&lt;/p&gt;</description></item></channel></rss>

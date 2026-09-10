@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>AlloyDB PostgreSQL on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/</link><description>Recent content in AlloyDB PostgreSQL on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/index.xml" rel="self" type="application/rss+xml"/><item><title>AlloyDB for PostgreSQL Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://cloud.google.com/alloydb/docs"&gt;AlloyDB for PostgreSQL&lt;/a&gt; is a fully-managed, PostgreSQL-compatible
+database for demanding transactional workloads. It provides enterprise-grade
+performance and availability while maintaining 100% compatibility with
+open-source PostgreSQL.&lt;/p&gt;
+&lt;p&gt;If you are new to AlloyDB for PostgreSQL, you can &lt;a href="https://cloud.google.com/alloydb/docs/create-free-trial-cluster"&gt;create a free trial
+cluster&lt;/a&gt;.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;AlloyDB for PostgreSQL Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/tools/alloydb-ai-nl/"&gt;&lt;strong&gt;alloydb-ai-nl&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;The &amp;#34;alloydb-ai-nl&amp;#34; tool leverages [AlloyDB AI](https://cloud.google.com/alloydb/ai) next-generation Natural Language support to provide the ability to query the database directly using natural language.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+ 
+ 
+
+ 
+
+ 
+ 
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+
+ 
+ 
+
+ &lt;p&gt;&lt;em&gt;&lt;strong&gt;AlloyDB for PostgreSQL Source&lt;/strong&gt; maintains full compatibility with &lt;strong&gt;PostgreSQL&lt;/strong&gt;, allowing you to use the following tools with this connection:&lt;/em&gt;&lt;/p&gt;</description></item></channel></rss>

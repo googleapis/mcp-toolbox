@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>FalkorDB on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/</link><description>Recent content in FalkorDB on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/index.xml" rel="self" type="application/rss+xml"/><item><title>FalkorDB Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://docs.falkordb.com/"&gt;FalkorDB&lt;/a&gt; is a low-latency graph database that speaks the
+openCypher query language over the Redis protocol. A single FalkorDB instance
+can host many independent graphs, and its native vector and full-text indexes
+make it a popular knowledge-graph backend for GenAI applications.&lt;/p&gt;
+&lt;p&gt;The source connects to one instance and designates a default graph; tools can
+optionally target other graphs on the same instance.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;FalkorDB Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-cypher/"&gt;&lt;strong&gt;falkordb-cypher&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-cypher&amp;#34; tool executes a pre-defined Cypher statement against a FalkorDB graph.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-execute-cypher/"&gt;&lt;strong&gt;falkordb-execute-cypher&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-execute-cypher&amp;#34; tool executes an arbitrary Cypher query against a FalkorDB graph.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-schema/"&gt;&lt;strong&gt;falkordb-schema&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-schema&amp;#34; tool extracts the schema of a FalkorDB graph.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-list-graphs/"&gt;&lt;strong&gt;falkordb-list-graphs&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;falkordb-list-graphs&amp;#34; tool lists the graphs stored on a FalkorDB instance.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="database-user"&gt;Database User&lt;/h3&gt;
+&lt;p&gt;FalkorDB instances without access control can be used with no credentials
+(e.g. a local &lt;code&gt;docker run -p 6379:6379 falkordb/falkordb&lt;/code&gt; instance). For
+instances with authentication enabled, such as FalkorDB Cloud, provide the
+&lt;code&gt;username&lt;/code&gt; and &lt;code&gt;password&lt;/code&gt; fields, and enable &lt;code&gt;tls&lt;/code&gt; for encrypted endpoints.&lt;/p&gt;</description></item></channel></rss>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/oracle/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/oracle/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>Oracle</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/oracle/prebuilt-configs/oracle/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/oracle/prebuilt-configs/oracle/</guid><description>&lt;h2 id="oracle"&gt;Oracle&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;oracledb&lt;/code&gt;&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ORACLE_CONNECTION_STRING&lt;/code&gt;: The connection string for the Oracle server (e.g., &amp;ldquo;hostname:port/servicename&amp;rdquo;).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ORACLE_USERNAME&lt;/code&gt;: The database username.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ORACLE_PASSWORD&lt;/code&gt;: The password for the database user.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ORACLE_WALLET&lt;/code&gt;: The path to the Oracle DB Wallet file for databases that support this authentication type.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ORACLE_USE_OCI&lt;/code&gt;: A boolean flag (&lt;code&gt;true&lt;/code&gt; or &lt;code&gt;false&lt;/code&gt;) indicating whether to use the OCI-based driver. Setting to &lt;code&gt;true&lt;/code&gt; is required for features like Oracle Wallet and requires the Oracle Instant Client libraries to be installed.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;&lt;/p&gt;</description></item></channel></rss>

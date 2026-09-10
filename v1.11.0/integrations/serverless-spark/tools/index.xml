@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>serverless-spark-get-batch</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-batch/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-batch/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;serverless-spark-get-batch&lt;/code&gt; tool allows you to retrieve a specific
+Serverless Spark batch job.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;serverless-spark-list-batches&lt;/code&gt; accepts the following parameters:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;name&lt;/code&gt;&lt;/strong&gt;: The short name of the batch, e.g. for
+&lt;code&gt;projects/my-project/locations/us-central1/my-batch&lt;/code&gt;, pass &lt;code&gt;my-batch&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The tool gets the &lt;code&gt;project&lt;/code&gt; and &lt;code&gt;location&lt;/code&gt; from the source configuration.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/source/"&gt;Serverless for Apache Spark Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;get_my_batch&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;serverless-spark-get-batch&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-serverless-spark-source&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;Use this tool to get a serverless spark batch.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="output-format"&gt;Output Format&lt;/h2&gt;
+&lt;p&gt;The response contains the full Batch object as defined in the &lt;a href="https://cloud.google.com/dataproc-serverless/docs/reference/rest/v1/projects.locations.batches#Batch"&gt;API
+spec&lt;/a&gt;,
+plus additional fields &lt;code&gt;consoleUrl&lt;/code&gt; and &lt;code&gt;logsUrl&lt;/code&gt; where a human can go for more
+detailed information.&lt;/p&gt;</description></item><item><title>serverless-spark-get-session-template</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-session-template/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-session-template/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;serverless-spark-get-session-template&lt;/code&gt; tool retrieves a specific Spark session template from a
+Google Cloud Serverless for Apache Spark source.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;serverless-spark-get-session-template&lt;/code&gt; accepts the following parameters:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;name&lt;/code&gt;&lt;/strong&gt; (required): The short name of the session template, e.g. for &lt;code&gt;projects/my-project/locations/us-central1/sessionTemplates/my-session-template&lt;/code&gt;, pass &lt;code&gt;my-session-template&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The tool gets the &lt;code&gt;project&lt;/code&gt; and &lt;code&gt;location&lt;/code&gt; from the source configuration.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/source/"&gt;Serverless for Apache Spark Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;get_spark_session_template&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;serverless-spark-get-session-template&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-serverless-spark-source&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;Use this tool to get details of a serverless spark session template.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="output-format"&gt;Output Format&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-json" data-lang="json"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;sessionTemplate&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; 
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;projects/my-project/locations/us-central1/sessionTemplates/my-session-template&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;description&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;Template for Spark Session&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="c1"&gt;// ... complete session template resource definition
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;&lt;strong&gt;field&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
+					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;type&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Must be &amp;ldquo;serverless-spark-get-session-template&amp;rdquo;.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;source&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Name of the source the tool should use.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;description&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;authRequired&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string[]&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
+					&lt;td&gt;List of auth services required to invoke this tool&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;</description></item><item><title>serverless-spark-list-batches</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-list-batches/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-list-batches/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;serverless-spark-list-batches&lt;/code&gt; tool returns a list of Spark batches from a
+Google Cloud Serverless for Apache Spark source.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;serverless-spark-list-batches&lt;/code&gt; accepts the following parameters:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;filter&lt;/code&gt;&lt;/strong&gt; (optional): A filter expression to limit the batches returned.
+Filters are case sensitive and may contain multiple clauses combined with
+logical operators (AND/OR). Supported fields are &lt;code&gt;batch_id&lt;/code&gt;, &lt;code&gt;batch_uuid&lt;/code&gt;,
+&lt;code&gt;state&lt;/code&gt;, &lt;code&gt;create_time&lt;/code&gt;, and &lt;code&gt;labels&lt;/code&gt;. For example: &lt;code&gt;state = RUNNING AND create_time &amp;lt; &amp;quot;2023-01-01T00:00:00Z&amp;quot;&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;pageSize&lt;/code&gt;&lt;/strong&gt; (optional): The maximum number of batches to return in a single
+page.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;pageToken&lt;/code&gt;&lt;/strong&gt; (optional): A page token, received from a previous call, to
+retrieve the next page of results.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The tool gets the &lt;code&gt;project&lt;/code&gt; and &lt;code&gt;location&lt;/code&gt; from the source configuration.&lt;/p&gt;</description></item><item><title>serverless-spark-cancel-batch</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-cancel-batch/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-cancel-batch/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;serverless-spark-cancel-batch&lt;/code&gt; tool cancels a running Spark batch operation in
+a Google Cloud Serverless for Apache Spark source. The cancellation request is
+asynchronous, so the batch state will not change immediately after the tool
+returns; it can take a minute or so for the cancellation to be reflected.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;serverless-spark-cancel-batch&lt;/code&gt; accepts the following parameters:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;operation&lt;/code&gt;&lt;/strong&gt; (required): The name of the operation to cancel. For example,
+for &lt;code&gt;projects/my-project/locations/us-central1/operations/my-operation&lt;/code&gt;, you
+would pass &lt;code&gt;my-operation&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The tool inherits the &lt;code&gt;project&lt;/code&gt; and &lt;code&gt;location&lt;/code&gt; from the source configuration.&lt;/p&gt;</description></item><item><title>serverless-spark-create-pyspark-batch</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-create-pyspark-batch/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-create-pyspark-batch/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;serverless-spark-create-pyspark-batch&lt;/code&gt; tool submits a Spark batch to a Google
+Cloud Serverless for Apache Spark source. The workload executes asynchronously
+and takes around a minute to begin executing; status can be polled using the
+&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-batch/"&gt;get batch&lt;/a&gt; tool.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;serverless-spark-create-pyspark-batch&lt;/code&gt; accepts the following parameters:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;mainFile&lt;/code&gt;&lt;/strong&gt;: The path to the main Python file, as a gs://&amp;hellip; URI.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;args&lt;/code&gt;&lt;/strong&gt; Optional. A list of arguments passed to the main file.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;version&lt;/code&gt;&lt;/strong&gt; Optional. The Serverless &lt;a href="https://docs.cloud.google.com/dataproc-serverless/docs/concepts/versions/dataproc-serverless-versions"&gt;runtime
+version&lt;/a&gt;
+to execute with.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>serverless-spark-create-spark-batch</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-create-spark-batch/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-create-spark-batch/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;serverless-spark-create-spark-batch&lt;/code&gt; tool submits a Java Spark batch to a
+Google Cloud Serverless for Apache Spark source. The workload executes
+asynchronously and takes around a minute to begin executing; status can be
+polled using the &lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-batch/"&gt;get batch&lt;/a&gt; tool.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;serverless-spark-create-spark-batch&lt;/code&gt; accepts the following parameters:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;mainJarFile&lt;/code&gt;&lt;/strong&gt;: Optional. The gs:// URI of the jar file that contains the
+main class. Exactly one of mainJarFile or mainClass must be specified.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;mainClass&lt;/code&gt;&lt;/strong&gt;: Optional. The name of the driver&amp;rsquo;s main class. Exactly one of
+mainJarFile or mainClass must be specified.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;jarFiles&lt;/code&gt;&lt;/strong&gt;: Optional. A list of gs:// URIs of jar files to add to the CLASSPATHs of
+the Spark driver and tasks.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;args&lt;/code&gt;&lt;/strong&gt; Optional. A list of arguments passed to the driver.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;version&lt;/code&gt;&lt;/strong&gt; Optional. The Serverless &lt;a href="https://docs.cloud.google.com/dataproc-serverless/docs/concepts/versions/dataproc-serverless-versions"&gt;runtime
+version&lt;/a&gt;
+to execute with.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item></channel></rss>

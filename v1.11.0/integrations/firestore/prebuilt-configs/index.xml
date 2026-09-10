@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/firestore/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>Firestore</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/firestore/prebuilt-configs/firestore/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/firestore/prebuilt-configs/firestore/</guid><description>&lt;h2 id="firestore"&gt;Firestore&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;firestore&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;FIRESTORE_PROJECT&lt;/code&gt;: The GCP project ID.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;FIRESTORE_DATABASE&lt;/code&gt;: (Optional) The Firestore database ID. Defaults to
+&amp;ldquo;(default)&amp;rdquo;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Cloud Datastore User&lt;/strong&gt; (&lt;code&gt;roles/datastore.user&lt;/code&gt;) to get documents, list
+collections, and query collections.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Firebase Rules Viewer&lt;/strong&gt; (&lt;code&gt;roles/firebaserules.viewer&lt;/code&gt;) to get and
+validate Firestore rules.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;get_documents&lt;/code&gt;: Gets multiple documents from Firestore by their paths.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;add_documents&lt;/code&gt;: Adds a new document to a Firestore collection.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;update_document&lt;/code&gt;: Updates an existing document in Firestore.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_collections&lt;/code&gt;: Lists Firestore collections for a given parent path.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_documents&lt;/code&gt;: Deletes multiple documents from Firestore.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;query_collection&lt;/code&gt;: Retrieves one or more Firestore documents from a
+collection.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_rules&lt;/code&gt;: Retrieves the active Firestore security rules.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;validate_rules&lt;/code&gt;: Checks the provided Firestore Rules source for syntax
+and validation errors.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

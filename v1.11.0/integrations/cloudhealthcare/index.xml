@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Cloud Healthcare on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/</link><description>Recent content in Cloud Healthcare on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/index.xml" rel="self" type="application/rss+xml"/><item><title>Cloud Healthcare API Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;a href="https://cloud.google.com/healthcare/docs"&gt;Cloud Healthcare API&lt;/a&gt; provides a managed solution
+for storing and accessing healthcare data in Google Cloud, providing a
+critical bridge between existing care systems and applications hosted on
+Google Cloud. It supports healthcare data standards such as HL7® FHIR®,
+HL7® v2, and DICOM®. It provides a fully managed, highly scalable,
+enterprise-grade development environment for building clinical and analytics
+solutions securely on Google Cloud.&lt;/p&gt;
+&lt;p&gt;A dataset is a container in your Google Cloud project that holds modality-specific
+healthcare data. Datasets contain other data stores, such as FHIR stores and DICOM
+stores, which in turn hold their own types of healthcare data.&lt;/p&gt;</description></item></channel></rss>

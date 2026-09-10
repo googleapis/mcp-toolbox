@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>OceanBase on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/</link><description>Recent content in OceanBase on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/index.xml" rel="self" type="application/rss+xml"/><item><title>OceanBase Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://www.oceanbase.com/"&gt;OceanBase&lt;/a&gt; is a distributed relational database management
+system (RDBMS) that provides high availability, scalability, and strong
+consistency. It&amp;rsquo;s designed to handle large-scale data processing and is
+compatible with MySQL, making it easy for developers to migrate from MySQL to
+OceanBase.&lt;/p&gt;
+&lt;h3 id="features"&gt;Features&lt;/h3&gt;
+&lt;h4 id="mysql-compatibility"&gt;MySQL Compatibility&lt;/h4&gt;
+&lt;p&gt;OceanBase is highly compatible with MySQL, supporting most MySQL SQL syntax,
+data types, and functions. This makes it easy to migrate existing MySQL
+applications to OceanBase.&lt;/p&gt;</description></item></channel></rss>

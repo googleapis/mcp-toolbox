@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>sqlite-execute-sql</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/sqlite-execute-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/sqlite-execute-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;sqlite-execute-sql&lt;/code&gt; tool executes a single SQL statement against a SQLite
+database.&lt;/p&gt;
+&lt;p&gt;This tool is designed for direct execution of SQL statements. It takes a single
+&lt;code&gt;sql&lt;/code&gt; input parameter and runs the SQL statement against the configured SQLite
+&lt;code&gt;source&lt;/code&gt;.&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Note:&lt;/strong&gt; This tool is intended for developer assistant workflows with
+human-in-the-loop and shouldn&amp;rsquo;t be used for production agents.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>sqlite-sql</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/sqlite-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/sqlite-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;sqlite-sql&lt;/code&gt; tool executes SQL statements against a SQLite database.&lt;/p&gt;
+&lt;p&gt;SQLite uses the &lt;code&gt;?&lt;/code&gt; placeholder for parameters in SQL statements. Parameters are
+bound in the order they are provided.&lt;/p&gt;
+&lt;p&gt;The statement field supports any valid SQLite SQL statement, including &lt;code&gt;SELECT&lt;/code&gt;,
+&lt;code&gt;INSERT&lt;/code&gt;, &lt;code&gt;UPDATE&lt;/code&gt;, &lt;code&gt;DELETE&lt;/code&gt;, &lt;code&gt;CREATE/ALTER/DROP&lt;/code&gt; table statements, and other
+DDL statements.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/source/"&gt;SQLite Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Note:&lt;/strong&gt; This tool uses parameterized queries to prevent SQL injections.
+Query parameters can be used as substitutes for arbitrary expressions.
+Parameters cannot be used as substitutes for identifiers, column names, table
+names, or other parts of the query.&lt;/p&gt;</description></item></channel></rss>

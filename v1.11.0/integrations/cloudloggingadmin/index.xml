@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Cloud Logging Admin on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/</link><description>Recent content in Cloud Logging Admin on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/index.xml" rel="self" type="application/rss+xml"/><item><title>Cloud Logging Admin Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The Cloud Logging Admin source provides a client to interact with the &lt;a href="https://cloud.google.com/logging/docs"&gt;Google
+Cloud Logging API&lt;/a&gt;. This allows tools to list log names, monitored resource types, and query log entries.&lt;/p&gt;
+&lt;p&gt;Authentication can be handled in two ways:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Application Default Credentials (ADC):&lt;/strong&gt; By default, the source uses ADC
+to authenticate with the API.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Client-side OAuth:&lt;/strong&gt; If &lt;code&gt;useClientOAuth&lt;/code&gt; is set to &lt;code&gt;true&lt;/code&gt;, the source will
+expect an OAuth 2.0 access token to be provided by the client (e.g., a web
+browser) for each request.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;Cloud Logging Admin Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/tools/cloud-logging-admin-list-log-names/"&gt;&lt;strong&gt;cloud-logging-admin-list-log-names&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;cloud-logging-admin-list-log-names&amp;#34; tool lists the log names in the project.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/tools/cloud-logging-admin-list-resource-types/"&gt;&lt;strong&gt;cloud-logging-admin-list-resource-types&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;cloud-logging-admin-list-resource-types&amp;#34; tool lists the monitored resource types.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/tools/cloud-logging-admin-query-logs/"&gt;&lt;strong&gt;cloud-logging-admin-query-logs&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;cloud-logging-admin-query-logs&amp;#34; tool queries log entries.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;p&gt;Initialize a Cloud Logging Admin source that uses ADC:&lt;/p&gt;</description></item></channel></rss>

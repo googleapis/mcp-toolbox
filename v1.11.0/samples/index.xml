@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Samples on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/samples/</link><description>Recent content in Samples on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/samples/index.xml" rel="self" type="application/rss+xml"/><item><title>Deploy ADK Agent and MCP Toolbox</title><link>https://mcp-toolbox.dev/v1.11.0/samples/deploy_adk_agent/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/samples/deploy_adk_agent/</guid><description>&lt;h2 id="before-you-begin"&gt;Before you begin&lt;/h2&gt;
+&lt;p&gt;This guide assumes you have already done the following:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Completed the &lt;a href="https://mcp-toolbox.dev/v1.11.0/documentation/getting-started/local_quickstart/"&gt;Python Quickstart
+(Local)&lt;/a&gt; and have a working ADK
+agent running locally.&lt;/li&gt;
+&lt;li&gt;Installed the &lt;a href="https://cloud.google.com/sdk/docs/install"&gt;Google Cloud CLI&lt;/a&gt;.&lt;/li&gt;
+&lt;li&gt;A Google Cloud project with billing enabled.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2 id="step-1-deploy-mcp-toolbox-to-cloud-run"&gt;Step 1: Deploy MCP Toolbox to Cloud Run&lt;/h2&gt;
+&lt;p&gt;Before deploying your agent, your MCP Toolbox server needs to be accessible from
+the cloud. We will deploy MCP Toolbox to Cloud Run.&lt;/p&gt;
+&lt;p&gt;Follow the &lt;a href="https://mcp-toolbox.dev/v1.11.0/documentation/deploy-to/cloud-run/"&gt;Deploy to Cloud Run&lt;/a&gt; guide to deploy your MCP
+Toolbox instance.&lt;/p&gt;</description></item><item><title>Prompts using Gemini CLI</title><link>https://mcp-toolbox.dev/v1.11.0/samples/prompts_quickstart_gemini_cli/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/samples/prompts_quickstart_gemini_cli/</guid><description>&lt;h2 id="before-you-begin"&gt;Before you begin&lt;/h2&gt;
+&lt;p&gt;This guide assumes you have already done the following:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Installed &lt;a href="https://www.postgresql.org/download/"&gt;PostgreSQL 16+ and the &lt;code&gt;psql&lt;/code&gt; client&lt;/a&gt;.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2 id="step-1-set-up-your-database"&gt;Step 1: Set up your database&lt;/h2&gt;
+&lt;p&gt;In this section, we will create a database, insert some data that needs to be
+accessed by our agent, and create a database user for Toolbox to connect with.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;Connect to postgres using the &lt;code&gt;psql&lt;/code&gt; command:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;psql -h 127.0.0.1 -U postgres
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Here, &lt;code&gt;postgres&lt;/code&gt; denotes the default postgres superuser.&lt;/p&gt;</description></item></channel></rss>

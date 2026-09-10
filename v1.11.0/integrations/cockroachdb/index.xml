@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>CockroachDB on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/</link><description>Recent content in CockroachDB on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/index.xml" rel="self" type="application/rss+xml"/><item><title>CockroachDB Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://www.cockroachlabs.com/docs/"&gt;CockroachDB&lt;/a&gt; is a distributed SQL database designed for cloud-native applications. It provides strong consistency, horizontal scalability, and built-in resilience with automatic failover and recovery. CockroachDB uses the PostgreSQL wire protocol, making it compatible with many PostgreSQL tools and drivers while providing unique features like multi-region deployments and distributed transactions.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Minimum Version:&lt;/strong&gt; CockroachDB v25.1 or later is recommended for full tool compatibility.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;CockroachDB Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-execute-sql/"&gt;&lt;strong&gt;cockroachdb-execute-sql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Execute ad-hoc SQL statements against a CockroachDB database.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-list-schemas/"&gt;&lt;strong&gt;cockroachdb-list-schemas&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;List schemas in a CockroachDB database.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-list-tables/"&gt;&lt;strong&gt;cockroachdb-list-tables&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;List tables in a CockroachDB database with schema details.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-sql/"&gt;&lt;strong&gt;cockroachdb-sql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Execute parameterized SQL queries in CockroachDB.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="database-user"&gt;Database User&lt;/h3&gt;
+&lt;p&gt;This source uses standard authentication. You will need to &lt;a href="https://www.cockroachlabs.com/docs/stable/create-user.html"&gt;create a CockroachDB user&lt;/a&gt; to login to the database with. For CockroachDB Cloud deployments, SSL/TLS is required.&lt;/p&gt;</description></item></channel></rss>

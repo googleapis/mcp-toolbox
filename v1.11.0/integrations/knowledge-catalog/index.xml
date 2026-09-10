@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Knowledge Catalog on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/</link><description>Recent content in Knowledge Catalog on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/index.xml" rel="self" type="application/rss+xml"/><item><title>Knowledge Catalog (formerly known as Dataplex) Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://cloud.google.com/dataplex/docs"&gt;Knowledge Catalog&lt;/a&gt; is a unified, intelligent governance
+solution for data and AI assets in Google Cloud. Knowledge Catalog
+powers AI, analytics, and business intelligence at scale.&lt;/p&gt;
+&lt;p&gt;At the heart of these governance capabilities is a catalog that contains a
+centralized inventory of the data assets in your organization. Knowledge Catalog
+holds business, technical, and runtime metadata for all of
+your data. It helps you discover relationships and semantics in the metadata by
+applying artificial intelligence and machine learning.&lt;/p&gt;</description></item></channel></rss>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>mindsdb-execute-sql</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/mindsdb-execute-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/mindsdb-execute-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;mindsdb-execute-sql&lt;/code&gt; tool executes a SQL statement against a MindsDB
+federated database.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;mindsdb-execute-sql&lt;/code&gt; takes one input parameter &lt;code&gt;sql&lt;/code&gt; and runs the SQL
+statement against the &lt;code&gt;source&lt;/code&gt;. This tool enables you to:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Query Multiple Datasources&lt;/strong&gt;: Execute SQL across hundreds of connected
+datasources&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Cross-Datasource Joins&lt;/strong&gt;: Perform joins between different databases, APIs,
+and file systems&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;ML Model Predictions&lt;/strong&gt;: Query ML models as virtual tables for real-time
+predictions&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Unstructured Data&lt;/strong&gt;: Query documents, images, and other unstructured data as
+structured tables&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Federated Analytics&lt;/strong&gt;: Perform analytics across multiple datasources
+simultaneously&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;API Translation&lt;/strong&gt;: Automatically translate SQL queries into REST APIs,
+GraphQL, and native protocols&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>mindsdb-sql</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/mindsdb-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/mindsdb-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;mindsdb-sql&lt;/code&gt; tool executes a pre-defined SQL statement against a MindsDB
+federated database.&lt;/p&gt;
+&lt;p&gt;The specified SQL statement is executed as a &lt;a href="https://dev.mysql.com/doc/refman/8.4/en/sql-prepared-statements.html"&gt;prepared statement&lt;/a&gt;,
+and expects parameters in the SQL query to be in the form of placeholders &lt;code&gt;?&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;This tool enables you to:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Query Multiple Datasources&lt;/strong&gt;: Execute parameterized SQL across hundreds of connected datasources&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Cross-Datasource Joins&lt;/strong&gt;: Perform joins between different databases, APIs, and file systems&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;ML Model Predictions&lt;/strong&gt;: Query ML models as virtual tables for real-time predictions&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Unstructured Data&lt;/strong&gt;: Query documents, images, and other unstructured data as structured tables&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Federated Analytics&lt;/strong&gt;: Perform analytics across multiple datasources simultaneously&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;API Translation&lt;/strong&gt;: Automatically translate SQL queries into REST APIs, GraphQL, and native protocols&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item></channel></rss>

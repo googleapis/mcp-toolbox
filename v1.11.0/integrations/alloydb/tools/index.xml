@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>alloydb-ai-nl</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/tools/alloydb-ai-nl/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/tools/alloydb-ai-nl/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;alloydb-ai-nl&lt;/code&gt; tool leverages &lt;a href="https://cloud.google.com/alloydb/docs/ai/natural-language-overview"&gt;AlloyDB AI next-generation natural
+Language&lt;/a&gt; support to allow an Agent the ability to query
+the database directly using natural language. Natural language streamlines the
+development of generative AI applications by transferring the complexity of
+converting natural language to SQL from the application layer to the database
+layer.&lt;/p&gt;
+&lt;p&gt;AlloyDB AI Natural Language delivers secure and accurate responses for
+application end user natural language questions. Natural language streamlines
+the development of generative AI applications by transferring the complexity
+of converting natural language to SQL from the application layer to the
+database layer.&lt;/p&gt;</description></item></channel></rss>

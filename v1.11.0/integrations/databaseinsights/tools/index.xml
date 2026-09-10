@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>databaseinsights-get-advanced-aggregated-query-stats</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-query-stats/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-query-stats/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;databaseinsights-get-advanced-aggregated-query-stats&lt;/code&gt; tool fetches aggregated performance metrics for queries executed on AlloyDB instances with Advanced Query Insights enabled. It ranks queries by total execution time (&lt;code&gt;sum(execution_time) desc&lt;/code&gt;) to help identify top resource-consuming queries.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/"&gt;Database Insights Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="iam-permissions"&gt;IAM Permissions&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;databaseinsights.queryStats.fetch&lt;/code&gt; on the target location/project, which is granted by:
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database Insights Viewer&lt;/strong&gt; (&lt;code&gt;roles/databaseinsights.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;h3 id="parent-string-required"&gt;&lt;code&gt;parent&lt;/code&gt; (String, Required)&lt;/h3&gt;
+&lt;p&gt;Project and location in the format &lt;code&gt;projects/{project_id}/locations/{location}&lt;/code&gt;.&lt;/p&gt;</description></item><item><title>databaseinsights-get-advanced-aggregated-wait-event-stats</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-wait-event-stats/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-wait-event-stats/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;databaseinsights-get-advanced-aggregated-wait-event-stats&lt;/code&gt; tool retrieves aggregated wait event metrics (IO, Lock, CPU contention) to help diagnose database performance bottlenecks.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/"&gt;Database Insights Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="iam-permissions"&gt;IAM Permissions&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;databaseinsights.waitEventStats.fetch&lt;/code&gt; on the target location/project, which is granted by:
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database Insights Viewer&lt;/strong&gt; (&lt;code&gt;roles/databaseinsights.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;h3 id="parent-string-required"&gt;&lt;code&gt;parent&lt;/code&gt; (String, Required)&lt;/h3&gt;
+&lt;p&gt;Project and location in the format &lt;code&gt;projects/{project_id}/locations/{location}&lt;/code&gt;.&lt;/p&gt;
+&lt;h3 id="full_resource_name-string-required"&gt;&lt;code&gt;full_resource_name&lt;/code&gt; (String, Required)&lt;/h3&gt;
+&lt;p&gt;The full resource identifier for the database instance (e.g., &lt;code&gt;//alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}&lt;/code&gt;).&lt;/p&gt;</description></item><item><title>databaseinsights-get-advanced-time-series-query-stats</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-query-stats/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-query-stats/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;databaseinsights-get-advanced-time-series-query-stats&lt;/code&gt; tool retrieves historical time-series performance metrics for AlloyDB queries to help analyze latency trends over time and identify performance spikes.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/"&gt;Database Insights Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="iam-permissions"&gt;IAM Permissions&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;databaseinsights.queryTimeSeries.fetch&lt;/code&gt; on the target location/project, which is granted by:
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database Insights Viewer&lt;/strong&gt; (&lt;code&gt;roles/databaseinsights.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;h3 id="parent-string-required"&gt;&lt;code&gt;parent&lt;/code&gt; (String, Required)&lt;/h3&gt;
+&lt;p&gt;Project and location in the format &lt;code&gt;projects/{project_id}/locations/{location}&lt;/code&gt;.&lt;/p&gt;</description></item><item><title>databaseinsights-get-advanced-time-series-wait-event-stats</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-wait-event-stats/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-wait-event-stats/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;databaseinsights-get-advanced-time-series-wait-event-stats&lt;/code&gt; tool retrieves time-series wait event metrics (IO, Lock, CPU) for an AlloyDB instance over a specified period to visualize how contention evolves.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/"&gt;Database Insights Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="iam-permissions"&gt;IAM Permissions&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;databaseinsights.waitEventTimeSeries.fetch&lt;/code&gt; on the target location/project, which is granted by:
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database Insights Viewer&lt;/strong&gt; (&lt;code&gt;roles/databaseinsights.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;h3 id="parent-string-required"&gt;&lt;code&gt;parent&lt;/code&gt; (String, Required)&lt;/h3&gt;
+&lt;p&gt;Project and location in the format &lt;code&gt;projects/{project_id}/locations/{location}&lt;/code&gt;.&lt;/p&gt;</description></item><item><title>databaseinsights-get-index-recommendations</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-index-recommendations/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-index-recommendations/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;databaseinsights-get-index-recommendations&lt;/code&gt; tool retrieves index advisor recommendations for specified query IDs across databases. It identifies missing indexes, provides exact SQL creation commands, and calculates estimated performance gains.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/"&gt;Database Insights Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="iam-permissions"&gt;IAM Permissions&lt;/h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;databaseinsights.indexRecommendations.batchQuery&lt;/code&gt;, &lt;code&gt;databaseinsights.recommendations.query&lt;/code&gt;, and &lt;code&gt;databaseinsights.resourceRecommendations.query&lt;/code&gt; on the target location/project, which are granted by:
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Database Insights Viewer&lt;/strong&gt; (&lt;code&gt;roles/databaseinsights.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Monitoring Viewer&lt;/strong&gt; (&lt;code&gt;roles/monitoring.viewer&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;h3 id="parent-string-required"&gt;&lt;code&gt;parent&lt;/code&gt; (String, Required)&lt;/h3&gt;
+&lt;p&gt;Project and location in the format &lt;code&gt;projects/{project_id}/locations/{location}&lt;/code&gt;.&lt;/p&gt;</description></item></channel></rss>

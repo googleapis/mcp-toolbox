@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>ClickHouse</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/prebuilt-configs/clickhouse/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/prebuilt-configs/clickhouse/</guid><description>&lt;h2 id="clickhouse"&gt;ClickHouse&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;clickhouse&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLICKHOUSE_HOST&lt;/code&gt;: The hostname or IP address of the ClickHouse server.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLICKHOUSE_PORT&lt;/code&gt;: The port number of the ClickHouse server.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLICKHOUSE_USER&lt;/code&gt;: The database username.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLICKHOUSE_PASSWORD&lt;/code&gt;: The password for the database user.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLICKHOUSE_DATABASE&lt;/code&gt;: The name of the database to connect to.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLICKHOUSE_PROTOCOL&lt;/code&gt;: The protocol to use (e.g., http).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;execute_sql&lt;/code&gt;: Use this tool to execute SQL.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_databases&lt;/code&gt;: Use this tool to list all databases in ClickHouse.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_tables&lt;/code&gt;: Use this tool to list all tables in a specific ClickHouse database.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

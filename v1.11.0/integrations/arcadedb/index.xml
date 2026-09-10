@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>ArcadeDB on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/</link><description>Recent content in ArcadeDB on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/index.xml" rel="self" type="application/rss+xml"/><item><title>ArcadeDB Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://docs.arcadedb.com/"&gt;ArcadeDB&lt;/a&gt; is a multi-model database that supports graph (Cypher),
+document (SQL), key-value, and time-series data in one engine. It exposes a
+Bolt protocol endpoint compatible with the Neo4j driver.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;ArcadeDB Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/tools/arcadedb-execute-cypher/"&gt;&lt;strong&gt;arcadedb-execute-cypher Tool&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Execute Cypher queries against ArcadeDB via Bolt.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/tools/arcadedb-execute-sql/"&gt;&lt;strong&gt;arcadedb-execute-sql Tool&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Execute SQL queries against ArcadeDB.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="database-user"&gt;Database User&lt;/h3&gt;
+&lt;p&gt;This source uses standard authentication. Create an ArcadeDB user (or use the
+&lt;code&gt;root&lt;/code&gt; user) that can connect over Bolt.&lt;/p&gt;</description></item></channel></rss>

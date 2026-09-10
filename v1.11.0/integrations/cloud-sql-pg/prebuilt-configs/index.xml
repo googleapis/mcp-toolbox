@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>Cloud SQL for PostgreSQL</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/prebuilt-configs/cloud-sql-for-postgresql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/prebuilt-configs/cloud-sql-for-postgresql/</guid><description>&lt;h2 id="cloud-sql-for-postgresql"&gt;Cloud SQL for PostgreSQL&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-sql-postgres&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_PROJECT&lt;/code&gt;: The GCP project ID.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_REGION&lt;/code&gt;: The region of your Cloud SQL instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_INSTANCE&lt;/code&gt;: The ID of your Cloud SQL instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_DATABASE&lt;/code&gt;: The name of the database to connect to.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_USER&lt;/code&gt;: (Optional) The database username. Defaults to
+IAM authentication if unspecified.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_PASSWORD&lt;/code&gt;: (Optional) The password for the database
+user. Defaults to IAM authentication if unspecified.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_IP_TYPE&lt;/code&gt;: (Optional) The IP type i.e. &amp;ldquo;Public&amp;rdquo; or
+&amp;ldquo;Private&amp;rdquo; (Default: Public).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_SQL_POSTGRES_READONLY&lt;/code&gt;: (Optional) When set to &lt;code&gt;true&lt;/code&gt;, enforces read-only execution at the database session level (&lt;code&gt;cloudsql_session_read_only=locked&lt;/code&gt;) and suppresses write-capable tools. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Cloud SQL Client&lt;/strong&gt; (&lt;code&gt;roles/cloudsql.client&lt;/code&gt;) to connect to the
+instance.&lt;/li&gt;
+&lt;li&gt;Database-level permissions (e.g., &lt;code&gt;SELECT&lt;/code&gt;, &lt;code&gt;INSERT&lt;/code&gt;) are required to
+execute queries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;execute_sql&lt;/code&gt;: Executes a SQL query.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_tables&lt;/code&gt;: Lists tables in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_active_queries&lt;/code&gt;: Lists ongoing queries.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_available_extensions&lt;/code&gt;: Discover all PostgreSQL extensions available for installation.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_installed_extensions&lt;/code&gt;: List all installed PostgreSQL extensions.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;long_running_transactions&lt;/code&gt;: Identifies and lists database transactions that exceed a specified time limit.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_locks&lt;/code&gt;: Identifies all locks held by active processes.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;replication_stats&lt;/code&gt;: Lists each replica&amp;rsquo;s process ID and sync state.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_autovacuum_configurations&lt;/code&gt;: Lists autovacuum configurations in the
+database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_memory_configurations&lt;/code&gt;: Lists memory-related configurations in the
+database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_top_bloated_tables&lt;/code&gt;: List top bloated tables in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_replication_slots&lt;/code&gt;: Lists replication slots in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_invalid_indexes&lt;/code&gt;: Lists invalid indexes in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_query_plan&lt;/code&gt;: Generate the execution plan of a statement.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_views&lt;/code&gt;: Lists views in the database from pg_views with a default
+limit of 50 rows. Returns schemaname, viewname and the ownername.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_schemas&lt;/code&gt;: Lists schemas in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;database_overview&lt;/code&gt;: Fetches the current state of the PostgreSQL server.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_triggers&lt;/code&gt;: Lists triggers in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_indexes&lt;/code&gt;: List available user indexes in a PostgreSQL database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_sequences&lt;/code&gt;: List sequences in a PostgreSQL database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_query_stats&lt;/code&gt;: Lists query statistics.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_column_cardinality&lt;/code&gt;: Gets column cardinality.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_table_stats&lt;/code&gt;: Lists table statistics.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_publication_tables&lt;/code&gt;: List publication tables in a PostgreSQL database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_tablespaces&lt;/code&gt;: Lists tablespaces in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_pg_settings&lt;/code&gt;: List configuration parameters for the PostgreSQL server.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_database_stats&lt;/code&gt;: Lists the key performance and activity statistics for
+each database in the postgreSQL instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_roles&lt;/code&gt;: Lists all the user-created roles in PostgreSQL database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_stored_procedure&lt;/code&gt;: Lists stored procedures.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

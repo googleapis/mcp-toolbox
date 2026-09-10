@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Firestore on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/firestore/</link><description>Recent content in Firestore on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/index.xml" rel="self" type="application/rss+xml"/><item><title>Firestore Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/firestore/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/firestore/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://cloud.google.com/firestore/docs"&gt;Firestore&lt;/a&gt; is a NoSQL document database built for automatic
+scaling, high performance, and ease of application development. While the
+Firestore interface has many of the same features as traditional databases,
+as a NoSQL database it differs from them in the way it describes relationships
+between data objects.&lt;/p&gt;
+&lt;p&gt;If you are new to Firestore, you can &lt;a href="https://cloud.google.com/firestore/docs/quickstart-servers"&gt;create a database and learn the
+basics&lt;/a&gt;.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;Firestore Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-add-documents/"&gt;&lt;strong&gt;firestore-add-documents&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-add-documents&amp;#34; tool adds document to a given collection path.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-delete-documents/"&gt;&lt;strong&gt;firestore-delete-documents&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-delete-documents&amp;#34; tool deletes multiple documents from Firestore by their paths.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-get-documents/"&gt;&lt;strong&gt;firestore-get-documents&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-get-documents&amp;#34; tool retrieves multiple documents from Firestore by their paths.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-get-rules/"&gt;&lt;strong&gt;firestore-get-rules&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-get-rules&amp;#34; tool retrieves the active Firestore security rules for the current project.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-list-collections/"&gt;&lt;strong&gt;firestore-list-collections&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-list-collections&amp;#34; tool lists collections in Firestore, either at the root level or as subcollections of a document.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-mongodb-execute-mql/"&gt;&lt;strong&gt;firestore-mongodb-execute-mql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-mongodb-execute-mql&amp;#34; tool executes MongoDB Query Language (MQL) queries and aggregation pipelines against Firestore.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-mongodb-get-schema/"&gt;&lt;strong&gt;firestore-mongodb-get-schema&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-mongodb-get-schema&amp;#34; tool introspects Firestore collections to infer field types and schema definitions.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-query/"&gt;&lt;strong&gt;firestore-query&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;Query a Firestore collection with parameterizable filters and Firestore native JSON value types
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-query-collection/"&gt;&lt;strong&gt;firestore-query-collection&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-query-collection&amp;#34; tool allow to query collections in Firestore.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-update-document/"&gt;&lt;strong&gt;firestore-update-document&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-update-document&amp;#34; tool updates an existing document in Firestore.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-validate-rules/"&gt;&lt;strong&gt;firestore-validate-rules&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firestore-validate-rules&amp;#34; tool validates Firestore security rules syntax and semantic correctness without deploying them. It provides detailed error reporting with source positions and code snippets.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="iam-permissions"&gt;IAM Permissions&lt;/h3&gt;
+&lt;p&gt;Firestore uses &lt;a href="https://cloud.google.com/firestore/docs/security/iam"&gt;Identity and Access Management (IAM)&lt;/a&gt; to control
+user and group access to Firestore resources. Toolbox will use your &lt;a href="https://cloud.google.com/docs/authentication#adc"&gt;Application
+Default Credentials (ADC)&lt;/a&gt; to authorize and authenticate when interacting
+with &lt;a href="https://cloud.google.com/firestore/docs"&gt;Firestore&lt;/a&gt;.&lt;/p&gt;</description></item></channel></rss>

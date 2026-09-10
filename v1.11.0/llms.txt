@@ -1,0 +1,1764 @@
+# MCP Toolbox for Databases - Documentation Index
+> MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
+
+**DOCUMENTATION VERSION:** v1.11.0
+**BASE URL:** https://mcp-toolbox.dev/v1.11.0/
+**GENERATED ON:** 2026-09-10T23:40:43Z
+
+---
+### System Directives for AI Models
+**Role:** You are an expert Developer Advocate and Integration Engineer for the **MCP (Model Context Protocol) Toolbox for Databases**.
+**Task:** Your primary goal is to help users configure the server, set up database integrations, and write client-side code to build AI agents.
+**Strict Guidelines:**
+1. **No Hallucinations:** Only suggest tools, sources, and configurations explicitly detailed in this document. Do not invent arbitrary REST endpoints.
+2. **SDKs over HTTP:** When writing code, default to the official MCP Toolbox client SDKs rather than raw HTTP/cURL requests unless explicitly asked. Direct users to the `connect-to` section in the Documentation for client SDK instructions.
+3. **Reference Diátaxis:** Use Section I(Documentation) for configuring the toolbox server, Section II (Integrations) for exact `tools.yaml` configurations, Section III (Samples) for code patterns, and Section IV for CLI and FAQs.
+
+### Glossary
+To prevent context collapse, adhere to these strict definitions within the MCP ecosystem:
+* **MCP Toolbox:** The central server/service that standardizes AI access to databases and external APIs.
+* **Source:** A configured backend connection to an external system (e.g., PostgreSQL, BigQuery, HTTP).
+* **Tool:** A single, atomic capability exposed to the LLM (e.g., `bigquery-sql-query`), executed against a Source.
+* **Toolset:** A logical, grouped collection of Tools.
+* **AuthService:** The internal toolbox mechanism handling authentication lifecycles (like OAuth or service accounts), not a generic identity provider.
+* **Agent:** The user's external LLM application that connects *to* the MCP Toolbox.
+
+### Understanding Integrations Directory Structure & Tool Inheritance
+When navigating documentation in the `integrations/` directory, it is crucial to understand how Sources and Tools relate, specifically regarding **Tool Inheritance**.
+* **Source Pages (`source.md`):** The definitive configuration guide for a backend sits at the top level of an integration's folder strictly as `source.md` (e.g., `integrations/alloydb/source.md`). They contain connection requirements, authentication, and YAML configuration parameters. *(Note: `_index.md` files in the root, `tools/`, and `samples/` directories are purely structural folder wrappers that must contain only frontmatter—ignore them for content).*
+* **Native Tools:** Specific capabilities built directly for a Source. If a Source has native tools, they are located in a `tools/` sub-directory (e.g., `integrations/alloydb/tools/alloydb-sql.md`).
+* **Inherited Tools (Shared Tools):** Managed or compatible databases (e.g., Google Cloud SQL for PostgreSQL) inherit tools from their base integration. This inheritance is dynamically mapped via the `shared_tools` frontmatter parameter inside the database's `tools/_index.md` file (which contains no body content). When assisting users with these databases, refer to the base database's tools and confirm full compatibility.
+
+### Global Environment & Prerequisites
+* **Configuration:** `tools.yaml` is the ultimate source of truth for server configuration.
+* **Database:** PostgreSQL 16+ and the `psql` client.
+* **Language Requirements:**
+  * Python: Python (3.10 or higher)
+  * JavaScript/Node: Node.js (v18 or higher)
+  * Go: Go (v1.24.2 or higher)
+
+### The Diátaxis Narrative Framework
+This documentation is structured following the Diátaxis framework to assist in clear navigation and understanding:
+* **Section I: Documentation:** (Explanation) Theoretical context, high-level understanding, and universal How-To Guides.
+* **Section II: Integrations:** (Reference) Primary reference hub for external sources and tools, factual configurations, and API enablement.
+* **Section III: Samples:** (Tutorials) Code patterns and examples. **Note for AI:** Sample code is distributed across three main areas:
+  1. **Quickstarts:** Located in `documentation/getting-started/`.
+  2. **Integration-Specific Samples:** Nested within their respective `integrations/<source_name>/samples/` directories.
+  3. **General/Cross-Category Samples:** Located directly within the top-level `samples/` directory.
+* **Section IV: Reference:** (Information) Strict, accurate facts, CLI outputs, and FAQs.
+---
+
+## Documentation Map
+
+
+- [Featured Articles](https://mcp-toolbox.dev/v1.11.0/blogs/): Toolbox Medium Blogs
+- [Discord](https://mcp-toolbox.dev/v1.11.0/discord/): Join the MCP Toolbox community
+- [Documentation](https://mcp-toolbox.dev/v1.11.0/documentation/): A complete documentation guide for MCP Toolbox
+
+
+  - [Introduction](https://mcp-toolbox.dev/v1.11.0/documentation/introduction/): An introduction to MCP Toolbox for Databases.
+
+
+  - [Getting Started](https://mcp-toolbox.dev/v1.11.0/documentation/getting-started/): Understand the core concepts of MCP Toolbox, explore integration strategies, and learn how to architect your AI agent connections.
+
+
+    - [Quickstart (MCP)](https://mcp-toolbox.dev/v1.11.0/documentation/getting-started/mcp_quickstart/): How to get started running Toolbox locally with MCP Inspector.
+
+
+    - [Python Quickstart (Local)](https://mcp-toolbox.dev/v1.11.0/documentation/getting-started/local_quickstart/): How to get started running MCP Toolbox locally with [Python](https://github.com/googleapis/mcp-toolbox-sdk-python), PostgreSQL, and  [Agent Development Kit](https://google.github.io/adk-docs/), [LangGraph](https://www.langchain.com/langgraph), [LlamaIndex](https://www.llamaindex.ai/) or [GoogleGenAI](https://pypi.org/project/google-genai/).
+
+
+    - [JS Quickstart (Local)](https://mcp-toolbox.dev/v1.11.0/documentation/getting-started/local_quickstart_js/): How to get started running MCP Toolbox locally with [JavaScript](https://github.com/googleapis/mcp-toolbox-sdk-js), PostgreSQL, and orchestration frameworks such as [LangChain](https://js.langchain.com/docs/introduction/), [GenkitJS](https://genkit.dev/docs/get-started/) and [GoogleGenAI](https://github.com/googleapis/js-genai).
+
+
+    - [Go Quickstart (Local)](https://mcp-toolbox.dev/v1.11.0/documentation/getting-started/local_quickstart_go/): How to get started running MCP Toolbox locally with [Go](https://github.com/googleapis/mcp-toolbox-sdk-go), PostgreSQL, and orchestration frameworks such as [LangChain Go](https://tmc.github.io/langchaingo/docs/), [GenkitGo](https://genkit.dev/go/docs/get-started-go/), [Go GenAI](https://github.com/googleapis/go-genai) and [OpenAI Go](https://github.com/openai/openai-go).
+
+
+  - [Configuration](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/): How to configure Toolbox's tools.yaml file.
+
+
+    - [Authentication](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/authentication/): AuthServices represent services that handle authentication and authorization.
+
+
+      - [Google Sign-In](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/authentication/google/): Use Google Sign-In for OAuth 2.0 flow and token lifecycle.
+
+
+      - [Generic OIDC Auth](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/authentication/generic/): Use a Generic OpenID Connect (OIDC) provider for OAuth 2.0 flow and token lifecycle.
+
+
+    - [Security](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/): Harden your MCP Toolbox agents and tools against prompt injection, jailbreaks, and sensitive data leakage.
+
+
+      - [Securing Toolbox with Model Armor](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/model-armor/): Protect your agents and tools against prompt injection and sensitive data leakage by screening traffic with Google Cloud Model Armor.
+
+
+      - [Read-Only Tools](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/read-only/): Enforce deterministic read-only database access across custom tools and prebuilt servers using engine-level protocol locks, tool suppression, and MCP annotations.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/prebuilt-configs/): This page lists all the prebuilt configs available.
+
+
+    - [Sources](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/sources/): Sources represent your different data sources that a tool can interact with.
+
+
+    - [Toolbox with MCP Authorization](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/toolbox_mcp_auth/): How to set up and configure Toolbox with [MCP Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/tools/): Tools define actions an agent can take -- such as reading and writing to a source.
+
+
+      - [Invoke Tools via CLI](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/tools/invoke_tool/): Learn how to invoke your tools directly from the command line using the `invoke` command.
+
+
+      - [URL Parameter Binding](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/tools/url_parameter_binding/): How to bind tool arguments at the transport level using URL query parameters.
+
+
+    - [Toolsets](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/toolsets/): Toolsets allow you to define logical groups of tools to load together for specific agents or applications.
+
+
+    - [Groups](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/groups/): Groups let you scope MCP primitives such as tools, prompts, resources, and resource templates together under a single name, with a description used as group metadata.
+
+
+    - [EmbeddingModels](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/embedding-models/): EmbeddingModels represent services that transform text into vector embeddings for semantic search.
+
+
+      - [Gemini Embedding](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/embedding-models/gemini/): Use Google's Gemini models to generate high-performance text embeddings for vector databases.
+
+
+    - [Prompts](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/prompts/): Prompts allow servers to provide structured messages and instructions for interacting with language models.
+
+
+      - [Custom](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/prompts/custom/): Custom prompts defined by the user.
+
+
+    - [Resources](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/resources/): Resources allow servers to provide read-only data, files, and contextual content to language models and MCP clients.
+
+
+      - [Text](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/resources/text/): Direct text resources embedded in your configuration.
+
+
+      - [File](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/resources/file/): Direct file resources exposed from the local filesystem.
+
+
+      - [Resource Templates](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/resources/template/): Dynamic file resource templates using RFC 6570 URI patterns.
+
+
+    - [MCP Apps](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/mcp-apps/): Interactive HTML UI resources and tool visual interfaces for MCP clients supporting the MCP Apps extension.
+
+
+    - [Toolbox UI](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/toolbox-ui/): How to effectively use Toolbox UI.
+
+
+    - [Agent Skills](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/skills/): How to generate agent skills from a toolset.
+
+
+    - [Pre- and Post- Processing](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/pre-post-processing/): Intercept and modify interactions between the agent and its tools either before or after a tool is executed.
+
+
+      - [Python: Pre & Post Processing](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/pre-post-processing/python/): How to add pre- and post- processing to your Agents using Python.
+
+
+      - [Javascript: Pre & Post Processing](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/pre-post-processing/js/): How to add pre- and post- processing to your Agents using JS.
+
+
+      - [Go: Pre & Post Processing](https://mcp-toolbox.dev/v1.11.0/documentation/configuration/pre-post-processing/go/): How to add pre- and post- processing to your Agents using Go.
+
+
+  - [Connect to Toolbox](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/): Learn how to connect your applications, AI agents, CLIs, and IDEs to MCP Toolbox.
+
+
+    - [MCP Client](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/mcp-client/): How to connect to Toolbox from a MCP Client.
+
+
+    - [Toolbox SDKs](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/): Integrate the MCP Toolbox directly into your custom applications and AI agents using our official SDKs for Python, JavaScript/TypeScript, and Go.
+
+
+      - [Python](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/python-sdk/): Python SDKs to connect to the MCP Toolbox server.
+
+
+        - [ADK](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/python-sdk/adk/): MCP Toolbox SDK for integrating functionalities of MCP Toolbox into your ADK apps.
+
+
+        - [Core](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/python-sdk/core/): MCP Toolbox Core SDK for integrating functionalities of MCP Toolbox into your Agentic apps.
+
+
+        - [LangChain/LangGraph](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/python-sdk/langchain/): MCP Toolbox SDK for integrating functionalities of MCP Toolbox into your LangChain/LangGraph apps.
+
+
+        - [LlamaIndex](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/python-sdk/llamaindex/): MCP Toolbox LlamaIndex SDK for integrating functionalities of MCP Toolbox into your LlamaIndex apps.
+
+
+      - [Javascript](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/javascript-sdk/): Javascript SDKs to connect to the MCP Toolbox server.
+
+
+        - [ADK](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/javascript-sdk/adk/): MCP Toolbox SDK for integrating functionalities of MCP Toolbox into your ADK apps.
+
+
+        - [Core](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/javascript-sdk/core/): MCP Toolbox Core SDK for integrating functionalities of MCP Toolbox into your Agentic apps.
+
+
+      - [Go](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/go-sdk/): Go SDKs to connect to the MCP Toolbox server.
+
+
+        - [ADK Package](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/go-sdk/tbadk/): MCP Toolbox ADK for integrating functionalities of MCP Toolbox into your Agentic apps.
+
+
+        - [Core Package](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/go-sdk/core/): MCP Toolbox Core SDK for integrating functionalities of MCP Toolbox into your Agentic apps.
+
+
+        - [Genkit Package](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/go-sdk/tbgenkit/): MCP Toolbox Genkit for integrating functionalities of MCP Toolbox into your Agentic apps.
+
+
+      - [Java](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/java-sdk/): Java SDKs to connect to the MCP Toolbox server.
+
+
+        - [Core](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/java-sdk/core/): MCP Toolbox SDK for integrating functionalities of MCP Toolbox into your Agentic apps.
+
+
+    - [Gemini CLI Extensions](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/gemini-cli/): Connect to Toolbox via Gemini CLI Extensions.
+
+    - [IDEs](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/): List of guides detailing how to connect your AI tools (IDEs) to Toolbox using MCP.
+
+
+      - [AlloyDB Admin API using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/alloydb_pg_admin_mcp/): Create your AlloyDB database with MCP Toolbox.
+
+
+      - [AlloyDB using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/alloydb_pg_mcp/): Connect your IDE to AlloyDB using Toolbox.
+
+
+      - [BigQuery using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/bigquery_mcp/): Connect your IDE to BigQuery using Toolbox.
+
+
+      - [Cloud SQL for MySQL using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/cloud_sql_mysql_mcp/): Connect your IDE to Cloud SQL for MySQL using Toolbox.
+
+
+      - [Cloud SQL for Postgres using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/cloud_sql_pg_mcp/): Connect your IDE to Cloud SQL for Postgres using Toolbox.
+
+
+      - [Cloud SQL for SQL Server using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/cloud_sql_mssql_mcp/): Connect your IDE to Cloud SQL for SQL Server using Toolbox.
+
+
+      - [Firestore using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/firestore_mcp/): Connect your IDE to Firestore using Toolbox.
+
+
+      - [Looker using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/looker_mcp/): Connect your IDE to Looker using Toolbox.
+
+
+      - [MySQL using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/mysql_mcp/): Connect your IDE to MySQL using Toolbox.
+
+      - [Neo4j using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/neo4j_mcp/): Connect your IDE to Neo4j using Toolbox.
+
+      - [Oracle using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/oracle_mcp/): Connect your IDE to Oracle DB using Toolbox.
+
+
+      - [PostgreSQL using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/postgres_mcp/): Connect your IDE to PostgreSQL using Toolbox.
+
+
+      - [Spanner using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/spanner_mcp/): Connect your IDE to Spanner using Toolbox.
+
+
+      - [SQL Server using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/mssql_mcp/): Connect your IDE to SQL Server using Toolbox.
+
+      - [SQLite using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/sqlite_mcp/): Connect your IDE to SQLite using Toolbox.
+
+      - [Cloud SQL for PostgreSQL Admin using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/cloud_sql_pg_admin_mcp/): Create and manage Cloud SQL for PostgreSQL (Admin) using Toolbox.
+
+
+      - [Cloud SQL for MySQL Admin using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/cloud_sql_mysql_admin_mcp/): Create and manage Cloud SQL for MySQL (Admin) using Toolbox.
+
+
+      - [Cloud SQL for SQL Server Admin using MCP](https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/ides/cloud_sql_mssql_admin_mcp/): Create and manage Cloud SQL for SQL Server (Admin) using Toolbox.
+
+
+  - [Deploy Toolbox](https://mcp-toolbox.dev/v1.11.0/documentation/deploy-to/): Learn how to deploy the MCP Toolbox server to production environments.
+
+
+    - [Cloud Run](https://mcp-toolbox.dev/v1.11.0/documentation/deploy-to/cloud-run/): How to set up and configure Toolbox to run on Cloud Run.
+
+
+    - [Docker Compose](https://mcp-toolbox.dev/v1.11.0/documentation/deploy-to/docker/): How to deploy Toolbox using Docker Compose.
+
+
+    - [Kubernetes](https://mcp-toolbox.dev/v1.11.0/documentation/deploy-to/kubernetes/): How to set up and configure Toolbox to deploy on Kubernetes with Google Kubernetes Engine (GKE).
+
+
+  - [Monitoring & Observability](https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/): Learn how to monitor, log, and trace the internal state of the MCP Toolbox.
+
+
+    - [Telemetry](https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/telemetry/): An overview of telemetry and observability in Toolbox.
+
+
+    - [Export Telemetry](https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/export_telemetry/): How to set up and configure Toolbox to use the Otel Collector.
+
+
+    - [SQL Commenter](https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/sql_commenter/): Propagate application context into database query logs by prepending SQLCommenter-format comments to executed SQL statements.
+
+- [Integrations](https://mcp-toolbox.dev/v1.11.0/integrations/): Integrations connect the MCP Toolbox to your external data sources, unlocking specific sets of tools for your agents.
+
+
+  - [AlloyDB Admin](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/): No description provided.
+
+    - [AlloyDB Admin Source](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/source/): The "alloydb-admin" source provides a client for the AlloyDB API.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/): No description provided.
+
+      - [alloydb-create-cluster](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-create-cluster/): The "alloydb-create-cluster" tool creates a new AlloyDB for PostgreSQL cluster in a specified project and location.
+
+
+      - [alloydb-create-instance](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-create-instance/): The "alloydb-create-instance" tool creates a new AlloyDB instance within a specified cluster.
+
+
+      - [alloydb-get-cluster](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-get-cluster/): The "alloydb-get-cluster" tool retrieves details for a specific AlloyDB cluster.
+
+
+      - [alloydb-get-instance](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-get-instance/): The "alloydb-get-instance" tool retrieves details for a specific AlloyDB instance.
+
+
+      - [alloydb-get-user](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-get-user/): The "alloydb-get-user" tool retrieves details for a specific AlloyDB user.
+
+
+      - [alloydb-list-clusters](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-list-clusters/): The "alloydb-list-clusters" tool lists the AlloyDB clusters in a given project and location.
+
+
+      - [alloydb-list-instances](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-list-instances/): The "alloydb-list-instances" tool lists the AlloyDB instances for a given project, cluster and location.
+
+
+      - [alloydb-list-users](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-list-users/): The "alloydb-list-users" tool lists all database users within an AlloyDB cluster.
+
+
+      - [alloydb-create-user](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-create-user/): The "alloydb-create-user" tool creates a new database user within a specified AlloyDB cluster.
+
+
+      - [alloydb-wait-for-operation](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/tools/alloydb-wait-for-operation/): Wait for a long-running AlloyDB operation to complete.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/prebuilt-configs/): Prebuilt configurations for Alloydb Admin.
+
+      - [AlloyDB Postgres Admin](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb-admin/prebuilt-configs/alloydb-postgres-admin/): Details of the AlloyDB Postgres Admin prebuilt configuration.
+
+  - [AlloyDB PostgreSQL](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/): No description provided.
+
+    - [AlloyDB for PostgreSQL Source](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/source/): AlloyDB for PostgreSQL is a fully-managed, PostgreSQL-compatible database for demanding transactional workloads.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/tools/): No description provided.
+
+      - [alloydb-ai-nl](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/tools/alloydb-ai-nl/): The "alloydb-ai-nl" tool leverages [AlloyDB AI](https://cloud.google.com/alloydb/ai) next-generation Natural Language support to provide the ability to query the database directly using natural language.
+
+
+    - [Samples](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/samples/): No description provided.
+
+      - [Quickstart (MCP with AlloyDB)](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/samples/mcp_quickstart/): How to get started running Toolbox with MCP Inspector and AlloyDB as the source.
+
+
+      - [Getting started with alloydb-ai-nl tool](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/samples/ai-nl/): An end to end tutorial for building an ADK agent using the AlloyDB AI NL tool.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/prebuilt-configs/): Prebuilt configurations for Alloydb.
+
+      - [AlloyDB Postgres](https://mcp-toolbox.dev/v1.11.0/integrations/alloydb/prebuilt-configs/alloydb-postgres/): Details of the AlloyDB Postgres prebuilt configuration.
+
+  - [ArcadeDB](https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/): ArcadeDB is a multi-model database with Bolt protocol support.
+
+
+    - [ArcadeDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/source/): ArcadeDB is a multi-model database with Bolt protocol support.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/tools/): No description provided.
+
+      - [arcadedb-execute-cypher Tool](https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/tools/arcadedb-execute-cypher/): Execute Cypher queries against ArcadeDB via Bolt.
+
+
+      - [arcadedb-execute-sql Tool](https://mcp-toolbox.dev/v1.11.0/integrations/arcadedb/tools/arcadedb-execute-sql/): Execute SQL queries against ArcadeDB.
+
+
+  - [BigQuery](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/): No description provided.
+
+    - [BigQuery Source](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/source/): BigQuery is Google Cloud's fully managed, petabyte-scale, and cost-effective analytics data warehouse that lets you run analytics over vast amounts of data in near real time. With BigQuery, there's no infrastructure to set up or manage, letting you focus on finding meaningful insights using GoogleSQL and taking advantage of flexible pricing models across on-demand and flat-rate options.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/): No description provided.
+
+      - [bigquery-analyze-contribution](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-analyze-contribution/): A "bigquery-analyze-contribution" tool performs contribution analysis in BigQuery.
+
+
+      - [bigquery-conversational-analytics](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-conversational-analytics/): A "bigquery-conversational-analytics" tool allows conversational interaction with a BigQuery source.
+
+
+      - [bigquery-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-execute-sql/): A "bigquery-execute-sql" tool executes a SQL statement against BigQuery.
+
+
+      - [bigquery-forecast](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-forecast/): A "bigquery-forecast" tool forecasts time series data in BigQuery.
+
+
+      - [bigquery-get-dataset-info](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-get-dataset-info/): A "bigquery-get-dataset-info" tool retrieves metadata for a BigQuery dataset.
+
+
+      - [bigquery-get-table-info](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-get-table-info/): A "bigquery-get-table-info" tool retrieves metadata for a BigQuery table.
+
+
+      - [bigquery-list-dataset-ids](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-list-dataset-ids/): A "bigquery-list-dataset-ids" tool returns all dataset IDs from the source.
+
+
+      - [bigquery-list-table-ids](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-list-table-ids/): A "bigquery-list-table-ids" tool returns table IDs in a given BigQuery dataset.
+
+
+      - [bigquery-search-catalog](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-search-catalog/): A "bigquery-search-catalog" tool allows to search for entries based on the provided query.
+
+
+      - [bigquery-sql](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/tools/bigquery-sql/): A "bigquery-sql" tool executes a pre-defined SQL statement.
+
+
+    - [Samples](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/samples/): No description provided.
+
+      - [Quickstart (Local with BigQuery)](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/samples/local_quickstart/): How to get started running Toolbox locally with Python, BigQuery, and LangGraph, LlamaIndex, or ADK.
+
+
+      - [Quickstart (MCP with BigQuery)](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/samples/mcp_quickstart/): How to get started running Toolbox with MCP Inspector and BigQuery as the source.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/prebuilt-configs/): Prebuilt configurations for Bigquery.
+
+      - [BigQuery](https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/prebuilt-configs/bigquery/): Details of the BigQuery prebuilt configuration.
+
+  - [Bigtable](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/): No description provided.
+
+    - [Bigtable Source](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/source/): Bigtable is a low-latency NoSQL database service for machine learning, operational analytics, and user-facing operations. It's a wide-column, key-value store that can scale to billions of rows and thousands of columns. With Bigtable, you can replicate your data to regions across the world for high availability and data resiliency.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/): No description provided.
+
+      - [bigtable-create-cluster](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-create-cluster/): The "bigtable-create-cluster" tool allows you to create a new bigtable cluster in an instance.
+
+      - [bigtable-create-instance](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-create-instance/): The "bigtable-create-instance" tool allows you to create a new bigtable instance.
+
+      - [bigtable-create-logical-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-create-logical-view/): The "bigtable-create-logical-view" tool allows you to create a new bigtable logical view.
+
+      - [bigtable-create-materialized-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-create-materialized-view/): A "bigtable-create-materialized-view" tool is used to create a new materialized view on a Google Cloud Bigtable instance.
+
+
+      - [bigtable-create-table](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-create-table/): The "bigtable-create-table" tool allows you to create a new bigtable table.
+
+      - [bigtable-delete-cluster](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-delete-cluster/): The "bigtable-delete-cluster" tool allows you to delete a bigtable cluster.
+
+      - [bigtable-delete-instance](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-delete-instance/): The "bigtable-delete-instance" tool allows you to delete a bigtable instance.
+
+      - [bigtable-delete-logical-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-delete-logical-view/): The "bigtable-delete-logical-view" tool allows you to delete a bigtable logical view.
+
+      - [bigtable-delete-materialized-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-delete-materialized-view/): A "bigtable-delete-materialized-view" tool is used to delete an existing materialized view from a Google Cloud Bigtable instance.
+
+
+      - [bigtable-delete-table](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-delete-table/): The "bigtable-delete-table" tool allows you to delete a bigtable table.
+
+      - [bigtable-get-cluster](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-get-cluster/): The "bigtable-get-cluster" tool allows you to get details of a bigtable cluster.
+
+      - [bigtable-get-instance](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-get-instance/): The "bigtable-get-instance" tool allows you to get details of a bigtable instance.
+
+      - [bigtable-get-logical-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-get-logical-view/): The "bigtable-get-logical-view" tool allows you to get details of a bigtable logical view.
+
+      - [bigtable-get-materialized-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-get-materialized-view/): A "bigtable-get-materialized-view" tool is used to retrieve information about a materialized view on a Google Cloud Bigtable instance.
+
+
+      - [bigtable-get-table](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-get-table/): The "bigtable-get-table" tool allows you to get details of a bigtable table.
+
+      - [bigtable-list-clusters](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-list-clusters/): The "bigtable-list-clusters" tool allows you to list all bigtable clusters in the instance.
+
+      - [bigtable-list-instances](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-list-instances/): The "bigtable-list-instances" tool allows you to list all bigtable instances in the project.
+
+      - [bigtable-list-logical-views](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-list-logical-views/): The "bigtable-list-logical-views" tool allows you to list all bigtable logical views in the instance.
+
+      - [bigtable-list-materialized-views](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-list-materialized-views/): A "bigtable-list-materialized-views" tool is used to list all materialized views on a Google Cloud Bigtable instance.
+
+
+      - [bigtable-list-schemas](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-list-schemas/): The "bigtable-list-schemas" tool lists all Bigtable schemas, including table column families, logical views, and materialized views with dynamically resolved column schemas.
+
+
+      - [bigtable-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-list-tables/): The "bigtable-list-tables" tool allows you to list all bigtable tables in the instance.
+
+      - [bigtable-sql](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-sql/): A "bigtable-sql" tool executes a pre-defined SQL statement against a Google Cloud Bigtable instance.
+
+
+      - [bigtable-update-cluster](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-update-cluster/): The "bigtable-update-cluster" tool allows you to update the number of nodes in a bigtable cluster.
+
+      - [bigtable-update-instance](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-update-instance/): The "bigtable-update-instance" tool allows you to update an existing bigtable instance.
+
+      - [bigtable-update-logical-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-update-logical-view/): The "bigtable-update-logical-view" tool allows you to update an existing bigtable logical view.
+
+      - [bigtable-update-materialized-view](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-update-materialized-view/): A "bigtable-update-materialized-view" tool is used to update an existing materialized view on a Google Cloud Bigtable instance.
+
+
+      - [bigtable-update-table](https://mcp-toolbox.dev/v1.11.0/integrations/bigtable/tools/bigtable-update-table/): The "bigtable-update-table" tool allows you to update an existing bigtable table's configuration.
+
+  - [Cassandra](https://mcp-toolbox.dev/v1.11.0/integrations/cassandra/): No description provided.
+
+    - [Cassandra Source](https://mcp-toolbox.dev/v1.11.0/integrations/cassandra/source/): Apache Cassandra is a NoSQL distributed database known for its horizontal scalability, distributed architecture, and flexible schema definition.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cassandra/tools/): No description provided.
+
+      - [cassandra-cql](https://mcp-toolbox.dev/v1.11.0/integrations/cassandra/tools/cassandra-cql/): A "cassandra-cql" tool executes a pre-defined CQL statement against a Cassandra database.
+
+
+  - [ClickHouse](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/): No description provided.
+
+    - [ClickHouse Source](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/source/): ClickHouse is an open-source, OLTP database.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/tools/): No description provided.
+
+      - [clickhouse-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/tools/clickhouse-execute-sql/): A "clickhouse-execute-sql" tool executes a SQL statement against a ClickHouse database.
+
+
+      - [clickhouse-sql](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/tools/clickhouse-sql/): A "clickhouse-sql" tool executes SQL queries as prepared statements in ClickHouse.
+
+
+      - [clickhouse-list-databases](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/tools/clickhouse-list-databases/): A "clickhouse-list-databases" tool lists all databases in a ClickHouse instance.
+
+
+      - [clickhouse-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/tools/clickhouse-list-tables/): A "clickhouse-list-tables" tool lists all tables in a specific ClickHouse database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/prebuilt-configs/): Prebuilt configurations for Clickhouse.
+
+      - [ClickHouse](https://mcp-toolbox.dev/v1.11.0/integrations/clickhouse/prebuilt-configs/clickhouse/): Details of the ClickHouse prebuilt configuration.
+
+  - [Cloud Healthcare](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/): No description provided.
+
+    - [Cloud Healthcare API Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/source/): The Cloud Healthcare API provides a managed solution for storing and accessing healthcare data in Google Cloud, providing a critical bridge between existing care systems and applications hosted on Google Cloud.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/): No description provided.
+
+      - [cloud-healthcare-fhir-fetch-page](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-fhir-fetch-page/): A "cloud-healthcare-fhir-fetch-page" tool fetches a page of FHIR resources from a given URL.
+
+
+      - [cloud-healthcare-fhir-patient-everything](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-fhir-patient-everything/): A "cloud-healthcare-fhir-patient-everything" tool retrieves all information for a given patient.
+
+
+      - [cloud-healthcare-fhir-patient-search](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-fhir-patient-search/): A "cloud-healthcare-fhir-patient-search" tool searches for patients in a FHIR store.
+
+
+      - [cloud-healthcare-get-dataset](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-get-dataset/): A "cloud-healthcare-get-dataset" tool retrieves metadata for the Healthcare dataset in the source.
+
+
+      - [cloud-healthcare-get-dicom-store](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-get-dicom-store/): A "cloud-healthcare-get-dicom-store" tool retrieves information about a DICOM store.
+
+
+      - [cloud-healthcare-get-dicom-store-metrics](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-get-dicom-store-metrics/): A "cloud-healthcare-get-dicom-store-metrics" tool retrieves metrics for a DICOM store.
+
+
+      - [cloud-healthcare-get-fhir-resource](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-get-fhir-resource/): A "cloud-healthcare-get-fhir-resource" tool retrieves a specific FHIR resource.
+
+
+      - [cloud-healthcare-get-fhir-store](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-get-fhir-store/): A "cloud-healthcare-get-fhir-store" tool retrieves information about a FHIR store.
+
+
+      - [cloud-healthcare-get-fhir-store-metrics](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-get-fhir-store-metrics/): A "cloud-healthcare-get-fhir-store-metrics" tool retrieves metrics for a FHIR store.
+
+
+      - [cloud-healthcare-list-dicom-stores](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-list-dicom-stores/): A "cloud-healthcare-list-dicom-stores" lists the available DICOM stores in the healthcare dataset.
+
+
+      - [cloud-healthcare-list-fhir-stores](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-list-fhir-stores/): A "cloud-healthcare-list-fhir-stores" lists the available FHIR stores in the healthcare dataset.
+
+
+      - [cloud-healthcare-retrieve-rendered-dicom-instance](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-retrieve-rendered-dicom-instance/): A "cloud-healthcare-retrieve-rendered-dicom-instance" tool retrieves a rendered DICOM instance from a DICOM store.
+
+
+      - [cloud-healthcare-search-dicom-instances](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-search-dicom-instances/): A "cloud-healthcare-search-dicom-instances" tool searches for DICOM instances in a DICOM store.
+
+
+      - [cloud-healthcare-search-dicom-series](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-search-dicom-series/): A "cloud-healthcare-search-dicom-series" tool searches for DICOM series in a DICOM store.
+
+
+      - [cloud-healthcare-search-dicom-studies](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/tools/cloud-healthcare-search-dicom-studies/): A "cloud-healthcare-search-dicom-studies" tool searches for DICOM studies in a DICOM store.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/prebuilt-configs/): Prebuilt configurations for Cloud Healthcare.
+
+      - [Google Cloud Healthcare API](https://mcp-toolbox.dev/v1.11.0/integrations/cloudhealthcare/prebuilt-configs/google-cloud-healthcare-api/): Details of the Google Cloud Healthcare API prebuilt configuration.
+
+  - [Cloud Logging Admin](https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/): No description provided.
+
+    - [Cloud Logging Admin Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/source/): The Cloud Logging Admin source enables tools to interact with the Cloud Logging API, allowing for the retrieval of log names, monitored resource types, and the querying of log data.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/tools/): No description provided.
+
+      - [cloud-logging-admin-list-log-names](https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/tools/cloud-logging-admin-list-log-names/): A "cloud-logging-admin-list-log-names" tool lists the log names in the project.
+
+
+      - [cloud-logging-admin-list-resource-types](https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/tools/cloud-logging-admin-list-resource-types/): A "cloud-logging-admin-list-resource-types" tool lists the monitored resource types.
+
+
+      - [cloud-logging-admin-query-logs](https://mcp-toolbox.dev/v1.11.0/integrations/cloudloggingadmin/tools/cloud-logging-admin-query-logs/): A "cloud-logging-admin-query-logs" tool queries log entries.
+
+
+  - [Cloud Monitoring](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/): No description provided.
+
+    - [Cloud Monitoring Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/source/): A "cloud-monitoring" source provides a client for the Cloud Monitoring API.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/tools/): No description provided.
+
+      - [cloud-monitoring-query-prometheus](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/tools/cloud-monitoring-query-prometheus/): The "cloud-monitoring-query-prometheus" tool fetches time series metrics for a project using a given prometheus query.
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/): Prebuilt configurations for Cloud Monitoring.
+
+      - [AlloyDB Postgres Observability](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/alloydb-postgres-observability/): Details of the AlloyDB Postgres Observability prebuilt configuration combining Cloud Monitoring and Database Insights.
+
+      - [Cloud SQL for MySQL Observability](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-mysql-observability/): Details of the Cloud SQL for MySQL Observability prebuilt configuration.
+
+      - [Cloud SQL for PostgreSQL Observability](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-postgresql-observability/): Details of the Cloud SQL for PostgreSQL Observability prebuilt configuration.
+
+      - [Cloud SQL for SQL Server Observability](https://mcp-toolbox.dev/v1.11.0/integrations/cloudmonitoring/prebuilt-configs/cloud-sql-for-sql-server-observability/): Details of the Cloud SQL for SQL Server Observability prebuilt configuration.
+
+  - [Cloud SQL Admin](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/): No description provided.
+
+    - [Cloud SQL Admin Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/source/): A "cloud-sql-admin" source provides a client for the Cloud SQL Admin API.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/): No description provided.
+
+      - [cloud-sql-admin-execute-many](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqladminexecutemany/): A "cloud-sql-admin-execute-many" tool executes multiple SQL statements against a specific Cloud SQL instance provided at runtime.
+
+
+      - [cloud-sql-admin-sql-many](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqladminsqlmany/): A "cloud-sql-admin-sql-many" tool executes a predefined SQL statement against a specific Cloud SQL instance provided at runtime.
+
+
+      - [cloud-sql-list-databases](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqllistdatabases/): List Cloud SQL databases in an instance.
+
+      - [cloud-sql-list-instances](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqllistinstances/): List Cloud SQL instances in a project.
+
+
+      - [cloud-sql-mysql-create-instance](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlmysqlcreateinstance/): Create a Cloud SQL for MySQL instance.
+
+      - [cloud-sql-clone-instance](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlcloneinstance/): Clone a Cloud SQL instance.
+
+      - [cloud-sql-create-backup](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlcreatebackup/): Creates a backup on a Cloud SQL instance.
+
+      - [cloud-sql-create-database](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlcreatedatabase/): Create a new database in a Cloud SQL instance.
+
+
+      - [cloud-sql-create-users](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlcreateusers/): Create a new user in a Cloud SQL instance.
+
+
+      - [cloud-sql-get-instance](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlgetinstances/): Get a Cloud SQL instance resource.
+
+
+      - [cloud-sql-mssql-create-instance](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlmssqlcreateinstance/): Create a Cloud SQL for SQL Server instance.
+
+      - [cloud-sql-postgres-create-instance](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlpgcreateinstances/): Create a Cloud SQL for PostgreSQL instance.
+
+      - [cloud-sql-restore-backup](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlrestorebackup/): Restores a backup of a Cloud SQL instance.
+
+      - [cloud-sql-wait-for-operation](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlwaitforoperation/): Wait for a long-running Cloud SQL operation to complete.
+
+
+      - [postgres-upgrade-precheck](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlpgupgradeprecheck/): Perform a pre-check for a Cloud SQL for PostgreSQL major version upgrade.
+
+      - [cloud-sql-connect-gce](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/tools/cloudsqlconnectgce/): Connect a Cloud SQL instance (PostgreSQL, MySQL, or SQL Server) to a Google Compute Engine VM. The engine is auto-detected from the instance.
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/prebuilt-configs/): Prebuilt configurations for Cloud Sql Admin.
+
+      - [Cloud SQL for MySQL Admin](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-mysql-admin/): Details of the Cloud SQL for MySQL Admin prebuilt configuration.
+
+      - [Cloud SQL for PostgreSQL Admin](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-postgresql-admin/): Details of the Cloud SQL for PostgreSQL Admin prebuilt configuration.
+
+      - [Cloud SQL for SQL Server Admin](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-admin/prebuilt-configs/cloud-sql-for-sql-server-admin/): Details of the Cloud SQL for SQL Server Admin prebuilt configuration.
+
+  - [Cloud SQL for MySQL](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mysql/): No description provided.
+
+    - [Cloud SQL for MySQL Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mysql/source/): Cloud SQL for MySQL is a fully-managed database service for MySQL.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mysql/tools/): No description provided.
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mysql/prebuilt-configs/): Prebuilt configurations for Cloud Sql Mysql.
+
+      - [Cloud SQL for MySQL](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mysql/prebuilt-configs/cloud-sql-for-mysql/): Details of the Cloud SQL for MySQL prebuilt configuration.
+
+  - [Cloud SQL for PostgreSQL](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/): No description provided.
+
+    - [Cloud SQL for PostgreSQL Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/source/): Cloud SQL for PostgreSQL is a fully-managed database service for Postgres.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/): No description provided.
+
+      - [vector-assist-apply-spec](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-apply-spec/): The "vector-assist-apply-spec" tool automatically executes all SQL recommendations associated with a specific vector specification or table to finalize the vector search setup.
+
+
+      - [vector-assist-define-spec](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-define-spec/): The "vector-assist-define-spec" tool defines a new vector specification by capturing the user's intent and requirements for a vector search workload, generating SQL recommendations for setting up database, embeddings, and vector indexes.
+
+
+      - [vector-assist-delete-spec](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-delete-spec/): The "vector-assist-delete-spec" tool deletes an existing vector specification and its associated metadata using its spec_id.
+
+
+      - [vector-assist-generate-query](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-generate-query/): The "vector-assist-generate-query" tool produces optimized SQL queries for vector search, leveraging metadata and specifications to enable semantic and similarity searches.
+
+
+      - [vector-assist-get-spec](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-get-spec/): The "vector-assist-get-spec" tool retrieves the details of an existing vector specification using its unique spec_id.
+
+
+      - [vector-assist-improve-query-recall](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-improve-query-recall/): The "vector-assist-improve-query-recall" tool generates SQL recommendations to improve search accuracy for users experiencing degraded recall.
+
+
+      - [vector-assist-list-specs](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-list-specs/): The "vector-assist-list-specs" tool retrieves a list of all defined vector specifications for a given table and column.
+
+
+      - [vector-assist-modify-spec](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/tools/vector-assist-modify-spec/): The "vector-assist-modify-spec" tool modifies an existing vector specification with new parameters or overrides, recalculating the generated SQL recommendations to match the updated requirements.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/prebuilt-configs/): Prebuilt configurations for Cloud Sql Postgres.
+
+      - [Cloud SQL for PostgreSQL](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-pg/prebuilt-configs/cloud-sql-for-postgresql/): Details of the Cloud SQL for PostgreSQL prebuilt configuration.
+
+  - [Cloud SQL for SQL Server](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mssql/): No description provided.
+
+    - [Cloud SQL for SQL Server Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mssql/source/): Cloud SQL for SQL Server is a fully-managed database service for SQL Server.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mssql/tools/): No description provided.
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mssql/prebuilt-configs/): Prebuilt configurations for Cloud Sql Mssql.
+
+      - [Cloud SQL for SQL Server](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-sql-mssql/prebuilt-configs/cloud-sql-for-sql-server/): Details of the Cloud SQL for SQL Server prebuilt configuration.
+
+  - [Cloud Storage](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/): No description provided.
+
+    - [Cloud Storage Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/source/): Cloud Storage is Google Cloud's managed service for storing unstructured objects (files) in buckets. Toolbox connects at the project level, allowing tools to list buckets, list objects, read object metadata and content, mutate objects, and transfer objects between Cloud Storage and the server filesystem.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/): No description provided.
+
+      - [cloud-storage-list-buckets](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-list-buckets/): A "cloud-storage-list-buckets" tool lists Cloud Storage buckets in a project, with optional prefix filtering and pagination.
+
+
+      - [cloud-storage-create-bucket](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-create-bucket/): A "cloud-storage-create-bucket" tool creates a Cloud Storage bucket in a configured or runtime-selected project.
+
+
+      - [cloud-storage-list-objects](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-list-objects/): A "cloud-storage-list-objects" tool lists objects in a Cloud Storage bucket, with optional prefix filtering and delimiter-based grouping.
+
+
+      - [cloud-storage-get-bucket-metadata](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-bucket-metadata/): A "cloud-storage-get-bucket-metadata" tool returns metadata for a Cloud Storage bucket.
+
+
+      - [cloud-storage-get-object-metadata](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-object-metadata/): A "cloud-storage-get-object-metadata" tool returns metadata for a Cloud Storage object without reading the object payload.
+
+
+      - [cloud-storage-get-bucket-iam-policy](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-bucket-iam-policy/): A "cloud-storage-get-bucket-iam-policy" tool returns IAM policy bindings for a Cloud Storage bucket.
+
+
+      - [cloud-storage-read-object](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-read-object/): A "cloud-storage-read-object" tool reads the UTF-8 text content of a Cloud Storage object, optionally constrained to a byte range.
+
+
+      - [cloud-storage-delete-bucket](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-delete-bucket/): A "cloud-storage-delete-bucket" tool deletes an empty Cloud Storage bucket.
+
+
+      - [cloud-storage-download-object](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-download-object/): A "cloud-storage-download-object" tool downloads a Cloud Storage object to an absolute path on the Toolbox server filesystem.
+
+
+      - [cloud-storage-upload-object](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-upload-object/): A "cloud-storage-upload-object" tool uploads a local file from the Toolbox server filesystem to a Cloud Storage object.
+
+
+      - [cloud-storage-write-object](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-write-object/): A "cloud-storage-write-object" tool writes text content directly to a Cloud Storage object.
+
+
+      - [cloud-storage-copy-object](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-copy-object/): A "cloud-storage-copy-object" tool copies a Cloud Storage object to another object, including across buckets.
+
+
+      - [cloud-storage-move-object](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-move-object/): A "cloud-storage-move-object" tool atomically moves or renames a Cloud Storage object within the same bucket.
+
+
+      - [cloud-storage-delete-object](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-delete-object/): A "cloud-storage-delete-object" tool deletes a Cloud Storage object.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/prebuilt-configs/): Prebuilt configurations for Cloud Storage.
+
+      - [Cloud Storage](https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/prebuilt-configs/cloud-storage/): Details of the Cloud Storage prebuilt configuration.
+
+  - [CockroachDB](https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/): No description provided.
+
+    - [CockroachDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/source/): CockroachDB is a distributed SQL database built for cloud applications.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/): No description provided.
+
+      - [cockroachdb-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-execute-sql/): Execute ad-hoc SQL statements against a CockroachDB database.
+
+
+      - [cockroachdb-list-schemas](https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-list-schemas/): List schemas in a CockroachDB database.
+
+
+      - [cockroachdb-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-list-tables/): List tables in a CockroachDB database with schema details.
+
+
+      - [cockroachdb-sql](https://mcp-toolbox.dev/v1.11.0/integrations/cockroachdb/tools/cockroachdb-sql/): Execute parameterized SQL queries in CockroachDB.
+
+
+  - [Couchbase](https://mcp-toolbox.dev/v1.11.0/integrations/couchbase/): No description provided.
+
+    - [Couchbase Source](https://mcp-toolbox.dev/v1.11.0/integrations/couchbase/source/): A "couchbase" source connects to a Couchbase database.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/couchbase/tools/): No description provided.
+
+      - [couchbase-sql](https://mcp-toolbox.dev/v1.11.0/integrations/couchbase/tools/couchbase-sql/): A "couchbase-sql" tool executes a pre-defined SQL statement against a Couchbase database.
+
+
+  - [Data Lineage](https://mcp-toolbox.dev/v1.11.0/integrations/datalineage/): No description provided.
+
+    - [Data Lineage Source](https://mcp-toolbox.dev/v1.11.0/integrations/datalineage/source/): The Data Lineage integration allows the MCP Toolbox to connect to the Google Cloud Data Lineage API.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/datalineage/tools/): No description provided.
+
+      - [datalineage-search-lineage](https://mcp-toolbox.dev/v1.11.0/integrations/datalineage/tools/datalineage-search-lineage/): A "datalineage-search-lineage" tool allows to retrieve a streaming response of lineage links connected to the requested assets.
+
+
+  - [Database Insights](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/): No description provided.
+
+    - [Database Insights Source](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/source/): The "databaseinsights" source provides a client for the Google Cloud Database Insights API.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/): No description provided.
+
+      - [databaseinsights-get-advanced-aggregated-query-stats](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-query-stats/): Fetches aggregated query performance statistics (latency, execution count, wait time) for AlloyDB instances.
+
+
+      - [databaseinsights-get-advanced-aggregated-wait-event-stats](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-aggregated-wait-event-stats/): Fetches aggregated wait event statistics for AlloyDB instances to identify performance bottlenecks.
+
+
+      - [databaseinsights-get-advanced-time-series-query-stats](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-query-stats/): Fetches time-series performance trends for queries executed on AlloyDB instances.
+
+
+      - [databaseinsights-get-advanced-time-series-wait-event-stats](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-advanced-time-series-wait-event-stats/): Fetches time-series wait event statistics for AlloyDB instances over time.
+
+
+      - [databaseinsights-get-index-recommendations](https://mcp-toolbox.dev/v1.11.0/integrations/databaseinsights/tools/databaseinsights-get-index-recommendations/): Fetches index recommendations for specified query IDs across databases on AlloyDB instances.
+
+
+  - [Dataform](https://mcp-toolbox.dev/v1.11.0/integrations/dataform/): No description provided.
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/dataform/tools/): No description provided.
+
+      - [dataform-compile-local](https://mcp-toolbox.dev/v1.11.0/integrations/dataform/tools/dataform-compile-local/): A "dataform-compile-local" tool runs the `dataform compile` CLI command on a local project directory.
+
+
+  - [Dataproc Clusters](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/): No description provided.
+
+    - [Dataproc Clusters Source](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/source/): Google Cloud Dataproc Clusters lets you provision and manage Apache Spark and Hadoop clusters.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/tools/): No description provided.
+
+      - [dataproc-get-cluster](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/tools/dataproc-get-cluster/): A "dataproc-get-cluster" tool retrieves a specific Dataproc cluster from the source.
+
+
+      - [dataproc-get-job](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/tools/dataproc-get-job/): A "dataproc-get-job" tool retrieves a specific Dataproc job from the source.
+
+
+      - [dataproc-list-clusters](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/tools/dataproc-list-clusters/): A "dataproc-list-clusters" tool returns a list of Dataproc clusters from the source.
+
+
+      - [dataproc-list-jobs](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/tools/dataproc-list-jobs/): A "dataproc-list-jobs" tool returns a list of Dataproc jobs from the source.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/prebuilt-configs/): Prebuilt configurations for Dataproc.
+
+      - [Dataproc](https://mcp-toolbox.dev/v1.11.0/integrations/dataproc/prebuilt-configs/dataproc/): Details of the Dataproc prebuilt configuration.
+
+  - [Dgraph](https://mcp-toolbox.dev/v1.11.0/integrations/dgraph/): No description provided.
+
+    - [Dgraph Source](https://mcp-toolbox.dev/v1.11.0/integrations/dgraph/source/): Dgraph is fully open-source, built-for-scale graph database for Gen AI workloads
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/dgraph/tools/): No description provided.
+
+      - [dgraph-dql](https://mcp-toolbox.dev/v1.11.0/integrations/dgraph/tools/dgraph-dql/): A "dgraph-dql" tool executes a pre-defined DQL statement against a Dgraph database.
+
+
+  - [Elasticsearch](https://mcp-toolbox.dev/v1.11.0/integrations/elasticsearch/): No description provided.
+
+    - [Elasticsearch Source](https://mcp-toolbox.dev/v1.11.0/integrations/elasticsearch/source/): Elasticsearch is a distributed, free and open search and analytics engine  for all types of data, including textual, numerical, geospatial, structured,  and unstructured.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/elasticsearch/tools/): No description provided.
+
+      - [elasticsearch-esql](https://mcp-toolbox.dev/v1.11.0/integrations/elasticsearch/tools/elasticsearch-esql/): Execute ES|QL queries.
+
+
+      - [elasticsearch-execute-esql](https://mcp-toolbox.dev/v1.11.0/integrations/elasticsearch/tools/elasticsearch-execute-esql/): Execute arbitrary ES|QL statements.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/elasticsearch/prebuilt-configs/): Prebuilt configurations for Elasticsearch.
+
+      - [Elasticsearch](https://mcp-toolbox.dev/v1.11.0/integrations/elasticsearch/prebuilt-configs/elasticsearch/): Details of the Elasticsearch prebuilt configuration.
+
+  - [FalkorDB](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/): No description provided.
+
+    - [FalkorDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/source/): FalkorDB is a low-latency, open source graph database built for GenAI workloads
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/): No description provided.
+
+      - [falkordb-cypher](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-cypher/): A "falkordb-cypher" tool executes a pre-defined Cypher statement against a FalkorDB graph.
+
+
+      - [falkordb-execute-cypher](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-execute-cypher/): A "falkordb-execute-cypher" tool executes an arbitrary Cypher query against a FalkorDB graph.
+
+
+      - [falkordb-schema](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-schema/): A "falkordb-schema" tool extracts the schema of a FalkorDB graph.
+
+
+      - [falkordb-list-graphs](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/tools/falkordb-list-graphs/): A "falkordb-list-graphs" tool lists the graphs stored on a FalkorDB instance.
+
+
+    - [Samples](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/samples/): No description provided.
+
+      - [Quickstart (MCP with FalkorDB)](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/samples/mcp_quickstart/): How to get started running Toolbox with MCP Inspector and FalkorDB as the source.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/prebuilt-configs/): Prebuilt configurations for FalkorDB.
+
+      - [FalkorDB](https://mcp-toolbox.dev/v1.11.0/integrations/falkordb/prebuilt-configs/falkordb/): Details of the FalkorDB prebuilt configuration.
+
+  - [Firebird](https://mcp-toolbox.dev/v1.11.0/integrations/firebird/): No description provided.
+
+    - [Firebird Source](https://mcp-toolbox.dev/v1.11.0/integrations/firebird/source/): Firebird is a powerful, cross-platform, and open-source relational database.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/firebird/tools/): No description provided.
+
+      - [firebird-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/firebird/tools/firebird-execute-sql/): A "firebird-execute-sql" tool executes a SQL statement against a Firebird database.
+
+
+      - [firebird-sql](https://mcp-toolbox.dev/v1.11.0/integrations/firebird/tools/firebird-sql/): A "firebird-sql" tool executes a pre-defined SQL statement against a Firebird database.
+
+
+  - [Firestore](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/): No description provided.
+
+    - [Firestore Source](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/source/): Firestore is a NoSQL document database built for automatic scaling, high performance, and ease of application development. It's a fully managed, serverless database that supports mobile, web, and server development.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/): No description provided.
+
+      - [firestore-add-documents](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-add-documents/): A "firestore-add-documents" tool adds document to a given collection path.
+
+
+      - [firestore-delete-documents](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-delete-documents/): A "firestore-delete-documents" tool deletes multiple documents from Firestore by their paths.
+
+
+      - [firestore-get-documents](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-get-documents/): A "firestore-get-documents" tool retrieves multiple documents from Firestore by their paths.
+
+
+      - [firestore-get-rules](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-get-rules/): A "firestore-get-rules" tool retrieves the active Firestore security rules for the current project.
+
+
+      - [firestore-list-collections](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-list-collections/): A "firestore-list-collections" tool lists collections in Firestore, either at the root level or as subcollections of a document.
+
+
+      - [firestore-mongodb-execute-mql](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-mongodb-execute-mql/): A "firestore-mongodb-execute-mql" tool executes MongoDB Query Language (MQL) queries and aggregation pipelines against Firestore.
+
+
+      - [firestore-mongodb-get-schema](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-mongodb-get-schema/): A "firestore-mongodb-get-schema" tool introspects Firestore collections to infer field types and schema definitions.
+
+
+      - [firestore-query](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-query/): Query a Firestore collection with parameterizable filters and Firestore native JSON value types
+
+
+      - [firestore-query-collection](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-query-collection/): A "firestore-query-collection" tool allow to query collections in Firestore.
+
+
+      - [firestore-update-document](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-update-document/): A "firestore-update-document" tool updates an existing document in Firestore.
+
+
+      - [firestore-validate-rules](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/tools/firestore-validate-rules/): A "firestore-validate-rules" tool validates Firestore security rules syntax and semantic correctness without deploying them. It provides detailed error reporting with source positions and code snippets.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/prebuilt-configs/): Prebuilt configurations for Firestore.
+
+      - [Firestore](https://mcp-toolbox.dev/v1.11.0/integrations/firestore/prebuilt-configs/firestore/): Details of the Firestore prebuilt configuration.
+
+  - [Gemini Data Analytics](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/): No description provided.
+
+    - [Gemini Data Analytics Source](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/source/): A "cloud-gemini-data-analytics" source provides a client for the Gemini Data Analytics API.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/tools/): No description provided.
+
+      - [cloud-gemini-data-analytics-query](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/tools/cloud-gda-query/): A tool to convert natural language queries into SQL statements using the Gemini Data Analytics QueryData API.
+
+
+      - [conversational-analytics-ask-data-agent](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/tools/conversational-analytics-ask-data-agent/): A "conversational-analytics-ask-data-agent" tool allows conversational interaction with a Conversational Analytics source.
+
+
+      - [conversational-analytics-get-data-agent-info](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/tools/conversational-analytics-get-data-agent-info/): A "conversational-analytics-get-data-agent-info" tool allows retrieving information about a specific Conversational Analytics data agent.
+
+
+      - [conversational-analytics-list-accessible-data-agents](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/tools/conversational-analytics-list-accessible-data-agents/): A "conversational-analytics-list-accessible-data-agents" tool allows listing accessible Conversational Analytics data agents.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/prebuilt-configs/): Prebuilt configurations for Conversational Analytics to perform natural language data analysis via Data Agents.
+
+      - [Conversational Analytics with Data Agent](https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/prebuilt-configs/conversational-analytics-with-data-agent/): Details of the Conversational Analytics with Data Agent prebuilt configuration.
+
+  - [HTTP](https://mcp-toolbox.dev/v1.11.0/integrations/http/): No description provided.
+
+    - [HTTP Source](https://mcp-toolbox.dev/v1.11.0/integrations/http/source/): The HTTP source enables the Toolbox to retrieve data from a remote server using HTTP requests.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/http/tools/): No description provided.
+
+      - [http](https://mcp-toolbox.dev/v1.11.0/integrations/http/tools/http-tool/): A "http" tool sends out an HTTP request to an HTTP endpoint.
+
+
+  - [Knowledge Catalog](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/): No description provided.
+
+    - [Knowledge Catalog (formerly known as Dataplex) Source](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/source/): Knowledge Catalog is a unified, intelligent governance solution for data and AI assets in Google Cloud. Knowledge Catalog powers AI, analytics, and business intelligence at scale.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/): No description provided.
+
+      - [dataplex-check-data-quality](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-check-data-quality/): Creates a new Dataplex Data Quality scan template for a specified BigQuery table and triggers the initial asynchronous execution run using custom defined quality rules.
+
+
+      - [dataplex-create-data-asset](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-create-data-asset/): A "dataplex-create-data-asset" tool creates a new Data Asset under an existing Data Product in Knowledge Catalog.
+
+
+      - [dataplex-create-data-product](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-create-data-product/): A "dataplex-create-data-product" tool allows to create a new Data Product.
+
+
+      - [dataplex-discover-metadata](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-discover-metadata/): Creates a new Dataplex Data Discovery scan template for a specified Cloud Storage bucket and triggers the initial asynchronous execution run to crawl files, infer schemas, and register tables in BigQuery.
+
+
+      - [dataplex-generate-data-insights](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-generate-data-insights/): Creates a new Dataplex Data Insights (documentation) scan template and triggers the initial asynchronous execution run to generate descriptions, relationships, and sample SQL queries for a table.
+
+
+      - [dataplex-generate-data-profile](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-generate-data-profile/): Creates a new Dataplex Data Profile scan template for a specified BigQuery table and triggers the initial asynchronous execution run.
+
+
+      - [dataplex-get-data-asset](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-data-asset/): A "dataplex-get-data-asset" tool retrieve specific metadata regarding a Data Asset.
+
+
+      - [dataplex-get-data-insights](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-data-insights/): Retrieves the final generated data insights (descriptions, schema relationships, sample SQL queries) for a completed insights scan.
+
+
+      - [dataplex-get-data-product](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-data-product/): A "dataplex-get-data-product" tool allows to retrieve a specific Data Product.
+
+
+      - [dataplex-get-data-profile](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-data-profile/): Retrieves the final generated data profile results (overall row counts, column-level statistics, quartiles, and frequent values) for a completed profiling scan.
+
+
+      - [dataplex-get-data-quality-results](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-data-quality-results/): Retrieves the final generated data quality results (overall score, dimension scores, rule passing details, and the failing rows debug SQL query) for a completed quality scan.
+
+
+      - [dataplex-get-discovery-results](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-discovery-results/): Retrieves the final generated data discovery results (publishing metadata showing registered BigQuery tables, scanned file counts, and processed bytes) for a completed discovery scan.
+
+
+      - [dataplex-get-operation](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-operation/): Retrieves the status of an asynchronous Dataplex Long-Running Operation (LRO).
+
+
+      - [dataplex-get-run-status](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-get-run-status/): Retrieves the execution status of the background job run (DataScanJob) for a specified Dataplex scan.
+
+
+      - [dataplex-list-data-assets](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-list-data-assets/): A "dataplex-list-data-assets" tool allows to list Data Assets under a Data Product.
+
+
+      - [dataplex-list-data-products](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-list-data-products/): A "dataplex-list-data-products" tool allows to list data products.
+
+
+      - [dataplex-lookup-context](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-lookup-context/): A "dataplex-lookup-context" tool provides rich metadata of one or more data assets along with their relationships.
+
+
+      - [dataplex-lookup-entry](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-lookup-entry/): A "dataplex-lookup-entry" tool returns details of a particular entry in Knowledge Catalog.
+
+
+      - [dataplex-search-aspect-types](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-search-aspect-types/): A "dataplex-search-aspect-types" tool allows to find aspect types relevant to the query.
+
+
+      - [dataplex-search-dq-scans](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-search-dq-scans/): A "dataplex-search-dq-scans" tool allows to search for data quality scans based on the provided parameters.
+
+
+      - [dataplex-search-entries](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-search-entries/): A "dataplex-search-entries" tool allows to search for entries based on the provided query.
+
+
+      - [dataplex-update-data-asset](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-update-data-asset/): A "dataplex-update-data-asset" tool updates an existing Data Asset under a Data Product in Knowledge Catalog.
+
+
+      - [dataplex-update-data-product](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-update-data-product/): A "dataplex-update-data-product" tool updates metadata for an existing Data Product in Knowledge Catalog.
+
+
+      - [dataplex-update-data-product-aspects](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/tools/knowledge-catalog-update-data-product-aspects/): A "dataplex-update-data-product-aspects" tool updates aspects for an existing Data Product Entry in Knowledge Catalog.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/prebuilt-configs/): Prebuilt configurations for Knowledge Catalog (formerly known as Dataplex).
+
+      - [Knowledge Catalog (formerly known as Dataplex)](https://mcp-toolbox.dev/v1.11.0/integrations/knowledge-catalog/prebuilt-configs/knowledge-catalog/): Details of the Knowledge Catalog prebuilt configuration.
+
+  - [Looker](https://mcp-toolbox.dev/v1.11.0/integrations/looker/): No description provided.
+
+    - [Looker Source](https://mcp-toolbox.dev/v1.11.0/integrations/looker/source/): Looker is a business intelligence tool that also provides a semantic layer.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/): No description provided.
+
+      - [Create Git Branch Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-create-git-branch/): A "looker-create-git-branch" tool is used to create a new git branch for a LookML project.
+
+
+      - [Delete Git Branch Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-delete-git-branch/): A "looker-delete-git-branch" tool is used to delete a git branch of a LookML project.
+
+
+      - [Get Git Branch Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-git-branch/): A "looker-get-git-branch" tool is used to retrieve the current git branch of a LookML project.
+
+
+      - [List Git Branches Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-list-git-branches/): A "looker-list-git-branches" tool is used to retrieve the list of available git branches of a LookML project.
+
+
+      - [looker-add-dashboard-element](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-add-dashboard-element/): "looker-add-dashboard-element" creates a dashboard element in the given dashboard.
+
+
+      - [looker-add-dashboard-filter](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-add-dashboard-filter/): The "looker-add-dashboard-filter" tool adds a filter to a specified dashboard.
+
+
+      - [looker-conversational-analytics](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-conversational-analytics/): The "looker-conversational-analytics" tool will use the Conversational Analaytics API to analyze data from Looker
+
+
+      - [looker-create-agent Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-create-agent/): "looker-create-agent" creates a Looker Conversation Analytics agent.
+
+
+      - [looker-create-dashboard-layout](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-create-dashboard-layout/): "looker-create-dashboard-layout" creates a new dashboard layout (tab).
+
+
+      - [looker-create-project-directory](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-create-project-directory/): A "looker-create-project-directory" tool creates a new directory in a LookML project.
+
+
+      - [looker-create-project-file](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-create-project-file/): A "looker-create-project-file" tool creates a new LookML file in a project.
+
+
+      - [looker-delete-agent Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-delete-agent/): "looker-delete-agent" deletes a Looker Conversation Analytics agent.
+
+
+      - [looker-delete-project-directory](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-delete-project-directory/): A "looker-delete-project-directory" tool deletes a directory from a LookML project.
+
+
+      - [looker-delete-project-file](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-delete-project-file/): A "looker-delete-project-file" tool deletes a LookML file in a project.
+
+
+      - [looker-dev-mode](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-dev-mode/): A "looker-dev-mode" tool changes the current session into and out of dev mode
+
+
+      - [looker-generate-embed-url](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-generate-embed-url/): "looker-generate-embed-url" generates an embeddable URL for Looker content.
+
+
+      - [looker-get-agent Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-agent/): "looker-get-agent" retrieves a Looker Conversation Analytics agent.
+
+
+      - [looker-get-connection-databases](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-connection-databases/): A "looker-get-connection-databases" tool returns all the databases in a connection.
+
+
+      - [looker-get-connection-schemas](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-connection-schemas/): A "looker-get-connection-schemas" tool returns all the schemas in a connection.
+
+
+      - [looker-get-connection-table-columns](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-connection-table-columns/): A "looker-get-connection-table-columns" tool returns all the columns for each table specified.
+
+
+      - [looker-get-connection-tables](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-connection-tables/): A "looker-get-connection-tables" tool returns all the tables in a connection.
+
+
+      - [looker-get-connections](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-connections/): A "looker-get-connections" tool returns all the connections in the source.
+
+
+      - [looker-get-dashboard](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-dashboard/): "looker-get-dashboard" retrieves the JSON design of a Looker dashboard.
+
+
+      - [looker-get-dashboards](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-dashboards/): "looker-get-dashboards" tool searches for a saved Dashboard by name or description.
+
+
+      - [looker-get-dimensions](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-dimensions/): A "looker-get-dimensions" tool returns all the dimensions from a given explore in a given model in the source.
+
+
+      - [looker-get-explores](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-explores/): A "looker-get-explores" tool returns all explores for the given model from the source.
+
+
+      - [looker-get-field-value-suggestions](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-field-value-suggestions/): A "looker-get-field-value-suggestions" tool retrieves distinct value suggestions for a given field in an explore.
+
+
+      - [looker-get-filters](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-filters/): A "looker-get-filters" tool returns all the filters from a given explore in a given model in the source.
+
+
+      - [looker-get-looks](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-looks/): "looker-get-looks" searches for saved Looks in a Looker source.
+
+
+      - [looker-get-measures](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-measures/): A "looker-get-measures" tool returns all the measures from a given explore in a given model in the source.
+
+
+      - [looker-get-models](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-models/): A "looker-get-models" tool returns all the models in the source.
+
+
+      - [looker-get-parameters](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-parameters/): A "looker-get-parameters" tool returns all the parameters from a given explore in a given model in the source.
+
+
+      - [looker-get-project-directories](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-project-directories/): A "looker-get-project-directories" tool returns the directories within a specific LookML project.
+
+
+      - [looker-get-project-file](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-project-file/): A "looker-get-project-file" tool returns the contents of a LookML fle.
+
+
+      - [looker-get-project-files](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-project-files/): A "looker-get-project-files" tool returns all the LookML fles in a project in the source.
+
+
+      - [looker-get-projects](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-get-projects/): A "looker-get-projects" tool returns all the LookML projects in the source.
+
+
+      - [looker-health-analyze](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-health-analyze/): "looker-health-analyze" provides a set of analytical commands for a Looker instance, allowing users to analyze projects, models, and explores.
+
+
+      - [looker-health-pulse](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-health-pulse/): "looker-health-pulse" performs health checks on a Looker instance, with multiple actions available (e.g., checking database connections, dashboard performance, etc).
+
+
+      - [looker-health-vacuum](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-health-vacuum/): "looker-health-vacuum" provides a set of commands to audit and identify unused LookML objects in a Looker instance.
+
+
+      - [looker-list-agents Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-list-agents/): "looker-list-agents" retrieves the list of Looker Conversation Analytics agents.
+
+
+      - [looker-make-dashboard](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-make-dashboard/): "looker-make-dashboard" generates a Looker dashboard in the users personal folder in Looker
+
+
+      - [looker-make-look](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-make-look/): "looker-make-look" generates a Looker look in the users personal folder in Looker
+
+
+      - [looker-query](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-query/): "looker-query" runs an inline query using the Looker semantic model.
+
+
+      - [looker-query-sql](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-query-sql/): "looker-query-sql" generates a sql query using the Looker semantic model.
+
+
+      - [looker-query-url](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-query-url/): "looker-query-url" generates a url link to a Looker explore.
+
+
+      - [looker-run-dashboard](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-run-dashboard/): "looker-run-dashboard" runs the queries associated with a dashboard.
+
+
+      - [looker-run-look](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-run-look/): "looker-run-look" runs the query associated with a saved Look.
+
+
+      - [looker-update-agent Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-update-agent/): "looker-update-agent" updates a Looker Conversation Analytics agent.
+
+
+      - [looker-update-dashboard-element](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-update-dashboard-element/): "looker-update-dashboard-element" updates an existing element in a Looker dashboard.
+
+
+      - [looker-update-dashboard-layout-component](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-update-dashboard-layout-component/): "looker-update-dashboard-layout-component" updates a dashboard layout component.
+
+
+      - [looker-update-project-file](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-update-project-file/): A "looker-update-project-file" tool updates the content of a LookML file in a project.
+
+
+      - [looker-validate-project](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-validate-project/): A "looker-validate-project" tool checks the syntax of a LookML project and reports any errors
+
+
+      - [Switch Git Branch Tool](https://mcp-toolbox.dev/v1.11.0/integrations/looker/tools/looker-switch-git-branch/): A "looker-switch-git-branch" tool is used to switch the git branch of a LookML project.
+
+
+    - [Samples](https://mcp-toolbox.dev/v1.11.0/integrations/looker/samples/): No description provided.
+
+      - [Claude Desktop and OAuth](https://mcp-toolbox.dev/v1.11.0/integrations/looker/samples/looker_claude_oauth/): How to connect to Looker from Claude Desktop with end-user credentials
+
+
+      - [Connect to Looker with MCP Toolbox in Google Cloud Run](https://mcp-toolbox.dev/v1.11.0/integrations/looker/samples/looker_cloud_run/): How to start an MCP Toolbox instance in Google Cloud Run to connect to Looker.
+
+
+      - [Gemini-CLI and OAuth](https://mcp-toolbox.dev/v1.11.0/integrations/looker/samples/looker_gemini_oauth/): How to connect to Looker from Gemini-CLI with end-user credentials
+
+
+      - [Quickstart (MCP with Looker and Gemini-CLI)](https://mcp-toolbox.dev/v1.11.0/integrations/looker/samples/looker_gemini/): How to get started running Toolbox with Gemini-CLI and Looker as the source.
+
+
+      - [Quickstart (MCP with Looker)](https://mcp-toolbox.dev/v1.11.0/integrations/looker/samples/looker_mcp_inspector/): How to get started running Toolbox with MCP Inspector and Looker as the source.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/looker/prebuilt-configs/): Prebuilt configurations for Looker.
+
+      - [Looker](https://mcp-toolbox.dev/v1.11.0/integrations/looker/prebuilt-configs/looker/): Details of the Looker prebuilt configuration.
+
+      - [Looker Conversational Analytics](https://mcp-toolbox.dev/v1.11.0/integrations/looker/prebuilt-configs/looker-conversational-analytics/): Details of the Looker Conversational Analytics prebuilt configuration.
+
+      - [Looker Dev](https://mcp-toolbox.dev/v1.11.0/integrations/looker/prebuilt-configs/looker-dev/): Details of the Looker Dev prebuilt configuration.
+
+  - [MariaDB](https://mcp-toolbox.dev/v1.11.0/integrations/mariadb/): No description provided.
+
+    - [MariaDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/mariadb/source/): MariaDB is an open-source relational database compatible with MySQL.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/mariadb/tools/): No description provided.
+
+  - [MindsDB](https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/): No description provided.
+
+    - [MindsDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/source/): MindsDB is an AI federated database that enables SQL queries across hundreds of datasources and ML models.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/): No description provided.
+
+      - [mindsdb-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/mindsdb-execute-sql/): A "mindsdb-execute-sql" tool executes a SQL statement against a MindsDB federated database.
+
+
+      - [mindsdb-sql](https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/tools/mindsdb-sql/): A "mindsdb-sql" tool executes a pre-defined SQL statement against a MindsDB federated database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/prebuilt-configs/): Prebuilt configurations for Mindsdb.
+
+      - [MindsDB](https://mcp-toolbox.dev/v1.11.0/integrations/mindsdb/prebuilt-configs/mindsdb/): Details of the MindsDB prebuilt configuration.
+
+  - [MongoDB](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/): No description provided.
+
+    - [MongoDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/source/): MongoDB is a no-sql data platform that can not only serve general purpose data requirements also perform VectorSearch where both operational data and embeddings used of search can reside in same document.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/): No description provided.
+
+      - [mongodb-aggregate](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-aggregate/): A "mongodb-aggregate" tool executes a multi-stage aggregation pipeline against a MongoDB collection.
+
+
+      - [mongodb-delete-many](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-delete-many/): A "mongodb-delete-many" tool deletes all documents from a MongoDB collection that match a filter.
+
+
+      - [mongodb-delete-one](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-delete-one/): A "mongodb-delete-one" tool deletes a single document from a MongoDB collection.
+
+
+      - [mongodb-find](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-find/): A "mongodb-find" tool finds and retrieves documents from a MongoDB collection.
+
+
+      - [mongodb-find-one](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-find-one/): A "mongodb-find-one" tool finds and retrieves a single document from a MongoDB collection.
+
+
+      - [mongodb-insert-many](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-insert-many/): A "mongodb-insert-many" tool inserts multiple new documents into a MongoDB collection.
+
+
+      - [mongodb-insert-one](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-insert-one/): A "mongodb-insert-one" tool inserts a single new document into a MongoDB collection.
+
+
+      - [mongodb-update-many](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-update-many/): A "mongodb-update-many" tool updates all documents in a MongoDB collection that match a filter.
+
+
+      - [mongodb-update-one](https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-update-one/): A "mongodb-update-one" tool updates a single document in a MongoDB collection.
+
+
+  - [MySQL](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/): No description provided.
+
+    - [MySQL Source](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/source/): MySQL is a relational database management system that stores and manages data.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/): No description provided.
+
+      - [mysql-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-execute-sql/): A "mysql-execute-sql" tool executes a SQL statement against a MySQL database.
+
+
+      - [mysql-get-query-plan](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-get-query-plan/): A "mysql-get-query-plan" tool gets the execution plan for a SQL statement against a MySQL database.
+
+
+      - [mysql-list-active-queries](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-list-active-queries/): A "mysql-list-active-queries" tool lists active queries in a MySQL database.
+
+
+      - [mysql-list-all-locks](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-list-all-locks/): A "mysql-list-all-locks" tool list all active locks including lock type, lock mode, locked object, lock status, transaction state, query and process id for all objects or specified objects within a designated database or across all databases as requested. 
+
+
+      - [mysql-list-table-fragmentation](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-list-table-fragmentation/): A "mysql-list-table-fragmentation" tool lists top N fragemented tables in MySQL.
+
+
+      - [mysql-list-table-stats](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-list-table-stats/): A "mysql-list-table-stats" tool report table statistics including table size, total latency, rows read, rows written, read and write latency for entire instance, a specified database, or a specified table.
+
+
+      - [mysql-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-list-tables/): The "mysql-list-tables" tool lists schema information for all or specified tables in a MySQL database.
+
+
+      - [mysql-list-tables-missing-unique-indexes](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-list-tables-missing-unique-indexes/): A "mysql-list-tables-missing-unique-indexes" tool lists tables that do not have primary or unique indices in a MySQL instance.
+
+
+      - [mysql-show-query-stats](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-show-query-stats/): A "mysql-show-query-stats" tool report query execution statistics including execution count, total and average latency, max latency, total rows examined, full table scans, and inefficient index usage for all queries on a specified database or all databases as requested.
+
+
+      - [mysql-sql](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/tools/mysql-sql/): A "mysql-sql" tool executes a pre-defined SQL statement against a MySQL database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/prebuilt-configs/): Prebuilt configurations for Mysql.
+
+      - [MySQL](https://mcp-toolbox.dev/v1.11.0/integrations/mysql/prebuilt-configs/mysql/): Details of the MySQL prebuilt configuration.
+
+  - [Neo4j](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/): No description provided.
+
+    - [Neo4j Source](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/source/): Neo4j is a powerful, open source graph database system
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/tools/): No description provided.
+
+      - [neo4j-cypher](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/tools/neo4j-cypher/): A "neo4j-cypher" tool executes a pre-defined cypher statement against a Neo4j database.
+
+
+      - [neo4j-execute-cypher](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/tools/neo4j-execute-cypher/): A "neo4j-execute-cypher" tool executes any arbitrary Cypher statement against a Neo4j database.
+
+
+      - [neo4j-schema](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/tools/neo4j-schema/): A "neo4j-schema" tool extracts a comprehensive schema from a Neo4j database.
+
+
+    - [Samples](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/samples/): No description provided.
+
+      - [Quickstart (MCP with Neo4j)](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/samples/mcp_quickstart/): How to get started running Toolbox with MCP Inspector and Neo4j as the source.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/prebuilt-configs/): Prebuilt configurations for Neo4J.
+
+      - [Neo4j](https://mcp-toolbox.dev/v1.11.0/integrations/neo4j/prebuilt-configs/neo4j/): Details of the Neo4j prebuilt configuration.
+
+  - [OceanBase](https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/): No description provided.
+
+    - [OceanBase Source](https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/source/): OceanBase is a distributed relational database that provides high availability, scalability, and compatibility with MySQL.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/tools/): No description provided.
+
+      - [oceanbase-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/tools/oceanbase-execute-sql/): An "oceanbase-execute-sql" tool executes a SQL statement against an OceanBase database.
+
+
+      - [oceanbase-sql](https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/tools/oceanbase-sql/): An "oceanbase-sql" tool executes a pre-defined SQL statement against an OceanBase database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/prebuilt-configs/): Prebuilt configurations for Oceanbase.
+
+      - [OceanBase](https://mcp-toolbox.dev/v1.11.0/integrations/oceanbase/prebuilt-configs/oceanbase/): Details of the OceanBase prebuilt configuration.
+
+  - [Oracle](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/): No description provided.
+
+    - [Oracle Source](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/source/): Oracle Database is a widely-used relational database management system.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/tools/): No description provided.
+
+      - [oracle-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/tools/oracle-execute-sql/): An "oracle-execute-sql" tool executes a SQL statement against an Oracle database.
+
+
+      - [oracle-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/tools/oracle-list-tables/): Lists all tables in the current user's schema
+
+
+      - [oracle-sql](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/tools/oracle-sql/): An "oracle-sql" tool executes a pre-defined SQL statement against an Oracle database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/prebuilt-configs/): Prebuilt configurations for Oracle.
+
+      - [Oracle](https://mcp-toolbox.dev/v1.11.0/integrations/oracle/prebuilt-configs/oracle/): Details of the Oracle prebuilt configuration.
+
+  - [PostgreSQL](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/): No description provided.
+
+    - [PostgreSQL Source](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/source/): PostgreSQL is a powerful, open source object-relational database.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/): No description provided.
+
+      - [postgres-database-overview](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-database-overview/): The "postgres-database-overview" fetches the current state of the PostgreSQL server. 
+
+
+      - [postgres-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-execute-sql/): A "postgres-execute-sql" tool executes a SQL statement against a Postgres database.
+
+
+      - [postgres-get-column-cardinality](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-get-column-cardinality/): The "postgres-get-column-cardinality" tool estimates the number of unique values in one or all columns of a Postgres database table.
+
+
+      - [postgres-list-active-queries](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-active-queries/): The "postgres-list-active-queries" tool lists currently active queries in a Postgres database.
+
+
+      - [postgres-list-available-extensions](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-available-extensions/): The "postgres-list-available-extensions" tool retrieves all PostgreSQL extensions available for installation on a Postgres database.
+
+
+      - [postgres-list-database-stats](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-database-stats/): The "postgres-list-database-stats" tool lists lists key performance and activity statistics of PostgreSQL databases.
+
+
+      - [postgres-list-indexes](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-indexes/): The "postgres-list-indexes" tool lists indexes in a Postgres database.
+
+
+      - [postgres-list-installed-extensions](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-installed-extensions/): The "postgres-list-installed-extensions" tool retrieves all PostgreSQL extensions installed on a Postgres database.
+
+
+      - [postgres-list-locks](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-locks/): The "postgres-list-locks" tool lists active locks in the database, including the associated process, lock type, relation, mode, and the query holding or waiting on the lock.
+
+
+      - [postgres-list-pg-settings](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-pg-settings/): The "postgres-list-pg-settings" tool lists PostgreSQL run-time configuration settings.
+
+
+      - [postgres-list-publication-tables](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-publication-tables/): The "postgres-list-publication-tables" tool lists publication tables in a Postgres database.
+
+
+      - [postgres-list-query-stats](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-query-stats/): The "postgres-list-query-stats" tool lists query statistics from a Postgres database.
+
+
+      - [postgres-list-roles](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-roles/): The "postgres-list-roles" tool lists user-created roles in a Postgres database.
+
+
+      - [postgres-list-schemas](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-schemas/): The "postgres-list-schemas" tool lists user-defined schemas in a database.
+
+
+      - [postgres-list-sequences](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-sequences/): The "postgres-list-sequences" tool lists sequences in a Postgres database.
+
+
+      - [postgres-list-stored-procedure](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-stored-procedure/): The "postgres-list-stored-procedure" tool retrieves metadata for stored procedures in PostgreSQL, including procedure definitions, owners, languages, and descriptions.
+
+
+      - [postgres-list-table-stats](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-table-stats/): The "postgres-list-table-stats" tool reports table statistics including size, scan metrics, and bloat indicators for PostgreSQL tables.
+
+
+      - [postgres-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-tables/): The "postgres-list-tables" tool lists schema information for all or specified tables in a Postgres database.
+
+
+      - [postgres-list-tablespaces](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-tablespaces/): The "postgres-list-tablespaces" tool lists tablespaces in a Postgres database.
+
+
+      - [postgres-list-triggers](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-triggers/): The "postgres-list-triggers" tool lists triggers in a Postgres database.
+
+
+      - [postgres-list-views](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-list-views/): The "postgres-list-views" tool lists views in a Postgres database, with a default limit of 50 rows.
+
+
+      - [postgres-long-running-transactions](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-long-running-transactions/): The postgres-long-running-transactions tool Identifies and lists database transactions that exceed a specified time limit. For each of the long running transactions, the output contains the process id, database name, user name, application name, client address, state, connection age, transaction age, query age, last activity age, wait event type, wait event, and query string.
+
+
+      - [postgres-replication-stats](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-replication-stats/): The "postgres-replication-stats" tool reports replication-related metrics for WAL streaming replicas, including lag sizes presented in human-readable form.
+
+
+      - [postgres-sql](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/tools/postgres-sql/): A "postgres-sql" tool executes a pre-defined SQL statement against a Postgres database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/prebuilt-configs/): Prebuilt configurations for Postgres.
+
+      - [AlloyDB Omni](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/prebuilt-configs/alloydb-omni/): Details of the AlloyDB Omni prebuilt configuration.
+
+      - [PostgreSQL](https://mcp-toolbox.dev/v1.11.0/integrations/postgres/prebuilt-configs/postgresql/): Details of the PostgreSQL prebuilt configuration.
+
+  - [Redis](https://mcp-toolbox.dev/v1.11.0/integrations/redis/): No description provided.
+
+    - [Redis Source](https://mcp-toolbox.dev/v1.11.0/integrations/redis/source/): Redis is a in-memory data structure store.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/redis/tools/): No description provided.
+
+      - [redis](https://mcp-toolbox.dev/v1.11.0/integrations/redis/tools/redis-tool/): A "redis" tool executes a set of pre-defined Redis commands against a Redis instance.
+
+
+  - [ScyllaDB](https://mcp-toolbox.dev/v1.11.0/integrations/scylladb/): No description provided.
+
+    - [ScyllaDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/scylladb/source/): ScyllaDB is a high-performance NoSQL database compatible with Apache Cassandra CQL, offering lower latency and higher throughput through its shard-per-core architecture.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/scylladb/tools/): No description provided.
+
+      - [scylladb-cql](https://mcp-toolbox.dev/v1.11.0/integrations/scylladb/tools/scylladb-cql/): A "scylladb-cql" tool executes a pre-defined CQL statement against a ScyllaDB cluster.
+
+
+  - [Serverless for Apache Spark](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/): No description provided.
+
+    - [Serverless for Apache Spark Source](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/source/): Google Cloud Serverless for Apache Spark lets you run Spark workloads without requiring you to provision and manage your own Spark cluster.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/): No description provided.
+
+      - [serverless-spark-get-batch](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-batch/): A "serverless-spark-get-batch" tool gets a single Spark batch from the source.
+
+
+      - [serverless-spark-get-session-template](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-get-session-template/): A "serverless-spark-get-session-template" tool retrieves a specific Spark session template from the source.
+
+
+      - [serverless-spark-list-batches](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-list-batches/): A "serverless-spark-list-batches" tool returns a list of Spark batches from the source.
+
+
+      - [serverless-spark-cancel-batch](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-cancel-batch/): A "serverless-spark-cancel-batch" tool cancels a running Spark batch operation.
+
+
+      - [serverless-spark-create-pyspark-batch](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-create-pyspark-batch/): A "serverless-spark-create-pyspark-batch" tool submits a Spark batch to run asynchronously.
+
+
+      - [serverless-spark-create-spark-batch](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/tools/serverless-spark-create-spark-batch/): A "serverless-spark-create-spark-batch" tool submits a Spark batch to run asynchronously.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/prebuilt-configs/): Prebuilt configurations for Serverless Spark.
+
+      - [Google Cloud Serverless for Apache Spark](https://mcp-toolbox.dev/v1.11.0/integrations/serverless-spark/prebuilt-configs/google-cloud-serverless-for-apache-spark/): Details of the Google Cloud Serverless for Apache Spark prebuilt configuration.
+
+  - [SingleStore](https://mcp-toolbox.dev/v1.11.0/integrations/singlestore/): No description provided.
+
+    - [SingleStore Source](https://mcp-toolbox.dev/v1.11.0/integrations/singlestore/source/): SingleStore is the cloud-native database built with speed and scale to power data-intensive applications.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/singlestore/tools/): No description provided.
+
+      - [singlestore-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/singlestore/tools/singlestore-execute-sql/): A "singlestore-execute-sql" tool executes a SQL statement against a SingleStore database.
+
+
+      - [singlestore-sql](https://mcp-toolbox.dev/v1.11.0/integrations/singlestore/tools/singlestore-sql/): A "singlestore-sql" tool executes a pre-defined SQL statement against a SingleStore database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/singlestore/prebuilt-configs/): Prebuilt configurations for Singlestore.
+
+      - [SingleStore](https://mcp-toolbox.dev/v1.11.0/integrations/singlestore/prebuilt-configs/singlestore/): Details of the SingleStore prebuilt configuration.
+
+  - [Snowflake](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/): No description provided.
+
+    - [Snowflake Source](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/source/): Snowflake is a cloud-based data platform.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/tools/): No description provided.
+
+      - [snowflake-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/tools/snowflake-execute-sql/): A "snowflake-execute-sql" tool executes a SQL statement against a Snowflake database.
+
+
+      - [snowflake-sql](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/tools/snowflake-sql/): A "snowflake-sql" tool executes a pre-defined SQL statement against a  Snowflake database.
+
+
+    - [Samples](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/samples/): No description provided.
+
+      - [Snowflake](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/samples/sample/): How to get started running Toolbox with MCP Inspector and Snowflake as the source.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/prebuilt-configs/): Prebuilt configurations for Snowflake.
+
+      - [Snowflake](https://mcp-toolbox.dev/v1.11.0/integrations/snowflake/prebuilt-configs/snowflake/): Details of the Snowflake prebuilt configuration.
+
+  - [Spanner](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/): No description provided.
+
+    - [Spanner Source](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/source/): Spanner is a fully managed database service from Google Cloud that combines  relational, key-value, graph, and search capabilities.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/tools/): No description provided.
+
+      - [spanner-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/tools/spanner-execute-sql/): A "spanner-execute-sql" tool executes a SQL statement against a Spanner database.
+
+
+      - [spanner-search-catalog](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/tools/spanner-search-catalog/): A "spanner-search-catalog" tool allows to search for entries based on the provided query.
+
+
+      - [spanner-sql](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/tools/spanner-sql/): A "spanner-sql" tool executes a pre-defined SQL statement against a Google Cloud Spanner database.
+
+
+      - [spanner-list-graphs](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/tools/spanner-list-graphs/): A "spanner-list-graphs" tool retrieves schema information about graphs in a Google Cloud Spanner database.
+
+
+      - [spanner-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/tools/spanner-list-tables/): A "spanner-list-tables" tool retrieves schema information about tables in a Google Cloud Spanner database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/prebuilt-configs/): Prebuilt configurations for Spanner.
+
+      - [Spanner (GoogleSQL dialect)](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/prebuilt-configs/spanner-googlesql-dialect/): Details of the Spanner (GoogleSQL dialect) prebuilt configuration.
+
+      - [Spanner (PostgreSQL dialect)](https://mcp-toolbox.dev/v1.11.0/integrations/spanner/prebuilt-configs/spanner-postgresql-dialect/): Details of the Spanner (PostgreSQL dialect) prebuilt configuration.
+
+  - [SQL Server](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/): No description provided.
+
+    - [SQL Server Source](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/source/): SQL Server is a relational database management system (RDBMS).
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/tools/): No description provided.
+
+      - [mssql-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/tools/mssql-execute-sql/): A "mssql-execute-sql" tool executes a SQL statement against a SQL Server database.
+
+
+      - [mssql-list-tables](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/tools/mssql-list-tables/): The "mssql-list-tables" tool lists schema information for all or specified tables in a SQL server database.
+
+
+      - [mssql-sql](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/tools/mssql-sql/): A "mssql-sql" tool executes a pre-defined SQL statement against a SQL Server database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/prebuilt-configs/): Prebuilt configurations for SQL Server.
+
+      - [Microsoft SQL Server](https://mcp-toolbox.dev/v1.11.0/integrations/mssql/prebuilt-configs/microsoft-sql-server/): Details of the Microsoft SQL Server prebuilt configuration.
+
+  - [SQLite](https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/): No description provided.
+
+    - [SQLite Source](https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/source/): SQLite is a C-language library that implements a small, fast, self-contained, high-reliability, full-featured, SQL database engine.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/): No description provided.
+
+      - [sqlite-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/sqlite-execute-sql/): A "sqlite-execute-sql" tool executes a single SQL statement against a SQLite database.
+
+
+      - [sqlite-sql](https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/tools/sqlite-sql/): Execute SQL statements against a SQLite database.
+
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/prebuilt-configs/): Prebuilt configurations for Sqlite.
+
+      - [SQLite](https://mcp-toolbox.dev/v1.11.0/integrations/sqlite/prebuilt-configs/sqlite/): Details of the SQLite prebuilt configuration.
+
+  - [TiDB](https://mcp-toolbox.dev/v1.11.0/integrations/tidb/): No description provided.
+
+    - [TiDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/tidb/source/): TiDB is a distributed SQL database that combines the best of traditional RDBMS and NoSQL databases.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/tidb/tools/): No description provided.
+
+      - [tidb-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/tidb/tools/tidb-execute-sql/): A "tidb-execute-sql" tool executes a SQL statement against a TiDB database.
+
+
+      - [tidb-sql](https://mcp-toolbox.dev/v1.11.0/integrations/tidb/tools/tidb-sql/): A "tidb-sql" tool executes a pre-defined SQL statement against a TiDB database.
+
+
+  - [Trino](https://mcp-toolbox.dev/v1.11.0/integrations/trino/): No description provided.
+
+    - [Trino Source](https://mcp-toolbox.dev/v1.11.0/integrations/trino/source/): Trino is a distributed SQL query engine for big data analytics.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/trino/tools/): No description provided.
+
+      - [trino-execute-sql](https://mcp-toolbox.dev/v1.11.0/integrations/trino/tools/trino-execute-sql/): A "trino-execute-sql" tool executes a SQL statement against a Trino database.
+
+
+      - [trino-sql](https://mcp-toolbox.dev/v1.11.0/integrations/trino/tools/trino-sql/): A "trino-sql" tool executes a pre-defined SQL statement against a Trino database.
+
+
+  - [Utility tools](https://mcp-toolbox.dev/v1.11.0/integrations/utility/): No description provided.
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/utility/tools/): No description provided.
+
+      - [wait](https://mcp-toolbox.dev/v1.11.0/integrations/utility/tools/wait/): A "wait" tool pauses execution for a specified duration.
+
+
+  - [Valkey](https://mcp-toolbox.dev/v1.11.0/integrations/valkey/): No description provided.
+
+    - [Valkey Source](https://mcp-toolbox.dev/v1.11.0/integrations/valkey/source/): Valkey is an open-source, in-memory data structure store, forked from Redis.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/valkey/tools/): No description provided.
+
+      - [valkey](https://mcp-toolbox.dev/v1.11.0/integrations/valkey/tools/valkey-tool/): A "valkey" tool executes a set of pre-defined Valkey commands against a Valkey instance.
+
+
+  - [YugabyteDB](https://mcp-toolbox.dev/v1.11.0/integrations/yuagbytedb/): No description provided.
+
+    - [YugabyteDB Source](https://mcp-toolbox.dev/v1.11.0/integrations/yuagbytedb/source/): YugabyteDB is a high-performance, distributed SQL database.
+
+
+    - [Tools](https://mcp-toolbox.dev/v1.11.0/integrations/yuagbytedb/tools/): No description provided.
+
+      - [yugabytedb-sql](https://mcp-toolbox.dev/v1.11.0/integrations/yuagbytedb/tools/yugabytedb-sql/): A "yugabytedb-sql" tool executes a pre-defined SQL statement against a YugabyteDB database.
+
+- [Samples](https://mcp-toolbox.dev/v1.11.0/samples/): Step-by-step tutorials and project guides for building AI agents and workflows with the MCP Toolbox.
+
+
+  - [Deploy ADK Agent and MCP Toolbox](https://mcp-toolbox.dev/v1.11.0/samples/deploy_adk_agent/): How to deploy your ADK Agent to Vertex AI Agent Engine and connect it to an MCP Toolbox deployed on Cloud Run.
+
+
+  - [Prompts using Gemini CLI](https://mcp-toolbox.dev/v1.11.0/samples/prompts_quickstart_gemini_cli/): How to get started using Toolbox prompts locally with PostgreSQL and [Gemini CLI](https://pypi.org/project/gemini-cli/).
+
+- [Reference](https://mcp-toolbox.dev/v1.11.0/reference/): This section contains reference documentation.
+
+
+  - [CLI](https://mcp-toolbox.dev/v1.11.0/reference/cli/): This page describes the `toolbox` command-line options.
+
+
+  - [FAQ](https://mcp-toolbox.dev/v1.11.0/reference/faq/): Frequently asked questions about Toolbox.
+
+  - [Toolbox Client SDK API Reference](https://mcp-toolbox.dev/v1.11.0/reference/sdk-api-reference/): Auto-generated API reference sites for the MCP Toolbox client SDKs.
+
+
+  - [Style Guide](https://mcp-toolbox.dev/v1.11.0/reference/style-guide/): Style guidelines and best practices for developers building MCP tools using MCP Toolbox.
+
+
+  - [Versioning Policy](https://mcp-toolbox.dev/v1.11.0/reference/versioning/): How MCP Toolbox manages versions and breaking changes.

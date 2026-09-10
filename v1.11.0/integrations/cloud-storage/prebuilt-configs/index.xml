@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>Cloud Storage</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/prebuilt-configs/cloud-storage/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/prebuilt-configs/cloud-storage/</guid><description>&lt;h2 id="cloud-storage"&gt;Cloud Storage&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;cloud-storage&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_STORAGE_PROJECT&lt;/code&gt;: The GCP project ID that owns the buckets.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Storage Object User&lt;/strong&gt; (&lt;code&gt;roles/storage.objectUser&lt;/code&gt;) for object reads and
+writes (&lt;code&gt;list_objects&lt;/code&gt;, &lt;code&gt;read_object&lt;/code&gt;, &lt;code&gt;download_object&lt;/code&gt;,
+&lt;code&gt;get_object_metadata&lt;/code&gt;, &lt;code&gt;write_object&lt;/code&gt;, &lt;code&gt;upload_object&lt;/code&gt;, &lt;code&gt;copy_object&lt;/code&gt;,
+&lt;code&gt;move_object&lt;/code&gt;, &lt;code&gt;delete_object&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Storage Admin&lt;/strong&gt; (&lt;code&gt;roles/storage.admin&lt;/code&gt;) for bucket lifecycle and IAM
+operations (&lt;code&gt;list_buckets&lt;/code&gt;, &lt;code&gt;create_bucket&lt;/code&gt;, &lt;code&gt;delete_bucket&lt;/code&gt;,
+&lt;code&gt;get_bucket_metadata&lt;/code&gt;, &lt;code&gt;get_bucket_iam_policy&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;For read-only deployments, &lt;strong&gt;Storage Object Viewer&lt;/strong&gt;
+(&lt;code&gt;roles/storage.objectViewer&lt;/code&gt;) plus &lt;strong&gt;Storage Legacy Bucket Reader&lt;/strong&gt;
+(&lt;code&gt;roles/storage.legacyBucketReader&lt;/code&gt;) is sufficient for the read-only
+subset.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;list_buckets&lt;/code&gt;: Lists Cloud Storage buckets in the configured project.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_objects&lt;/code&gt;: Lists objects in a bucket with optional prefix and
+delimiter filtering.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_bucket_metadata&lt;/code&gt;: Returns metadata for a bucket.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_bucket_iam_policy&lt;/code&gt;: Returns the IAM policy bindings for a bucket.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_object_metadata&lt;/code&gt;: Returns metadata for an object.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;read_object&lt;/code&gt;: Reads a UTF-8 text object (or byte range). Capped at 8
+MiB; binary objects are rejected.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;download_object&lt;/code&gt;: Downloads an object to a local file path.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;create_bucket&lt;/code&gt;: Creates a bucket in the configured project.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_bucket&lt;/code&gt;: Deletes an empty bucket.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;upload_object&lt;/code&gt;: Uploads a local file to an object.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;write_object&lt;/code&gt;: Writes text content directly to an object.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;copy_object&lt;/code&gt;: Copies an object to a destination object.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;move_object&lt;/code&gt;: Atomically renames an object within the same bucket.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_object&lt;/code&gt;: Deletes an object.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Toolsets:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;cloud-storage-buckets&lt;/code&gt;: Bucket administration (list, create, inspect
+metadata and IAM policy, delete).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;cloud-storage-objects&lt;/code&gt;: Object management (list, read, write, copy,
+move, delete, retrieve metadata).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

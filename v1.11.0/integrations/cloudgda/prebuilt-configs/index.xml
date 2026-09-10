@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>Conversational Analytics with Data Agent</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/prebuilt-configs/conversational-analytics-with-data-agent/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloudgda/prebuilt-configs/conversational-analytics-with-data-agent/</guid><description>&lt;h2 id="conversational-analytics-with-data-agent"&gt;Conversational Analytics with Data Agent&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;conversational-analytics-with-data-agent&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_GDA_PROJECT&lt;/code&gt;: The GCP project ID.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_GDA_LOCATION&lt;/code&gt;: (Optional) The location of the data agent (e.g., &lt;code&gt;us&lt;/code&gt; or &lt;code&gt;eu&lt;/code&gt;). Defaults to &lt;code&gt;global&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_GDA_USE_CLIENT_OAUTH&lt;/code&gt;: (Optional) If &lt;code&gt;true&lt;/code&gt;, forwards the client&amp;rsquo;s
+OAuth access token for authentication. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;CLOUD_GDA_MAX_RESULTS&lt;/code&gt;: (Optional) The maximum number of rows
+to return. Defaults to &lt;code&gt;50&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Gemini Data Analytics Stateless Chat User (Beta)&lt;/strong&gt; (&lt;code&gt;roles/geminidataanalytics.dataAgentStatelessUser&lt;/code&gt;) to interact with the data agent.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;BigQuery User&lt;/strong&gt; (&lt;code&gt;roles/bigquery.user&lt;/code&gt;) and &lt;strong&gt;BigQuery Data Viewer&lt;/strong&gt; (&lt;code&gt;roles/bigquery.dataViewer&lt;/code&gt;) on the underlying datasets/tables to allow the data agent to execute queries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ask_data_agent&lt;/code&gt;: Use this tool to perform natural language data analysis,
+get insights, or answer complex questions using pre-configured data
+sources via a specific Data Agent. For more information on
+required roles, API setup, and IAM configuration, see the setup and
+authentication section of the &lt;a href="https://cloud.google.com/gemini/docs/conversational-analytics-api/overview"&gt;Conversational Analytics API
+documentation&lt;/a&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_data_agent_info&lt;/code&gt;: Retrieve details about a specific data agent.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_accessible_data_agents&lt;/code&gt;: List data agents that are accessible.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

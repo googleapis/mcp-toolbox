@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Prebuilt Configs on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mysql/prebuilt-configs/</link><description>Recent content in Prebuilt Configs on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/mysql/prebuilt-configs/index.xml" rel="self" type="application/rss+xml"/><item><title>MySQL</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mysql/prebuilt-configs/mysql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mysql/prebuilt-configs/mysql/</guid><description>&lt;h2 id="mysql"&gt;MySQL&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;mysql&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;MYSQL_HOST&lt;/code&gt;: The hostname or IP address of the MySQL server.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;MYSQL_PORT&lt;/code&gt;: The port number for the MySQL server.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;MYSQL_DATABASE&lt;/code&gt;: The name of the database to connect to.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;MYSQL_USER&lt;/code&gt;: The database username.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;MYSQL_PASSWORD&lt;/code&gt;: The password for the database user.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;Database-level permissions (e.g., &lt;code&gt;SELECT&lt;/code&gt;, &lt;code&gt;INSERT&lt;/code&gt;) are required to
+execute queries.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;execute_sql&lt;/code&gt;: Executes a SQL query.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_tables&lt;/code&gt;: Lists tables in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_query_plan&lt;/code&gt;: Provides information about how MySQL executes a SQL
+statement.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_active_queries&lt;/code&gt;: Lists ongoing queries.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_tables_missing_unique_indexes&lt;/code&gt;: Looks for tables that do not have
+primary or unique key contraint.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_table_fragmentation&lt;/code&gt;: Displays table fragmentation in MySQL.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_all_locks&lt;/code&gt;: Lists all current locks on the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;show_query_stats&lt;/code&gt;: Show query execution statistics.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_table_stats&lt;/code&gt;: Displays table statistics in MySQL.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item></channel></rss>

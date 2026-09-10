@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Samples on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/samples/</link><description>Recent content in Samples on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/samples/index.xml" rel="self" type="application/rss+xml"/><item><title>Quickstart (Local with BigQuery)</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/samples/local_quickstart/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/samples/local_quickstart/</guid><description>&lt;p&gt;&lt;a href="https://colab.research.google.com/github/googleapis/mcp-toolbox/blob/main/docs/en/samples/bigquery/colab_quickstart_bigquery.ipynb"&gt;&lt;img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In
+Colab"&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;h2 id="before-you-begin"&gt;Before you begin&lt;/h2&gt;
+&lt;p&gt;This guide assumes you have already done the following:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;Installed &lt;a href="https://wiki.python.org/moin/BeginnersGuide/Download"&gt;Python 3.10+&lt;/a&gt; (including &lt;a href="https://pip.pypa.io/en/stable/installation/"&gt;pip&lt;/a&gt; and
+your preferred virtual environment tool for managing dependencies e.g.
+&lt;a href="https://packaging.python.org/en/latest/tutorials/installing-packages/#creating-virtual-environments"&gt;venv&lt;/a&gt;).&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Installed and configured the &lt;a href="https://cloud.google.com/sdk/docs/install"&gt;Google Cloud SDK (gcloud CLI)&lt;/a&gt;.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Authenticated with Google Cloud for Application Default Credentials (ADC):&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;gcloud auth login --update-adc
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;Set your default Google Cloud project (replace &lt;code&gt;YOUR_PROJECT_ID&lt;/code&gt; with your
+actual project ID):&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;gcloud config &lt;span class="nb"&gt;set&lt;/span&gt; project YOUR_PROJECT_ID
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nb"&gt;export&lt;/span&gt; &lt;span class="nv"&gt;GOOGLE_CLOUD_PROJECT&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;YOUR_PROJECT_ID
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Toolbox and the client libraries will use this project for BigQuery, unless
+overridden in configurations.&lt;/p&gt;</description></item></channel></rss>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>BigQuery on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/</link><description>Recent content in BigQuery on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/index.xml" rel="self" type="application/rss+xml"/><item><title>BigQuery Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/bigquery/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://cloud.google.com/bigquery/docs"&gt;BigQuery&lt;/a&gt; is Google Cloud&amp;rsquo;s fully managed, petabyte-scale,
+and cost-effective analytics data warehouse that lets you run analytics
+over vast amounts of data in near real time. With BigQuery, there&amp;rsquo;s no
+infrastructure to set up or manage, letting you focus on finding meaningful
+insights using GoogleSQL and taking advantage of flexible pricing models
+across on-demand and flat-rate options.&lt;/p&gt;
+&lt;p&gt;If you are new to BigQuery, you can try to
+&lt;a href="https://cloud.google.com/bigquery/docs/quickstarts/quickstart-command-line"&gt;load and query data with the bq tool&lt;/a&gt;.&lt;/p&gt;</description></item></channel></rss>

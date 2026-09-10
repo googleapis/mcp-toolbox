@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Java on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/java-sdk/</link><description>Recent content in Java on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/java-sdk/index.xml" rel="self" type="application/rss+xml"/><item><title>Core</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/java-sdk/core/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/documentation/connect-to/toolbox-sdks/java-sdk/core/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
+&lt;p&gt;The package provides a java interface to the MCP Toolbox service, enabling you to load and invoke tools from your own applications.&lt;/p&gt;
+&lt;h2 id="installation"&gt;Installation&lt;/h2&gt;
+&lt;p&gt;This SDK is distributed via a &lt;a href="https://mvnrepository.com/artifact/com.google.cloud.mcp/mcp-toolbox-sdk-java"&gt;Maven Central Repository&lt;/a&gt;.&lt;/p&gt;
+&lt;h3 id="maven"&gt;Maven&lt;/h3&gt;
+&lt;p&gt;Add the dependency to your &lt;code&gt;pom.xml&lt;/code&gt;:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-xml" data-lang="xml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;&amp;lt;dependency&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;lt;groupId&amp;gt;&lt;/span&gt;com.google.cloud.mcp&lt;span class="nt"&gt;&amp;lt;/groupId&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;lt;artifactId&amp;gt;&lt;/span&gt;mcp-toolbox-sdk-java&lt;span class="nt"&gt;&amp;lt;/artifactId&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="c"&gt;&amp;lt;!-- Replace &amp;#39;VERSION&amp;#39; with the latest version from https://mvnrepository.com/artifact/com.google.cloud.mcp/mcp-toolbox-sdk-java --&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;lt;version&amp;gt;&lt;/span&gt;VERSION&lt;span class="nt"&gt;&amp;lt;/version&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;lt;scope&amp;gt;&lt;/span&gt;compile&lt;span class="nt"&gt;&amp;lt;/scope&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;&amp;lt;/dependency&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h3 id="gradle"&gt;Gradle&lt;/h3&gt;
+&lt;pre tabindex="0"&gt;&lt;code&gt;dependencies {
+ // Replace &amp;#39;VERSION&amp;#39; with the latest version from https://mvnrepository.com/artifact/com.google.cloud.mcp/mcp-toolbox-sdk-java
+ implementation(&amp;#34;com.google.cloud.mcp:mcp-toolbox-sdk-java:VERSION&amp;#34;) 
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;h2 id="quickstart"&gt;Quickstart&lt;/h2&gt;
+&lt;p&gt;Here is the minimal code needed to connect to a MCP Toolbox and invoke a tool.&lt;/p&gt;</description></item></channel></rss>

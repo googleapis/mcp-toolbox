@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>mongodb-aggregate</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-aggregate/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-aggregate/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;mongodb-aggregate&lt;/code&gt; tool is the most powerful query tool for MongoDB,
+allowing you to process data through a multi-stage pipeline. Each stage
+transforms the documents as they pass through, enabling complex operations like
+grouping, filtering, reshaping documents, and performing calculations.&lt;/p&gt;
+&lt;p&gt;The core of this tool is the &lt;code&gt;pipelinePayload&lt;/code&gt;, which must be a string
+containing a &lt;strong&gt;JSON array of pipeline stage documents&lt;/strong&gt;. The tool returns a JSON
+array of documents produced by the final stage of the pipeline.&lt;/p&gt;</description></item><item><title>mongodb-delete-many</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-delete-many/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-delete-many/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;mongodb-delete-many&lt;/code&gt; tool performs a &lt;strong&gt;bulk destructive operation&lt;/strong&gt;,
+deleting &lt;strong&gt;ALL&lt;/strong&gt; documents from a collection that match a specified filter.&lt;/p&gt;
+&lt;p&gt;The tool returns the total count of documents that were deleted. If the filter
+does not match any documents (i.e., the deleted count is 0), the tool will
+return an error.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/source/"&gt;MongoDB Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;hr&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;p&gt;Here is an example that performs a cleanup task by deleting all products from
+the &lt;code&gt;inventory&lt;/code&gt; collection that belong to a discontinued brand.&lt;/p&gt;</description></item><item><title>mongodb-delete-one</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-delete-one/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-delete-one/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;mongodb-delete-one&lt;/code&gt; tool performs a destructive operation, deleting the
+&lt;strong&gt;first single document&lt;/strong&gt; that matches a specified filter from a MongoDB
+collection.&lt;/p&gt;
+&lt;p&gt;If the filter matches multiple documents, only the first one found by the
+database will be deleted. This tool is useful for removing specific entries,
+such as a user account or a single item from an inventory based on a unique ID.&lt;/p&gt;
+&lt;p&gt;The tool returns the number of documents deleted, which will be either &lt;code&gt;1&lt;/code&gt; if a
+document was found and deleted, or &lt;code&gt;0&lt;/code&gt; if no matching document was found.&lt;/p&gt;</description></item><item><title>mongodb-find</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-find/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-find/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;mongodb-find&lt;/code&gt; tool is used to query a MongoDB collection and retrieve
+documents that match a specified filter. It&amp;rsquo;s a flexible tool that allows you to
+shape the output by selecting specific fields (&lt;strong&gt;projection&lt;/strong&gt;), ordering the
+results (&lt;strong&gt;sorting&lt;/strong&gt;), and restricting the number of documents returned
+(&lt;strong&gt;limiting&lt;/strong&gt;).&lt;/p&gt;
+&lt;p&gt;The tool returns a JSON array of the documents found.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/source/"&gt;MongoDB Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;p&gt;Here&amp;rsquo;s an example that finds up to 10 users from the &lt;code&gt;customers&lt;/code&gt; collection who
+live in a specific city. The results are sorted by their last name, and only
+their first name, last name, and email are returned.&lt;/p&gt;</description></item><item><title>mongodb-find-one</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-find-one/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-find-one/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;mongodb-find-one&lt;/code&gt; tool is used to retrieve the &lt;strong&gt;first single document&lt;/strong&gt; that
+matches a specified filter from a MongoDB collection. If multiple documents
+match the filter, you can use &lt;code&gt;sort&lt;/code&gt; options to control which document is
+returned. Otherwise, the selection is not guaranteed.&lt;/p&gt;
+&lt;p&gt;The tool returns a single JSON object representing the document, wrapped in a
+JSON array.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+&lt;h2 id="hahahugoshortcode574s0hbhb"&gt;
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>mongodb-insert-many</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-insert-many/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-insert-many/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;mongodb-insert-many&lt;/code&gt; tool inserts &lt;strong&gt;multiple new documents&lt;/strong&gt; into a
+specified MongoDB collection in a single bulk operation. This is highly
+efficient for adding large amounts of data at once.&lt;/p&gt;
+&lt;p&gt;This tool takes one required parameter named &lt;code&gt;data&lt;/code&gt;. This &lt;code&gt;data&lt;/code&gt; parameter must
+be a string containing a &lt;strong&gt;JSON array of document objects&lt;/strong&gt;. Upon successful
+insertion, the tool returns a JSON array containing the unique &lt;code&gt;_id&lt;/code&gt; of &lt;strong&gt;each&lt;/strong&gt;
+new document that was created.&lt;/p&gt;</description></item><item><title>mongodb-insert-one</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-insert-one/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-insert-one/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;mongodb-insert-one&lt;/code&gt; tool inserts a &lt;strong&gt;single new document&lt;/strong&gt; into a specified
+MongoDB collection.&lt;/p&gt;
+&lt;p&gt;This tool takes one required parameter named &lt;code&gt;data&lt;/code&gt;, which must be a string
+containing the JSON object you want to insert. Upon successful insertion, the
+tool returns the unique &lt;code&gt;_id&lt;/code&gt; of the newly created document.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/source/"&gt;MongoDB Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;p&gt;Here is an example configuration for a tool that adds a new user to a &lt;code&gt;users&lt;/code&gt;
+collection.&lt;/p&gt;</description></item><item><title>mongodb-update-many</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-update-many/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-update-many/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;mongodb-update-many&lt;/code&gt; tool updates &lt;strong&gt;all&lt;/strong&gt; documents within a specified
+MongoDB collection that match a given filter. It locates the documents using a
+&lt;code&gt;filterPayload&lt;/code&gt; and applies the modifications defined in an &lt;code&gt;updatePayload&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;The tool returns an array of three integers: &lt;code&gt;[ModifiedCount, UpsertedCount, MatchedCount]&lt;/code&gt;.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/source/"&gt;MongoDB Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;hr&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;p&gt;Here&amp;rsquo;s an example configuration. This tool applies a discount to all items
+within a specific category and also marks them as being on sale.&lt;/p&gt;</description></item><item><title>mongodb-update-one</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-update-one/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/tools/mongodb-update-one/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;mongodb-update-one&lt;/code&gt; tool updates a single document within a specified MongoDB
+collection. It locates the document to be updated using a &lt;code&gt;filterPayload&lt;/code&gt; and
+applies modifications defined in an &lt;code&gt;updatePayload&lt;/code&gt;. If the filter matches
+multiple documents, only the first one found will be updated.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/mongodb/source/"&gt;MongoDB Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;hr&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;p&gt;Here&amp;rsquo;s an example of a &lt;code&gt;mongodb-update-one&lt;/code&gt; tool configuration. This tool
+updates the &lt;code&gt;stock&lt;/code&gt; and &lt;code&gt;status&lt;/code&gt; fields of a document in the &lt;code&gt;inventory&lt;/code&gt;
+collection where the &lt;code&gt;item&lt;/code&gt; field matches a provided value. If no matching
+document is found, the &lt;code&gt;upsert: true&lt;/code&gt; option will create a new one.&lt;/p&gt;</description></item></channel></rss>

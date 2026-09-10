@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Monitoring &amp; Observability on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/</link><description>Recent content in Monitoring &amp; Observability on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/index.xml" rel="self" type="application/rss+xml"/><item><title>Telemetry</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/telemetry/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/telemetry/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;Telemetry data such as logs, metrics, and traces will help developers understand
+the internal state of the system. This page walks though different types of
+telemetry and observability available in Toolbox.&lt;/p&gt;
+&lt;p&gt;Toolbox exports telemetry data of logs via standard out/err, and traces/metrics
+through &lt;a href="https://opentelemetry.io/"&gt;OpenTelemetry&lt;/a&gt;. Additional flags can be
+passed to Toolbox to enable different logging behavior, or to export metrics
+through a specific &lt;a href="https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/telemetry/#exporter"&gt;exporter&lt;/a&gt;.&lt;/p&gt;
+&lt;h2 id="logging"&gt;Logging&lt;/h2&gt;
+&lt;p&gt;The following flags can be used to customize Toolbox logging:&lt;/p&gt;</description></item><item><title>Export Telemetry</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/export_telemetry/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/export_telemetry/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;a href="https://opentelemetry.io/docs/collector/"&gt;OpenTelemetry Collector&lt;/a&gt; offers a vendor-agnostic
+implementation of how to receive, process and export telemetry data. It removes
+the need to run, operate, and maintain multiple agents/collectors.&lt;/p&gt;
+&lt;h2 id="configure-the-collector"&gt;Configure the Collector&lt;/h2&gt;
+&lt;p&gt;To configure the collector, you will have to provide a configuration file. The
+configuration file consists of four classes of pipeline component that access
+telemetry data.&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;Receivers&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;Processors&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;Exporters&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;Connectors&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Example of setting up the classes of pipeline components (in this example, we
+don&amp;rsquo;t use connectors):&lt;/p&gt;</description></item><item><title>SQL Commenter</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/sql_commenter/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/documentation/monitoring/sql_commenter/</guid><description>&lt;p&gt;&lt;a href="https://google.github.io/sqlcommenter/"&gt;SQLCommenter&lt;/a&gt; is an open-source
+convention that propagates application context into the database by prepending a
+structured comment to every SQL statement before it is executed. The comment is
+stripped before query planning, so it has no effect on results — but it shows up
+verbatim in database query logs and slow-query logs, letting you correlate a
+specific SQL statement back to the MCP client, LLM tool invocation, model, user,
+agent, and distributed trace that triggered it.&lt;/p&gt;</description></item></channel></rss>

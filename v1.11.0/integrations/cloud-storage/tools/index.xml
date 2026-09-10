@@ -1,0 +1,335 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Tools on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/</link><description>Recent content in Tools on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/index.xml" rel="self" type="application/rss+xml"/><item><title>cloud-storage-list-buckets</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-list-buckets/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-list-buckets/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-list-buckets&lt;/code&gt; tool returns the Cloud Storage buckets in a
+project. By default, it uses the project configured on the source. You can pass
+the optional &lt;code&gt;project&lt;/code&gt; parameter to list buckets in a different project that
+the same credentials can access.&lt;/p&gt;
+&lt;p&gt;You can also set &lt;code&gt;project&lt;/code&gt; or &lt;code&gt;prefix&lt;/code&gt; in the tool configuration. When set,
+that field is removed from the runtime parameter schema and the configured value
+is always used. Set &lt;code&gt;project&lt;/code&gt; to an empty string to hide the parameter while
+using the source&amp;rsquo;s configured project.&lt;/p&gt;</description></item><item><title>cloud-storage-create-bucket</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-create-bucket/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-create-bucket/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-create-bucket&lt;/code&gt; tool creates a new Cloud Storage bucket. By
+default, it creates the bucket in the project configured on the Cloud Storage
+source. You can pass the optional &lt;code&gt;project&lt;/code&gt; parameter to create buckets in a
+different project that the same credentials can access.&lt;/p&gt;
+&lt;p&gt;You can also set &lt;code&gt;project&lt;/code&gt;, &lt;code&gt;location&lt;/code&gt;, or &lt;code&gt;uniform_bucket_level_access&lt;/code&gt; in the
+tool configuration. When set, that field is removed from the runtime parameter
+schema and the configured value is always used. Set &lt;code&gt;project&lt;/code&gt; to an empty string
+to hide the parameter while using the source&amp;rsquo;s configured project.&lt;/p&gt;</description></item><item><title>cloud-storage-list-objects</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-list-objects/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-list-objects/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-list-objects&lt;/code&gt; tool returns the objects in a
+&lt;a href="https://cloud.google.com/storage/docs/buckets"&gt;Cloud Storage bucket&lt;/a&gt;. It supports the usual GCS listing options:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;prefix&lt;/code&gt; — filter results to objects whose names begin with the given string.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delimiter&lt;/code&gt; — group results by this character (typically &lt;code&gt;/&lt;/code&gt;) so subdirectory-like
+&amp;ldquo;common prefixes&amp;rdquo; are returned separately from the leaf objects.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;max_results&lt;/code&gt; / &lt;code&gt;page_token&lt;/code&gt; — paginate through large listings.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The response is a JSON object with &lt;code&gt;objects&lt;/code&gt; (the full object metadata as
+returned by the Cloud Storage API — fields such as &lt;code&gt;Name&lt;/code&gt;, &lt;code&gt;Size&lt;/code&gt;, &lt;code&gt;ContentType&lt;/code&gt;,
+&lt;code&gt;Updated&lt;/code&gt;, &lt;code&gt;StorageClass&lt;/code&gt;, &lt;code&gt;MD5&lt;/code&gt;, etc.), &lt;code&gt;prefixes&lt;/code&gt; (the common prefixes when
+&lt;code&gt;delimiter&lt;/code&gt; is set), and &lt;code&gt;nextPageToken&lt;/code&gt; (empty when there are no more pages).&lt;/p&gt;</description></item><item><title>cloud-storage-get-bucket-metadata</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-bucket-metadata/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-bucket-metadata/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-get-bucket-metadata&lt;/code&gt; tool returns metadata for a single Cloud
+Storage bucket. Use it when the LLM needs fields such as location, storage
+class, labels, lifecycle configuration, or uniform bucket-level access status.&lt;/p&gt;
+&lt;p&gt;The response is the bucket metadata structure returned by the Cloud Storage API.&lt;/p&gt;
+&lt;p&gt;You can set &lt;code&gt;bucket&lt;/code&gt; in the tool configuration. When set, &lt;code&gt;bucket&lt;/code&gt; is removed
+from the runtime parameter schema and the configured bucket is always used. A
+configured &lt;code&gt;bucket&lt;/code&gt; must be a non-empty string.&lt;/p&gt;</description></item><item><title>cloud-storage-get-object-metadata</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-object-metadata/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-object-metadata/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-get-object-metadata&lt;/code&gt; tool returns metadata for a single
+&lt;a href="https://cloud.google.com/storage/docs/objects"&gt;Cloud Storage object&lt;/a&gt;. Use it when the LLM needs fields such as
+object name, size, content type, generation, storage class, timestamps, checksums,
+or custom metadata without reading the object&amp;rsquo;s content.&lt;/p&gt;
+&lt;p&gt;The response is the object metadata structure returned by the Cloud Storage API.&lt;/p&gt;
+&lt;p&gt;You can set &lt;code&gt;bucket&lt;/code&gt; in the tool configuration. When set, &lt;code&gt;bucket&lt;/code&gt; is removed
+from the runtime parameter schema and the configured bucket is always used. A
+configured &lt;code&gt;bucket&lt;/code&gt; must be a non-empty string.&lt;/p&gt;</description></item><item><title>cloud-storage-get-bucket-iam-policy</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-bucket-iam-policy/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-get-bucket-iam-policy/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-get-bucket-iam-policy&lt;/code&gt; tool returns the IAM policy bindings for
+a Cloud Storage bucket. Use it to inspect which principals have roles on a
+bucket without modifying access.&lt;/p&gt;
+&lt;p&gt;You can set &lt;code&gt;bucket&lt;/code&gt; in the tool configuration. When set, &lt;code&gt;bucket&lt;/code&gt; is removed
+from the runtime parameter schema and the configured bucket is always used. A
+configured &lt;code&gt;bucket&lt;/code&gt; must be a non-empty string.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>cloud-storage-read-object</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-read-object/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-read-object/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-read-object&lt;/code&gt; tool fetches the bytes of a single
+&lt;a href="https://cloud.google.com/storage/docs/objects"&gt;Cloud Storage object&lt;/a&gt; and returns them as plain UTF-8 text.&lt;/p&gt;
+&lt;p&gt;Only text objects are supported today: if the object bytes (or the requested
+range) are not valid UTF-8 the tool returns an agent-fixable error. This is
+because the MCP tool-result channel currently only carries text; binary
+payloads will be supported once MCP can carry embedded resources.&lt;/p&gt;
+&lt;p&gt;Reads are capped at &lt;strong&gt;8 MiB&lt;/strong&gt; per call to protect the server&amp;rsquo;s memory and keep
+LLM contexts manageable; objects or ranges larger than that are rejected with
+an agent-fixable error. Use the optional &lt;code&gt;range&lt;/code&gt; parameter to read a slice of
+a larger object.&lt;/p&gt;</description></item><item><title>cloud-storage-delete-bucket</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-delete-bucket/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-delete-bucket/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-delete-bucket&lt;/code&gt; tool deletes an empty Cloud Storage bucket. It
+does not delete objects first; if the bucket is not empty, Cloud Storage rejects
+the operation.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/source/"&gt;Cloud Storage Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;p&gt;The Cloud Storage credentials must be able to delete the target bucket. The
+bucket must be empty before the tool is invoked.&lt;/p&gt;
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;&lt;strong&gt;parameter&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
+					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;bucket&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Name of the empty Cloud Storage bucket to delete.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;h2 id="example"&gt;Example&lt;/h2&gt;
+&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;delete_bucket&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;cloud-storage-delete-bucket&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-gcs-source&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;Use this tool to delete empty Cloud Storage buckets.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="output-format"&gt;Output Format&lt;/h2&gt;
+&lt;p&gt;The tool returns a JSON object with:&lt;/p&gt;</description></item><item><title>cloud-storage-download-object</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-download-object/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-download-object/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-download-object&lt;/code&gt; tool streams a Cloud Storage object to a local
+file on the Toolbox server. Unlike &lt;code&gt;cloud-storage-read-object&lt;/code&gt;, it does not
+return the object bytes to the LLM and does not require UTF-8 text content, so it
+can be used for binary objects or large files.&lt;/p&gt;
+&lt;p&gt;The &lt;code&gt;destination&lt;/code&gt; path is interpreted on the server where Toolbox is running.
+By default, &lt;code&gt;destination&lt;/code&gt; must be an absolute path and paths containing &lt;code&gt;..&lt;/code&gt; are
+rejected. When &lt;code&gt;destination_dir&lt;/code&gt; is configured on the tool, &lt;code&gt;destination&lt;/code&gt; remains
+visible to the LLM but must be a relative path under that configured directory.
+Absolute paths and paths that escape &lt;code&gt;destination_dir&lt;/code&gt; are rejected.&lt;/p&gt;</description></item><item><title>cloud-storage-upload-object</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-upload-object/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-upload-object/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-upload-object&lt;/code&gt; tool streams a local file from the Toolbox
+server filesystem into a Cloud Storage object. The &lt;code&gt;source&lt;/code&gt; path is interpreted
+on the server where Toolbox is running. Relative paths and paths containing &lt;code&gt;..&lt;/code&gt;
+are rejected.&lt;/p&gt;
+&lt;p&gt;When &lt;code&gt;content_type&lt;/code&gt; is empty, Toolbox infers a MIME type from the source file
+extension. If inference fails, Cloud Storage detects the content type from the
+uploaded bytes.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>cloud-storage-write-object</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-write-object/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-write-object/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-write-object&lt;/code&gt; tool writes text content from the tool request
+directly into a Cloud Storage object. It is useful for creating or replacing
+small text objects without first writing a local file on the Toolbox server.&lt;/p&gt;
+&lt;p&gt;When &lt;code&gt;content_type&lt;/code&gt; is empty, Cloud Storage detects the content type from the
+written bytes.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/source/"&gt;Cloud Storage Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;p&gt;The Cloud Storage credentials must be able to create or update the target
+object.&lt;/p&gt;</description></item><item><title>cloud-storage-copy-object</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-copy-object/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-copy-object/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-copy-object&lt;/code&gt; tool copies an object from one Cloud Storage
+location to another. The source and destination bucket parameters are separate,
+so the destination can be in the same bucket or a different bucket.&lt;/p&gt;
+&lt;p&gt;Existing destination objects are replaced.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/source/"&gt;Cloud Storage Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;p&gt;The Cloud Storage credentials must be able to read the source object and create
+or update the destination object.&lt;/p&gt;</description></item><item><title>cloud-storage-move-object</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-move-object/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-move-object/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-move-object&lt;/code&gt; tool atomically moves or renames an object within
+the same Cloud Storage bucket by using Cloud Storage&amp;rsquo;s native move API.&lt;/p&gt;
+&lt;p&gt;This tool does not perform cross-bucket moves. For a cross-bucket move, call
+&lt;code&gt;cloud-storage-copy-object&lt;/code&gt; first, verify the destination, and then call
+&lt;code&gt;cloud-storage-delete-object&lt;/code&gt; on the source.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/source/"&gt;Cloud Storage Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;p&gt;The Cloud Storage credentials must have &lt;code&gt;storage.objects.move&lt;/code&gt; and
+&lt;code&gt;storage.objects.create&lt;/code&gt; permissions in the bucket. If the destination object
+already exists, &lt;code&gt;storage.objects.delete&lt;/code&gt; is also required.&lt;/p&gt;</description></item><item><title>cloud-storage-delete-object</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-delete-object/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/tools/cloud-storage-delete-object/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;cloud-storage-delete-object&lt;/code&gt; tool deletes a single object from a Cloud
+Storage bucket.&lt;/p&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
+
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Source Name&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/cloud-storage/source/"&gt;Cloud Storage Source&lt;/a&gt;&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+
+ 
+
+ 
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+&lt;/div&gt;
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;p&gt;The Cloud Storage credentials must be able to delete the target object.&lt;/p&gt;
+&lt;h2 id="parameters"&gt;Parameters&lt;/h2&gt;
+&lt;table&gt;
+	&lt;thead&gt;
+			&lt;tr&gt;
+					&lt;th&gt;&lt;strong&gt;parameter&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
+					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
+					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
+			&lt;/tr&gt;
+	&lt;/thead&gt;
+	&lt;tbody&gt;
+			&lt;tr&gt;
+					&lt;td&gt;bucket&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Name of the Cloud Storage bucket containing the object to delete.&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;object&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
+					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
+					&lt;td&gt;Full object name (path) within the bucket, e.g. &lt;code&gt;path/to/file.txt&lt;/code&gt;.&lt;/td&gt;
+			&lt;/tr&gt;
+	&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;If &lt;code&gt;bucket&lt;/code&gt; is configured on the tool, it is removed from the parameter list and
+the configured bucket is used for every invocation.&lt;/p&gt;</description></item></channel></rss>

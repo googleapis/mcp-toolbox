@@ -1,0 +1,20 @@
+{
+  "name": "langchain",
+  "version": "1.0.0",
+  "description": "LangChain.js sample for pre/post processing",
+  "type": "module",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.1.26",
+    "@langchain/google-genai": "^2.1.19",
+    "@langchain/google-vertexai": "^2.1.19",
+    "@toolbox-sdk/core": "^1.0.0",
+    "langchain": "^1.2.25",
+    "zod": "^3.23.8"
+  },
+  "author": "",
+  "license": "ISC"
+}

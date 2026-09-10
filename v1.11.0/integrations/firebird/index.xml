@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Firebird on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/firebird/</link><description>Recent content in Firebird on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/integrations/firebird/index.xml" rel="self" type="application/rss+xml"/><item><title>Firebird Source</title><link>https://mcp-toolbox.dev/v1.11.0/integrations/firebird/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/integrations/firebird/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://firebirdsql.org/"&gt;Firebird&lt;/a&gt; is a relational database management system offering many
+ANSI SQL standard features that runs on Linux, Windows, and a variety of Unix
+platforms. It is known for its small footprint, powerful features, and easy
+maintenance.&lt;/p&gt;
+&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
+
+
+
+
+
+
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+ &lt;h3&gt;Firebird Source Tools&lt;/h3&gt;
+ 
+ &lt;table&gt;
+ &lt;thead&gt;
+ &lt;tr&gt;
+ &lt;th&gt;Tool Name&lt;/th&gt;
+ &lt;th&gt;Description&lt;/th&gt;
+ &lt;/tr&gt;
+ &lt;/thead&gt;
+ &lt;tbody&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firebird/tools/firebird-execute-sql/"&gt;&lt;strong&gt;firebird-execute-sql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firebird-execute-sql&amp;#34; tool executes a SQL statement against a Firebird database.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/v1.11.0/integrations/firebird/tools/firebird-sql/"&gt;&lt;strong&gt;firebird-sql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;firebird-sql&amp;#34; tool executes a pre-defined SQL statement against a Firebird database.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;/tbody&gt;
+ &lt;/table&gt;
+
+
+
+
+
+
+
+
+
+&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
+&lt;h3 id="database-user"&gt;Database User&lt;/h3&gt;
+&lt;p&gt;This source uses standard authentication. You will need to &lt;a href="https://www.firebirdsql.org/refdocs/langrefupd25-security-sql-user-mgmt.html#langrefupd25-security-create-user"&gt;create a Firebird
+user&lt;/a&gt; to login to the database with.&lt;/p&gt;</description></item></channel></rss>

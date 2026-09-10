@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Security on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/</link><description>Recent content in Security on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/index.xml" rel="self" type="application/rss+xml"/><item><title>Securing Toolbox with Model Armor</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/model-armor/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/model-armor/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://cloud.google.com/security/products/model-armor"&gt;Google Cloud Model Armor&lt;/a&gt; is
+an LLM-agnostic service that screens prompts and responses to defend AI
+applications against prompt injection, jailbreaks, and sensitive data leakage.
+Pairing it with MCP Toolbox lets you screen both the prompts your users send and
+the responses your agent returns, including any sensitive data pulled from your
+tools, without trusting the model to police itself.&lt;/p&gt;
+&lt;p&gt;Model Armor screens traffic in two directions:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Ingress (incoming):&lt;/strong&gt; Every input the model receives is screened before the
+model acts on it — the user&amp;rsquo;s prompt, and any data your tools return as it flows
+back in. This catches prompt injection and jailbreak attempts.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Egress (outgoing):&lt;/strong&gt; Every response the model produces is screened before it
+returns to the user. This catches sensitive data leakage and harmful content.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre class="mermaid"&gt;sequenceDiagram
+ actor User
+ participant MA as Model Armor
+ participant Agent as Agent / LLM
+ participant Tool
+
+ User-&amp;gt;&amp;gt;MA: prompt
+ Note over MA: Ingress: screen input
+ MA-&amp;gt;&amp;gt;Agent: prompt
+
+ Agent-&amp;gt;&amp;gt;Tool: tool call
+ Tool-&amp;gt;&amp;gt;MA: tool data
+ Note over MA: Ingress: screen input
+ MA-&amp;gt;&amp;gt;Agent: tool data
+
+ Agent-&amp;gt;&amp;gt;MA: response
+ Note over MA: Egress: screen output
+ MA-&amp;gt;&amp;gt;User: response&lt;/pre&gt;
+&lt;style type="text/css"&gt;
+ 
+ .notice {
+ --title-color: #fff;
+ --title-background-color: #6be;
+ --content-color: #444;
+ --content-background-color: #e7f2fa;
+ }
+
+ .notice.info {
+ --title-background-color: #fb7;
+ --content-background-color: #fec;
+ }
+
+ .notice.tip {
+ --title-background-color: #5a5;
+ --content-background-color: #efe;
+ }
+
+ .notice.warning {
+ --title-background-color: #c33;
+ --content-background-color: #fee;
+ }
+
+ 
+ @media (prefers-color-scheme:dark) {
+ .notice {
+ --title-color: #fff;
+ --title-background-color: #069;
+ --content-color: #ddd;
+ --content-background-color: #023;
+ }
+
+ .notice.info {
+ --title-background-color: #a50;
+ --content-background-color: #420;
+ }
+
+ .notice.tip {
+ --title-background-color: #363;
+ --content-background-color: #121;
+ }
+
+ .notice.warning {
+ --title-background-color: #800;
+ --content-background-color: #400;
+ }
+ }
+
+ body.dark .notice {
+ --title-color: #fff;
+ --title-background-color: #069;
+ --content-color: #ddd;
+ --content-background-color: #023;
+ }
+
+ body.dark .notice.info {
+ --title-background-color: #a50;
+ --content-background-color: #420;
+ }
+
+ body.dark .notice.tip {
+ --title-background-color: #363;
+ --content-background-color: #121;
+ }
+
+ body.dark .notice.warning {
+ --title-background-color: #800;
+ --content-background-color: #400;
+ }
+
+ 
+ .notice {
+ padding: 18px;
+ line-height: 24px;
+ margin-bottom: 24px;
+ border-radius: 4px;
+ color: var(--content-color);
+ background: var(--content-background-color);
+ }
+
+ .notice p:last-child {
+ margin-bottom: 0
+ }
+
+ 
+ .notice-title {
+ margin: -18px -18px 12px;
+ padding: 4px 18px;
+ border-radius: 4px 4px 0 0;
+ font-weight: 700;
+ color: var(--title-color);
+ background: var(--title-background-color);
+ }
+
+ 
+ .icon-notice {
+ display: inline-flex;
+ align-self: center;
+ margin-right: 8px;
+ }
+
+ .icon-notice img,
+ .icon-notice svg {
+ height: 1em;
+ width: 1em;
+ fill: currentColor;
+ }
+
+ .icon-notice img,
+ .icon-notice.baseline svg {
+ top: .125em;
+ position: relative;
+ }
+&lt;/style&gt;&lt;div class="notice note" &gt;
+ &lt;p class="notice-title"&gt;
+ &lt;span class="icon-notice baseline"&gt;
+ &lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 128 300 300"&gt;
+ &lt;path d="M150 128c82.813 0 150 67.188 150 150 0 82.813-67.188 150-150 150C67.187 428 0 360.812 0 278c0-82.813 67.188-150 150-150Zm25 243.555v-37.11c0-3.515-2.734-6.445-6.055-6.445h-37.5c-3.515 0-6.445 2.93-6.445 6.445v37.11c0 3.515 2.93 6.445 6.445 6.445h37.5c3.32 0 6.055-2.93 6.055-6.445Zm-.39-67.188 3.515-121.289c0-1.367-.586-2.734-1.953-3.516-1.172-.976-2.93-1.562-4.688-1.562h-42.968c-1.758 0-3.516.586-4.688 1.563-1.367.78-1.953 2.148-1.953 3.515l3.32 121.29c0 2.734 2.93 4.882 6.64 4.882h36.134c3.515 0 6.445-2.148 6.64-4.883Z"/&gt;
+&lt;/svg&gt;
+
+ &lt;/span&gt;Note&lt;/p&gt;</description></item><item><title>Read-Only Tools</title><link>https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/read-only/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.11.0/documentation/configuration/security/read-only/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
+&lt;p&gt;When granting autonomous AI agents access to enterprise databases, relying on prompt instructions or application-level string matching is insufficient. Even a minor prompt injection, hallucination, or query misconfiguration can lead to irreversible data loss or unauthorized mutations.&lt;/p&gt;
+&lt;p&gt;MCP Toolbox implements an end-to-end &lt;strong&gt;Three-Layer Defense-in-Depth Architecture&lt;/strong&gt; for read-only database access. Security is enforced at the lowest level (the database engine itself), while performance and token efficiency are optimized at the highest level (the MCP protocol manifest).&lt;/p&gt;</description></item></channel></rss>
