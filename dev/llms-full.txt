@@ -3,7 +3,7 @@
 
 **DOCUMENTATION VERSION:** dev
 **BASE URL:** https://mcp-toolbox.dev/dev/
-**GENERATED ON:** 2026-09-09T00:04:53Z
+**GENERATED ON:** 2026-09-10T06:33:30Z
 
 ---
 ### System Directives for AI Models
@@ -4454,7 +4454,7 @@ Try organizing your toolsets by the agent's persona or app feature (e.g., `data_
 {{< /notice >}}
 
 {{< notice note >}}
-A toolset is a tools-only [Group](../groups/), and Toolbox now loads every `kind: toolset` as a group. Existing toolsets keep working, with three exceptions: a `description` written on a toolset is dropped (with a warning), unrecognized fields are rejected at startup, and reusing one name for both a `kind: toolset` and a `kind: group` is now a duplicate-name error. We recommend migrating to `kind: group` — even for tools-only collections — because a group lets you attach a `description` and scope other MCP primitives such as **prompts** alongside your **tools**. Run `toolbox migrate` to convert automatically.
+A toolset is a tools-only [Group](../groups/), and Toolbox now loads every `kind: toolset` as a group. Existing toolsets keep working, with three exceptions: a `description` written on a toolset is dropped (with a warning), unrecognized fields are rejected at startup, and reusing one name for both a `kind: toolset` and a `kind: group` is now a duplicate-name error. We recommend migrating to `kind: group` — even for tools-only collections — because a group lets you attach a `description` (surfaced via `groups/list`) and scope other MCP primitives such as **prompts** alongside your **tools**. Run `toolbox migrate` to convert automatically.
 {{< /notice >}}
 
 ## Defining Toolsets
@@ -4524,7 +4524,7 @@ mySecondToolset, err := client.LoadToolset("my-toolset", ctx)
 
 A Group is a single named collection that scopes MCP primitives together — currently **tools** and **prompts**, with more (such as resources) planned. Where a [Toolset](../toolsets/) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
 
-Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list` and `prompts/list`) to that group.
+Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list` and `prompts/list`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
 
 ## Defining Groups
 
@@ -4533,7 +4533,7 @@ Declare a group as a `kind: group` document in your configuration file. A group 
 | Field         | Required | Description                                                                                    |
 | ------------- | -------- | -----------------------------------------------------------------------------------------------|
 | `name`        | Yes\*    | Unique name for the group. Used as the endpoint path (`/mcp/{name}`).                          |
-| `description` | No       | Human-readable description of the group.                                                       |
+| `description` | No       | Human-readable description of the group, surfaced via `groups/list`.                           |
 | `tools`       | No       | List of tool names to include in the group.                                                    |
 | `prompts`     | No       | List of prompt names to include in the group.                                                  |
 | `ttlMs`       | No       | Time-to-live in milliseconds for cached group list responses. ([MCP TTL Spec](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field )). Defaults to `300000` (5 minutes).|
