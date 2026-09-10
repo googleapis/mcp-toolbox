@@ -6,7 +6,7 @@ description: >
   Interactive HTML UI resources and tool visual interfaces for MCP clients supporting the MCP Apps extension.
 ---
 
-The **MCP Apps** extension (`io.modelcontextprotocol/ui`) allows MCP servers to serve interactive web applications (HTML/CSS/JS) directly as resources and bind them to tools. When supported by an MCP client, the client can render an interactive user interface alongside or in place of standard tool outputs.
+The [**MCP Apps**](https://github.com/modelcontextprotocol/ext-apps) extension (`io.modelcontextprotocol/ui`) allows MCP servers to serve interactive web applications (HTML/CSS/JS) directly as resources and bind them to tools. When supported by an MCP client, the client can render an interactive user interface alongside or in place of standard tool outputs. For the official protocol specification, schemas, and client SDKs, refer to the [modelcontextprotocol/ext-apps](https://github.com/modelcontextprotocol/ext-apps) repository.
 
 {{< notice note >}}
 Support for the MCP Apps extension is advertised via `io.modelcontextprotocol/ui` in server capabilities exclusively for MCP protocol version `2026-07-28`. Older protocol versions (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`) do not support extensions and will not advertise UI capabilities or tool UI metadata.
