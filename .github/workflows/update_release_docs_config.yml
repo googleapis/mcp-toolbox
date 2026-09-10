@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Create Hugo version list update PR
+      - name: Create Hugo version list update branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
@@ -100,39 +100,57 @@ jobs:
           fi
 
           git commit -m "chore: update docs version config for ${TARGET_VERSION}"
+          
           git push origin "$NEW_BRANCH" --force
 
-          # Check if PR against main already exists
-          EXISTING_PR=$(gh pr list --head "$NEW_BRANCH" --base main --json url --jq '.[0].url')
+          #  Define a hidden HTML marker to uniquely identify this comment
+          MARKER="<!-- bot:docs-config-update -->"
+          
+          # Check if the PR was already opened by the user previously
+          EXISTING_PR=$(gh pr list --head "$NEW_BRANCH" --base main --json url --jq '.[0].url' || true)
 
-          if [ -z "$EXISTING_PR" ]; then
-            PR_URL=$(gh pr create \
-              --base main \
-              --head "$NEW_BRANCH" \
-              --title "chore: update docs config for ${TARGET_VERSION}" \
-              --body "Automated update to \`hugo.cloudflare.toml\` for upcoming release **${TARGET_VERSION}**.
-              
-              Merge this into \`main\` just before merging Release PR #${PR_NUMBER}. Release Please will automatically sync this into the release PR.")
-            
-            echo "Created PR for main: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
+          # Generate the comment body (includes the marker and a timestamp)
+          if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
+            COMMENT_BODY="$MARKER
+          ### ✅ Docs Config Update Prepared
+          
+          The docs config branch has been automatically force-updated with the latest changes! 
+          👉 **[Review and merge your open PR]($EXISTING_PR)**
+          
+          *Please review and merge that PR into \`main\` before merging this Release PR.*
+          
+          _(Last updated: $(date -u))_"
           else
-            PR_URL="$EXISTING_PR"
-            echo "PR for main already exists: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
+            PR_TITLE="chore: update docs config for ${TARGET_VERSION}"
+            PR_BODY="Automated update to \`hugo.cloudflare.toml\` for upcoming release **${TARGET_VERSION}**.
+            
+            Merge this into \`main\` just before merging Release PR #${PR_NUMBER}. Release Please will automatically sync this into the release PR."
+            
+            ENCODED_TITLE=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_TITLE")
+            ENCODED_BODY=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$PR_BODY")
+            
+            COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${NEW_BRANCH}?expand=1&title=${ENCODED_TITLE}&body=${ENCODED_BODY}"
+            
+            COMMENT_BODY="$MARKER
+          ### ⚠️ Action Required: Docs Config Update
+          
+          GitHub Actions is restricted from opening Pull Requests automatically. However, the update script has run and the branch is ready!
+          
+          👉 **[Click here to open the docs config PR yourself]($COMPARE_URL)**
+          
+          *Because you open it, your credentials are used, and CI checks will run normally. Please open and merge that PR into \`main\` before merging this Release PR.*
+          
+          _(Last updated: $(date -u))_"
           fi
-          
-          COMMENT_BODY="Hugo config update PR is ready: **[Review and merge PR]($PR_URL)**.
-          
-          Merge that PR into \`main\` just before merging Release PR."
 
-          # Search for an existing comment starting with our specific string
-          COMMENT_ID=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
-            -q '.[] | select(.body | startswith("Hugo config update PR is ready:")) | .id' | head -n 1)
+          # Search for an existing comment containing our hidden marker
+          COMMENT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -q ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -n 1)
 
+          # Create or Update the sticky comment
           if [ -n "$COMMENT_ID" ]; then
-            # Update existing comment
-            gh api --method PATCH "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" \
               -f body="$COMMENT_BODY" > /dev/null
           else
-            # Create new comment
             gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
           fi
