@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.11.0](https://github.com/googleapis/mcp-toolbox/compare/v1.10.0...v1.11.0) (2026-09-10)
+
+
+### Features
+
+* Add Toolbox version check on startup ([#3837](https://github.com/googleapis/mcp-toolbox/issues/3837)) ([7d36de3](https://github.com/googleapis/mcp-toolbox/commit/7d36de337b3557d8354d295ee8eec23c69baf88f))
+* **alloydb:** Provide actionable error when read-only mode is used on pre-PG17 ([#3902](https://github.com/googleapis/mcp-toolbox/issues/3902)) ([28ace11](https://github.com/googleapis/mcp-toolbox/commit/28ace115cfb02358ea2a3031fb5d26c71e9d583e))
+* **MCP Apps:** Add support for MCP Apps ([#4008](https://github.com/googleapis/mcp-toolbox/issues/4008)) ([9cf3e95](https://github.com/googleapis/mcp-toolbox/commit/9cf3e95ed6ad74b4821b29b4413fe99281bb2206))
+* **MCPResources:** Add support for MCP Resources ([#3968](https://github.com/googleapis/mcp-toolbox/issues/3968)) ([fb227b0](https://github.com/googleapis/mcp-toolbox/commit/fb227b007245ed17bf0dcabcadfdf99ad24ee651))
+* **mcp:** Serve groups/list and groups/get as a Toolbox extension ([#3914](https://github.com/googleapis/mcp-toolbox/issues/3914)) ([eaf2a9c](https://github.com/googleapis/mcp-toolbox/commit/eaf2a9c7e188ccd4af7b67b71b100020fd939df8))
+* **source/bigquery:** Attach SQLCommenter attributes as BigQuery job labels ([#3843](https://github.com/googleapis/mcp-toolbox/issues/3843)) ([bf0f1a5](https://github.com/googleapis/mcp-toolbox/commit/bf0f1a5302b3b3c70a87a7e2d8fa6a671fd950bd))
+* **sources:** Add ConnectOnce, a helper for connecting on first use ([#3905](https://github.com/googleapis/mcp-toolbox/issues/3905)) ([16c31fa](https://github.com/googleapis/mcp-toolbox/commit/16c31faf23f360bc900c49bc75847163ecf60e79))
+
+
+### Bug Fixes
+
+* **docs/cloudgda:** Document context fields, fix PSV example and links ([#3919](https://github.com/googleapis/mcp-toolbox/issues/3919)) ([ae47535](https://github.com/googleapis/mcp-toolbox/commit/ae47535434cb3052ca4645400c823d1d8735a06e))
+* **looker:** Update want clause ([#3962](https://github.com/googleapis/mcp-toolbox/issues/3962)) ([9593321](https://github.com/googleapis/mcp-toolbox/commit/95933217332e0bc38992d9c2a75abb7f50869cd7))
+* **source/http:** Block IETF protocol assignments range in default SSRF guard ([#3909](https://github.com/googleapis/mcp-toolbox/issues/3909)) ([4302e86](https://github.com/googleapis/mcp-toolbox/commit/4302e86ce63bd6f84e96d2c51ac2d486c06bdf68))
+* **sources:** Release the handle when a source fails to connect ([#3921](https://github.com/googleapis/mcp-toolbox/issues/3921)) ([0001190](https://github.com/googleapis/mcp-toolbox/commit/0001190a73a9742b1787f237be352030dbfbea5b))
+* **test/alloydbainl:** Use explicit SQL alias prompt in integration test ([#3916](https://github.com/googleapis/mcp-toolbox/issues/3916)) ([596eaf9](https://github.com/googleapis/mcp-toolbox/commit/596eaf92d0059883090e59c3aca7163ed213ae95))
+
 ## [1.10.0](https://github.com/googleapis/mcp-toolbox/compare/v1.9.0...v1.10.0) (2026-08-27)
 
 
