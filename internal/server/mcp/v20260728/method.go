@@ -60,6 +60,10 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 		return promptsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case PROMPTS_GET:
 		return promptsGetHandler(ctx, id, g, primitiveMgr, body, header)
+	case GROUPS_LIST:
+		return groupsListHandler(ctx, id, primitiveMgr, body, header)
+	case GROUPS_GET:
+		return groupsGetHandler(ctx, id, primitiveMgr, body, header)
 	default:
 		err := fmt.Errorf("invalid method %s", method)
 		return jsonrpc.NewError(id, jsonrpc.METHOD_NOT_FOUND, err.Error(), nil), err
@@ -124,6 +128,18 @@ func validateHeader(id jsonrpc.RequestId, header http.Header, method, name strin
 	if headerName != name {
 		err := fmt.Errorf("Mcp-Name header value '%s' does not match body value '%s'", headerName, name)
 		return jsonrpc.NewHeaderMismatchedError(id, err), err
+	}
+	return nil, nil
+}
+
+// validateToolboxExtension checks that the client negotiated the Toolbox
+// extension. Methods that are only part of the extension must not be served to
+// clients that did not declare it.
+func validateToolboxExtension(id jsonrpc.RequestId, params RequestParams, method string) (any, error) {
+	supportedExts := ParseSupportedExtensions(params.Meta.MetaClientCapabilities.Extensions)
+	if _, ok := supportedExts[ToolboxExtensionURI]; !ok {
+		err := fmt.Errorf("missing required client capability: method %q requires %s extension which is not supported by the client", method, ToolboxExtensionURI)
+		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 	return nil, nil
 }
@@ -247,7 +263,7 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
+	_, hasSecureParamsSupport := supportedExts[ToolboxExtensionURI]
 	supportsUI := CheckUISupport(supportedExts)
 	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
@@ -318,9 +334,9 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	}
 
 	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
+	_, hasSecureParamsSupport := supportedExts[ToolboxExtensionURI]
 	if tool.HasSecureParams() && !hasSecureParamsSupport {
-		err = fmt.Errorf("missing required client capability: tool %q requires com.google.cloud/toolbox.v1 extension which is not supported by the client", toolName)
+		err = fmt.Errorf("missing required client capability: tool %q requires %s extension which is not supported by the client", toolName, ToolboxExtensionURI)
 		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 
@@ -814,9 +830,13 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	if err != nil {
 		return validateHeaderErr, err
 	}
-	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	validateErr, err := validateMetadata(id, req.Params, header == nil)
 	if err != nil {
 		return validateErr, err
+	}
+	extErr, err := validateToolboxExtension(id, req.Params, GROUPS_LIST)
+	if err != nil {
+		return extErr, err
 	}
 
 	groupsList := primitiveMgr.GroupsList()
@@ -825,10 +845,22 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 		groups = append(groups, Group{Name: v.Name, Description: v.Description})
 	}
 	logger.DebugContext(ctx, fmt.Sprintf("returning %d groups", len(groups)))
+	meta, err := getResultMetadata(ctx, nil)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
 	return jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
 		Id:      id,
-		Result:  ListGroupsResult{Groups: groups},
+		Result: ListGroupsResult{
+			Result: Result{
+				ResultType: resultTypeComplete,
+				Result: jsonrpc.Result{
+					Meta: meta,
+				},
+			},
+			Groups: groups,
+		},
 	}, nil
 }
 
@@ -854,6 +886,10 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
 	if err != nil {
 		return validateErr, err
+	}
+	extErr, err := validateToolboxExtension(id, req.Params.RequestParams, GROUPS_GET)
+	if err != nil {
+		return extErr, err
 	}
 
 	groupName := req.Params.Name
@@ -882,12 +918,18 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
 	supportsUI := CheckUISupport(supportedExts)
-	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
+	// validateToolboxExtension above already established that the client
+	// declared the extension, so secure params are always supported here.
+	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, true, supportsUI)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
 
 	return jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
@@ -1027,7 +1069,7 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 		err = fmt.Errorf("invalid mcp resources read request: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
 	}
-	validateHeaderErr, err := validateHeader(id, header, RESOURCES_READ, "")
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_READ, req.Params.Uri)
 	if err != nil {
 		return validateHeaderErr, err
 	}

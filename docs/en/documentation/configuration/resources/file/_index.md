@@ -69,7 +69,7 @@ maxSize: 10485760 # 10MB limit
 | `description` | string                             | No           | A brief explanation of what the file contains.                                                                |
 | `title`       | string                             | No           | Human-readable title for client display.                                                                      |
 | `mimeType`    | string                             | No           | MIME type of the content. Auto-detected from file extension or content if omitted.                           |
-| `annotations` | [Annotations](./_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
+| `annotations` | [Annotations](../_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
 
 ## Guardrails & Security Model
 

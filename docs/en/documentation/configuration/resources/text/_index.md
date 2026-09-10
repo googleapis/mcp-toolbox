@@ -84,7 +84,7 @@ annotations:
 | `description` | string                             | No           | A brief explanation of the resource's purpose.                                                                |
 | `title`       | string                             | No           | Human-readable title for client display.                                                                      |
 | `mimeType`    | string                             | No           | MIME type of the text content. Defaults to `text/plain`.                                                      |
-| `annotations` | [Annotations](./_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
+| `annotations` | [Annotations](../_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
 
 ## Behaviors
 

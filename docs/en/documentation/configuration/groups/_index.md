@@ -6,9 +6,9 @@ description: >
   Groups let you scope MCP primitives such as tools, prompts, resources, and resource templates together under a single name, with a description used as group metadata.
 ---
 
-A Group is a single named collection that scopes MCP primitives together — including [**tools**](../tools/_index.md), [**prompts**](../prompts/_index.md), [**resources**](../resources/_index.md), and [**resource templates**](../resources/template.md). Where a [Toolset](../toolsets/_index.md) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
+A Group is a single named collection that scopes MCP primitives together — including [**tools**](../tools/_index.md), [**prompts**](../prompts/_index.md), [**resources**](../resources/_index.md), and [**resource templates**](../resources/template/_index.md). Where a [Toolset](../toolsets/_index.md) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
 
-Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list and read methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. When querying `resources/read`, requests are verified to ensure that the requested URI belongs to the target group.
+Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
 
 ## Defining Groups
 
@@ -17,7 +17,7 @@ Declare a group as a `kind: group` document in your configuration file. A group 
 | Field               | Required | Description                                                                                    |
 | ------------------- | -------- | -----------------------------------------------------------------------------------------------|
 | `name`              | Yes\*    | Unique name for the group. Used as the endpoint path (`/mcp/{name}`).                          |
-| `description`       | No       | Human-readable description of the group.                                                       |
+| `description`       | No       | Human-readable description of the group, surfaced via `groups/list`.                           |
 | `tools`             | No       | List of tool names to include in the group.                                                    |
 | `prompts`           | No       | List of prompt names to include in the group.                                                  |
 | `resources`         | No       | List of resource names to include in the group.                                                |
