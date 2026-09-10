@@ -240,6 +240,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 				dataset := s.Client.DatasetInProject(projectID, datasetID)
 				_, err := dataset.Metadata(ctx)
 				if err != nil {
+					s.Client.Close()
 					if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
 						return nil, fmt.Errorf("allowedDataset '%s' not found in project '%s'", datasetID, projectID)
 					}

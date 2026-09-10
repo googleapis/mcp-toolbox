@@ -76,6 +76,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 
 	err = pool.Ping(ctx)
 	if err != nil {
+		pool.Close()
 		if r.ReadOnly &&
 			strings.Contains(err.Error(), "unrecognized configuration parameter") &&
 			strings.Contains(err.Error(), "alloydb_session_read_only") {

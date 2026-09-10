@@ -89,6 +89,7 @@ parameters:
 | escape         |     string     |    false     | Only available for type `string`. Indicate the escaping delimiters used for the parameter. This field is intended to be used with templateParameters. Must be one of "single-quotes", "double-quotes", "backticks", "square-brackets". |
 | minValue       |  int or float  |    false     | Only available for type `integer` and `float`. Indicate the minimum value allowed.                                                                                                                                                     |
 | maxValue       |  int or float  |    false     | Only available for type `integer` and `float`. Indicate the maximum value allowed.                                                                                                                                                     |
+| secure         |      bool      |    false     | When `true`, marks the parameter as secure (sensitive application parameter supplied out-of-band; isolated from LLM context). Secure parameters cannot have `default`, `authServices`, or `required: false`. Requires protocol version `2026-07-28` and the `com.google.cloud/toolbox.v1` extension. Defaults to `false`. |
 
 ### Optional Parameters
 
@@ -234,7 +235,9 @@ parameters:
 
 Secure parameters are designed for sensitive runtime context (such as an end-user `customer_id`, tenant identifier, or session token) that **AI agents (LLMs) should not control or see** and that should not be transmitted in plain text through prompt completion requests, model context windows, or standard server logs.
 
-> **Note:** Secure parameters should be used for client-supplied runtime values (such as `customer_id` or end-user context). Database credentials (such as service account passwords or API keys) should be configured directly in the Data Source configuration rather than passed as per-request tool parameters.
+{{< notice note >}}
+Secure parameters should be used for client-supplied runtime values (such as `customer_id` or end-user context). Database credentials (such as service account passwords or API keys) should be configured directly in the Data Source configuration rather than passed as per-request tool parameters.
+{{< /notice >}}
 
 To configure a parameter as secure, set the `secure` field to `true` in your tool's parameter definition:
 
@@ -244,30 +247,154 @@ name: search_secure_data
 type: postgres-sql
 source: my-pg-instance
 statement: |
-  SELECT * FROM sessions WHERE customer_id = $1
+  SELECT * FROM sessions WHERE customer_id = $1 AND session_token = $2
 parameters:
   - name: customer_id
     type: string
     description: Sensitive customer identifier supplied out-of-band by the calling application
     secure: true
+  - name: session_token
+    type: string
+    description: Sensitive session token supplied out-of-band by the calling application
+    secure: true
 ```
 
-When a parameter is marked as `secure: true`, it will not be presented to the agent as a configurable parameter. Instead, it relies on the application to set the parameter. If an application fails to set the parameter before the tool is called, execution returns a tool error indicating that the required parameter was not provided.
+#### How Secure Parameters Work
 
-> **Note:** Secure parameters are always required and cannot be optional. A parameter cannot have `secure: true` alongside `authServices`, `default`, or `required: false`.
+When a parameter is marked as `secure: true`:
 
-Here is how you set a secure parameter with the Toolbox Python SDK:
+1. **LLM Schema Isolation:** The parameter is published in `secureInputSchema` rather than `inputSchema` in the MCP manifest (`tools/list`). Toolbox SDKs and frameworks automatically strip it from public tool signatures, docstrings, and function declarations (such as Gemini declarations in ADK or parameter schemas in LangChain, LlamaIndex, and Genkit). The LLM never sees, requests, or hallucinates the parameter.
+2. **Out-of-Band Wire Transmission:** The host application binds the value in code. When the tool is executed, the parameter is transmitted out-of-band in the dedicated `secureArguments` field of the MCP `tools/call` JSON-RPC request, completely isolated from model `arguments`.
+3. **Fail-Closed Security & Prompt Injection Defense:**
+   * **Client SDK Fast-Fail:** Toolbox SDKs validate locally that all required secure parameters are bound before sending any request over the wire, raising an immediate client-side error if any are missing.
+   * **Prompt Injection Defense:** If a prompt-injected LLM or malicious client attempts to supply a secure parameter in standard `arguments`, the server detects the parameter collision and returns a tool execution error (`isError: true`), preventing the model from overriding secure values.
+   * **Protocol Enforcement:** If standard parameters are passed in `secureArguments` or required secure parameters are missing, the server rejects the request with a JSON-RPC protocol error (`-32602` `INVALID_PARAMS`). If an un-negotiated client attempts to invoke a secure tool directly, the server rejects the call with JSON-RPC error `-32021` (or `-32602` `INVALID_PARAMS` on protocol versions prior to `2026-07-28` where secure tools are completely hidden).
+   * **Dedicated APIs & Mutual Exclusivity:** SDKs provide dedicated methods (`bind_secure_param` / `bindSecureParam` / `WithBindSecureParam*`) that cannot be cross-mixed with regular parameter binding methods (`bind_param` / `bindParam` / `WithBindParam*`), throwing clear guidance errors if mismatched.
 
-```python
-# Pass secure_params when loading or calling a tool via the Python SDK
-auth_tool = await toolbox.load_tool(
+{{< notice note >}}
+Secure parameters are always required and cannot be optional. A parameter cannot have `secure: true` alongside `authServices`, `default`, or `required: false`.
+{{< /notice >}}
+
+#### SDK Usage Examples
+
+Below is how you bind secure parameters across our official SDKs:
+
+{{< tabpane persist=header >}}
+{{< tab header="Python" lang="python" >}}
+from toolbox_core import ToolboxClient
+
+async with ToolboxClient("http://127.0.0.1:5000") as toolbox:
+    # Option A: Bind when loading tool or toolset
+    bound_tool = await toolbox.load_tool(
+        "search_secure_data",
+        secure_params={"customer_id": "cust_12345", "session_token": "token-xyz"}
+    )
+    tools = await toolbox.load_toolset(
+        "my-toolset",
+        secure_params={"customer_id": "cust_12345"}
+    )
+
+    # Option B: Bind on an un-bound loaded tool (returns a new immutable tool instance)
+    raw_tool = await toolbox.load_tool("search_secure_data")
+    single_bound = raw_tool.bind_secure_param("customer_id", "cust_12345")
+    multi_bound = raw_tool.bind_secure_params({
+        "customer_id": "cust_12345",
+        "session_token": "token-xyz",
+    })
+
+    # Option C: Dynamic callable (evaluated per invocation)
+    dynamic_tool = raw_tool.bind_secure_param("customer_id", lambda: get_current_user_id())
+
+    # Execute tool (LLM only supplies standard arguments, secure parameters attached automatically)
+    result = await multi_bound()
+{{< /tab >}}
+{{< tab header="JavaScript / TypeScript" lang="javascript" >}}
+import { ToolboxClient } from '@toolbox-sdk/core';
+
+const client = new ToolboxClient("http://127.0.0.1:5000");
+
+// Option A: Pre-bind when loading tool or toolset
+const boundTool = await client.loadTool(
     "search_secure_data",
-    secure_params={"customer_id": "cust_12345"}
-)
-result = await auth_tool()
-```
+    null, // authTokenGetters
+    null, // boundParams
+    { customer_id: "cust_12345", session_token: "token-xyz" } // secureParams
+);
+const tools = await client.loadToolset(
+    "my-toolset",
+    null, // authTokenGetters
+    null, // boundParams
+    false, // strict (set to true to error if any tool lacks the bound params)
+    { customer_id: "cust_12345" } // secureParams
+);
 
-> **Note:** Secure parameters require MCP protocol version `2026-07-28` and the `com.google.cloud/toolbox.v1` extension. For more details on extension capabilities and client requirements, see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md).
+// Option B: Bind on an un-bound loaded tool (returns a new immutable tool instance)
+const rawTool = await client.loadTool("search_secure_data");
+const singleBound = rawTool.bindSecureParam("customer_id", "cust_12345");
+const multiBound = rawTool.bindSecureParams({
+    customer_id: "cust_12345",
+    session_token: "token-xyz",
+});
+
+// Option C: Dynamic function (evaluated per invocation)
+const dynamicTool = rawTool.bindSecureParam("customer_id", async () => getCurrentUserId());
+
+// Execute tool
+const result = await multiBound();
+{{< /tab >}}
+{{< tab header="Go" lang="go" >}}
+import (
+    "context"
+    "github.com/googleapis/mcp-toolbox-sdk-go/core"
+)
+
+ctx := context.Background()
+client, err := core.NewToolboxClient("http://127.0.0.1:5000")
+
+// Option A: Bind when loading tool or toolset
+boundTool, err := client.LoadTool("search_secure_data", ctx,
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+    core.WithBindSecureParamString("session_token", "token-xyz"),
+)
+tools, err := client.LoadToolset("my-toolset", ctx,
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+)
+
+// Option B: Set client-level defaults across all tools loaded by the client
+clientWithDefaults, err := core.NewToolboxClient("http://127.0.0.1:5000",
+    core.WithDefaultToolOptions(
+        core.WithBindSecureParamString("customer_id", "cust_12345"),
+    ),
+)
+
+// Option C: Bind on an un-bound loaded tool (returns a new immutable tool instance)
+rawTool, err := client.LoadTool("search_secure_data", ctx)
+postBoundTool, err := rawTool.ToolFrom(
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+    core.WithBindSecureParamString("session_token", "token-xyz"),
+)
+
+// Option D: Dynamic function (evaluated per invocation)
+dynamicTool, err := rawTool.ToolFrom(
+    core.WithBindSecureParamStringFunc("customer_id", func() (string, error) {
+        return getCurrentUserID(), nil
+    }),
+    core.WithBindSecureParamString("session_token", "token-xyz"),
+)
+
+// Execute tool
+result, err := boundTool.Invoke(ctx, map[string]any{})
+{{< /tab >}}
+{{< /tabpane >}}
+
+{{< notice note >}}
+Secure parameters require MCP protocol version `2026-07-28` and the `com.google.cloud/toolbox.v1` extension. For more details on extension capabilities and client requirements, see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md).
+
+For in-depth framework integration guides, see:
+* [Python SDK Secure Parameters](../../connect-to/toolbox-sdks/python-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/python-sdk/adk/index.md#secure-parameters) | [LangChain](../../connect-to/toolbox-sdks/python-sdk/langchain/index.md#secure-parameters) | [LlamaIndex](../../connect-to/toolbox-sdks/python-sdk/llamaindex/index.md#secure-parameters))
+* [JavaScript / TypeScript SDK Secure Parameters](../../connect-to/toolbox-sdks/javascript-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/javascript-sdk/adk/index.md#secure-parameters))
+* [Go SDK Secure Parameters](../../connect-to/toolbox-sdks/go-sdk/core/_index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/go-sdk/tbadk/_index.md#secure-parameters) | [Genkit](../../connect-to/toolbox-sdks/go-sdk/tbgenkit/_index.md#secure-parameters))
+{{< /notice >}}
 
 ### Authenticated Parameters
 

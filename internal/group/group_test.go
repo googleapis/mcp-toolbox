@@ -281,7 +281,7 @@ func TestGroup_Contains(t *testing.T) {
 	}
 }
 
-func TestParseFromYamlGroup(t *testing.T) {
+func TestParseFromYaml(t *testing.T) {
 	tcs := []struct {
 		desc string
 		in   string
@@ -300,6 +300,103 @@ func TestParseFromYamlGroup(t *testing.T) {
 					Name:       "my-group",
 					TTLMs:      intPtr(60000),
 					CacheScope: "private",
+				},
+			},
+		},
+		{
+			desc: "valid named group",
+			in: `
+			kind: group
+			name: my_group
+			description: a group of tools and prompts
+			tools:
+			  - tool_a
+			  - tool_b
+			prompts:
+			  - prompt_a
+			`,
+			want: map[string]group.GroupConfig{
+				"my_group": {
+					Name:        "my_group",
+					Description: "a group of tools and prompts",
+					ToolNames:   []string{"tool_a", "tool_b"},
+					PromptNames: []string{"prompt_a"},
+				},
+			},
+		},
+		{
+			desc: "named group with only description",
+			in: `
+			kind: group
+			name: my_group
+			description: just a description
+			`,
+			want: map[string]group.GroupConfig{
+				"my_group": {
+					Name:        "my_group",
+					Description: "just a description",
+				},
+			},
+		},
+		{
+			desc: "default group with only description",
+			in: `
+			kind: group
+			name:
+			description: default server instruction
+			`,
+			want: map[string]group.GroupConfig{
+				"": {
+					Description: "default server instruction",
+				},
+			},
+		},
+		{
+			desc: "default group omitting name field",
+			in: `
+			kind: group
+			description: default server instruction
+			`,
+			want: map[string]group.GroupConfig{
+				"": {
+					Description: "default server instruction",
+				},
+			},
+		},
+		{
+			desc: "kind toolset folds into a tools-only group",
+			in: `
+			kind: toolset
+			name: my_toolset
+			tools:
+			  - tool_a
+			  - tool_b
+			`,
+			want: map[string]group.GroupConfig{
+				"my_toolset": {
+					Name:      "my_toolset",
+					ToolNames: []string{"tool_a", "tool_b"},
+				},
+			},
+		},
+		{
+			desc: "group with tools and prompts",
+			in: `
+			kind: group
+			name: my_group
+			description: a group
+			tools:
+			  - tool_a
+			  - tool_b
+			prompts:
+			  - prompt_a
+			`,
+			want: map[string]group.GroupConfig{
+				"my_group": {
+					Name:        "my_group",
+					Description: "a group",
+					ToolNames:   []string{"tool_a", "tool_b"},
+					PromptNames: []string{"prompt_a"},
 				},
 			},
 		},
@@ -341,6 +438,64 @@ func TestFailParseFromYaml(t *testing.T) {
 			ttlMs: -100
 			`,
 			err: "Field validation for 'TTLMs' failed on the 'gte' tag",
+		},
+		{
+			desc: "default group declaring tools",
+			in: `
+			kind: group
+			name:
+			tools:
+			  - tool_a
+			`,
+			err: "the default (nameless) group cannot declare 'tools' or 'prompts'",
+		},
+		{
+			desc: "default group declaring prompts",
+			in: `
+			kind: group
+			name:
+			prompts:
+			  - prompt_a
+			`,
+			err: "the default (nameless) group cannot declare 'tools' or 'prompts'",
+		},
+		{
+			desc: "unknown field",
+			in: `
+			kind: group
+			name: my_group
+			resources:
+			  - res_a
+			`,
+			err: "unknown field \"resources\"",
+		},
+		{
+			desc: "duplicate default group",
+			in: `
+kind: group
+name:
+description: first
+---
+kind: group
+name:
+description: second
+`,
+			err: "more than one default (nameless) group declared",
+		},
+		{
+			desc: "duplicate named group",
+			in: `
+kind: group
+name: my_group
+tools:
+  - tool_a
+---
+kind: group
+name: my_group
+tools:
+  - tool_b
+`,
+			err: "group \"my_group\" declared more than once",
 		},
 	}
 	for _, tc := range tcs {

@@ -78,6 +78,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	// Initialize Firebase Rules client
 	rulesClient, err := initFirebaseRulesConnection(ctx, r.Project)
 	if err != nil {
+		client.Close()
 		return nil, fmt.Errorf("failed to initialize Firebase Rules client: %w", err)
 	}
 

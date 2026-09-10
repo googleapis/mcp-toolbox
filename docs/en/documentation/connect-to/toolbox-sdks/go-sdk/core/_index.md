@@ -529,6 +529,111 @@ dynamicBoundTool, err := tool.ToolFrom(core.WithBindParamStringFunc("param", get
 
 {{< notice info >}} You don't need to modify tool configurations to bind parameter values. {{< /notice >}}
 
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in [`github.com/googleapis/mcp-toolbox-sdk-go/core`](https://github.com/googleapis/mcp-toolbox-sdk-go/tree/main/core) version `v1.2.0` and require MCP [protocol version `2026-07-28`](#supported-protocols) or newer with the [`com.google.cloud/toolbox.v1` extension](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md). For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime context (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see, control, or hallucinate.
+
+Unlike standard parameters, parameters marked as `secure: true` in your Toolbox server configuration:
+* **Schema Isolation:** The SDK completely strips secure parameters from the public tool declaration and parameter schemas (`tool.Parameters()` and `tool.InputSchema()`). Unbound secure parameters can be inspected separately via `tool.SecureParameters()`. The LLM is never aware of these parameters, keeping your model's context window clean and preventing credential exposure.
+* **Prompt Injection Defense:** If a model or caller attempts to provide a value for a secure parameter in standard arguments, the SDK rejects execution immediately.
+* **Fast-Fail Validation:** The SDK verifies all required secure parameters locally before sending a request over the wire. If any required secure parameter is missing, execution fails immediately.
+* **Wire Protocol Separation:** Secure parameters are transmitted out-of-band in the `secureArguments` field of the MCP 2026-07-28 `tools/call` JSON-RPC payload, isolated from regular arguments.
+
+### Option A: Add Default Secure Parameters to a Client
+
+You can set default secure parameters at the client level. Every tool or toolset loaded by the client inherits these bindings:
+
+```go
+ctx := context.Background()
+
+client, err := core.NewToolboxClient("http://127.0.0.1:5000",
+    core.WithDefaultToolOptions(
+        core.WithBindSecureParamString("customer_id", "cust_12345"),
+    ),
+)
+
+tool, err := client.LoadTool("search_secure_data", ctx)
+```
+
+### Option B: Binding Secure Parameters to a Loaded Tool
+
+Bind secure values to a tool object *after* it has been loaded. Each method returns a **new, immutable tool instance**, leaving the original unmodified.
+
+```go
+client, err := core.NewToolboxClient("http://127.0.0.1:5000")
+tool, err := client.LoadTool("search_secure_data", ctx)
+
+// Using ToolFrom with type-safe functional options
+boundTool, err := tool.ToolFrom(
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+    core.WithBindSecureParamString("session_token", "token-xyz"),
+)
+```
+
+### Option C: Binding Secure Parameters While Loading Tools
+
+Specify secure parameters directly when loading tools. This applies the binding only to the tools loaded in that specific call:
+
+```go
+// Load a single tool with secure parameters
+boundTool, err := client.LoadTool("search_secure_data", ctx,
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+)
+
+// Load an entire toolset with secure parameters
+boundTools, err := client.LoadToolset("my-toolset", ctx,
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+)
+```
+
+### Binding Dynamic Secure Values
+
+You can also bind a secure parameter to a function that is evaluated dynamically each time the tool is invoked:
+
+```go
+getDynamicToken := func() (string, error) {
+    return "dynamic-session-token-xyz", nil
+}
+
+dynamicBoundTool, err := tool.ToolFrom(
+    core.WithBindSecureParamStringFunc("auth_token", getDynamicToken),
+)
+```
+
+### Supported Type-Safe Option Helpers
+
+The Go SDK provides type-safe options for static values and dynamic getter functions across scalars, slices, and maps:
+
+| Category | Type | Static Option | Dynamic Function Option |
+| :--- | :--- | :--- | :--- |
+| **Scalars** | `string` | `core.WithBindSecureParamString(name, val)` | `core.WithBindSecureParamStringFunc(name, fn)` |
+| | `T` (`Integer`) | `core.WithBindSecureParamInt[T](name, val)` | `core.WithBindSecureParamIntFunc[T](name, fn)` |
+| | `T` (`Float`) | `core.WithBindSecureParamFloat[T](name, val)` | `core.WithBindSecureParamFloatFunc[T](name, fn)` |
+| | `bool` | `core.WithBindSecureParamBool(name, val)` | `core.WithBindSecureParamBoolFunc(name, fn)` |
+| **Slices** | `[]string` | `core.WithBindSecureParamStringArray(name, val)` | `core.WithBindSecureParamStringArrayFunc(name, fn)` |
+| | `[]T` (`Integer`) | `core.WithBindSecureParamIntArray[T](name, val)` | `core.WithBindSecureParamIntArrayFunc[T](name, fn)` |
+| | `[]T` (`Float`) | `core.WithBindSecureParamFloatArray[T](name, val)` | `core.WithBindSecureParamFloatArrayFunc[T](name, fn)` |
+| | `[]bool` | `core.WithBindSecureParamBoolArray(name, val)` | `core.WithBindSecureParamBoolArrayFunc(name, fn)` |
+| **Maps** | `map[string]string` | `core.WithBindSecureParamStringMap(name, val)` | `core.WithBindSecureParamStringMapFunc(name, fn)` |
+| | `map[string]T` (`Integer`) | `core.WithBindSecureParamIntMap[T](name, val)` | `core.WithBindSecureParamIntMapFunc[T](name, fn)` |
+| | `map[string]T` (`Float`) | `core.WithBindSecureParamFloatMap[T](name, val)` | `core.WithBindSecureParamFloatMapFunc[T](name, fn)` |
+| | `map[string]bool` | `core.WithBindSecureParamBoolMap(name, val)` | `core.WithBindSecureParamBoolMapFunc(name, fn)` |
+| | `map[string]any` | `core.WithBindSecureParamAnyMap(name, val)` | `core.WithBindSecureParamAnyMapFunc(name, fn)` |
+
+### Cross-Binding Guidance & Mutual Exclusivity
+
+To prevent accidental parameter leakage and enforce strict separation between model parameters and application parameters:
+
+* Passing `core.WithBindParam*` for a parameter configured with `secure: true` returns an error:  
+  `parameter "<name>" is a secure parameter; use WithBindSecureParam* instead`
+* Passing `core.WithBindSecureParam*` for a regular parameter returns an error:  
+  `parameter "<name>" is a regular parameter; use WithBindParam* instead`
+
+
 ## Default Parameters
 
 Tools defined in the MCP Toolbox server can specify default values for their optional parameters. When invoking a tool using the SDK, if an input for a parameter with a default value is not provided, the SDK will automatically populate the request with the default value.
