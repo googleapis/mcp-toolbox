@@ -68,6 +68,7 @@ type Resource interface {
 	Read(ctx context.Context, params map[string]any) (any, error)
 	ToConfig() ResourceConfig
 	GetResourceUIMetadata() any
+	IsUI() bool
 }
 
 type ResourceAnnotations struct {
@@ -91,11 +92,32 @@ type ConfigBase struct {
 	PrefersBorder *bool                `yaml:"prefersBorder,omitempty"`
 }
 
-func (c ConfigBase) GetName() string                      { return c.Name }
-func (c ConfigBase) GetTitle() string                     { return c.Title }
-func (c ConfigBase) GetDescription() string               { return c.Description }
-func (c ConfigBase) GetMimeType() string                  { return c.MimeType }
+// GetName returns the name of the resource or template.
+func (c ConfigBase) GetName() string {
+	return c.Name
+}
+
+// GetTitle returns the title of the resource or template.
+func (c ConfigBase) GetTitle() string {
+	return c.Title
+}
+
+// GetDescription returns the description of the resource or template.
+func (c ConfigBase) GetDescription() string {
+	return c.Description
+}
+
+// GetMimeType returns the MIME type of the resource or template.
+func (c ConfigBase) GetMimeType() string {
+	return c.MimeType
+}
+
 func (c ConfigBase) GetAnnotations() *ResourceAnnotations { return c.Annotations }
+
+// IsUI returns whether the resource or template is configured as an interactive UI application.
+func (c ConfigBase) IsUI() bool {
+	return c.UI
+}
 
 // GetResourceUIMetadata returns the UI metadata conforming to the MCP Ext-Apps specification.
 func (c ConfigBase) GetResourceUIMetadata() any {
@@ -331,6 +353,7 @@ type ResourceTemplate interface {
 	Read(ctx context.Context, params map[string]any) (any, error)
 	ToConfig() ResourceTemplateConfig
 	GetResourceUIMetadata() any
+	IsUI() bool
 }
 
 // ResourceTemplateConfigBase contains the specific fields for resource template configurations.

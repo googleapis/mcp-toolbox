@@ -93,7 +93,7 @@ func (gc GroupConfig) Initialize(toolsMap map[string]tools.Tool, promptsMap map[
 		if !ok {
 			return Group{}, fmt.Errorf("resource does not exist: %q", name)
 		}
-		if res.GetResourceUIMetadata() != nil {
+		if res.IsUI() {
 			return Group{}, fmt.Errorf("UI resource %q cannot be included in group %q: UI resources are globally accessible and cannot be scoped to groups", name, gc.Name)
 		}
 		resourceNameSet[name] = struct{}{}
@@ -105,7 +105,7 @@ func (gc GroupConfig) Initialize(toolsMap map[string]tools.Tool, promptsMap map[
 		if !ok {
 			return Group{}, fmt.Errorf("resource template does not exist: %q", name)
 		}
-		if tmpl.GetResourceUIMetadata() != nil {
+		if tmpl.IsUI() {
 			return Group{}, fmt.Errorf("UI resource template %q cannot be included in group %q: UI resources are globally accessible and cannot be scoped to groups", name, gc.Name)
 		}
 		templateNameSet[name] = struct{}{}
