@@ -18,6 +18,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/goccy/go-yaml"
+
+	"github.com/go-playground/validator/v10"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -220,6 +223,95 @@ func TestShouldSuppress(t *testing.T) {
 			}
 			if got := tools.ShouldSuppress(context.Background(), tool, tt.src); got != tt.want {
 				t.Errorf("ShouldSuppress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigBaseYamlParsing_AsyncTask(t *testing.T) {
+	yamlData := `
+name: async-tool
+enableAsync:
+  pollIntervalMs: 5000
+  ttlMs: 3600000
+`
+	var cfg tools.ConfigBase
+	if err := yaml.Unmarshal([]byte(yamlData), &cfg); err != nil {
+		t.Fatalf("yaml.Unmarshal error: %v", err)
+	}
+
+	if cfg.Name != "async-tool" {
+		t.Errorf("cfg.Name = %v, want %v", cfg.Name, "async-tool")
+	}
+
+	asyncSettings, ok := cfg.GetAsyncSetting()
+	if !ok {
+		t.Fatalf("GetAsyncSetting() = false, want true")
+	}
+	if asyncSettings.PollIntervalMs != 5000 {
+		t.Errorf("PollIntervalMs = %v, want 5000", asyncSettings.PollIntervalMs)
+	}
+	if asyncSettings.TTLMs != 3600000 {
+		t.Errorf("TTLMs = %v, want 3600000", asyncSettings.TTLMs)
+	}
+}
+
+func TestConfigBaseYamlParsing_NoAsync(t *testing.T) {
+	yamlData := `
+name: sync-tool
+`
+	var cfg tools.ConfigBase
+	if err := yaml.Unmarshal([]byte(yamlData), &cfg); err != nil {
+		t.Fatalf("yaml.Unmarshal error: %v", err)
+	}
+
+	_, ok := cfg.GetAsyncSetting()
+	if ok {
+		t.Fatalf("GetAsyncSetting() = true, want false")
+	}
+}
+
+func TestConfigBaseYamlParsing_Async_Invalid(t *testing.T) {
+	testCases := []struct {
+		name     string
+		yamlData string
+	}{
+		{
+			name: "missing pollIntervalMs",
+			yamlData: `
+name: async-tool
+enableAsync:
+  ttlMs: 3600000
+`,
+		},
+		{
+			name: "negative pollIntervalMs",
+			yamlData: `
+name: async-tool
+enableAsync:
+  pollIntervalMs: -1
+  ttlMs: 3600000
+`,
+		},
+		{
+			name: "zero ttlMs",
+			yamlData: `
+name: async-tool
+enableAsync:
+  pollIntervalMs: 5000
+  ttlMs: 0
+`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg tools.ConfigBase
+			// Note: we don't just call yaml.Unmarshal. The actual codebase uses util.UnmarshalYAML which uses the validator.
+			// However, in tools_test.go, we should test what util.UnmarshalYAML does or test the validator directly.
+			err := yaml.UnmarshalWithOptions([]byte(tc.yamlData), &cfg, yaml.Validator(validator.New()))
+			if err == nil {
+				t.Fatalf("expected validation error, got none")
 			}
 		})
 	}
