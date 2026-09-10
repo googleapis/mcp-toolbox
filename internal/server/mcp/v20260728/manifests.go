@@ -152,7 +152,7 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 					} else if tmpl, hasTmpl := pMgr.GetResourceTemplate(uiMetaOrig.Resource); hasTmpl {
 						uri = tmpl.GetURITemplate()
 					} else {
-						uri = uiMetaOrig.Resource
+						uri = ""
 					}
 					uiMeta = map[string]any{
 						"resourceUri": uri,
@@ -267,7 +267,7 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
 		}
 		// If Resource is of type UI skip adding it to the list/resources response.
-		if res.GetResourceUIMetadata() != nil {
+		if res.IsUI() {
 			continue
 		}
 		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
@@ -308,7 +308,7 @@ func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g gr
 			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
 		}
 		// If Resource Template is of type UI skip adding it to the resources/templates/list response.
-		if tmpl.GetResourceUIMetadata() != nil {
+		if tmpl.IsUI() {
 			continue
 		}
 		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetTitle(), tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType(), tmpl.GetAnnotations()))

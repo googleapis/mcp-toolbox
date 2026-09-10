@@ -456,14 +456,14 @@ func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string
 
 	allResourceNames := make([]string, 0, len(resourcesMap))
 	for name, res := range resourcesMap {
-		if res.GetResourceUIMetadata() == nil {
+		if !res.IsUI() {
 			allResourceNames = append(allResourceNames, name)
 		}
 	}
 	slices.Sort(allResourceNames)
 	allResourceTemplateNames := make([]string, 0, len(resourceTemplatesMap))
 	for name, tmpl := range resourceTemplatesMap {
-		if tmpl.GetResourceUIMetadata() == nil {
+		if !tmpl.IsUI() {
 			allResourceTemplateNames = append(allResourceTemplateNames, name)
 		}
 	}

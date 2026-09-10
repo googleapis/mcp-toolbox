@@ -321,6 +321,7 @@ func (m MockResource) GetName() string {
 }
 
 func (m MockResource) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
+func (m MockResource) IsUI() bool                 { return m.config.IsUI() }
 
 // MockResourceTemplateConfig is a mock implementation of resources.ResourceTemplateConfig
 type MockResourceTemplateConfig struct {
@@ -364,6 +365,7 @@ func (m MockResourceTemplate) GetName() string {
 }
 
 func (m MockResourceTemplate) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
+func (m MockResourceTemplate) IsUI() bool                 { return m.config.IsUI() }
 
 func NewMockResource(name, uri, title, description, mimeType string, size *int64, annotations *resources.ResourceAnnotations) MockResource {
 	cfgBase := resources.ConfigBase{

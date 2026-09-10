@@ -366,7 +366,7 @@ func TestGenerateListToolsResult(t *testing.T) {
 		}
 	})
 
-	t.Run("ui metadata fallback when resource not in primitive manager", func(t *testing.T) {
+	t.Run("ui metadata empty resourceUri when resource not in primitive manager", func(t *testing.T) {
 		toolDirectURI := testutils.NewMockToolWithUI("tool-direct", "", "", nil, false, false, "ui://direct-uri")
 		toolsMap := map[string]tools.Tool{"tool-direct": toolDirectURI}
 		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
@@ -383,8 +383,8 @@ func TestGenerateListToolsResult(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected metadata to have ui map, got %v", res.Tools[0].Metadata["ui"])
 		}
-		if uiMeta["resourceUri"] != "ui://direct-uri" {
-			t.Errorf("expected resourceUri=ui://direct-uri, got %v", uiMeta["resourceUri"])
+		if uiMeta["resourceUri"] != "" {
+			t.Errorf("expected resourceUri=\"\", got %v", uiMeta["resourceUri"])
 		}
 	})
 
