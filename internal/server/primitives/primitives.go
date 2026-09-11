@@ -16,13 +16,16 @@ package primitives
 
 import (
 	"cmp"
+	"regexp"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
 	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 )
@@ -31,13 +34,15 @@ import (
 // groups is the source of truth for named collections; toolset views (manifests)
 // are derived from the group on demand by the callers that render them.
 type PrimitiveManager struct {
-	mu              sync.RWMutex
-	sources         map[string]sources.Source
-	authServices    map[string]auth.AuthService
-	embeddingModels map[string]embeddingmodels.EmbeddingModel
-	tools           map[string]tools.Tool
-	prompts         map[string]prompts.Prompt
-	groups          map[string]group.Group
+	mu                sync.RWMutex
+	sources           map[string]sources.Source
+	authServices      map[string]auth.AuthService
+	embeddingModels   map[string]embeddingmodels.EmbeddingModel
+	tools             map[string]tools.Tool
+	prompts           map[string]prompts.Prompt
+	resources         map[string]resources.Resource
+	resourceTemplates map[string]resources.ResourceTemplate
+	groups            map[string]group.Group
 }
 
 func NewPrimitiveManager(
@@ -46,17 +51,20 @@ func NewPrimitiveManager(
 	embeddingModelsMap map[string]embeddingmodels.EmbeddingModel,
 	toolsMap map[string]tools.Tool,
 	promptsMap map[string]prompts.Prompt,
+	resourcesMap map[string]resources.Resource,
+	resourceTemplatesMap map[string]resources.ResourceTemplate,
 	groupsMap map[string]group.Group,
-
 ) *PrimitiveManager {
 	primitiveMgr := &PrimitiveManager{
-		mu:              sync.RWMutex{},
-		sources:         sourcesMap,
-		authServices:    authServicesMap,
-		embeddingModels: embeddingModelsMap,
-		tools:           toolsMap,
-		prompts:         promptsMap,
-		groups:          groupsMap,
+		mu:                sync.RWMutex{},
+		sources:           sourcesMap,
+		authServices:      authServicesMap,
+		embeddingModels:   embeddingModelsMap,
+		tools:             toolsMap,
+		prompts:           promptsMap,
+		resources:         resourcesMap,
+		resourceTemplates: resourceTemplatesMap,
+		groups:            groupsMap,
 	}
 
 	return primitiveMgr
@@ -97,6 +105,22 @@ func (r *PrimitiveManager) GetPrompt(promptName string) (prompts.Prompt, bool) {
 	return prompt, ok
 }
 
+// GetResource returns a specific resource by name.
+func (r *PrimitiveManager) GetResource(name string) (resources.Resource, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	resource, ok := r.resources[name]
+	return resource, ok
+}
+
+// GetResourceTemplate returns a specific resource template by name.
+func (r *PrimitiveManager) GetResourceTemplate(name string) (resources.ResourceTemplate, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rt, exists := r.resourceTemplates[name]
+	return rt, exists
+}
+
 // GetGroup returns the group of the given name.
 func (r *PrimitiveManager) GetGroup(groupName string) (group.Group, bool) {
 	r.mu.RLock()
@@ -105,7 +129,7 @@ func (r *PrimitiveManager) GetGroup(groupName string) (group.Group, bool) {
 	return g, ok
 }
 
-func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, authServicesMap map[string]auth.AuthService, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel, toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, groupsMap map[string]group.Group) {
+func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, authServicesMap map[string]auth.AuthService, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel, toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, resourcesMap map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate, groupsMap map[string]group.Group) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sources = sourcesMap
@@ -113,6 +137,8 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.embeddingModels = embeddingModelsMap
 	r.tools = toolsMap
 	r.prompts = promptsMap
+	r.resources = resourcesMap
+	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
 }
 
@@ -125,6 +151,50 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 		copiedMap[k] = v
 	}
 	return copiedMap
+}
+
+// GetUIResourceFromURI returns a UI resource by matching its URI.
+func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, res := range r.resources {
+		if res.IsUI() && res.GetURI() == uri {
+			return res, true
+		}
+	}
+	return nil, false
+}
+
+// MatchResourceTemplateURI matches a URI against a URI template containing {path}.
+func MatchResourceTemplateURI(tmpl, uri string) (map[string]any, bool) {
+	if strings.Contains(tmpl, "{path}") {
+		regexPattern := regexp.QuoteMeta(tmpl)
+		regexPattern = strings.ReplaceAll(regexPattern, "\\{path\\}", "(.*)")
+		re, err := regexp.Compile("^" + regexPattern + "$")
+		if err != nil {
+			return nil, false
+		}
+		matches := re.FindStringSubmatch(uri)
+		if len(matches) == 2 {
+			return map[string]any{"path": matches[1]}, true
+		}
+	}
+	return nil, false
+}
+
+// GetUIResourceTemplateByURI matches a URI against registered UI resource templates
+// and returns the matching template along with extracted template parameters.
+func (r *PrimitiveManager) GetUIResourceTemplateByURI(uri string) (resources.ResourceTemplate, map[string]any, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, rt := range r.resourceTemplates {
+		if rt.IsUI() {
+			if params, ok := MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
+				return rt, params, true
+			}
+		}
+	}
+	return nil, nil, false
 }
 
 // GroupsList returns a copy of the groups list sorted alphabetically by name

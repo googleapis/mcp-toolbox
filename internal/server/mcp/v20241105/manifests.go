@@ -159,3 +159,49 @@ func GenerateListPromptsResult(pMgr *primitives.PrimitiveManager, g group.Group)
 	}
 	return ListPromptsResult{Prompts: mcpManifest}, nil
 }
+
+// generateResourceManifest generates a version-specific Resource manifest for list/resources
+func generateResourceManifest(name, desc, uri, mimeType string) Resource {
+	return Resource{
+		Name:        name,
+		Uri:         uri,
+		Description: desc,
+		MimeType:    mimeType,
+	}
+}
+
+// GenerateListResourcesResult generates the list/resources result
+func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourcesResult, error) {
+	mcpManifest := make([]Resource, 0, len(g.ResourceNames))
+	for _, name := range g.ResourceNames {
+		res, ok := pMgr.GetResource(name)
+		if !ok {
+			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
+		}
+		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetDescription(), res.GetURI(), res.GetMimeType()))
+	}
+	return ListResourcesResult{Resources: mcpManifest}, nil
+}
+
+// generateResourceTemplateManifest generates a version-specific ResourceTemplate manifest
+func generateResourceTemplateManifest(name, desc, uriTemplate, mimeType string) ResourceTemplate {
+	return ResourceTemplate{
+		Name:        name,
+		UriTemplate: uriTemplate,
+		Description: desc,
+		MimeType:    mimeType,
+	}
+}
+
+// GenerateListResourceTemplatesResult generates the list/resource templates result
+func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourceTemplatesResult, error) {
+	mcpManifest := make([]ResourceTemplate, 0, len(g.ResourceTemplateNames))
+	for _, name := range g.ResourceTemplateNames {
+		tmpl, ok := pMgr.GetResourceTemplate(name)
+		if !ok {
+			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
+		}
+		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType()))
+	}
+	return ListResourceTemplatesResult{ResourceTemplates: mcpManifest}, nil
+}

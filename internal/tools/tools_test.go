@@ -16,6 +16,7 @@ package tools_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -220,6 +221,54 @@ func TestShouldSuppress(t *testing.T) {
 			}
 			if got := tools.ShouldSuppress(context.Background(), tool, tt.src); got != tt.want {
 				t.Errorf("ShouldSuppress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigBase_GetToolUIMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   tools.ConfigBase
+		expected *tools.ToolUIMetadata
+	}{
+		{
+			name:     "no ui config",
+			config:   tools.ConfigBase{},
+			expected: nil,
+		},
+		{
+			name: "ui config with resource",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource: "my-resource",
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityModel, tools.VisibilityApp},
+			},
+		},
+		{
+			name: "ui config with visibility",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource:   "my-resource",
+					Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.config.GetToolUIMetadata()
+			if !reflect.DeepEqual(got, tc.expected) {
+				t.Errorf("GetToolUIMetadata() mismatch: expected %v, got %v", tc.expected, got)
 			}
 		})
 	}
