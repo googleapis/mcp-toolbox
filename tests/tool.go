@@ -4371,6 +4371,86 @@ func RunMySQLListAllLocks(t *testing.T, ctx context.Context, pool *sql.DB, datab
 	wg.Wait()
 }
 
+// RunMSSQLListIndexesTest runs tests against the mssql-list-indexes tool, using the
+// param fixture table (id INT IDENTITY PRIMARY KEY, name VARCHAR(255)), which has a single
+// clustered primary-key index on id. The auto-generated PK index name and the
+// dm_db_index_usage_stats columns are non-deterministic, so they are dropped before
+// comparison (mirroring how RunMSSQLListTablesTest drops constraints/indexes), and the
+// stable structural fields are asserted.
+func RunMSSQLListIndexesTest(t *testing.T, tableNameParam string) {
+	unpredictable := []string{"index_name", "user_reads", "user_updates", "last_user_seek", "last_user_scan", "is_used"}
+
+	wantPKIndex := map[string]any{
+		"schema_name":       "dbo",
+		"table_name":        tableNameParam,
+		"index_type":        "CLUSTERED",
+		"is_unique":         true,
+		"is_primary":        true,
+		"is_disabled":       false,
+		"filter_definition": nil,
+		"key_columns":       "id ASC",
+		"included_columns":  nil,
+	}
+
+	invokeTcs := []struct {
+		name           string
+		requestBody    string
+		wantStatusCode int
+		want           []map[string]any
+	}{
+		{
+			name:           "invoke list_indexes for a table",
+			requestBody:    fmt.Sprintf(`{"table_name": "%s"}`, tableNameParam),
+			wantStatusCode: http.StatusOK,
+			want:           []map[string]any{wantPKIndex},
+		},
+		{
+			name:           "invoke list_indexes for a non-existent table",
+			requestBody:    `{"table_name": "non_existent_table_for_list_indexes"}`,
+			wantStatusCode: http.StatusOK,
+			want:           []map[string]any{},
+		},
+	}
+
+	api := "http://127.0.0.1:5000/api/tool/list_indexes/invoke"
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, respBytes := RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(tc.requestBody)), nil)
+			if resp.StatusCode != tc.wantStatusCode {
+				t.Fatalf("response status code is not %d, got %d: %s", tc.wantStatusCode, resp.StatusCode, string(respBytes))
+			}
+
+			var bodyWrapper map[string]json.RawMessage
+			if err := json.Unmarshal(respBytes, &bodyWrapper); err != nil {
+				t.Fatalf("error parsing response wrapper: %s, body: %s", err, string(respBytes))
+			}
+			resultJSON, ok := bodyWrapper["result"]
+			if !ok {
+				t.Fatal("unable to find 'result' in response body")
+			}
+			var resultString string
+			if err := json.Unmarshal(resultJSON, &resultString); err != nil {
+				t.Fatalf("'result' is not a JSON-encoded string: %s", err)
+			}
+			var got []map[string]any
+			if err := json.Unmarshal([]byte(resultString), &got); err != nil {
+				t.Fatalf("failed to unmarshal result: %v", err)
+			}
+
+			// Drop non-deterministic fields before comparison.
+			for _, idx := range got {
+				for _, f := range unpredictable {
+					delete(idx, f)
+				}
+			}
+
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected indexes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // RunMSSQLListTablesTest run tests againsts the mssql-list-tables tools.
 func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) {
 	// TableNameParam columns to construct want.
