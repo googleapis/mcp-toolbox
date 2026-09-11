@@ -135,7 +135,7 @@ func newTracerProvider(ctx context.Context, r *resource.Resource, telemetryOTLP 
 		if err != nil {
 			return nil, wrapGCPProjectHint(err)
 		}
-		traceOpts = append(traceOpts, tracesdk.WithBatcher(gcpExporter))
+		traceOpts = append(traceOpts, tracesdk.WithBatcher(newCircuitBreakingTraceExporter(gcpExporter)))
 	}
 	traceOpts = append(traceOpts, tracesdk.WithResource(r))
 
