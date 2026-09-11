@@ -43,6 +43,20 @@ type PrimitiveManager struct {
 	resources         map[string]resources.Resource
 	resourceTemplates map[string]resources.ResourceTemplate
 	groups            map[string]group.Group
+	// resourceNameIndex maps a resource's name to its URI, the key of resources.
+	resourceNameIndex map[string]string
+}
+
+// indexResourceNames builds the name to URI index for the resource map.
+func indexResourceNames(resourcesMap map[string]resources.Resource) map[string]string {
+	index := make(map[string]string, len(resourcesMap))
+	for uri, res := range resourcesMap {
+		if res == nil {
+			continue
+		}
+		index[res.GetName()] = uri
+	}
+	return index
 }
 
 func NewPrimitiveManager(
@@ -65,6 +79,7 @@ func NewPrimitiveManager(
 		resources:         resourcesMap,
 		resourceTemplates: resourceTemplatesMap,
 		groups:            groupsMap,
+		resourceNameIndex: indexResourceNames(resourcesMap),
 	}
 
 	return primitiveMgr
@@ -105,11 +120,16 @@ func (r *PrimitiveManager) GetPrompt(promptName string) (prompts.Prompt, bool) {
 	return prompt, ok
 }
 
-// GetResource returns a specific resource by name.
-func (r *PrimitiveManager) GetResource(name string) (resources.Resource, bool) {
+// GetResource returns a specific resource by name or by URI. Names are resolved
+// first.
+func (r *PrimitiveManager) GetResource(nameOrURI string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	resource, ok := r.resources[name]
+	if uri, ok := r.resourceNameIndex[nameOrURI]; ok {
+		resource, ok := r.resources[uri]
+		return resource, ok
+	}
+	resource, ok := r.resources[nameOrURI]
 	return resource, ok
 }
 
@@ -140,6 +160,7 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.resources = resourcesMap
 	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
+	r.resourceNameIndex = indexResourceNames(resourcesMap)
 }
 
 // AuthServices returns a copy of the auth services map
@@ -157,10 +178,8 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, res := range r.resources {
-		if res.IsUI() && res.GetURI() == uri {
-			return res, true
-		}
+	if res, ok := r.resources[uri]; ok && res.IsUI() {
+		return res, true
 	}
 	return nil, false
 }

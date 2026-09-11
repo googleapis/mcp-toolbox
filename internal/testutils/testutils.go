@@ -194,12 +194,13 @@ func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPromp
 		allPrompts = append(allPrompts, prompt.Name)
 	}
 
+	// Keyed by URI to match what the server builds at boot; groups still hold
+	// names, so this also exercises the name lookup in PrimitiveManager.
 	resourcesMap := make(map[string]resources.Resource)
 	var allResources []string
 	for _, resource := range mockResources {
-		resName := resource.GetName()
-		resourcesMap[resName] = resource
-		allResources = append(allResources, resName)
+		resourcesMap[resource.GetURI()] = resource
+		allResources = append(allResources, resource.GetName())
 	}
 
 	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)
