@@ -30,29 +30,40 @@ import (
 const skillFile = "SKILL.md"
 
 // Discover builds one Entry per skill. A skill can have 1 or more supporting files.
-func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Entry, error) {
+//
+// The second return value maps a URI to a resource serving the bytes read here,
+// for every file belonging to a skill. Callers are expected to serve those in
+// place of the originals: the digests published alongside them are computed from
+// these bytes, and a host rejects content that does not match.
+func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Entry, map[string]resources.Resource, error) {
 	roots := skillRoots(resourcesMap)
 	if len(roots) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	members := skillMembers(resourcesMap, roots)
 
 	entries := make([]Entry, 0, len(roots))
+	snapshots := make(map[string]resources.Resource)
 	for _, root := range roots {
-		e, err := buildEntry(ctx, root, members[root])
+		e, snaps, err := buildEntry(ctx, root, members[root])
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := e.Validate(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		entries = append(entries, e)
+		// A file nested inside two skills is read once per skill; both reads
+		// yield the same bytes, so the later write is a no-op.
+		for _, s := range snaps {
+			snapshots[s.GetURI()] = s
+		}
 	}
 
 	if err := warnOnDuplicateNames(ctx, entries); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return entries, nil
+	return entries, snapshots, nil
 }
 
 // A list of root dir of every skill in the map, sorted
@@ -99,35 +110,46 @@ func skillMembers(resourcesMap map[string]resources.Resource, roots []string) ma
 	return members
 }
 
-// buildEntry hashes every file under root and assembles its entry.
-func buildEntry(ctx context.Context, root string, members []resources.Resource) (Entry, error) {
+// buildEntry hashes every file under root and assembles its entry, returning a
+// snapshot of each file alongside it.
+func buildEntry(ctx context.Context, root string, members []resources.Resource) (Entry, []snapshot, error) {
 	skillURI := root + "/" + skillFile
 	if len(members) > MaxRefs {
-		return Entry{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
+		return Entry{}, nil, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
 	}
 
 	refs := make([]ResourceRef, 0, len(members))
+	snaps := make([]snapshot, 0, len(members))
 	var frontmatter map[string]any
+	var total int64
 	for _, res := range members {
 		content, err := readString(ctx, res)
 		if err != nil {
-			return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+			return Entry{}, nil, fmt.Errorf("skill %q: %w", skillURI, err)
+		}
+		size := int64(len(content))
+		// Manifest.Validate enforces the same limit, but only once every file is
+		// in memory. Checking as we read caps what a single skill can allocate.
+		total += size
+		if total > MaxTotalSize {
+			return Entry{}, nil, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
 		}
 		sum := sha256.Sum256([]byte(content))
 		refs = append(refs, ResourceRef{
 			URI:    res.GetURI(),
 			Digest: "sha256:" + hex.EncodeToString(sum[:]),
-			Size:   int64(len(content)),
+			Size:   size,
 		})
+		snaps = append(snaps, snapshot{Resource: res, content: content, size: size})
 		if res.GetURI() == skillURI {
 			frontmatter, err = parseFrontmatter(content)
 			if err != nil {
-				return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+				return Entry{}, nil, fmt.Errorf("skill %q: %w", skillURI, err)
 			}
 		}
 	}
 
-	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}, nil
+	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}, snaps, nil
 }
 
 func readString(ctx context.Context, res resources.Resource) (string, error) {
