@@ -570,7 +570,11 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 	}
 
 	addr := net.JoinHostPort(cfg.Address, strconv.Itoa(cfg.Port))
-	srv := &http.Server{Addr: addr, Handler: r}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: DefaultReadHeaderTimeout,
+	}
 
 	sseManager := newSseManager(ctx)
 
