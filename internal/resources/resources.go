@@ -377,6 +377,14 @@ func (c *ResourceTemplateConfigBase) Validate() error {
 		return fmt.Errorf("missing required 'uriTemplate' field for resource template %q", c.Name)
 	}
 
+	// Normalize the scheme to lowercase for consistent comparison and usage.
+	// A url.Parse round trip is not used here (unlike ResourceConfigBase.Validate)
+	// because it corrupts RFC 6570 templates: it errors on "{" in the host for a
+	// template like "file://{path}", and percent-encodes "{"/"}" otherwise.
+	if i := strings.Index(c.URITemplate, "://"); i > 0 {
+		c.URITemplate = strings.ToLower(c.URITemplate[:i]) + c.URITemplate[i:]
+	}
+
 	// Validate RFC 6570 compliance
 	tmpl, err := uritemplate.New(c.URITemplate)
 	if err != nil {
