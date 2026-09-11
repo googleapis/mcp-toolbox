@@ -59,6 +59,9 @@ func (cfg Config) Initialize() (auth.AuthService, error) {
 			return nil, fmt.Errorf("`audience` or `clientId` is required when `mcpEnabled` is true")
 		}
 	} else {
+		if cfg.ClientID == "" {
+			return nil, fmt.Errorf("`clientId` is required when `mcpEnabled` is false")
+		}
 		if cfg.Audience != "" {
 			return nil, fmt.Errorf("`audience` is not allowed when `mcpEnabled` is false")
 		}
