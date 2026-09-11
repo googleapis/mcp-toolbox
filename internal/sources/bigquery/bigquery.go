@@ -30,6 +30,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/dataplex/searchcatalog"
+	"github.com/googleapis/mcp-toolbox/internal/sources/sqlcommenter"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
@@ -102,6 +103,7 @@ type Config struct {
 	MaxQueryResultRows        int                 `yaml:"maxQueryResultRows"`
 	MaximumBytesBilled        int64               `yaml:"maximumBytesBilled" validate:"gte=0"`
 	APIEndpoint               string              `yaml:"apiEndpoint"`
+	SQLCommenter              *bool               `yaml:"sqlCommenter"`
 }
 
 // StringOrStringSlice is a custom type that can unmarshal both a single string
@@ -613,6 +615,10 @@ func (s *Source) RunSQL(ctx context.Context, bqClient *bigqueryapi.Client, state
 	if connProps != nil {
 		query.ConnectionProperties = connProps
 	}
+	// BigQuery attaches SQLCommenter attributes as native job labels rather
+	// than SQL-text comments, so they surface in INFORMATION_SCHEMA.JOBS and
+	// billing exports without query text parsing.
+	labels = sqlcommenter.AppendLabels(ctx, labels, SourceType, s.SQLCommenter)
 	if labels != nil {
 		query.Labels = labels
 	}

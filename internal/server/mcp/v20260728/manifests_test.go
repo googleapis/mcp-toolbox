@@ -50,6 +50,7 @@ func TestGenerateToolManifest(t *testing.T) {
 		authInvoke      []string
 		params          parameters.Parameters
 		annotations     *tools.ToolAnnotations
+		uiMetadata      map[string]any
 		wantMetadata    map[string]any
 		wantAnnotations []byte
 	}{
@@ -108,10 +109,28 @@ func TestGenerateToolManifest(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc:        "with ui metadata",
+			name:        "basic",
+			description: "foo bar",
+			authInvoke:  []string{},
+			params:      parameters.Parameters{parameters.NewStringParameter("string-param", "string parameter")},
+			annotations: nil,
+			uiMetadata: map[string]any{
+				"resourceUri": "mcp://my-app",
+				"visibility":  []string{"model", "app"},
+			},
+			wantMetadata: map[string]any{
+				"ui": map[string]any{
+					"resourceUri": "mcp://my-app",
+					"visibility":  []string{"model", "app"},
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got := generateToolManifest(tc.name, tc.description, tc.authInvoke, tc.params, tc.annotations, nil)
+			got := generateToolManifest(tc.name, tc.description, tc.authInvoke, tc.params, tc.annotations, nil, tc.uiMetadata)
 			gotM := got.Metadata
 			if diff := cmp.Diff(tc.wantMetadata, gotM); diff != "" {
 				t.Fatalf("unexpected metadata (-want +got):\n%s", diff)
@@ -186,7 +205,7 @@ func TestParamManifest(t *testing.T) {
 				Required: []string{"foo-string2", "foo-string3-auth", "foo-int2", "foo-float", "foo-array2", "foo-map-int", "foo-map-any"},
 			},
 			wantAuthParam: map[string][]string{
-				"foo-string3-auth": []string{"my-google-auth-service", "other-auth-service"},
+				"foo-string3-auth": {"my-google-auth-service", "other-auth-service"},
 			},
 		},
 		{
@@ -232,74 +251,143 @@ func TestParamManifest(t *testing.T) {
 }
 
 func TestGenerateListToolsResult(t *testing.T) {
-	tool1 := testutils.NewMockTool("no_params", "", "", []parameters.Parameter{}, false, false)
-	tool2 := testutils.NewMockTool(
-		"some_params",
-		"", "",
-		parameters.Parameters{
-			parameters.NewIntParameter("param1", "This is the first parameter."),
-			parameters.NewIntParameter("param2", "This is the second parameter."),
-		}, false, false)
-	toolsMap := make(map[string]tools.Tool)
-	toolsMap[tool1.GetName()] = tool1
-	toolsMap[tool2.GetName()] = tool2
-	g := group.NewGroup(group.GroupConfig{
-		Name:      "test-toolset",
-		ToolNames: []string{"no_params", "some_params"},
+	t.Run("basic", func(t *testing.T) {
+		tool1 := testutils.NewMockTool("no_params", "", "", []parameters.Parameter{}, false, false)
+		tool2 := testutils.NewMockTool(
+			"some_params",
+			"", "",
+			parameters.Parameters{
+				parameters.NewIntParameter("param1", "This is the first parameter."),
+				parameters.NewIntParameter("param2", "This is the second parameter."),
+			}, false, false)
+		toolsMap := make(map[string]tools.Tool)
+		toolsMap[tool1.GetName()] = tool1
+		toolsMap[tool2.GetName()] = tool2
+		g := group.NewGroup(group.GroupConfig{
+			Name:      "test-toolset",
+			ToolNames: []string{"no_params", "some_params"},
+		})
+
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
+		got, err := GenerateListToolsResult(pMgr, g, nil, false, true)
+		if err != nil {
+			t.Fatalf("unable to generate list tools result: %s", err)
+		}
+		want := ListToolsResult{
+			Result: Result{
+				ResultType: resultTypeComplete,
+			},
+			CacheableResult: CacheableResult{
+				TtlMs:      300000,
+				CacheScope: cacheScopePublic,
+			},
+			Tools: []Tool{
+				{
+					BaseMetadata: BaseMetadata{Name: "no_params"},
+					Description:  "",
+					ToolInputSchema: InputSchema{
+						Type:       "object",
+						Properties: map[string]parameters.ParameterMcpManifest{},
+						Required:   []string{},
+					},
+				},
+				{
+					BaseMetadata: BaseMetadata{Name: "some_params"},
+					Description:  "",
+					ToolInputSchema: InputSchema{
+						Type: "object",
+						Properties: map[string]parameters.ParameterMcpManifest{
+							"param1": {
+								Type:                 "integer",
+								Description:          "This is the first parameter.",
+								Items:                nil,
+								Default:              nil,
+								AdditionalProperties: nil,
+							},
+							"param2": {
+								Type:                 "integer",
+								Description:          "This is the second parameter.",
+								Items:                nil,
+								Default:              nil,
+								AdditionalProperties: nil,
+							},
+						},
+						Required: []string{"param1", "param2"},
+					},
+				},
+			},
+		}
+		if diff := cmp.Diff(got, want); diff != "" {
+			t.Fatalf("unexpected list tools result (-want +got):\n%s", diff)
+		}
+
+	})
+	t.Run("ui metadata success", func(t *testing.T) {
+		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
+		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
+		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
+		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, false, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		uiMeta, ok := res.Tools[0].Metadata["ui"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected metadata to have ui map, got %v", res.Tools[0].Metadata["ui"])
+		}
+		if uiMeta["resourceUri"] != "file:///test/path" {
+			t.Errorf("expected resourceUri=file:///test/path, got %v", uiMeta["resourceUri"])
+		}
 	})
 
-	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
-	got, err := GenerateListToolsResult(pMgr, g, nil, false)
-	if err != nil {
-		t.Fatalf("unable to generate list tools result: %s", err)
-	}
-	want := ListToolsResult{
-		Result: Result{
-			ResultType: resultTypeComplete,
-		},
-		CacheableResult: CacheableResult{
-			TtlMs:      300000,
-			CacheScope: cacheScopePublic,
-		},
-		Tools: []Tool{
-			Tool{
-				BaseMetadata: BaseMetadata{Name: "no_params"},
-				Description:  "",
-				ToolInputSchema: InputSchema{
-					Type:       "object",
-					Properties: map[string]parameters.ParameterMcpManifest{},
-					Required:   []string{},
-				},
-			},
-			Tool{
-				BaseMetadata: BaseMetadata{Name: "some_params"},
-				Description:  "",
-				ToolInputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]parameters.ParameterMcpManifest{
-						"param1": parameters.ParameterMcpManifest{
-							Type:                 "integer",
-							Description:          "This is the first parameter.",
-							Items:                nil,
-							Default:              nil,
-							AdditionalProperties: nil,
-						},
-						"param2": parameters.ParameterMcpManifest{
-							Type:                 "integer",
-							Description:          "This is the second parameter.",
-							Items:                nil,
-							Default:              nil,
-							AdditionalProperties: nil,
-						},
-					},
-					Required: []string{"param1", "param2"},
-				},
-			},
-		},
-	}
-	if diff := cmp.Diff(got, want); diff != "" {
-		t.Fatalf("unexpected list tools result (-want +got):\n%s", diff)
-	}
+	t.Run("ui metadata graceful degradation when client does not support ui", func(t *testing.T) {
+		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
+		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
+		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
+		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, false, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		if res.Tools[0].Metadata != nil && res.Tools[0].Metadata["ui"] != nil {
+			t.Fatalf("expected tool to not have ui metadata when client does not support UI, got %v", res.Tools[0].Metadata["ui"])
+		}
+	})
+
+	t.Run("ui metadata empty resourceUri when resource not in primitive manager", func(t *testing.T) {
+		toolDirectURI := testutils.NewMockToolWithUI("tool-direct", "", "", nil, false, false, "ui://direct-uri")
+		toolsMap := map[string]tools.Tool{"tool-direct": toolDirectURI}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-direct"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, false, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		uiMeta, ok := res.Tools[0].Metadata["ui"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected metadata to have ui map, got %v", res.Tools[0].Metadata["ui"])
+		}
+		if uiMeta["resourceUri"] != "" {
+			t.Errorf("expected resourceUri=\"\", got %v", uiMeta["resourceUri"])
+		}
+	})
+
 }
 
 func TestGeneratePromptManifest(t *testing.T) {
@@ -381,16 +469,16 @@ func TestGenerateListPromptsResult(t *testing.T) {
 			CacheScope: cacheScopePublic,
 		},
 		Prompts: []Prompt{
-			Prompt{
+			{
 				BaseMetadata: BaseMetadata{Name: "prompt1"},
 				Description:  "First test prompt",
 				Arguments:    []PromptArgument{},
 			},
-			Prompt{
+			{
 				BaseMetadata: BaseMetadata{Name: "prompt2"},
 				Description:  "Second test prompt",
 				Arguments: []PromptArgument{
-					PromptArgument{
+					{
 						BaseMetadata: BaseMetadata{Name: "arg1"},
 						Description:  "Test argument",
 						Required:     true,
@@ -491,7 +579,7 @@ func TestGenerateToolManifestWithSecureParams(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := generateToolManifest("test-tool", "desc", nil, tc.params, nil, tc.urlParams)
+			got := generateToolManifest("test-tool", "desc", nil, tc.params, nil, tc.urlParams, nil)
 
 			if diff := cmp.Diff(tc.wantStandard, got.ToolInputSchema); diff != "" {
 				t.Errorf("unexpected standard schema (-want +got):\n%s", diff)
@@ -573,7 +661,7 @@ func TestGenerateListToolsResultWithSecureParams(t *testing.T) {
 			})
 			pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
 
-			got, err := GenerateListToolsResult(pMgr, g, tc.urlParams, tc.supportsSecure)
+			got, err := GenerateListToolsResult(pMgr, g, tc.urlParams, tc.supportsSecure, true)
 			if err != nil {
 				t.Fatalf("failed GenerateListToolsResult: %s", err)
 			}

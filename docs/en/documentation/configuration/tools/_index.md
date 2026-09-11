@@ -584,6 +584,39 @@ You can bind specific arguments to tools at the transport level using URL query 
 
 For a comprehensive guide, see the [URL Parameter Binding](./url_parameter_binding.md) documentation.
 
+## Tool UI Metadata (MCP Apps)
+
+Tools can be associated with an interactive visual interface provided by an MCP resource (such as an interactive dashboard, custom form, or chart). This capability is part of the [MCP Apps](../mcp-apps/) extension.
+
+UI capabilities are configured directly on standard resources (`kind: resource` or `kind: resourceTemplate`) by setting `ui: true`. Tools reference the target resource by its `name`.
+
+To link a tool to a UI resource, specify the `ui` configuration block:
+
+```yaml
+kind: tool
+name: view_customer_dashboard
+type: postgres-sql
+source: my-pg-instance
+statement: "SELECT * FROM customers WHERE id = $1"
+description: "Retrieves customer information and opens the interactive dashboard."
+parameters:
+  - name: customer_id
+    type: integer
+    description: "The unique ID of the customer."
+ui:
+  resource: customer_dashboard
+  visibility:
+    - model
+    - app
+```
+
+| **field**      | **type**  | **required** | **description**                                                                                                            |
+|----------------|-----------|--------------|----------------------------------------------------------------------------------------------------------------------------|
+| `resource`     | string    | Yes          | The `name` of a configured `resource` or `resourceTemplate` providing the UI for this tool (must have `ui: true`).        |
+| `visibility`   | []string  | No           | Controls who can see the tool. Allowed values are `model` and `app`. Defaults to `["model", "app"]` if omitted.          |
+
+UI resources are strictly global across all groups and cannot be declared in group resources. For details on defining UI resources, Content Security Policy, and device permissions, see the [MCP Apps](../mcp-apps/) documentation.
+
 ## Using tools with MCP Toolbox Client SDKs
 
 Once your tools are defined in your configuration, you can retrieve them directly from your application code.

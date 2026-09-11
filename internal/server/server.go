@@ -424,13 +424,17 @@ func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string
 	slices.Sort(allPromptNames)
 
 	allResourceNames := make([]string, 0, len(resourcesMap))
-	for name := range resourcesMap {
-		allResourceNames = append(allResourceNames, name)
+	for name, res := range resourcesMap {
+		if !res.IsUI() {
+			allResourceNames = append(allResourceNames, name)
+		}
 	}
 	slices.Sort(allResourceNames)
 	allResourceTemplateNames := make([]string, 0, len(resourceTemplatesMap))
-	for name := range resourceTemplatesMap {
-		allResourceTemplateNames = append(allResourceTemplateNames, name)
+	for name, tmpl := range resourceTemplatesMap {
+		if !tmpl.IsUI() {
+			allResourceTemplateNames = append(allResourceTemplateNames, name)
+		}
 	}
 	slices.Sort(allResourceTemplateNames)
 

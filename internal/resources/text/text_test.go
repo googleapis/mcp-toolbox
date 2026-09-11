@@ -397,3 +397,148 @@ func TestFailParseFromYaml(t *testing.T) {
 		})
 	}
 }
+
+func TestTextResource_UI(t *testing.T) {
+	htmlContent := "<!DOCTYPE html><html><body><h1>Status: OK</h1></body></html>"
+
+	t.Run("DefaultURIAndMimeType", func(t *testing.T) {
+		yamlStr := `
+kind: resource
+name: quick-status
+type: text
+ui: true
+text: "<!DOCTYPE html><html><body><h1>Status: OK</h1></body></html>"
+csp:
+  connectDomains:
+    - "https://api.example.com"
+domain: "https://example.com"
+permissions:
+  - camera
+`
+
+		_, _, _, _, _, configs, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err != nil {
+			t.Fatalf("UnmarshalPrimitiveConfig failed: %v", err)
+		}
+
+		resCfg, ok := configs["quick-status"].(*text.Config)
+		if !ok {
+			t.Fatalf("Expected *text.Config, got %T", configs["quick-status"])
+		}
+
+		if !resCfg.UI {
+			t.Errorf("Expected IsUI() to be true")
+		}
+		if resCfg.URI != "ui://quick-status" {
+			t.Errorf("Expected default URI 'ui://quick-status', got %q", resCfg.URI)
+		}
+		if resCfg.MimeType != "text/html;profile=mcp-app" {
+			t.Errorf("Expected default MimeType 'text/html;profile=mcp-app', got %q", resCfg.MimeType)
+		}
+
+		ctx := context.Background()
+		res, err := resCfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		if res.GetResourceUIMetadata() == nil {
+			t.Errorf("Expected GetResourceUIMetadata() to not be nil")
+		}
+		if res.GetMimeType() != "text/html;profile=mcp-app" {
+			t.Errorf("Expected res.GetMimeType() to be 'text/html;profile=mcp-app', got %q", res.GetMimeType())
+		}
+
+		content, err := res.Read(ctx, nil)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+		if content != htmlContent {
+			t.Errorf("Expected %q, got %q", htmlContent, content)
+		}
+
+		uiMeta := res.GetResourceUIMetadata()
+		expectedMeta := resources.ResourceUIMetadata{
+			Domain: "https://example.com",
+			CSP: &resources.CSPConfig{
+				ConnectDomains: []string{"https://api.example.com"},
+			},
+			Permissions: map[string]any{
+				"camera": map[string]any{},
+			},
+		}
+		if diff := cmp.Diff(expectedMeta, uiMeta); diff != "" {
+			t.Errorf("GetResourceUIMetadata() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("CustomUIURI", func(t *testing.T) {
+		yamlStr := `
+kind: resource
+name: custom-text-app
+type: text
+ui: true
+uri: "ui://custom-status-widget"
+text: "<h1>Hello</h1>"
+`
+
+		_, _, _, _, _, configs, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err != nil {
+			t.Fatalf("UnmarshalPrimitiveConfig failed: %v", err)
+		}
+		resCfg := configs["custom-text-app"].(*text.Config)
+		if resCfg.URI != "ui://custom-status-widget" {
+			t.Errorf("Expected URI 'ui://custom-status-widget', got %q", resCfg.URI)
+		}
+	})
+
+	t.Run("UIWithNonUISchemeFails", func(t *testing.T) {
+		yamlStr := `
+kind: resource
+name: invalid-text-app
+type: text
+ui: true
+uri: "text://explicit-non-ui"
+text: "<h1>Hello</h1>"
+`
+
+		_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err == nil || !strings.Contains(err.Error(), "must be 'ui'") {
+			t.Fatalf("Expected error for non-ui scheme with ui: true, got %v", err)
+		}
+	})
+
+	t.Run("NonUIWithUISchemeFails", func(t *testing.T) {
+		yamlStr := `
+kind: resource
+name: invalid-text-res
+type: text
+uri: "ui://invalid-text-res"
+text: "hello"
+`
+
+		_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err == nil || !strings.Contains(err.Error(), "scheme 'ui' is only permitted when 'ui' is true") {
+			t.Fatalf("Expected error for ui scheme with ui: false, got %v", err)
+		}
+	})
+
+	t.Run("NonUIWithCustomSchemeSucceeds", func(t *testing.T) {
+		yamlStr := `
+kind: resource
+name: custom-scheme-res
+type: text
+uri: "custom://my-json-resource"
+text: "{}"
+`
+
+		_, _, _, _, _, configs, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err != nil {
+			t.Fatalf("Expected custom scheme to succeed for non-UI text resource, got error: %v", err)
+		}
+		resCfg := configs["custom-scheme-res"].(*text.Config)
+		if resCfg.URI != "custom://my-json-resource" {
+			t.Errorf("Expected URI 'custom://my-json-resource', got %q", resCfg.URI)
+		}
+	})
+}

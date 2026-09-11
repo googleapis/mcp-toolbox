@@ -8,7 +8,7 @@ description: >
 
 A Group is a single named collection that scopes MCP primitives together — including [**tools**](../tools/_index.md), [**prompts**](../prompts/_index.md), [**resources**](../resources/_index.md), and [**resource templates**](../resources/template/_index.md). Where a [Toolset](../toolsets/_index.md) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
 
-Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list and read methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. When querying `resources/read`, requests are verified to ensure that the requested URI belongs to the target group.
+Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
 
 ## Defining Groups
 
@@ -17,7 +17,7 @@ Declare a group as a `kind: group` document in your configuration file. A group 
 | Field               | Required | Description                                                                                    |
 | ------------------- | -------- | -----------------------------------------------------------------------------------------------|
 | `name`              | Yes\*    | Unique name for the group. Used as the endpoint path (`/mcp/{name}`).                          |
-| `description`       | No       | Human-readable description of the group.                                                       |
+| `description`       | No       | Human-readable description of the group, surfaced via `groups/list`.                           |
 | `tools`             | No       | List of tool names to include in the group.                                                    |
 | `prompts`           | No       | List of prompt names to include in the group.                                                  |
 | `resources`         | No       | List of resource names to include in the group.                                                |
@@ -73,6 +73,7 @@ At startup, Toolbox validates groups:
 - **Default group restrictions.** The default group may set only a `description`; declaring `tools`, `prompts`, `resources`, `resourceTemplates`, or any other primitive list on it is an error.
 - **No duplicate names across toolsets and groups.** A `kind: toolset` is parsed as a group, so defining the same name as both a `kind: toolset` and a `kind: group` is a duplicate-name error.
 - **Valid parameters.** If specified, `ttlMs` must be non-negative (>=0), and `cacheScope` must be either `public` or `private`.
+- **No UI resources in groups.** UI resources and UI resource templates (`ui: true`) are strictly global and cannot be included in `resources` or `resourceTemplates` of any group. Attempting to add a UI resource to a group fails startup validation. (See [MCP Apps](../mcp-apps/) for details on linking tools to UI resources.)
 
 ## Relationship to toolsets
 

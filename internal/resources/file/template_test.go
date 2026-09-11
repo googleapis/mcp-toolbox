@@ -16,6 +16,7 @@ package file_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -351,7 +354,7 @@ func TestFileTemplate_Validation(t *testing.T) {
 			name: my-template
 			type: file
 			`,
-			wantErrMsg: "Field validation for 'URITemplate' failed on the 'required' tag",
+			wantErrMsg: "failed on the 'required' tag",
 		},
 		{
 			name: "invalid maxSize negative",
@@ -396,4 +399,118 @@ func TestFileTemplate_Validation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileTemplate_UI(t *testing.T) {
+	tmpDir := t.TempDir()
+	appDir := filepath.Join(tmpDir, "views")
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dashboardPath := filepath.Join(appDir, "dashboard.html")
+	dashboardContent := "<html><body><h1>Dashboard</h1></body></html>"
+	if err := os.WriteFile(dashboardPath, []byte(dashboardContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("UIEnabledDefaultsAndRead", func(t *testing.T) {
+		yamlStr := fmt.Sprintf(`
+kind: resourceTemplate
+name: ui-template-app
+type: file
+ui: true
+uriTemplate: "ui://%s/{path}"
+allowedPaths:
+  - %s
+csp:
+  connectDomains:
+    - "https://api.example.com"
+domain: "https://example.com"
+permissions:
+  - camera
+`, filepath.ToSlash(appDir), filepath.ToSlash(appDir))
+
+		_, _, _, _, _, _, tmpls, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err != nil {
+			t.Fatalf("UnmarshalPrimitiveConfig failed: %v", err)
+		}
+
+		tmplCfg, ok := tmpls["ui-template-app"].(*file.TemplateConfig)
+		if !ok {
+			t.Fatalf("Expected *file.TemplateConfig, got %T", tmpls["ui-template-app"])
+		}
+
+		if !tmplCfg.UI {
+			t.Errorf("Expected IsUI() to be true")
+		}
+
+		ctx := context.Background()
+		tmpl, err := tmplCfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		if tmpl.GetResourceUIMetadata() == nil {
+			t.Errorf("Expected GetResourceUIMetadata() to not be nil")
+		}
+		if tmpl.GetMimeType() != "text/html;profile=mcp-app" {
+			t.Errorf("Expected default MimeType 'text/html;profile=mcp-app', got %q", tmpl.GetMimeType())
+		}
+
+		data, err := tmpl.Read(ctx, map[string]any{"path": "dashboard.html"})
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+		if data != dashboardContent {
+			t.Errorf("Expected %q, got %q", dashboardContent, data)
+		}
+
+		uiMeta := tmpl.GetResourceUIMetadata()
+		expectedMeta := resources.ResourceUIMetadata{
+			Domain: "https://example.com",
+			CSP: &resources.CSPConfig{
+				ConnectDomains: []string{"https://api.example.com"},
+			},
+			Permissions: map[string]any{
+				"camera": map[string]any{},
+			},
+		}
+		if diff := cmp.Diff(expectedMeta, uiMeta); diff != "" {
+			t.Errorf("GetResourceUIMetadata() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("UIWithNonUISchemeFails", func(t *testing.T) {
+		yamlStr := fmt.Sprintf(`
+kind: resourceTemplate
+name: invalid-ui-tmpl
+type: file
+ui: true
+uriTemplate: "file://explicit-non-ui/{path}"
+allowedPaths:
+  - %s
+`, filepath.ToSlash(appDir))
+
+		_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err == nil || !strings.Contains(err.Error(), "must be 'ui'") {
+			t.Fatalf("Expected error for non-ui scheme with ui: true, got %v", err)
+		}
+	})
+
+	t.Run("NonUIWithUISchemeFails", func(t *testing.T) {
+		yamlStr := fmt.Sprintf(`
+kind: resourceTemplate
+name: invalid-file-tmpl
+type: file
+uriTemplate: "ui://invalid-file-tmpl/{path}"
+allowedPaths:
+  - %s
+`, filepath.ToSlash(appDir))
+
+		_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+		if err == nil || !strings.Contains(err.Error(), "scheme 'ui' is only permitted when 'ui' is true") {
+			t.Fatalf("Expected error for ui scheme with ui: false, got %v", err)
+		}
+	})
 }

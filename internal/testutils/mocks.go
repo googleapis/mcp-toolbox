@@ -105,6 +105,28 @@ type MockTool struct {
 
 var _ tools.Tool = MockTool{}
 
+// NewMockToolWithUI creates a new mock tool with UI metadata for testing.
+func NewMockToolWithUI(name, desc, source string, params []parameters.Parameter, unauthorized, reqClientAutho bool, uiResource string) MockTool {
+	mockConfig := MockToolConfig{
+		ConfigBase: tools.ConfigBase{
+			Name:        name,
+			Description: desc,
+			UI: &tools.ToolUIMetadata{
+				Resource: uiResource,
+			},
+		},
+		Source:     source,
+		Type:       "mock-tool",
+		Parameters: params,
+	}
+	ctx := context.Background()
+	t, _ := mockConfig.Initialize(ctx)
+	mt := t.(MockTool)
+	mt.unauthorized = unauthorized
+	mt.requireClientAuthorization = reqClientAutho
+	return mt
+}
+
 // NewMockTool creates a new mock prompt for testing.
 func NewMockTool(name, desc, source string, params []parameters.Parameter, unauthorized, reqClientAutho bool) MockTool {
 	mockConfig := MockToolConfig{
@@ -298,6 +320,9 @@ func (m MockResource) GetName() string {
 	return m.config.Name
 }
 
+func (m MockResource) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
+func (m MockResource) IsUI() bool                 { return m.config.IsUI() }
+
 // MockResourceTemplateConfig is a mock implementation of resources.ResourceTemplateConfig
 type MockResourceTemplateConfig struct {
 	resources.ResourceTemplateConfigBase `yaml:",inline"`
@@ -339,6 +364,9 @@ func (m MockResourceTemplate) GetName() string {
 	return m.config.Name
 }
 
+func (m MockResourceTemplate) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
+func (m MockResourceTemplate) IsUI() bool                 { return m.config.IsUI() }
+
 func NewMockResource(name, uri, title, description, mimeType string, size *int64, annotations *resources.ResourceAnnotations) MockResource {
 	cfgBase := resources.ConfigBase{
 		Name:        name,
@@ -368,6 +396,59 @@ func NewMockResourceTemplate(name, uriTemplate, title, description, mimeType str
 		Description: description,
 		MimeType:    mimeType,
 		Annotations: annotations,
+	}
+
+	return MockResourceTemplate{
+		config: &MockResourceTemplateConfig{
+			ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{
+				ConfigBase:  cfgBase,
+				URITemplate: uriTemplate,
+			},
+		},
+	}
+}
+
+// NewMockUIResource creates a mock UI resource for testing.
+func NewMockUIResource(name, uri, title, description, mimeType string, size *int64, annotations *resources.ResourceAnnotations, csp *resources.CSPConfig, permissions *resources.PermissionsConfig, domain string, prefersBorder *bool) MockResource {
+	cfgBase := resources.ConfigBase{
+		Name:          name,
+		Title:         title,
+		Description:   description,
+		MimeType:      mimeType,
+		Annotations:   annotations,
+		UI:            true,
+		CSP:           csp,
+		Permissions:   permissions,
+		Domain:        domain,
+		PrefersBorder: prefersBorder,
+	}
+
+	resCfg := resources.ResourceConfigBase{
+		ConfigBase: cfgBase,
+		URI:        uri,
+	}
+
+	return MockResource{
+		config: &MockResourceConfig{
+			ResourceConfigBase: resCfg,
+			Size:               size,
+		},
+	}
+}
+
+// NewMockUIResourceTemplate creates a mock UI resource template for testing.
+func NewMockUIResourceTemplate(name, uriTemplate, title, description, mimeType string, annotations *resources.ResourceAnnotations, csp *resources.CSPConfig, permissions *resources.PermissionsConfig, domain string, prefersBorder *bool) MockResourceTemplate {
+	cfgBase := resources.ConfigBase{
+		Name:          name,
+		Title:         title,
+		Description:   description,
+		MimeType:      mimeType,
+		Annotations:   annotations,
+		UI:            true,
+		CSP:           csp,
+		Permissions:   permissions,
+		Domain:        domain,
+		PrefersBorder: prefersBorder,
 	}
 
 	return MockResourceTemplate{

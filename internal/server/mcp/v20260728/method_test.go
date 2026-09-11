@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -418,6 +419,9 @@ func TestServerDiscoverHandler(t *testing.T) {
 						if _, ok := discoverRes.Capabilities.Extensions["com.google.cloud/toolbox.v1"]; !ok {
 							t.Errorf("expected com.google.cloud/toolbox.v1 in discover capabilities extensions, got %v", discoverRes.Capabilities.Extensions)
 						}
+						if _, ok := discoverRes.Capabilities.Extensions["io.modelcontextprotocol/ui"]; !ok {
+							t.Errorf("expected io.modelcontextprotocol/ui in discover capabilities extensions, got %v", discoverRes.Capabilities.Extensions)
+						}
 					}
 				}
 				res, ok := got.(jsonrpc.JSONRPCResponse)
@@ -430,6 +434,9 @@ func TestServerDiscoverHandler(t *testing.T) {
 				}
 				if discoverResult.Capabilities.Extensions == nil || discoverResult.Capabilities.Extensions["com.google.cloud/toolbox.v1"] == nil {
 					t.Errorf("expected %s in Extensions capabilities, got %v", "com.google.cloud/toolbox.v1", discoverResult.Capabilities.Extensions)
+				}
+				if discoverResult.Capabilities.Extensions == nil || discoverResult.Capabilities.Extensions["io.modelcontextprotocol/ui"] == nil {
+					t.Errorf("expected %s in Extensions capabilities, got %v", "io.modelcontextprotocol/ui", discoverResult.Capabilities.Extensions)
 				}
 			}
 		})
@@ -1080,11 +1087,23 @@ func TestGroupsListHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
+	ctx = util.WithToolboxVersionKey(ctx, fakeVersionString)
+	Initialize(nil)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
 	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
+		ProtocolVersion: PROTOCOL_VERSION,
+		ClientInfo: Implementation{
+			BaseMetadata: BaseMetadata{Name: "TestClient"},
+			Version:      "1.0",
+		},
+		MetaClientCapabilities: &ClientCapabilities{
+			Extensions: map[string]any{"com.google.cloud/toolbox.v1": map[string]any{}},
+		},
+	}
+	noExtensionMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
 		ClientInfo: Implementation{
 			BaseMetadata: BaseMetadata{Name: "TestClient"},
@@ -1109,14 +1128,20 @@ func TestGroupsListHandler(t *testing.T) {
 			errContains: "invalid mcp groups list request",
 		},
 		{
+			name: "client did not declare the toolbox extension",
+			body: ListGroupsRequest{
+				Request: jsonrpc.Request{Method: GROUPS_LIST},
+				Params:  RequestParams{Meta: noExtensionMeta},
+			},
+			header:      http.Header{"Mcp-Method": []string{GROUPS_LIST}},
+			wantErr:     true,
+			errContains: `missing required client capability: method "groups/list" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
+		},
+		{
 			name: "success excludes default group and sorts",
 			body: ListGroupsRequest{
-				PaginatedRequest: PaginatedRequest{
-					Request: jsonrpc.Request{Method: GROUPS_LIST},
-					Params: PaginatedRequestParams{
-						RequestParams: RequestParams{Meta: validMeta},
-					},
-				},
+				Request: jsonrpc.Request{Method: GROUPS_LIST},
+				Params:  RequestParams{Meta: validMeta},
 			},
 			header:    http.Header{"Mcp-Method": []string{GROUPS_LIST}},
 			wantErr:   false,
@@ -1156,6 +1181,12 @@ func TestGroupsListHandler(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected ListGroupsResult, got %T", res.Result)
 			}
+			if result.ResultType != resultTypeComplete {
+				t.Errorf("result.ResultType = %q, want %q", result.ResultType, resultTypeComplete)
+			}
+			if result.Meta == nil {
+				t.Error("result.Meta = nil, want server info metadata")
+			}
 			gotNames := make([]string, 0, len(result.Groups))
 			for _, g := range result.Groups {
 				gotNames = append(gotNames, g.Name)
@@ -1180,11 +1211,23 @@ func TestGroupsGetHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
+	ctx = util.WithToolboxVersionKey(ctx, fakeVersionString)
+	Initialize(nil)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
 	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
+		ProtocolVersion: PROTOCOL_VERSION,
+		ClientInfo: Implementation{
+			BaseMetadata: BaseMetadata{Name: "TestClient"},
+			Version:      "1.0",
+		},
+		MetaClientCapabilities: &ClientCapabilities{
+			Extensions: map[string]any{"com.google.cloud/toolbox.v1": map[string]any{}},
+		},
+	}
+	noExtensionMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
 		ClientInfo: Implementation{
 			BaseMetadata: BaseMetadata{Name: "TestClient"},
@@ -1201,12 +1244,26 @@ func TestGroupsGetHandler(t *testing.T) {
 		wantErr     bool
 		errContains string
 		wantName    string
+		wantTools   []string
 	}{
 		{
 			name:        "invalid json body",
 			rawBody:     []byte(`{invalid json}`),
 			wantErr:     true,
 			errContains: "invalid mcp groups/get request",
+		},
+		{
+			name: "client did not declare the toolbox extension",
+			body: GetGroupRequest{
+				Request: jsonrpc.Request{Method: GROUPS_GET},
+				Params: GetGroupRequestParams{
+					RequestParams: RequestParams{Meta: noExtensionMeta},
+					Name:          "tool1_only",
+				},
+			},
+			header:      http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool1_only"}},
+			wantErr:     true,
+			errContains: `missing required client capability: method "groups/get" requires com.google.cloud/toolbox.v1 extension which is not supported by the client`,
 		},
 		{
 			name: "group does not exist",
@@ -1230,9 +1287,26 @@ func TestGroupsGetHandler(t *testing.T) {
 					Name:          "tool1_only",
 				},
 			},
-			header:   http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool1_only"}},
-			wantErr:  false,
-			wantName: "tool1_only",
+			header:    http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool1_only"}},
+			wantErr:   false,
+			wantName:  "tool1_only",
+			wantTools: []string{"no_params"},
+		},
+		{
+			// An omitted name resolves to the default group, matching
+			// GET /api/toolset. groups/list hides the default group, so this is
+			// the only way to reach it.
+			name: "omitted name returns the default group",
+			body: GetGroupRequest{
+				Request: jsonrpc.Request{Method: GROUPS_GET},
+				Params: GetGroupRequestParams{
+					RequestParams: RequestParams{Meta: validMeta},
+				},
+			},
+			header:    http.Header{"Mcp-Method": []string{GROUPS_GET}},
+			wantErr:   false,
+			wantName:  "",
+			wantTools: []string{"no_params", "some_params"},
 		},
 	}
 
@@ -1270,6 +1344,26 @@ func TestGroupsGetHandler(t *testing.T) {
 			}
 			if result.Name != tt.wantName {
 				t.Errorf("result.Name = %q, want %q", result.Name, tt.wantName)
+			}
+			gotTools := make([]string, 0, len(result.Tools))
+			for _, tool := range result.Tools {
+				gotTools = append(gotTools, tool.Name)
+			}
+			slices.Sort(gotTools)
+			if !slices.Equal(gotTools, tt.wantTools) {
+				t.Errorf("result tools = %v, want %v", gotTools, tt.wantTools)
+			}
+			if result.ResultType != resultTypeComplete {
+				t.Errorf("result.ResultType = %q, want %q", result.ResultType, resultTypeComplete)
+			}
+			if result.Meta == nil {
+				t.Error("result.Meta = nil, want server info metadata")
+			}
+			if result.TtlMs != group.DefaultTTLMs {
+				t.Errorf("result.TtlMs = %d, want %d", result.TtlMs, group.DefaultTTLMs)
+			}
+			if string(result.CacheScope) != group.DefaultCacheScope {
+				t.Errorf("result.CacheScope = %q, want %q", result.CacheScope, group.DefaultCacheScope)
 			}
 		})
 	}
@@ -1660,6 +1754,7 @@ func TestResourcesListHandler(t *testing.T) {
 	mockResources := []testutils.MockResource{
 		testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
 		testutils.NewMockResource("res2", "file:///res2", "Title 2", "", "application/json", &sizeVal, &resources.ResourceAnnotations{LastModified: "2024-01-01T00:00:00Z"}),
+		testutils.NewMockUIResource("uiRes", "ui://test", "UI Title", "", "text/html", nil, nil, nil, nil, "", nil),
 	}
 	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, nil, mockResources, nil)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
@@ -1731,7 +1826,11 @@ func TestResourcesListHandler(t *testing.T) {
 						t.Errorf("expected 2 resources, got %d", len(resp.Resources))
 					} else {
 						// res2 should have LastModified set
+						// uiRes should be omitted from resources/list
 						for _, r := range resp.Resources {
+							if r.Name == "uiRes" {
+								t.Errorf("expected uiRes to be omitted from resources/list")
+							}
 							if r.Name == "res2" {
 								if r.Annotations == nil || r.Annotations.LastModified != "2024-01-01T00:00:00Z" {
 									t.Errorf("expected LastModified=2024-01-01T00:00:00Z, got %+v", r.Annotations)
@@ -1758,6 +1857,7 @@ func TestResourceTemplatesListHandler(t *testing.T) {
 	mockTemplates := []testutils.MockResourceTemplate{
 		testutils.NewMockResourceTemplate("tmpl1", "file:///{tmpl}", "", "", "", nil),
 		testutils.NewMockResourceTemplate("rt2", "file:///rt2/{path}", "Title RT", "", "text/plain", &resources.ResourceAnnotations{LastModified: "2024-01-01T00:00:00Z"}),
+		testutils.NewMockUIResourceTemplate("uiTmpl", "ui://test/{path}", "UI Template Title", "", "text/html", nil, nil, nil, "", nil),
 	}
 	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, nil, nil, mockTemplates)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
@@ -1829,7 +1929,11 @@ func TestResourceTemplatesListHandler(t *testing.T) {
 						t.Errorf("expected 2 templates, got %d", len(resp.ResourceTemplates))
 					} else {
 						// rt2 should have LastModified set
+						// uiTmpl should be omitted from resources/templates/list
 						for _, rt := range resp.ResourceTemplates {
+							if rt.Name == "uiTmpl" {
+								t.Errorf("expected uiTmpl to be omitted from resources/templates/list")
+							}
 							if rt.Name == "rt2" {
 								if rt.Annotations == nil || rt.Annotations.LastModified != "2024-01-01T00:00:00Z" {
 									t.Errorf("expected LastModified=2024-01-01T00:00:00Z, got %+v", rt.Annotations)
@@ -1853,8 +1957,12 @@ func TestResourcesReadHandler(t *testing.T) {
 	}
 	ctx = util.WithLogger(ctx, testLogger)
 
+	prefersBorder := true
 	mockResources := []testutils.MockResource{
 		testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
+		testutils.NewMockUIResource("ui_res", "ui://test/dashboard", "Dashboard", "UI Dashboard", "text/html;profile=mcp-app", nil, nil, &resources.CSPConfig{
+			ConnectDomains: []string{"https://api.example.com"},
+		}, nil, "custom-domain", &prefersBorder),
 	}
 	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, nil, mockResources, nil)
 	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
@@ -1866,6 +1974,7 @@ func TestResourcesReadHandler(t *testing.T) {
 		rawBody     []byte
 		wantErr     bool
 		errContains string
+		verifyFunc  func(t *testing.T, resp any)
 	}{
 		{
 			name:        "invalid json request",
@@ -1916,6 +2025,43 @@ func TestResourcesReadHandler(t *testing.T) {
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "success UI resource includes _meta.ui",
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "ui://test/dashboard",
+				},
+			},
+			wantErr: false,
+			verifyFunc: func(t *testing.T, resp any) {
+				jsonResp, ok := resp.(jsonrpc.JSONRPCResponse)
+				if !ok {
+					t.Fatalf("expected JSONRPCResponse, got %T", resp)
+				}
+				readRes, ok := jsonResp.Result.(*ReadResourceResult)
+				if !ok {
+					t.Fatalf("expected *ReadResourceResult, got %T", jsonResp.Result)
+				}
+				if len(readRes.Contents) != 1 {
+					t.Fatalf("expected 1 content item, got %d", len(readRes.Contents))
+				}
+				metaUI, ok := readRes.Contents[0].Metadata["ui"]
+				if !ok || metaUI == nil {
+					t.Fatalf("expected Contents[0].Metadata to have 'ui', got %v", readRes.Contents[0].Metadata)
+				}
+			},
 		},
 		{
 			name: "mismatched Mcp-Name header",
@@ -2016,6 +2162,9 @@ func TestResourcesReadHandler(t *testing.T) {
 				if got == nil {
 					t.Errorf("expected valid response, got nil")
 				}
+				if tt.verifyFunc != nil {
+					tt.verifyFunc(t, got)
+				}
 			}
 		})
 	}
@@ -2023,12 +2172,14 @@ func TestResourcesReadHandler(t *testing.T) {
 
 func TestGetResourceOrTemplateByURI(t *testing.T) {
 	resourcesMap := map[string]resources.Resource{
-		"res1": testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
-		"res2": testutils.NewMockResource("res2", "file:///res2", "", "", "", nil, nil),
+		"res1":  testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
+		"res2":  testutils.NewMockResource("res2", "file:///res2", "", "", "", nil, nil),
+		"uiRes": testutils.NewMockUIResource("uiRes", "ui://test-ui", "", "", "", nil, nil, nil, nil, "", nil),
 	}
 	templatesMap := map[string]resources.ResourceTemplate{
-		"tmpl1": testutils.NewMockResourceTemplate("tmpl1", "file:///tmpl/{path}", "", "", "", nil),
-		"tmpl2": testutils.NewMockResourceTemplate("tmpl2", "file:///other/{path}", "", "", "", nil),
+		"tmpl1":  testutils.NewMockResourceTemplate("tmpl1", "file:///tmpl/{path}", "", "", "", nil),
+		"tmpl2":  testutils.NewMockResourceTemplate("tmpl2", "file:///other/{path}", "", "", "", nil),
+		"uiTmpl": testutils.NewMockUIResourceTemplate("uiTmpl", "ui://tmpl/{path}", "", "", "", nil, nil, nil, "", nil),
 	}
 
 	// Create a group that only contains res1 and tmpl1
@@ -2066,6 +2217,22 @@ func TestGetResourceOrTemplateByURI(t *testing.T) {
 		}
 	})
 
+	t.Run("UI Resource (Not in Group, Globally Accessible)", func(t *testing.T) {
+		res, tmpl, params, err := getResourceOrTemplateByURI("ui://test-ui", g, primMgr)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res == nil || res.GetName() != "uiRes" {
+			t.Errorf("expected uiRes, got %v", res)
+		}
+		if tmpl != nil {
+			t.Errorf("expected nil template, got %v", tmpl)
+		}
+		if params != nil {
+			t.Errorf("expected nil params, got %v", params)
+		}
+	})
+
 	t.Run("Template Match", func(t *testing.T) {
 		res, tmpl, params, err := getResourceOrTemplateByURI("file:///tmpl/foo/bar.txt", g, primMgr)
 		if err != nil {
@@ -2086,6 +2253,22 @@ func TestGetResourceOrTemplateByURI(t *testing.T) {
 		_, _, _, err := getResourceOrTemplateByURI("file:///other/baz.txt", g, primMgr)
 		if err == nil {
 			t.Fatal("expected error for template not in group")
+		}
+	})
+
+	t.Run("UI Template (Not in Group, Globally Accessible)", func(t *testing.T) {
+		res, tmpl, params, err := getResourceOrTemplateByURI("ui://tmpl/dashboard.html", g, primMgr)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res != nil {
+			t.Errorf("expected nil resource, got %v", res)
+		}
+		if tmpl == nil || tmpl.GetName() != "uiTmpl" {
+			t.Errorf("expected uiTmpl, got %v", tmpl)
+		}
+		if params["path"] != "dashboard.html" {
+			t.Errorf("expected path param 'dashboard.html', got %v", params["path"])
 		}
 	})
 
