@@ -16,6 +16,7 @@ package bigqueryexecutesql_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -255,6 +256,168 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			}
 
 			params, err := executeSqlTool.GetParameters(testSrc)
+			if err != nil {
+				t.Fatalf("failed to get parameters: %v", err)
+			}
+			paramVals, err := parameters.ParseParams(params, data, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing parameters: %v", err)
+			}
+
+			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tc.wantSub) {
+					t.Errorf("expected error to contain %q, got %v", tc.wantSub, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestInvokeDatasetRestrictionsCatchesNonexistentTableBeforeDryRun covers
+// https://github.com/googleapis/mcp-toolbox/issues/3717: a query naming a
+// disallowed dataset must be rejected with the allowlist AgentError even
+// when the referenced table doesn't exist (or isn't visible to the caller),
+// rather than surfacing BigQuery's opaque dry-run 404/403 first.
+func TestInvokeDatasetRestrictionsCatchesNonexistentTableBeforeDryRun(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/jobs") {
+			var body struct {
+				Configuration struct {
+					DryRun bool `json:"dryRun"`
+					Query  struct {
+						Query string `json:"query"`
+					} `json:"query"`
+				} `json:"configuration"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			if body.Configuration.DryRun {
+				query := body.Configuration.Query.Query
+
+				// Any dataset/table not explicitly listed here stands in for
+				// one BigQuery can't resolve: dry run 404s, matching what a
+				// real non-existent (or unreadable) table produces. The
+				// dataset name is echoed back from the query so the error
+				// message matches whichever dataset the test case actually
+				// targets, instead of always naming forbidden_dataset.
+				if strings.Contains(query, "no_such_table") {
+					w.WriteHeader(http.StatusNotFound)
+					dataset := "forbidden_dataset"
+					if strings.Contains(query, "allowed_dataset") {
+						dataset = "allowed_dataset"
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"error": map[string]any{
+							"code":    404,
+							"message": fmt.Sprintf("Not found: Table test-project:%s.no_such_table", dataset),
+						},
+					})
+					return
+				}
+
+				resp := map[string]any{
+					"kind": "bigquery#job",
+					"jobReference": map[string]string{
+						"projectId": "test-project",
+						"jobId":     "mock-job-id",
+					},
+					"status": map[string]any{"state": "DONE"},
+					"configuration": map[string]any{
+						"query": map[string]any{"query": query},
+					},
+					"statistics": map[string]any{
+						"creationTime": "123456789",
+						"startTime":    "123456789",
+						"endTime":      "123456789",
+						"query": map[string]any{
+							"statementType": "SELECT",
+						},
+					},
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(resp)
+				return
+			}
+		}
+
+		http.Error(w, "not implemented", http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("failed to create context with logger: %v", err)
+	}
+
+	bqClient, err := bigqueryapi.NewClient(ctx, "test-project", option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery client: %v", err)
+	}
+
+	restService, err := bigqueryrestapi.NewService(ctx, option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery REST service: %v", err)
+	}
+
+	testSrc := &bqutil.MockSource{
+		Client:          bqClient,
+		Service:         restService,
+		AllowedDatasets: []string{"test-project.allowed_dataset"},
+	}
+
+	cfg := bigqueryexecutesql.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "execute_sql_tool",
+			Description: "Execute SQL",
+		},
+		Type:   "bigquery-execute-sql",
+		Source: "my-bq-source",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	tcs := []struct {
+		desc    string
+		sql     string
+		wantErr bool
+		wantSub string
+	}{
+		{
+			desc:    "nonexistent table in forbidden dataset: allowlist error, not a bare 404",
+			sql:     "SELECT * FROM forbidden_dataset.no_such_table",
+			wantErr: true,
+			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+		},
+		{
+			desc:    "nonexistent table in allowed dataset: the underlying dry-run failure still surfaces",
+			sql:     "SELECT * FROM allowed_dataset.no_such_table",
+			wantErr: true,
+			wantSub: "Not found: Table test-project:allowed_dataset.no_such_table",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			data := map[string]any{
+				"sql":     tc.sql,
+				"dry_run": true,
+			}
+
+			params, err := tool.(bigqueryexecutesql.Tool).GetParameters(testSrc)
 			if err != nil {
 				t.Fatalf("failed to get parameters: %v", err)
 			}
