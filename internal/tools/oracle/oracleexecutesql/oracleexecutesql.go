@@ -33,7 +33,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 type compatibleSource interface {
 	OracleDB() *sql.DB
-	RunSQL(context.Context, string, []any, bool) (any, error)
+	RunSQL(context.Context, string, []any, *bool) (any, error)
 }
 
 type Config struct {
@@ -110,12 +110,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	logger.DebugContext(ctx, "executing `%s` tool query: %s", resourceType, sqlParam)
 
-	isReadOnly := true
-	if t.Cfg.ReadOnly != nil {
-		isReadOnly = *t.Cfg.ReadOnly
-	}
-
-	resp, err := source.RunSQL(ctx, sqlParam, nil, isReadOnly)
+	// This tool runs whatever statement it is given, so an unset `readOnly`
+	// stays unspecified and keeps both reads and writes working. Setting it to
+	// true opts into an Oracle read-only transaction, which rejects writes and
+	// locking reads; setting it to false runs the statement as DML.
+	resp, err := source.RunSQL(ctx, sqlParam, nil, t.Cfg.ReadOnly)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
