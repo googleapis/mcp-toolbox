@@ -109,7 +109,7 @@ ui:
 - `app`: The tool is exposed to the interactive UI application for direct invocation.
 - Both (`["model", "app"]`): The default setting, allowing both the model and the UI app to call the tool.
 
-## Global Availability & Group Scoping
+## Scoping & Availability
 
 Unlike standard tools, prompts, or resources that are scoped to specific [Groups](../groups/), **UI resources are strictly global and cannot be scoped to groups**:
 
@@ -120,7 +120,7 @@ Unlike standard tools, prompts, or resources that are scoped to specific [Groups
    ```
 3. **Omitted from Resource Listing**: UI resources (`ui: true`) are intentionally excluded from `resources/list` and `resources/templates/list` across all endpoints (including the default `/mcp` group endpoint) so they do not clutter standard LLM context. Clients obtain the UI resource URI directly from the tool's manifest metadata and retrieve it via `resources/read`.
 
-## Capability Negotiation & Graceful Degradation
+## Capability Negotiation
 
 MCP Apps employs client capability negotiation to ensure backwards compatibility with standard text-only MCP clients:
 
