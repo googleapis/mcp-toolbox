@@ -32,6 +32,30 @@
       ],
       "kind": "tools",
       "max_turns": 1
+    },
+    {
+      "id": "cloudsqlpg-data-02",
+      "starting_prompt": "We are conducting a health check on the ${CLOUD_SQL_POSTGRES_DATABASE} database. Can you check for table bloat to see if any tables are wasting storage with dead tuples?",
+      "conversation_plan": "Turn 2: The user reviews bloated tables and asks if there are any invalid or corrupt indexes on the database that need rebuilding. Turn 3: User asks for autovacuum configuration details to understand maintenance frequency. Accept the configuration summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_top_bloated_tables",
+        "toolbox__list_invalid_indexes",
+        "toolbox__list_autovacuum_configurations"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlpg-data-03",
+      "starting_prompt": "We want to install extensions on ${CLOUD_SQL_POSTGRES_DATABASE} for AI workloads. What extensions are available on this server, and which ones are currently installed?",
+      "conversation_plan": "Turn 2: The user notes the extension list and asks what the current memory configurations (such as shared_buffers and work_mem) are set to. Turn 3: User acknowledges the memory settings and asks for a short summary of memory readiness. Accept the summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_available_extensions",
+        "toolbox__list_installed_extensions",
+        "toolbox__list_memory_configurations"
+      ],
+      "kind": "tools",
+      "max_turns": 3
     }
   ]
 }
