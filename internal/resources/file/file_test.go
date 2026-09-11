@@ -105,6 +105,79 @@ func TestParseFromYamlFile(t *testing.T) {
 				},
 			},
 		},
+		{
+			// A file resource may also be addressed under skill://, which is
+			// what lets a skill's files be declared by hand.
+			desc: "skill scheme uri",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: queries
+			type: file
+			uri: skill://analytics-guide/references/queries.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			want: server.ResourceConfigs{
+				"queries": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "queries",
+							Type:        "file",
+							Annotations: &resources.ResourceAnnotations{Priority: func(f float64) *float64 { return &f }(1.0)},
+						},
+						URI: "skill://analytics-guide/references/queries.md",
+					},
+					Path: filepath.ToSlash(validPath),
+				},
+			},
+		},
+		{
+			// Schemes and hosts are case-insensitive per RFC 3986 §3.1 and §3.2.2,
+			// so both are normalized to lowercase on the way in. The path is not.
+			desc: "uppercase native scheme is normalized",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: queries
+			type: file
+			uri: FILE://Queries
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			want: server.ResourceConfigs{
+				"queries": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "queries",
+							Type:        "file",
+							Annotations: &resources.ResourceAnnotations{Priority: func(f float64) *float64 { return &f }(1.0)},
+						},
+						URI: "file://queries",
+					},
+					Path: filepath.ToSlash(validPath),
+				},
+			},
+		},
+		{
+			desc: "uppercase skill scheme is normalized",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: queries
+			type: file
+			uri: SKILL://Analytics-Guide/references/queries.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			want: server.ResourceConfigs{
+				"queries": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "queries",
+							Type:        "file",
+							Annotations: &resources.ResourceAnnotations{Priority: func(f float64) *float64 { return &f }(1.0)},
+						},
+						URI: "skill://analytics-guide/references/queries.md",
+					},
+					Path: filepath.ToSlash(validPath),
+				},
+			},
+		},
 	}
 
 	for _, tc := range tcs {
@@ -151,6 +224,39 @@ func TestFailParseFromYaml(t *testing.T) {
 			type: file
 			`,
 			err: "Field validation for 'Path' failed on the 'required' tag",
+		},
+		{
+			desc: "foreign scheme",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: query://my-file
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "must be 'file' or 'skill'",
+		},
+		{
+			desc: "text scheme",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: text://my-file
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "must be 'file' or 'skill'",
+		},
+		{
+			desc: "uppercase foreign scheme",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: QUERY://my-file
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "must be 'file' or 'skill'",
 		},
 		{
 			desc: "maxSize zero",
