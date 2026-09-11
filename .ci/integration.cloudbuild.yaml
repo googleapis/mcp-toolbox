@@ -1438,9 +1438,12 @@ steps:
           tar -C /usr/local -xzf go.tar.gz
           export PATH="/usr/local/go/bin:$$PATH"
 
-          go test -v ./tests/oracle/... \
+          if ! go test -v ./tests/oracle/... \
             -coverprofile=oracle_coverage.out \
-            -coverpkg=./internal/sources/oracle/...,./internal/tools/oracle/...
+            -coverpkg=./internal/sources/oracle/...,./internal/tools/oracle/...; then
+            echo "Error: Oracle tests failed. Exiting."
+            exit 1
+          fi
 
           # Coverage check
           total_coverage=$(go tool cover -func=oracle_coverage.out | grep "total:" | awk '{print $3}')
