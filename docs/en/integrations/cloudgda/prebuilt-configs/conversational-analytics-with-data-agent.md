@@ -24,5 +24,6 @@ description: "Details of the Conversational Analytics with Data Agent prebuilt c
         required roles, API setup, and IAM configuration, see the setup and
         authentication section of the [Conversational Analytics API
         documentation](https://cloud.google.com/gemini/docs/conversational-analytics-api/overview).
+    *   `create_data_agent`: Create a new Data Agent for conversational analytics.
     *   `get_data_agent_info`: Retrieve details about a specific data agent.
     *   `list_accessible_data_agents`: List data agents that are accessible.

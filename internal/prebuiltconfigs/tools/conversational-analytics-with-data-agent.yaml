@@ -48,9 +48,18 @@ description: |
   queries and provides detailed responses based on the agent's configured
   data sources.
 ---
+kind: tool
+name: create_data_agent
+type: conversational-analytics-create-data-agent
+source: conversational-analytics-source
+location: ${CLOUD_GDA_LOCATION:global}
+description: |
+  Create a new Data Agent for conversational analytics using the specified configuration.
+---
 kind: toolset
 name: conversational_analytics_tools
 tools:
 - list_accessible_data_agents
 - get_data_agent_info
 - ask_data_agent
+- create_data_agent

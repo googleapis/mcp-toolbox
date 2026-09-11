@@ -2584,7 +2584,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"conversational_analytics_tools": group.GroupConfig{
 					Name:      "conversational_analytics_tools",
-					ToolNames: []string{"list_accessible_data_agents", "get_data_agent_info", "ask_data_agent"},
+					ToolNames: []string{"list_accessible_data_agents", "get_data_agent_info", "ask_data_agent", "create_data_agent"},
 				},
 			},
 		},
