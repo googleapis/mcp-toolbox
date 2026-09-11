@@ -223,10 +223,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d prompts: %s", len(promptsMap), strings.Join(promptNames, ", ")))
 
-	// initialize and validate the resources from configs. The map is keyed by URI
-	// so that resources derived from a directory, which have no operator-given
-	// name, still get a unique key. resourcesByName keeps group configs, which
-	// reference resources by name, resolving against the same objects.
+	// initialize and validate the resources from configs
 	resourcesMap := make(map[string]resources.Resource)
 	resourcesByName := make(map[string]resources.Resource)
 	for name, rc := range cfg.ResourceConfigs {
@@ -413,13 +410,9 @@ func initializeTools(ctx context.Context, cfg ServerConfig, sourcesMap map[strin
 	return toolsMap, nil
 }
 
-// initializeGroups seeds a default nameless group containing all tools and all
-// prompts, converts each legacy kind: toolsets config into a tools-only group,
-// then initializes and validates every group. The default group's derived
-// toolset/promptset views preserve the legacy behavior of returning everything
-// for clients that connect without naming a collection.
-// Groups reference resources by name, so resourcesByName must be keyed by name
-// rather than by the URI the runtime resource map uses.
+// initializeGroups seeds a default nameless group containing all tools,
+// prompts and resources. Also converts each legacy kind: toolsets config into a tools-only group,
+// then initializes and validates every group
 func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, resourcesByName map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate, instrumentation *telemetry.Instrumentation, l log.Logger) (map[string]group.Group, error) {
 	allToolNames := make([]string, 0, len(toolsMap))
 	for name := range toolsMap {
