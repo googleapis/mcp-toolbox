@@ -200,7 +200,7 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if !ok {
 			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
 		}
-		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
+		mcpManifest = append(mcpManifest, generateResourceManifest(res.GetName(), res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
 	}
 	return ListResourcesResult{Resources: mcpManifest}, nil
 }

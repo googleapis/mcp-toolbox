@@ -223,8 +223,12 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d prompts: %s", len(promptsMap), strings.Join(promptNames, ", ")))
 
-	// initialize and validate the resources from configs
+	// initialize and validate the resources from configs. The map is keyed by URI
+	// so that resources derived from a directory, which have no operator-given
+	// name, still get a unique key. resourcesByName keeps group configs, which
+	// reference resources by name, resolving against the same objects.
 	resourcesMap := make(map[string]resources.Resource)
+	resourcesByName := make(map[string]resources.Resource)
 	for name, rc := range cfg.ResourceConfigs {
 		if rc == nil {
 			return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("resource config for %q is nil", name)
@@ -246,10 +250,11 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
-		resourcesMap[name] = r
+		resourcesMap[r.GetURI()] = r
+		resourcesByName[name] = r
 	}
-	resourceNames := make([]string, 0, len(resourcesMap))
-	for name := range resourcesMap {
+	resourceNames := make([]string, 0, len(resourcesByName))
+	for name := range resourcesByName {
 		resourceNames = append(resourceNames, name)
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resources: %s", len(resourcesMap), strings.Join(resourceNames, ", ")))
@@ -285,7 +290,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resource templates: %s", len(resourceTemplatesMap), strings.Join(resourceTemplateNames, ", ")))
 
-	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
+	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesByName, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
@@ -328,13 +333,15 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 
 	// Resources and templates are initialized so group validation succeeds offline.
-	resourcesMap := make(map[string]resources.Resource)
+	// Keyed by name, not URI: this map is only ever used to resolve the names in
+	// group configs and is never handed to the PrimitiveManager.
+	resourcesByName := make(map[string]resources.Resource)
 	for name, rc := range cfg.ResourceConfigs {
 		r, err := rc.Initialize(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to initialize resource %q: %w", name, err)
 		}
-		resourcesMap[name] = r
+		resourcesByName[name] = r
 	}
 
 	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)
@@ -346,7 +353,7 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 		resourceTemplatesMap[name] = rt
 	}
 
-	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
+	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesByName, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -411,7 +418,9 @@ func initializeTools(ctx context.Context, cfg ServerConfig, sourcesMap map[strin
 // then initializes and validates every group. The default group's derived
 // toolset/promptset views preserve the legacy behavior of returning everything
 // for clients that connect without naming a collection.
-func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, resourcesMap map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate, instrumentation *telemetry.Instrumentation, l log.Logger) (map[string]group.Group, error) {
+// Groups reference resources by name, so resourcesByName must be keyed by name
+// rather than by the URI the runtime resource map uses.
+func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string]tools.Tool, promptsMap map[string]prompts.Prompt, resourcesByName map[string]resources.Resource, resourceTemplatesMap map[string]resources.ResourceTemplate, instrumentation *telemetry.Instrumentation, l log.Logger) (map[string]group.Group, error) {
 	allToolNames := make([]string, 0, len(toolsMap))
 	for name := range toolsMap {
 		allToolNames = append(allToolNames, name)
@@ -423,8 +432,8 @@ func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string
 	}
 	slices.Sort(allPromptNames)
 
-	allResourceNames := make([]string, 0, len(resourcesMap))
-	for name, res := range resourcesMap {
+	allResourceNames := make([]string, 0, len(resourcesByName))
+	for name, res := range resourcesByName {
 		if !res.IsUI() {
 			allResourceNames = append(allResourceNames, name)
 		}
@@ -478,7 +487,7 @@ func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string
 				trace.WithAttributes(attribute.String("group.name", name)),
 			)
 			defer span.End()
-			g, err := gc.Initialize(toolsMap, promptsMap, resourcesMap, resourceTemplatesMap)
+			g, err := gc.Initialize(toolsMap, promptsMap, resourcesByName, resourceTemplatesMap)
 			if err != nil {
 				return group.Group{}, fmt.Errorf("unable to initialize group %q: %w", name, err)
 			}

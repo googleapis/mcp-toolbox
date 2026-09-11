@@ -146,6 +146,49 @@ func TestGetUIResourcesAndTemplates(t *testing.T) {
 	}
 }
 
+// The resource map is keyed by URI, but group configs and a tool's ui.resource
+// field both refer to resources by name, so both have to resolve.
+func TestGetResourceByNameOrURI(t *testing.T) {
+	res := testutils.NewMockResource("my-guide", "file:///guide.md", "", "", "", nil, nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{res.GetURI(): res}, nil, nil)
+
+	for _, key := range []string{"my-guide", "file:///guide.md"} {
+		got, ok := primMgr.GetResource(key)
+		if !ok {
+			t.Fatalf("GetResource(%q) = not found, want the resource", key)
+		}
+		if got.GetName() != "my-guide" {
+			t.Errorf("GetResource(%q) returned %q, want %q", key, got.GetName(), "my-guide")
+		}
+	}
+
+	if _, ok := primMgr.GetResource("nonexistent"); ok {
+		t.Error("GetResource(\"nonexistent\") = found, want not found")
+	}
+}
+
+// Resource names are not validated, so a name is allowed to look like a URI. The
+// name must win, otherwise re-keying the map by URI would silently redirect an
+// existing config to a different resource.
+func TestGetResourcePrefersNameOverURI(t *testing.T) {
+	// decoy's *name* is the same string as target's *URI*.
+	target := testutils.NewMockResource("target", "skill://guide/SKILL.md", "", "", "", nil, nil)
+	decoy := testutils.NewMockResource("skill://guide/SKILL.md", "file:///decoy.md", "", "", "", nil, nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, map[string]resources.Resource{
+		target.GetURI(): target,
+		decoy.GetURI():  decoy,
+	}, nil, nil)
+
+	got, ok := primMgr.GetResource("skill://guide/SKILL.md")
+	if !ok {
+		t.Fatal("GetResource() = not found, want the decoy resource")
+	}
+	if got.GetName() != "skill://guide/SKILL.md" {
+		t.Errorf("GetResource() resolved to %q, want the resource named %q", got.GetName(), "skill://guide/SKILL.md")
+	}
+}
+
 func TestMatchResourceTemplateURI(t *testing.T) {
 	tests := []struct {
 		name       string
