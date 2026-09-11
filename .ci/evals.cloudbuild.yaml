@@ -84,6 +84,20 @@ steps:
       - "CLOUD_SQL_POSTGRES_USER"
       - "CLOUD_SQL_POSTGRES_PASSWORD"
 
+  - id: "evals-cloud-sql-postgres-observability"
+    name: "${_EVALBENCH_IMAGE}"
+    waitFor: ["build-toolbox", "pull-evalbench"]
+    dir: /evalbench
+    entrypoint: bash
+    args: ["/workspace/.ci/run_evals.sh"]
+    allowFailure: true
+    env:
+      - "TOOLBOX_PREBUILT=cloud-sql-postgres-observability"
+      - "EVAL_DATASET=evals/evalsets/cloud-sql-postgres-observability.json"
+      - "EVAL_ENV_PREFIX=CLOUD_SQL_POSTGRES_OBSERVABILITY"
+      - "CLOUD_SQL_POSTGRES_OBSERVABILITY_PROJECT=$PROJECT_ID"
+      - "CLOUD_SQL_POSTGRES_OBSERVABILITY_INSTANCE=${_CLOUD_SQL_POSTGRES_INSTANCE}"
+
   - id: "evals-cloud-sql-mysql"
     name: "${_EVALBENCH_IMAGE}"
     waitFor: ["build-toolbox", "pull-evalbench"]
