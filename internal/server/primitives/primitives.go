@@ -178,7 +178,6 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	// Indexed directly rather than through GetResource, which resolves names first.
 	if res, ok := r.resources[uri]; ok && res.IsUI() {
 		return res, true
 	}
