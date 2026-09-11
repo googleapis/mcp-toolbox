@@ -357,6 +357,36 @@ func TestFileTemplate_Validation(t *testing.T) {
 			wantErrMsg: "failed on the 'required' tag",
 		},
 		{
+			name: "foreign scheme",
+			yamlStr: `
+			kind: resourceTemplate
+			name: my-template
+			type: file
+			uriTemplate: "query://{path}"
+			`,
+			wantErrMsg: "must be 'file' or 'skill'",
+		},
+		{
+			name: "text scheme",
+			yamlStr: `
+			kind: resourceTemplate
+			name: my-template
+			type: file
+			uriTemplate: "text://{path}"
+			`,
+			wantErrMsg: "must be 'file' or 'skill'",
+		},
+		{
+			name: "uppercase foreign scheme",
+			yamlStr: `
+			kind: resourceTemplate
+			name: my-template
+			type: file
+			uriTemplate: "QUERY://{path}"
+			`,
+			wantErrMsg: "must be 'file' or 'skill'",
+		},
+		{
 			name: "invalid maxSize negative",
 			yamlStr: `
 			kind: resourceTemplate
@@ -513,4 +543,37 @@ allowedPaths:
 			t.Fatalf("Expected error for ui scheme with ui: false, got %v", err)
 		}
 	})
+}
+
+// TestFileTemplate_AllowedSchemes is the accepting counterpart to the scheme
+// cases in TestFileTemplate_Validation. skill:// is what lets a skill declare
+// its directory of files as a single template.
+func TestFileTemplate_AllowedSchemes(t *testing.T) {
+	tests := []struct {
+		name        string
+		uriTemplate string
+	}{
+		{"native scheme", "file://{path}"},
+		{"skill scheme", "skill://analytics-guide/references/{path}"},
+		{"uppercase skill scheme", "SKILL://analytics-guide/references/{path}"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yamlStr := fmt.Sprintf(`
+			kind: resourceTemplate
+			name: my-template
+			type: file
+			uriTemplate: %q
+			`, tt.uriTemplate)
+
+			_, _, _, _, _, _, got, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+			if err != nil {
+				t.Fatalf("parsing %s: got %v, want nil", tt.uriTemplate, err)
+			}
+			if _, ok := got["my-template"]; !ok {
+				t.Fatalf("parsing %s: template not registered, got %v", tt.uriTemplate, got)
+			}
+		})
+	}
 }
