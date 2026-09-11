@@ -1536,6 +1536,55 @@ func TestInitializeConfigs(t *testing.T) {
 			t.Fatalf("tools map mismatch: want %s, got %s", wantToolsMap, toolsMap)
 		}
 	})
+	t.Run("resources are keyed by URI", func(t *testing.T) {
+		raw := []byte(`
+kind: resource
+name: auto-uri
+type: text
+description: uri is derived as text://auto-uri
+text: AAA
+---
+kind: resource
+name: explicit-uri
+type: text
+description: uri is given
+uri: text://spelled-out
+text: BBB
+`)
+		_, _, _, _, _, resourceConfigs, _, _, err := server.UnmarshalPrimitiveConfig(ctx, raw)
+		if err != nil {
+			t.Fatalf("unexpected error parsing config: %s", err)
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, server.ServerConfig{
+			Version:         "0.0.0",
+			ResourceConfigs: resourceConfigs,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error during config initialization: %s", err)
+		}
+
+		wantNamesByURI := map[string]string{
+			"text://auto-uri":    "auto-uri",
+			"text://spelled-out": "explicit-uri",
+		}
+		if len(resourcesMap) != len(wantNamesByURI) {
+			t.Fatalf("resources map has %d entries, want %d: %v", len(resourcesMap), len(wantNamesByURI), resourcesMap)
+		}
+		for uri, wantName := range wantNamesByURI {
+			res, ok := resourcesMap[uri]
+			if !ok {
+				t.Fatalf("resources map is missing key %q; got %v", uri, resourcesMap)
+			}
+			if res.GetName() != wantName {
+				t.Errorf("resources map[%q] has name %q, want %q", uri, res.GetName(), wantName)
+			}
+		}
+		// The config name must not be a key, or the re-key silently didn't happen.
+		if _, ok := resourcesMap["explicit-uri"]; ok {
+			t.Error("resources map is keyed by config name, want keyed by URI")
+		}
+	})
 	t.Run("invalid initialization", func(t *testing.T) {
 		invalidCfg := server.ServerConfig{
 			Version: "0.0.0",

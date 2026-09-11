@@ -257,7 +257,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	for name := range resourcesByName {
 		resourceNames = append(resourceNames, name)
 	}
-	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resources: %s", len(resourcesMap), strings.Join(resourceNames, ", ")))
+	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resources: %s", len(resourceNames), strings.Join(resourceNames, ", ")))
 
 	// initialize and validate the resource templates from configs
 	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)

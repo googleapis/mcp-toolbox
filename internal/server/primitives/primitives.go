@@ -180,10 +180,9 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, res := range r.resources {
-		if res.IsUI() && res.GetURI() == uri {
-			return res, true
-		}
+	// Indexed directly rather than through GetResource, which resolves names first.
+	if res, ok := r.resources[uri]; ok && res.IsUI() {
+		return res, true
 	}
 	return nil, false
 }
