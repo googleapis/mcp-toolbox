@@ -1,0 +1,94 @@
+{
+  "scenarios": [
+    {
+      "id": "firestore-data-01",
+      "starting_prompt": "I am auditing our Firestore database, give me info for 'eval_customers/customer_alpha'.",
+      "conversation_plan": "The user wants a list of collections followed by details for one named document. Accept a short summary of the collection and document contents and end the conversation. Success Criteria: Agent lists root collectiosn in the database and retrieves the document contents for 'eval_customers/customer_alpha'.",
+      "expected_trajectory": [
+        "toolbox__list_collections",
+        "toolbox__get_documents"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "firestore-data-02",
+      "starting_prompt": "Check my 'eval_customers' collection in Firestore for all documents where status is 'active'.",
+      "conversation_plan": "The user wants to find documents matching a filter in a collection. Accept the query results and end the conversation. Success Criteria: Agent queries the 'eval_customers' collection and returns documents with status 'active'.",
+      "expected_trajectory": [
+        "toolbox__query_collection"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "firestore-data-03",
+      "starting_prompt": "Add a new document to the 'eval_customers' collection with name 'Gamma Tech' and status 'pending'.",
+      "conversation_plan": "Turn 2: Ask the assistant to update the newly created document's status to 'active'. Accept confirmation of the update and end the conversation. Success Criteria: Agent creates a new document in the 'eval_customers' collection and updates its status to 'active'.",
+      "expected_trajectory": [
+        "toolbox__add_documents",
+        "toolbox__update_document"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "firestore-data-04",
+      "starting_prompt": "Delete my doc at path 'eval_customers/temp_eval_doc' from Firestore.",
+      "conversation_plan": "The user wants a specific document deleted from the collection. Accept confirmation that the document was deleted and end the conversation. Success Criteria: Agent deletes the document at path 'eval_customers/temp_eval_doc' from Firestore  .",
+      "expected_trajectory": [
+        "toolbox__delete_documents"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "firestore-security-01",
+      "starting_prompt": "What are our current Firestore security rules for this project?",
+      "conversation_plan": "Turn 2: Provide this proposed rule and ask the assistant to validate it for syntax or errors: \"rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /eval_customers/{id} { allow read: if true; } } }\". Accept the validation results and end the conversation. Success Criteria: Agent retrieves the current Firestore security rules and validates the proposed rule for syntax or errors.",
+      "expected_trajectory": [
+        "toolbox__get_rules",
+        "toolbox__validate_rules"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "firestore-investigate-01",
+      "starting_prompt": "Support received a ticket about stalled customer accounts in ${FIRESTORE_DATABASE}. Which collections are currently defined in our database hierarchy?",
+      "conversation_plan": "Turn 2: ask whether any accounts in the 'eval_customers' collection are flagged with an 'inactive' status. Turn 3: ask to pull up the full profile for 'eval_customers/customer_beta' to check its stored properties. Then end the conversation. Success Criteria: Agent enumerates database collections, queries 'eval_customers' for inactive records, and inspects the specific customer document by path.",
+      "expected_trajectory": [
+        "toolbox__list_collections",
+        "toolbox__query_collection",
+        "toolbox__get_documents"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "firestore-security-02",
+      "starting_prompt": "We are conducting an access control audit on ${FIRESTORE_DATABASE}. Can you check our current security policies to see how data access is restricted?",
+      "conversation_plan": "Turn 2: ask to evaluate a proposed policy that locks down customer reads to authenticated users: \"rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /eval_customers/{id} { allow read: if request.auth != null; allow write: if false; } } }\". Turn 3: ask to verify an updated policy that also allows administrators to make changes: \"rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /eval_customers/{id} { allow read: if request.auth != null; allow write: if request.auth.token.admin == true; } } }\". Then end the conversation. Success Criteria: Agent inspects active security rules, validates the authenticated-read rule, and validates the role-based admin-write rule syntax.",
+      "expected_trajectory": [
+        "toolbox__get_rules",
+        "toolbox__validate_rules",
+        "toolbox__validate_rules"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "firestore-lifecycle-01",
+      "starting_prompt": "We are running an end-to-end integration test in ${FIRESTORE_DATABASE}. Can you create a test account for 'Quantum Dynamics' in 'eval_customers' marked with status 'onboarding'?",
+      "conversation_plan": "Turn 2: ask to inspect the newly created account record to confirm all attributes were written properly. Turn 3: ask to mark the account status as 'active', and then discard the test record so the database remains clean. Then accept confirmation and end the conversation. Success Criteria: Agent creates the customer document, inspects it to verify fields, updates status to active, and cleanly removes it from the collection.",
+      "expected_trajectory": [
+        "toolbox__add_documents",
+        "toolbox__get_documents",
+        "toolbox__update_document",
+        "toolbox__delete_documents"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    }
+  ]
+}
