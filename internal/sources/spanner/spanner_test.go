@@ -97,6 +97,54 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "readOnly set to true",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			dialect: googlesql
+			database: my_db
+			readOnly: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-spanner-instance": spanner.Config{
+					Name:     "my-spanner-instance",
+					Type:     spanner.SourceType,
+					Project:  "my-project",
+					Instance: "my-instance",
+					Dialect:  "googlesql",
+					Database: "my_db",
+					ReadOnly: true,
+				},
+			},
+		},
+		{
+			desc: "readOnly set to false",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			dialect: googlesql
+			database: my_db
+			readOnly: false
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-spanner-instance": spanner.Config{
+					Name:     "my-spanner-instance",
+					Type:     spanner.SourceType,
+					Project:  "my-project",
+					Instance: "my-instance",
+					Dialect:  "googlesql",
+					Database: "my_db",
+					ReadOnly: false,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -109,7 +157,22 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 			}
 		})
 	}
+}
 
+func TestSpannerSource_IsReadOnly(t *testing.T) {
+	srcReadOnly := &spanner.Source{
+		Config: spanner.Config{ReadOnly: true},
+	}
+	if !srcReadOnly.IsReadOnly() {
+		t.Errorf("expected IsReadOnly() to be true")
+	}
+
+	srcWrite := &spanner.Source{
+		Config: spanner.Config{ReadOnly: false},
+	}
+	if srcWrite.IsReadOnly() {
+		t.Errorf("expected IsReadOnly() to be false")
+	}
 }
 
 func TestFailParseFromYaml(t *testing.T) {
