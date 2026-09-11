@@ -20,7 +20,7 @@
  * under the com.google.cloud/toolbox.v1 MCP extension.
  */
 
-import type { CallToolRequestParams, Tool } from "./spec.types.js";
+import type { CallToolRequestParams, Tool } from "../../schema/spec.types.js";
 
 /**
  * Extension identifier constant.
