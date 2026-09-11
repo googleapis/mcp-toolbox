@@ -21,6 +21,28 @@
       ],
       "kind": "tools",
       "max_turns": 2
+    },
+    {
+      "id": "cloudsqlpg-admin-03",
+      "starting_prompt": "We are planning a database upgrade roadmap for ${CLOUD_SQL_POSTGRES_INSTANCE} in project ${CLOUD_SQL_POSTGRES_PROJECT}. Can you run a major version upgrade precheck to see if this instance is ready to upgrade to PostgreSQL 16?",
+      "conversation_plan": "Turn 2: The user reviews the precheck findings and asks what current database version and machine tier ${CLOUD_SQL_POSTGRES_INSTANCE} is currently running on. Turn 3: User accepts the configuration summary and ends the conversation.",
+      "expected_trajectory": [
+        "toolbox__postgres_upgrade_precheck",
+        "toolbox__get_instance"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlpg-admin-04",
+      "starting_prompt": "I am conducting an infrastructure audit of our Cloud SQL fleet in project ${CLOUD_SQL_POSTGRES_PROJECT}. Can you list all Cloud SQL instances we have in this project?",
+      "conversation_plan": "Turn 2: The user reviews the instance list and asks to list all databases hosted on the '${CLOUD_SQL_POSTGRES_INSTANCE}' instance. Turn 3: User acknowledges the database inventory and asks for a short summary of application vs system databases. Accept the summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_instances",
+        "toolbox__list_databases"
+      ],
+      "kind": "tools",
+      "max_turns": 3
     }
   ]
 }
