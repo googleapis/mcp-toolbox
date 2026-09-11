@@ -25,7 +25,7 @@ import type {
   Prompt,
   RequestParams,
   Result,
-} from "../../schema/spec.types.js";
+} from "../../secureParams/schema/spec.types.js";
 import type { ToolWithSecureParams } from "../../secureParams/schema/schema.js";
 
 /**
