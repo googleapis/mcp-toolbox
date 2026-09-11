@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -47,7 +48,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
-	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
+	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
@@ -1664,6 +1665,86 @@ func TestInitializeConfigs(t *testing.T) {
 		_, _, err := server.InitializeOfflineConfigs(ctx, cfg)
 		if err != nil {
 			t.Fatalf("expected InitializeOfflineConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("serves a static skill from the bytes read at load", func(t *testing.T) {
+		dir := t.TempDir()
+		const original = "# Common queries\n"
+		skillPath := filepath.Join(dir, "SKILL.md")
+		queriesPath := filepath.Join(dir, "queries.md")
+		if err := os.WriteFile(skillPath, []byte("---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(queriesPath, []byte(original), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "file", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Path: skillPath,
+				},
+				"queries": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "file", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Path: queriesPath,
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("expected InitializeConfigs to succeed, got: %v", err)
+		}
+
+		if err := os.WriteFile(queriesPath, []byte("# Rewritten after load\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := resourcesMap["queries"].Read(ctx, nil)
+		if err != nil {
+			t.Fatalf("Read() = %v, want nil", err)
+		}
+		if got != original {
+			t.Errorf("Read() = %q, want the bytes read at load %q", got, original)
+		}
+	})
+
+	t.Run("fails to start when a skill is invalid", func(t *testing.T) {
+		dir := t.TempDir()
+		skillPath := filepath.Join(dir, "SKILL.md")
+		// No frontmatter, which Discover rejects.
+		if err := os.WriteFile(skillPath, []byte("# Just a heading\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "file", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Path: skillPath,
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail on an invalid skill")
+		}
+		if !strings.Contains(err.Error(), "frontmatter") {
+			t.Errorf("error = %v, want it to name the frontmatter problem", err)
 		}
 	})
 }

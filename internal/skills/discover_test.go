@@ -83,7 +83,7 @@ func TestDiscover(t *testing.T) {
 			"skill://analytics-guide-v2/SKILL.md", skillMD("analytics-guide-v2", "A different skill")),
 	}
 
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, _, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -141,7 +141,7 @@ func TestDiscoverNestedSkill(t *testing.T) {
 			skillMD("refunds", "Refund workflows")),
 	}
 
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, _, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -214,7 +214,7 @@ func TestDiscoverErrors(t *testing.T) {
 			resourcesMap := map[string]resources.Resource{
 				"s": textResource(t, ctx, "s", tc.uri, tc.content),
 			}
-			_, err := skills.Discover(ctx, resourcesMap)
+			_, _, err := skills.Discover(ctx, resourcesMap)
 			if err == nil {
 				t.Fatalf("Discover() = nil, want error containing %q", tc.wantErr)
 			}
@@ -238,7 +238,7 @@ func TestDiscoverNoSkills(t *testing.T) {
 		"orphan": textResource(t, ctx, "orphan", "skill://guide/references/orphan.md", "hello"),
 	}
 
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, _, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -261,7 +261,7 @@ func TestDiscoverCRLFFrontmatter(t *testing.T) {
 		"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", content),
 	}
 
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, _, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -285,7 +285,7 @@ func TestDiscoverNoLogger(t *testing.T) {
 			"---\nname: guide\ndescription: A guide\n---\n\n# guide\n"),
 	}
 
-	_, err := skills.Discover(context.Background(), resourcesMap)
+	_, _, err := skills.Discover(context.Background(), resourcesMap)
 	if err == nil {
 		t.Fatal("Discover() with no logger in context = nil, want an error")
 	}
@@ -330,7 +330,7 @@ func TestDiscoverFrontmatterDelimiters(t *testing.T) {
 			m := map[string]resources.Resource{
 				"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", tc.content),
 			}
-			_, err := skills.Discover(ctx, m)
+			_, _, err := skills.Discover(ctx, m)
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Fatalf("Discover() = %v, want nil", err)
@@ -379,7 +379,7 @@ func TestDiscoverWarnsOnDuplicateNames(t *testing.T) {
 		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
 	}
 
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, _, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -413,7 +413,7 @@ func TestDiscoverNoDuplicateWarning(t *testing.T) {
 		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
 		"b": textResource(t, ctx, "b", "skill://acme/other/SKILL.md", skillMD("other", "Two")),
 	}
-	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
+	if _, _, err := skills.Discover(ctx, resourcesMap); err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
 	if got := stderr.String(); strings.Contains(got, "share the name") {
@@ -448,7 +448,7 @@ func TestDiscoverUnreadableResource(t *testing.T) {
 				"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", skillMD("guide", "A guide")),
 				"d": tc.res,
 			}
-			_, err := skills.Discover(ctx, resourcesMap)
+			_, _, err := skills.Discover(ctx, resourcesMap)
 			if err == nil {
 				t.Fatalf("Discover() = nil, want an error containing %q", tc.wantErr)
 			}
@@ -477,7 +477,7 @@ func TestDiscoverTooManyFiles(t *testing.T) {
 		resourcesMap[uri] = badResource{uri: uri, content: []byte("unreadable")}
 	}
 
-	_, err := skills.Discover(ctx, resourcesMap)
+	_, _, err := skills.Discover(ctx, resourcesMap)
 	if err == nil {
 		t.Fatal("Discover() = nil, want an error")
 	}

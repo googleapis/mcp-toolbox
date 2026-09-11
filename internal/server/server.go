@@ -45,6 +45,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
+	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -247,6 +248,18 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 			return nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		resourcesMap[name] = r
+	}
+	// Serve a static skill's files from the bytes hashed here, not from their
+	// backing store. The digests published to hosts are computed from these
+	// bytes, and a host rejects a read that does not match.
+	_, snapshots, err := skills.Discover(ctx, resourcesMap)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
+	for key, r := range resourcesMap {
+		if snap, ok := snapshots[r.GetURI()]; ok {
+			resourcesMap[key] = snap
+		}
 	}
 	resourceNames := make([]string, 0, len(resourcesMap))
 	for name := range resourcesMap {
