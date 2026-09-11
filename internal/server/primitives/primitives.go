@@ -121,9 +121,7 @@ func (r *PrimitiveManager) GetPrompt(promptName string) (prompts.Prompt, bool) {
 }
 
 // GetResource returns a specific resource by name or by URI. Names are resolved
-// first: resource names are not validated, so a name is allowed to look like a
-// URI, and an operator's existing name must always win over a URI that collides
-// with it.
+// first.
 func (r *PrimitiveManager) GetResource(nameOrURI string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
