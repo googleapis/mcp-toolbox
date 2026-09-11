@@ -59,6 +59,54 @@ assign_issues_by:
     - 'product: spanner'
     to:
     - 'googleapis/toolbox-spanner-team'
+  - labels:
+    - 'product: cloudhealthcare'
+    to:
+    - 'googleapis/toolbox-cloud-healthcare-team'
+  - labels:
+    - 'product: cloudlogging'
+    to:
+    - 'googleapis/senseai-eco-team'
+  - labels:
+    - 'product: cloudmonitoring'
+    to:
+    - 'googleapis/senseai-eco-team'
+  - labels:
+    - 'product: cloudstorage'
+    to:
+    - 'googleapis/toolbox-cloud-storage-team'
+  - labels:
+    - 'product: databaseinsights'
+    to:
+    - 'googleapis/toolbox-database-insights-team'
+  - labels:
+    - 'product: datalineage'
+    to:
+    - 'googleapis/toolbox-data-lineage-team'
+  - labels:
+    - 'product: dataproc'
+    to:
+    - 'googleapis/toolbox-dataproc-team'
+  - labels:
+    - 'product: memorystore'
+    to:
+    - 'googleapis/toolbox-memorystore-team'
+  - labels:
+    - 'product: redis'
+    to:
+    - 'googleapis/toolbox-memorystore-team'
+  - labels:
+    - 'product: valkey'
+    to:
+    - 'googleapis/toolbox-memorystore-team'
+  - labels:
+    - 'product: oracle'
+    to:
+    - 'googleapis/toolbox-oracle-team'
+  - labels:
+    - 'product: serverlessspark'
+    to:
+    - 'googleapis/toolbox-serverless-spark-team'
 assign_prs:
   - Yuan325
   - duwenxin99
@@ -103,4 +151,52 @@ assign_prs_by:
     - 'product: spanner'
     to:
     - 'googleapis/toolbox-spanner-team'
+  - labels:
+    - 'product: cloudhealthcare'
+    to:
+    - 'googleapis/toolbox-cloud-healthcare-team'
+  - labels:
+    - 'product: cloudlogging'
+    to:
+    - 'googleapis/senseai-eco-team'
+  - labels:
+    - 'product: cloudmonitoring'
+    to:
+    - 'googleapis/senseai-eco-team'
+  - labels:
+    - 'product: cloudstorage'
+    to:
+    - 'googleapis/toolbox-cloud-storage-team'
+  - labels:
+    - 'product: databaseinsights'
+    to:
+    - 'googleapis/toolbox-database-insights-team'
+  - labels:
+    - 'product: datalineage'
+    to:
+    - 'googleapis/toolbox-data-lineage-team'
+  - labels:
+    - 'product: dataproc'
+    to:
+    - 'googleapis/toolbox-dataproc-team'
+  - labels:
+    - 'product: memorystore'
+    to:
+    - 'googleapis/toolbox-memorystore-team'
+  - labels:
+    - 'product: redis'
+    to:
+    - 'googleapis/toolbox-memorystore-team'
+  - labels:
+    - 'product: valkey'
+    to:
+    - 'googleapis/toolbox-memorystore-team'
+  - labels:
+    - 'product: oracle'
+    to:
+    - 'googleapis/toolbox-oracle-team'
+  - labels:
+    - 'product: serverlessspark'
+    to:
+    - 'googleapis/toolbox-serverless-spark-team'
 
