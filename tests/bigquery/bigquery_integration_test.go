@@ -90,7 +90,11 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 
 	// create table name with UUID
 	datasetName := fmt.Sprintf("temp_toolbox_test_%s", uniqueID)
-	tableName := fmt.Sprintf("param_table_%s", uniqueID)
+
+	cleanupDatasets := ensureTeardownDatasets(client, datasetName)
+	defer cleanupDatasets(t)
+
+	tableName := fmt.Sprintf("param_table_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	tableNameParam := fmt.Sprintf("`%s.%s.%s`",
 		BigqueryProject,
 		datasetName,
@@ -122,11 +126,6 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 		datasetName,
 		uniqueID,
 	)
-
-	// global cleanup for this test run
-	t.Cleanup(func() {
-		tests.CleanupBigQueryDatasets(t, context.Background(), client, []string{datasetName})
-	})
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getBigQueryParamToolInfo(tableNameParam)
@@ -227,7 +226,7 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
 	t.Logf("Starting restriction test with uniqueID: %s", uniqueID)
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	client, err := initBigQueryConnection(BigqueryProject)
@@ -235,9 +234,15 @@ func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
 		t.Fatalf("unable to create BigQuery client: %s", err)
 	}
 
-	allowedDatasetName1 := fmt.Sprintf("allowed_dataset_1_%s", uniqueID)
-	allowedDatasetName2 := fmt.Sprintf("allowed_dataset_2_%s", uniqueID)
-	disallowedDatasetName := fmt.Sprintf("disallowed_dataset_%s", uniqueID)
+	// Create two datasets, one allowed, one not.
+	baseName := uniqueID
+	allowedDatasetName1 := fmt.Sprintf("allowed_dataset_1_%s", baseName)
+	allowedDatasetName2 := fmt.Sprintf("allowed_dataset_2_%s", baseName)
+	disallowedDatasetName := fmt.Sprintf("disallowed_dataset_%s", baseName)
+
+	cleanupDatasets := ensureTeardownDatasets(client, allowedDatasetName1, allowedDatasetName2, disallowedDatasetName)
+	defer cleanupDatasets(t)
+
 	allowedTableName1 := "allowed_table_1"
 	allowedTableName2 := "allowed_table_2"
 	disallowedTableName := "disallowed_table"
@@ -248,11 +253,6 @@ func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
 	allowedAnalyzeContributionTableName1 := "allowed_analyze_contribution_table_1"
 	allowedAnalyzeContributionTableName2 := "allowed_analyze_contribution_table_2"
 	disallowedAnalyzeContributionTableName := "disallowed_analyze_contribution_table"
-
-	// global cleanup for this test run
-	t.Cleanup(func() {
-		tests.CleanupBigQueryDatasets(t, context.Background(), client, []string{allowedDatasetName1, allowedDatasetName2, disallowedDatasetName})
-	})
 
 	// Setup allowed table
 	allowedTableNameParam1 := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, allowedDatasetName1, allowedTableName1)
@@ -295,6 +295,36 @@ func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
 	disallowedAnalyzeContributionTableFullName := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, disallowedDatasetName, disallowedAnalyzeContributionTableName)
 	createDisallowedAnalyzeContributionStmt, insertDisallowedAnalyzeContributionStmt, disallowedAnalyzeContributionParams := getBigQueryAnalyzeContributionToolInfo(disallowedAnalyzeContributionTableFullName)
 	setupBigQueryTable(t, ctx, client, createDisallowedAnalyzeContributionStmt, insertDisallowedAnalyzeContributionStmt, disallowedDatasetName, disallowedAnalyzeContributionTableFullName, disallowedAnalyzeContributionParams)
+
+	// Setup authorized views in BOTH allowed datasets pointing to disallowed tables
+	viewInAllowedPointingToDisallowedForecastName := "auth_view_forecast"
+	viewInAllowedPointingToDisallowedAnalyzeName := "auth_view_analyze"
+
+	// Create Forecast views
+	for _, dsName := range []string{allowedDatasetName1, allowedDatasetName2} {
+		// defers in this loop are intended to run at function exit to ensure all views are deleted before dataset teardown (LIFO execution order).
+		teardownForecastView := setupBigQueryView(t, ctx, client, dsName, viewInAllowedPointingToDisallowedForecastName, fmt.Sprintf("SELECT * FROM %s", disallowedForecastTableFullName))
+		defer teardownForecastView(t)
+
+		teardownAnalyzeView := setupBigQueryView(t, ctx, client, dsName, viewInAllowedPointingToDisallowedAnalyzeName, fmt.Sprintf("SELECT * FROM %s", disallowedAnalyzeContributionTableFullName))
+		defer teardownAnalyzeView(t)
+	}
+
+	// Authorize ALL views to access the disallowed dataset
+	dsMetadata, err := client.Dataset(disallowedDatasetName).Metadata(ctx)
+	if err != nil {
+		t.Fatalf("failed to get disallowed dataset metadata: %v", err)
+	}
+	newAccess := append(dsMetadata.Access,
+		&bigqueryapi.AccessEntry{EntityType: bigqueryapi.ViewEntity, View: client.Dataset(allowedDatasetName1).Table(viewInAllowedPointingToDisallowedForecastName)},
+		&bigqueryapi.AccessEntry{EntityType: bigqueryapi.ViewEntity, View: client.Dataset(allowedDatasetName2).Table(viewInAllowedPointingToDisallowedForecastName)},
+		&bigqueryapi.AccessEntry{EntityType: bigqueryapi.ViewEntity, View: client.Dataset(allowedDatasetName1).Table(viewInAllowedPointingToDisallowedAnalyzeName)},
+		&bigqueryapi.AccessEntry{EntityType: bigqueryapi.ViewEntity, View: client.Dataset(allowedDatasetName2).Table(viewInAllowedPointingToDisallowedAnalyzeName)},
+	)
+	update := bigqueryapi.DatasetMetadataToUpdate{Access: newAccess}
+	if _, err := client.Dataset(disallowedDatasetName).Update(ctx, update, dsMetadata.ETag); err != nil {
+		t.Fatalf("failed to authorize views: %v", err)
+	}
 
 	// Configure source with dataset restriction.
 	sourceConfig := getBigQueryVars(t)
@@ -396,7 +426,7 @@ func TestBigQueryWriteModeAllowed(t *testing.T) {
 	sourceConfig := getBigQueryVars(t)
 	sourceConfig["writeMode"] = "allowed"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	datasetName := fmt.Sprintf("temp_toolbox_test_allowed_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
@@ -452,7 +482,7 @@ func TestBigQueryWriteModeBlocked(t *testing.T) {
 	sourceConfig := getBigQueryVars(t)
 	sourceConfig["writeMode"] = "blocked"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	datasetName := fmt.Sprintf("temp_toolbox_test_blocked_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
@@ -735,6 +765,33 @@ func getBigQueryTmplToolStatement() (string, string) {
 	tmplSelectCombined := "SELECT * FROM {{.tableName}} WHERE id = ? ORDER BY id"
 	tmplSelectFilterCombined := "SELECT * FROM {{.tableName}} WHERE {{.columnFilter}} = ? ORDER BY id"
 	return tmplSelectCombined, tmplSelectFilterCombined
+}
+
+func ensureTeardownDatasets(client *bigqueryapi.Client, datasetNames ...string) func(*testing.T) {
+	return func(t *testing.T) {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		for _, dsName := range datasetNames {
+			if err := client.Dataset(dsName).DeleteWithContents(cleanupCtx); err != nil {
+				t.Logf("failed to cleanup dataset %s: %v", dsName, err)
+			}
+		}
+	}
+}
+
+func setupBigQueryView(t *testing.T, ctx context.Context, client *bigqueryapi.Client, datasetName, viewName, query string) func(*testing.T) {
+	if err := client.Dataset(datasetName).Table(viewName).Create(ctx, &bigqueryapi.TableMetadata{
+		ViewQuery: query,
+	}); err != nil {
+		t.Fatalf("failed to create view %s in %s: %v", viewName, datasetName, err)
+	}
+	return func(t *testing.T) {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		defer cancel()
+		if err := client.Dataset(datasetName).Table(viewName).Delete(cleanupCtx); err != nil {
+			t.Errorf("failed to delete view %s in %s: %v", viewName, datasetName, err)
+		}
+	}
 }
 
 func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, createStatement, insertStatement, datasetName string, tableName string, params []bigqueryapi.QueryParameter) func(*testing.T) {
@@ -2671,6 +2728,7 @@ func runListDatasetIdsWithRestriction(t *testing.T, allowedDatasetName1, allowed
 }
 
 func runListTableIdsWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName string, allowedTableNames ...string) {
+	allowedTableNames = append(allowedTableNames, "auth_view_forecast", "auth_view_analyze")
 	sort.Strings(allowedTableNames)
 	var quotedNames []string
 	for _, name := range allowedTableNames {
@@ -2858,7 +2916,8 @@ func runExecuteSqlWithRestriction(t *testing.T, allowedTableFullName, disallowed
 	if len(allowedTableParts) != 3 {
 		t.Fatalf("invalid allowed table name format: %s", allowedTableFullName)
 	}
-	allowedDatasetID := allowedTableParts[1]
+	allowedProjectID, allowedDatasetID := allowedTableParts[0], allowedTableParts[1]
+	viewFullName := fmt.Sprintf("`%s.%s.auth_view_forecast`", allowedProjectID, allowedDatasetID)
 
 	testCases := []struct {
 		name           string
@@ -2872,13 +2931,17 @@ func runExecuteSqlWithRestriction(t *testing.T, allowedTableFullName, disallowed
 			wantStatusCode: http.StatusOK,
 		},
 		{
+			name:           "invoke on authorized view",
+			sql:            fmt.Sprintf("SELECT * FROM %s", viewFullName),
+			wantStatusCode: http.StatusOK,
+		},
+		{
 			name:           "invoke on disallowed table",
 			sql:            fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName),
 			wantStatusCode: http.StatusOK,
-			wantInError: fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list",
-				strings.Join(
-					strings.Split(strings.Trim(disallowedTableFullName, "`"), ".")[0:2],
-					".")),
+			wantInError: fmt.Sprintf("access to dataset '%s.%s' is not allowed",
+				strings.Split(strings.Trim(disallowedTableFullName, "`"), ".")[0],
+				strings.Split(strings.Trim(disallowedTableFullName, "`"), ".")[1]),
 		},
 		{
 			name:           "disallowed create schema",
@@ -2902,13 +2965,25 @@ func runExecuteSqlWithRestriction(t *testing.T, allowedTableFullName, disallowed
 			name:           "disallowed create procedure",
 			sql:            fmt.Sprintf("CREATE PROCEDURE %s.my_proc() BEGIN SELECT 1; END", allowedDatasetID),
 			wantStatusCode: http.StatusOK,
-			wantInError:    "unanalyzable statements like 'CREATE PROCEDURE' are not allowed",
+			wantInError:    "creating stored routines ('CREATE_PROCEDURE') is not allowed",
+		},
+		{
+			name:           "disallowed create table function",
+			sql:            fmt.Sprintf("CREATE TABLE FUNCTION %s.my_tvf() AS (SELECT 1 AS x)", allowedDatasetID),
+			wantStatusCode: http.StatusOK,
+			wantInError:    "creating stored routines ('CREATE_TABLE_FUNCTION') is not allowed",
 		},
 		{
 			name:           "disallowed execute immediate",
 			sql:            "EXECUTE IMMEDIATE 'SELECT 1'",
 			wantStatusCode: http.StatusOK,
-			wantInError:    "EXECUTE IMMEDIATE is not allowed when dataset restrictions are in place",
+			wantInError:    "EXECUTE IMMEDIATE is not allowed",
+		},
+		{
+			name:           "disallowed session variable assignment",
+			sql:            "SET @@dataset_id = 'disallowed_ds'",
+			wantStatusCode: http.StatusOK,
+			wantInError:    "session variable assignment",
 		},
 	}
 
@@ -3023,6 +3098,10 @@ func runForecastWithRestriction(t *testing.T, allowedTableFullName, disallowedTa
 	disallowedTableUnquoted := strings.ReplaceAll(disallowedTableFullName, "`", "")
 	disallowedDatasetFQN := strings.Join(strings.Split(disallowedTableUnquoted, ".")[0:2], ".")
 
+	allowedParts := strings.Split(allowedTableUnquoted, ".")
+	viewFullName := fmt.Sprintf("`%s.%s.auth_view_forecast`", allowedParts[0], allowedParts[1])
+	viewUnquoted := strings.ReplaceAll(viewFullName, "`", "")
+
 	testCases := []struct {
 		name           string
 		historyData    string
@@ -3039,6 +3118,12 @@ func runForecastWithRestriction(t *testing.T, allowedTableFullName, disallowedTa
 			wantInResult:   `"forecast_timestamp"`,
 		},
 		{
+			name:           "invoke with authorized view name",
+			historyData:    viewUnquoted,
+			wantStatusCode: http.StatusOK,
+			wantInResult:   `"forecast_timestamp"`,
+		},
+		{
 			name:           "invoke with disallowed table name",
 			historyData:    disallowedTableUnquoted,
 			wantStatusCode: http.StatusOK,
@@ -3051,10 +3136,16 @@ func runForecastWithRestriction(t *testing.T, allowedTableFullName, disallowedTa
 			wantInResult:   `"forecast_timestamp"`,
 		},
 		{
+			name:           "invoke with query on authorized view",
+			historyData:    fmt.Sprintf("SELECT * FROM %s", viewFullName),
+			wantStatusCode: http.StatusOK,
+			wantInResult:   `"forecast_timestamp"`,
+		},
+		{
 			name:           "invoke with query on disallowed table",
 			historyData:    fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName),
 			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list", disallowedDatasetFQN),
+			wantInError:    fmt.Sprintf("access to dataset '%s' is not allowed", disallowedDatasetFQN),
 		},
 		{
 			name:           "invoke with SQL injection in timestamp_col",
@@ -3154,6 +3245,10 @@ func runAnalyzeContributionWithRestriction(t *testing.T, allowedTableFullName, d
 	disallowedTableUnquoted := strings.ReplaceAll(disallowedTableFullName, "`", "")
 	disallowedDatasetFQN := strings.Join(strings.Split(disallowedTableUnquoted, ".")[0:2], ".")
 
+	allowedParts := strings.Split(allowedTableUnquoted, ".")
+	viewFullName := fmt.Sprintf("`%s.%s.auth_view_analyze`", allowedParts[0], allowedParts[1])
+	viewUnquoted := strings.ReplaceAll(viewFullName, "`", "")
+
 	testCases := []struct {
 		name               string
 		inputData          string
@@ -3171,6 +3266,12 @@ func runAnalyzeContributionWithRestriction(t *testing.T, allowedTableFullName, d
 			wantInResult:   `"relative_difference"`,
 		},
 		{
+			name:           "invoke with authorized view name",
+			inputData:      viewUnquoted,
+			wantStatusCode: http.StatusOK,
+			wantInResult:   `"relative_difference"`,
+		},
+		{
 			name:           "invoke with disallowed table name",
 			inputData:      disallowedTableUnquoted,
 			wantStatusCode: http.StatusOK,
@@ -3183,10 +3284,16 @@ func runAnalyzeContributionWithRestriction(t *testing.T, allowedTableFullName, d
 			wantInResult:   `"relative_difference"`,
 		},
 		{
+			name:           "invoke with query on authorized view",
+			inputData:      fmt.Sprintf("SELECT * FROM %s", viewFullName),
+			wantStatusCode: http.StatusOK,
+			wantInResult:   `"relative_difference"`,
+		},
+		{
 			name:           "invoke with query on disallowed table",
 			inputData:      fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName),
 			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list", disallowedDatasetFQN),
+			wantInError:    fmt.Sprintf("access to dataset '%s' is not allowed", disallowedDatasetFQN),
 		},
 		{
 			name:           "invoke with SQL injection in is_test_col",

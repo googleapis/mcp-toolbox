@@ -52,8 +52,11 @@ the `bigquery` source:
   `input_data` parameter only accesses tables within the allowed datasets.
   - If `input_data` is a table ID, the tool checks if the table's dataset is in
     the allowed list.
-  - If `input_data` is a query, the tool performs a dry run to analyze the query
-    and rejects it if it accesses any table outside the allowed list.
+  - If `input_data` is a query, the tool performs a dry run to analyze the query.
+    It will reject the query if it explicitly references any table outside the
+    allowed list. Like [`bigquery-execute-sql`](../bigquery-execute-sql), authorized views are supported:
+    if a referenced table is not explicitly named in the SQL text, it is
+    permitted. Unanalyzable and dataset-level operations are rejected.
 
 
 ## Compatible Sources
