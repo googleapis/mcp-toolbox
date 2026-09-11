@@ -124,6 +124,7 @@ func initRedisClient(ctx context.Context, r Config) (RedisClient, error) {
 			return shard.Ping(ctx).Err()
 		})
 		if err != nil {
+			clusterClient.Close()
 			return nil, fmt.Errorf("unable to connect to redis cluster: %s", err)
 		}
 		client = clusterClient
@@ -144,6 +145,7 @@ func initRedisClient(ctx context.Context, r Config) (RedisClient, error) {
 	})
 	_, err = standaloneClient.Ping(ctx).Result()
 	if err != nil {
+		standaloneClient.Close()
 		return nil, fmt.Errorf("unable to connect to redis: %s", err)
 	}
 	client = standaloneClient
