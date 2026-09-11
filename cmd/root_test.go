@@ -532,6 +532,14 @@ func TestResolveWatcherInputs(t *testing.T) {
 			wantWatchedFiles: map[string]bool{"tools.yaml": true},
 		},
 		{
+			description:      "no config specified (root dir)",
+			toolsFile:        "",
+			toolsFiles:       []string{},
+			toolsFolder:      "",
+			wantWatchDirs:    map[string]bool{".": true},
+			wantWatchedFiles: map[string]bool{"tools.yaml": true},
+		},
+		{
 			description:   "multiple files in different folders",
 			toolsFile:     "",
 			toolsFiles:    []string{"tools_folder/example_tools.yaml", "tools_folder2/example_tools.yaml"},
