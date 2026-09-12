@@ -347,6 +347,17 @@ func runQueryLogsTest(t *testing.T, logName string) {
 			t.Errorf("expected label 'env: test' in verbose output, got: %s", result)
 		}
 	})
+
+	// Regression: a filter that matches nothing must come back as an empty
+	// JSON array, not null.
+	t.Run("query-logs-no-match-returns-empty-slice", func(t *testing.T) {
+		requestBody := fmt.Sprintf(`{"filter": %q, "limit": 10}`, baseFilter+` AND textPayload:"no_such_entry_9f3b7c"`)
+		result := invokeQueryTool(t, requestBody)
+
+		if result != "[]" {
+			t.Fatalf("a no-match query should serialize as an empty slice, got: %s", result)
+		}
+	})
 }
 
 func invokeQueryTool(t *testing.T, requestBody string) string {
