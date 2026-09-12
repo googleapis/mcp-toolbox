@@ -91,6 +91,26 @@ func TestParseFromYamlOracle(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "tnsAlias and TnsAdmin specified with explicit useOCI=true, no user/password (passwordless)",
+			in: `
+			kind: source
+			name: my-oracle-tns-passwordless
+			type: oracle
+			tnsAlias: FINANCE_DB
+			tnsAdmin: /opt/oracle/network/admin
+			useOCI: true 
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-oracle-tns-passwordless": Config{
+					Name:     "my-oracle-tns-passwordless",
+					Type:     SourceType,
+					TnsAlias: "FINANCE_DB",
+					TnsAdmin: "/opt/oracle/network/admin",
+					UseOCI:   true,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -114,6 +134,7 @@ func TestBuildGoOraConnString(t *testing.T) {
 		password       string
 		connectBase    string
 		walletLocation string
+		userAgent      string
 		want           string
 	}{
 		{
@@ -130,6 +151,13 @@ func TestBuildGoOraConnString(t *testing.T) {
 			password:    "tiger",
 			connectBase: "dbhost:1521/ORCL",
 			want:        "oracle://scott:tiger@dbhost:1521/ORCL",
+		},
+		{
+			name:        "no_user_password",
+			user:        "",
+			password:    "",
+			connectBase: "dbhost:1521/ORCL",
+			want:        "oracle://dbhost:1521/ORCL",
 		},
 		{
 			name:        "does_not_double_encode_percent_encoded_user",
@@ -154,12 +182,29 @@ func TestBuildGoOraConnString(t *testing.T) {
 			walletLocation: " /tmp/wallet ",
 			want:           "oracle://scott:tiger@dbhost:1521/ORCL?custom_opt=true&ssl=true&wallet=%2Ftmp%2Fwallet",
 		},
+		{
+			name:        "includes_user_agent_as_program",
+			user:        "scott",
+			password:    "tiger",
+			connectBase: "dbhost:1521/ORCL",
+			userAgent:   "mcp-toolbox",
+			want:        "oracle://scott:tiger@dbhost:1521/ORCL?PROGRAM=mcp-toolbox",
+		},
+		{
+			name:           "includes_user_agent_program_with_wallet_and_existing_query",
+			user:           "scott",
+			password:       "tiger",
+			connectBase:    "dbhost:1521/ORCL?custom_opt=true",
+			walletLocation: "/tmp/wallet",
+			userAgent:      "mcp-toolbox",
+			want:           "oracle://scott:tiger@dbhost:1521/ORCL?custom_opt=true&ssl=true&wallet=%2Ftmp%2Fwallet&PROGRAM=mcp-toolbox",
+		},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := buildGoOraConnString(tc.user, tc.password, tc.connectBase, tc.walletLocation)
+			got := buildGoOraConnString(tc.user, tc.password, tc.connectBase, tc.walletLocation, tc.userAgent)
 			if got != tc.want {
 				t.Fatalf("buildGoOraConnString() = %q, want %q", got, tc.want)
 			}
@@ -197,7 +242,7 @@ func TestFailParseFromYaml(t *testing.T) {
 			serviceName: ORCL
 			user: my_user
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-oracle-instance\" as \"oracle\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required' tag",
+			err: "error unmarshaling source: unable to parse source \"my-oracle-instance\" as \"oracle\": invalid Oracle configuration: must provide both 'user' and 'password' unless using OCI driver with a wallet ('tnsAdmin')",
 		},
 		{
 			desc: "missing connection method fields (validate fails)",
@@ -284,5 +329,81 @@ func TestRunSQLExecutesDML(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from fake DB execution, but got nil; " +
 			"DML path may not have been executed")
+	}
+}
+
+func TestIsPLSQLBlock(t *testing.T) {
+	t.Parallel()
+
+	tcs := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{
+			name: "simple_begin",
+			sql:  "BEGIN NULL; END;",
+			want: true,
+		},
+		{
+			name: "simple_declare",
+			sql:  "DECLARE x NUMBER; BEGIN NULL; END;",
+			want: true,
+		},
+		{
+			name: "lowercase_begin",
+			sql:  "begin null; end;",
+			want: true,
+		},
+		{
+			name: "whitespace_prefix",
+			sql:  "  \n\t  BEGIN null; end;",
+			want: true,
+		},
+		{
+			name: "single_line_comment",
+			sql:  "-- comment\nBEGIN null; end;",
+			want: true,
+		},
+		{
+			name: "multi_line_comment",
+			sql:  "/* comment */ BEGIN null; end;",
+			want: true,
+		},
+		{
+			name: "nested_comments",
+			sql:  "/* comment */\n-- comment\n/* comment */\nDECLARE x NUMBER;",
+			want: true,
+		},
+		{
+			name: "standard_select",
+			sql:  "SELECT * FROM users",
+			want: false,
+		},
+		{
+			name: "select_with_comments",
+			sql:  "/* comment */ SELECT * FROM users",
+			want: false,
+		},
+		{
+			name: "empty_query",
+			sql:  "   ",
+			want: false,
+		},
+		{
+			name: "only_comments",
+			sql:  "/* comment */\n-- comment",
+			want: false,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isPLSQLBlock(tc.sql)
+			if got != tc.want {
+				t.Fatalf("isPLSQLBlock() = %t, want %t for sql:\n%s", got, tc.want, tc.sql)
+			}
+		})
 	}
 }
