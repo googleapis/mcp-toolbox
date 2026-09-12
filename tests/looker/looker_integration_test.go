@@ -178,11 +178,6 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
-			"conversational_analytics": map[string]any{
-				"type":        "looker-conversational-analytics",
-				"source":      "my-instance",
-				"description": "Simple tool to test end to end functionality.",
-			},
 			"health_pulse": map[string]any{
 				"type":        "looker-health-pulse",
 				"source":      "my-instance",
@@ -365,6 +360,61 @@ func TestLooker(t *testing.T) {
 			},
 			"update_dashboard_layout_component": map[string]any{
 				"type":        "looker-update-dashboard-layout-component",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"create_conversation": map[string]any{
+				"type":        "looker-create-conversation",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"delete_conversation": map[string]any{
+				"type":        "looker-delete-conversation",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"get_conversation": map[string]any{
+				"type":        "looker-get-conversation",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"update_conversation": map[string]any{
+				"type":        "looker-update-conversation",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"list_conversations": map[string]any{
+				"type":        "looker-list-conversations",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"create_conversation_message": map[string]any{
+				"type":        "looker-create-conversation-message",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"list_conversation_messages": map[string]any{
+				"type":        "looker-list-conversation-messages",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"delete_conversation_message": map[string]any{
+				"type":        "looker-delete-conversation-message",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"get_conversation_message": map[string]any{
+				"type":        "looker-get-conversation-message",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"update_conversation_message": map[string]any{
+				"type":        "looker-update-conversation-message",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"conversational_analytics_chat": map[string]any{
+				"type":        "looker-conversational-analytics-chat",
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
@@ -1536,38 +1586,6 @@ func TestLooker(t *testing.T) {
 			},
 		},
 	)
-	tests.RunToolGetTestByName(t, "conversational_analytics",
-		map[string]any{
-			"conversational_analytics": map[string]any{
-				"description":  "Simple tool to test end to end functionality.",
-				"authRequired": []any{},
-				"parameters": []any{
-					map[string]any{
-						"authServices": []any{},
-						"description":  "The user's question, potentially including conversation history and system instructions for context.",
-						"name":         "user_query_with_context",
-						"required":     true,
-						"type":         "string",
-					},
-					map[string]any{
-						"authServices": []any{},
-						"description":  "An Array of at least one and up to 5 explore references like [{'model': 'MODEL_NAME', 'explore': 'EXPLORE_NAME'}]",
-						"items": map[string]any{
-							"additionalProperties": true,
-							"authServices":         []any{},
-							"name":                 "explore_reference",
-							"description":          "An explore reference like {'model': 'MODEL_NAME', 'explore': 'EXPLORE_NAME'}",
-							"required":             true,
-							"type":                 "object",
-						},
-						"name":     "explore_references",
-						"required": true,
-						"type":     "array",
-					},
-				},
-			},
-		},
-	)
 	tests.RunToolGetTestByName(t, "health_pulse",
 		map[string]any{
 			"health_pulse": map[string]any{
@@ -2365,6 +2383,544 @@ func TestLooker(t *testing.T) {
 			},
 		},
 	)
+	tests.RunToolGetTestByName(t, "create_agent",
+		map[string]any{
+			"create_agent": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The name of the agent.",
+						"name":         "name",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The description of the agent.",
+						"name":         "description",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The instructions (system prompt) for the agent.",
+						"name":         "instructions",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional. A list of JSON-encoded data sources for the agent (e.g., [{\"model\": \"my_model\", \"explore\": \"my_explore\"}]).",
+						"items": map[string]any{
+							"additionalProperties": map[string]any{
+								"type": "string",
+							},
+							"authServices": []any{},
+							"description":  "A JSON-encoded source object with 'model' and 'explore' keys.",
+							"name":         "source",
+							"required":     false,
+							"type":         "object",
+						},
+						"name":     "sources",
+						"required": false,
+						"type":     "array",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      false,
+						"description":  "Optional. Enables Code Interpreter for this Agent.",
+						"name":         "code_interpreter",
+						"required":     false,
+						"type":         "boolean",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "list_agents",
+		map[string]any{
+			"list_agents": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters":   []any{},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "get_agent",
+		map[string]any{
+			"get_agent": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the agent.",
+						"name":         "agent_id",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "update_agent",
+		map[string]any{
+			"update_agent": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the agent.",
+						"name":         "agent_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The name of the agent.",
+						"name":         "name",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The description of the agent.",
+						"name":         "description",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The instructions (system prompt) for the agent.",
+						"name":         "instructions",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional. A list of JSON-encoded data sources for the agent (e.g., [{\"model\": \"my_model\", \"explore\": \"my_explore\"}]).",
+						"items": map[string]any{
+							"additionalProperties": map[string]any{
+								"type": "string",
+							},
+							"authServices": []any{},
+							"description":  "A JSON-encoded source object with 'model' and 'explore' keys.",
+							"name":         "source",
+							"required":     false,
+							"type":         "object",
+						},
+						"name":     "sources",
+						"required": false,
+						"type":     "array",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      false,
+						"description":  "Optional. Enables Code Interpreter for this Agent.",
+						"name":         "code_interpreter",
+						"required":     false,
+						"type":         "boolean",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "delete_agent",
+		map[string]any{
+			"delete_agent": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the agent.",
+						"name":         "agent_id",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "create_conversation",
+		map[string]any{
+			"create_conversation": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The name of the conversation.",
+						"name":         "name",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. The ID of the agent associated with this conversation.",
+						"name":         "agent_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. The category of the conversation.",
+						"name":         "category",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional. A list of JSON-encoded data sources for the conversation (e.g., [{\"model\": \"my_model\", \"explore\": \"my_explore\"}]).",
+						"items": map[string]any{
+							"additionalProperties": map[string]any{
+								"type": "string",
+							},
+							"authServices": []any{},
+							"description":  "A JSON-encoded source object with 'model' and 'explore' keys.",
+							"name":         "source",
+							"required":     false,
+							"type":         "object",
+						},
+						"name":     "sources",
+						"required": false,
+						"type":     "array",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "delete_conversation",
+		map[string]any{
+			"delete_conversation": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "get_conversation",
+		map[string]any{
+			"get_conversation": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "update_conversation",
+		map[string]any{
+			"update_conversation": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. The name of the conversation.",
+						"name":         "name",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. The ID of the agent associated with this conversation.",
+						"name":         "agent_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. The category of the conversation.",
+						"name":         "category",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional. A list of JSON-encoded data sources for the conversation (e.g., [{\"model\": \"my_model\", \"explore\": \"my_explore\"}]).",
+						"items": map[string]any{
+							"additionalProperties": map[string]any{
+								"type": "string",
+							},
+							"authServices": []any{},
+							"description":  "A JSON-encoded source object with 'model' and 'explore' keys.",
+							"name":         "source",
+							"required":     false,
+							"type":         "object",
+						},
+						"name":     "sources",
+						"required": false,
+						"type":     "array",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "list_conversations",
+		map[string]any{
+			"list_conversations": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. Filter by conversation name.",
+						"name":         "name",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. Filter by agent ID. Pass 'null' for conversations with no agent, or 'not null' for any agent.",
+						"name":         "agent_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. Filter by category (comma-separated list).",
+						"name":         "category",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      float64(0),
+						"description":  "Optional. Number of results to return.",
+						"name":         "limit",
+						"required":     false,
+						"type":         "integer",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      float64(0),
+						"description":  "Optional. Number of results to skip.",
+						"name":         "offset",
+						"required":     false,
+						"type":         "integer",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "create_conversation_message",
+		map[string]any{
+			"create_conversation_message": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "A list of messages to create. Each message must have 'type' (string) and 'message' (map/object).",
+						"items": map[string]any{
+							"additionalProperties": true,
+							"authServices":         []any{},
+							"description":          "A message object with 'type' and 'message' keys.",
+							"name":                 "message_item",
+							"required":             true,
+							"type":                 "object",
+						},
+						"name":     "messages",
+						"required": true,
+						"type":     "array",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "list_conversation_messages",
+		map[string]any{
+			"list_conversation_messages": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "delete_conversation_message",
+		map[string]any{
+			"delete_conversation_message": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the message to delete.",
+						"name":         "message_id",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "get_conversation_message",
+		map[string]any{
+			"get_conversation_message": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the message.",
+						"name":         "message_id",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "update_conversation_message",
+		map[string]any{
+			"update_conversation_message": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the message to update.",
+						"name":         "message_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "Optional. The type of the message.",
+						"name":         "type",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"additionalProperties": true,
+						"authServices":         []any{},
+						"description":          "Optional. The message content (map).",
+						"name":                 "message",
+						"required":             true,
+						"type":                 "object",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "conversational_analytics_chat",
+		map[string]any{
+			"conversational_analytics_chat": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The ID of the conversation.",
+						"name":         "conversation_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      "",
+						"description":  "The text content of the message to send.",
+						"name":         "user_message",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
 
 	randstr := rand.Text()[0:8]
 
@@ -2517,7 +3073,49 @@ func TestLooker(t *testing.T) {
 	wantResult = ""
 	tests.RunToolInvokeParametersTest(t, "delete_agent", []byte(fmt.Sprintf(`{"agent_id": "%s"}`, agentId)), wantResult)
 
-	runConversationalAnalytics(t, "system__activity", "content_usage")
+	// Conversations tests
+	wantResult = fmt.Sprintf("conv_%s", randstr)
+	tests.RunToolInvokeParametersTest(t, "create_conversation", []byte(fmt.Sprintf(`{"name": "conv_%s", "sources": [{"model": "system__activity", "explore": "history"}]}`, randstr)), wantResult)
+
+	conversationId, err := findTestConversationId(t, fmt.Sprintf("conv_%s", randstr))
+	if err != nil {
+		t.Fatalf("failed to find test conversation: %v", err)
+	}
+
+	wantResult = fmt.Sprintf("conv_%s", randstr)
+	tests.RunToolInvokeParametersTest(t, "list_conversations", []byte(`{}`), wantResult)
+
+	wantResult = fmt.Sprintf("conv_%s", randstr)
+	tests.RunToolInvokeParametersTest(t, "get_conversation", []byte(fmt.Sprintf(`{"conversation_id": "%s"}`, conversationId)), wantResult)
+
+	wantResult = fmt.Sprintf("conv_%s", randstr)
+	tests.RunToolInvokeParametersTest(t, "update_conversation", []byte(fmt.Sprintf(`{"conversation_id": "%s", "category": "test_category"}`, conversationId)), wantResult)
+
+	// Messages tests
+	wantResult = "Hello from test"
+	tests.RunToolInvokeParametersTest(t, "create_conversation_message", []byte(fmt.Sprintf(`{"conversation_id": "%s", "messages": [{"type": "user", "message": {"text": "Hello from test"}}]}`, conversationId)), wantResult)
+
+	wantResult = "Hello from test"
+	tests.RunToolInvokeParametersTest(t, "list_conversation_messages", []byte(fmt.Sprintf(`{"conversation_id": "%s"}`, conversationId)), wantResult)
+
+	messageId := findTestMessageId(t, conversationId, "Hello from test")
+
+	wantResult = "Hello from test"
+	tests.RunToolInvokeParametersTest(t, "get_conversation_message", []byte(fmt.Sprintf(`{"conversation_id": "%s", "message_id": "%s"}`, conversationId, messageId)), wantResult)
+
+	wantResult = "Updated Hello"
+	tests.RunToolInvokeParametersTest(t, "update_conversation_message", []byte(fmt.Sprintf(`{"conversation_id": "%s", "message_id": "%s", "message": {"text": "Updated Hello"}}`, conversationId, messageId)), wantResult)
+
+	wantResult = ""
+	tests.RunToolInvokeParametersTest(t, "delete_conversation_message", []byte(fmt.Sprintf(`{"conversation_id": "%s", "message_id": "%s"}`, conversationId, messageId)), wantResult)
+
+	// Chat test
+	wantResult = "systemMessage"
+	tests.RunToolInvokeParametersTest(t, "conversational_analytics_chat", []byte(fmt.Sprintf(`{"conversation_id": "%s", "user_message": "Hello"}`, conversationId)), wantResult)
+
+	// Clean up conversation
+	wantResult = ""
+	tests.RunToolInvokeParametersTest(t, "delete_conversation", []byte(fmt.Sprintf(`{"conversation_id": "%s"}`, conversationId)), wantResult)
 
 	deleteLook := testMakeLook(t, randstr)
 	defer deleteLook()
@@ -2607,69 +3205,6 @@ func findTestAgentId(t *testing.T, name string) (string, error) {
 	agentId := *agents[0].Id
 	t.Logf("Found Agent Id %s", agentId)
 	return agentId, err
-}
-
-func runConversationalAnalytics(t *testing.T, modelName, exploreName string) {
-	exploreRefsJSON := fmt.Sprintf(`[{"model":"%s","explore":"%s"}]`, modelName, exploreName)
-
-	var refs []map[string]any
-	if err := json.Unmarshal([]byte(exploreRefsJSON), &refs); err != nil {
-		t.Fatalf("failed to unmarshal explore refs: %v", err)
-	}
-
-	testCases := []struct {
-		name           string
-		exploreRefs    []map[string]any
-		wantStatusCode int
-		wantInResult   string
-		wantInError    string
-	}{
-		{
-			name:           "invoke conversational analytics with explore",
-			exploreRefs:    refs,
-			wantStatusCode: http.StatusOK,
-			wantInResult:   `Answer`,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			requestBodyMap := map[string]any{
-				"user_query_with_context": "What is in the explore?",
-				"explore_references":      tc.exploreRefs,
-			}
-			bodyBytes, err := json.Marshal(requestBodyMap)
-			if err != nil {
-				t.Fatalf("failed to marshal request body: %v", err)
-			}
-			url := "http://127.0.0.1:5000/api/tool/conversational_analytics/invoke"
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, url, bytes.NewBuffer(bodyBytes), nil)
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantInResult != "" {
-				var respBody map[string]interface{}
-				if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
-					t.Fatalf("error parsing response body: %v", err)
-				}
-				got, ok := respBody["result"].(string)
-				if !ok {
-					t.Fatalf("unable to find result in response body")
-				}
-				if !strings.Contains(got, tc.wantInResult) {
-					t.Errorf("unexpected result: got %q, want to contain %q", got, tc.wantInResult)
-				}
-			}
-
-			if tc.wantInError != "" {
-				if !strings.Contains(string(bodyBytes), tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", string(bodyBytes), tc.wantInError)
-				}
-			}
-		})
-	}
 }
 
 func newLookerTestSDK(t *testing.T) *v4.LookerSDK {
@@ -3031,4 +3566,35 @@ func testDashboardLifecycle(t *testing.T, dashboardId string) {
 			t.Fatalf("failed to find element %s in target layout %s", elementId, newLayoutId)
 		}
 	})
+}
+
+func findTestConversationId(t *testing.T, name string) (string, error) {
+	sdk := newLookerTestSDK(t)
+	reqSearchConversations := v4.RequestSearchConversations{
+		Name: &name,
+	}
+	conversations, err := sdk.SearchConversations(reqSearchConversations, nil)
+	if len(conversations) == 0 {
+		t.Fatalf("Failed to find conversation %s", name)
+	}
+	conversationId := *conversations[0].Id
+	t.Logf("Found Conversation Id %s", conversationId)
+	return conversationId, err
+}
+
+func findTestMessageId(t *testing.T, conversationId string, text string) string {
+	sdk := newLookerTestSDK(t)
+	messages, err := sdk.AllConversationMessages(conversationId, "", nil)
+	if err != nil {
+		t.Fatalf("Failed to get messages: %v", err)
+	}
+	for _, m := range messages {
+		if m.Message != nil {
+			if txt, ok := (*m.Message)["text"].(string); ok && txt == text {
+				return *m.Id
+			}
+		}
+	}
+	t.Fatalf("Failed to find message with text %q in conversation %s", text, conversationId)
+	return ""
 }
