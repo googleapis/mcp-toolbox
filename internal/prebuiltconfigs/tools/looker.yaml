@@ -48,7 +48,7 @@ description: |
   The output provides details like the explore's `name` and `label`.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
 ---
 kind: tool
 name: get_dimensions
@@ -61,8 +61,8 @@ description: |
   filtering, or segmenting query results.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
-  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 
   Output Details:
   - If a dimension includes a `suggestions` field, its contents are valid values
@@ -81,8 +81,8 @@ description: |
   that are used for calculations and quantitative analysis in your queries.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
-  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 
   Output Details:
   - If a measure includes a `suggestions` field, its contents are valid values
@@ -105,8 +105,8 @@ description: |
   This tool *only* returns fields explicitly defined as `filter:` in LookML.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
-  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 ---
 kind: tool
 name: get_parameters
@@ -120,8 +120,8 @@ description: |
   users to choose dimensions, measures, or other query components at runtime.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
-  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 ---
 kind: tool
 name: get_field_value_suggestions
@@ -150,8 +150,8 @@ description: |
   This tool runs a query against a LookML model and returns the results in JSON format.
 
   Required Parameters:
-  - model_name: The name of the LookML model (from `get_models`).
-  - explore_name: The name of the explore (from `get_explores`).
+  - model: The name of the LookML model (from `get_models`).
+  - explore: The name of the explore (from `get_explores`).
   - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query.
 
   Optional Parameters:
@@ -183,7 +183,7 @@ description: |
       - Custom Measure: `[{"measure": "sum_of_revenue", "label": "Sum of Revenue", "based_on": "training.revenue", "type": "sum", "_type_hint": "number"}]`
   - sorts: A list of fields to sort by, optionally including direction (e.g., `["view.field desc"]`).
   - limit: Row limit (default 500). Use "-1" for unlimited.
-  - query_timezone: specific timezone for the query (e.g. `America/Los_Angeles`).
+  - tz: specific timezone for the query (e.g. `America/Los_Angeles`).
 
   Note: Use `get_dimensions`, `get_measures`, `get_filters`, and `get_parameters` to find valid fields.
 ---
@@ -198,8 +198,8 @@ description: |
   
   Parameters:
   All parameters for this tool are identical to those of the `query` tool.
-  This includes `model_name`, `explore_name`, `fields` (required),
-  and optional parameters like `pivots`, `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, and `query_timezone`.
+  This includes `model`, `explore`, `fields` (required),
+  and optional parameters like `pivots`, `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, and `tz`.
   
   Output:
   The result of this tool is the raw SQL text.
@@ -214,8 +214,8 @@ description: |
   along with the `query_id` and `slug`.
 
   Parameters:
-  All query parameters (e.g., `model_name`, `explore_name`, `fields`, `pivots`,
-  `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, `query_timezone`) are the same as the `query` tool.
+  All query parameters (e.g., `model`, `explore`, `fields`, `pivots`,
+  `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, `tz`) are the same as the `query` tool.
 
   Additionally, it accepts an optional `vis_config` parameter:
   - vis_config (optional): A JSON object that controls the default visualization
@@ -711,12 +711,12 @@ description: |
   Required Parameters:
   - title: A unique title for the new Look.
   - description: A brief description of the Look's purpose.
-  - model_name: The name of the LookML model (from `get_models`).
-  - explore_name: The name of the explore (from `get_explores`).
+  - model: The name of the LookML model (from `get_models`).
+  - explore: The name of the explore (from `get_explores`).
   - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query.
 
   Optional Parameters:
-  - pivots, filters, sorts, limit, query_timezone: These parameters are identical
+  - pivots, filters, sorts, limit, tz: These parameters are identical
     to those described for the `query` tool.
   - vis_config: A JSON object defining the visualization settings for the Look.
     The structure and options are the same as for the `query_url` tool's `vis_config`.
@@ -798,12 +798,12 @@ description: |
 
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
-  - model_name, explore_name, fields: These query parameters are inherited
+  - model, explore, fields: These query parameters are inherited
     from the `query` tool and are required to define the data for the tile.
 
   Optional Parameters:
   - title: An optional title for the dashboard tile.
-  - pivots, filters, sorts, limit, query_timezone: These query parameters are
+  - pivots, filters, sorts, limit, tz: These query parameters are
     inherited from the `query` tool and can be used to customize the tile's query.
   - vis_config: A JSON object defining the visualization settings for this tile.
     The structure and options are the same as for the `query_url` tool's `vis_config`.
