@@ -155,6 +155,67 @@ func TestMongoDBToolEndpoints(t *testing.T) {
 	runToolAggregateInvokeTest(t, aggregate1Want, aggregateManyWant)
 
 	runToolRuntimeCollectionInvokeTest(t, select1Want)
+	runToolListCollectionsInvokeTest(t)
+}
+
+func collectionResultContains(result, expected string) (bool, error) {
+	var collections []string
+	if err := json.Unmarshal([]byte(result), &collections); err != nil {
+		return false, err
+	}
+	for _, collection := range collections {
+		if collection == expected {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func TestCollectionResultAcceptsAdditionalCollections(t *testing.T) {
+	contains, err := collectionResultContains(`["test_collection","target_collection"]`, "test_collection")
+	if err != nil {
+		t.Fatalf("unable to parse collections result: %s", err)
+	}
+	if !contains {
+		t.Fatal(`expected collections result to contain "test_collection"`)
+	}
+}
+
+func runToolListCollectionsInvokeTest(t *testing.T) {
+	t.Run("invoke list collections", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:5000/api/tool/my-list-collections-tool/invoke", bytes.NewBufferString(`{}`))
+		if err != nil {
+			t.Fatalf("unable to create request: %s", err)
+		}
+		req.Header.Add("Content-type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("unable to send request: %s", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		var body map[string]interface{}
+		if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("error parsing response body: %s", err)
+		}
+		got, ok := body["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body")
+		}
+
+		contains, err := collectionResultContains(got, "test_collection")
+		if err != nil {
+			t.Fatalf("unable to parse collections result %q: %s", got, err)
+		}
+		if !contains {
+			t.Fatalf("expected collections to contain %q, got %q", "test_collection", got)
+		}
+	})
 }
 
 func runToolRuntimeCollectionInvokeTest(t *testing.T, want string) {
@@ -578,6 +639,12 @@ func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[str
 				"filterParams":   []any{},
 				"projectPayload": `{ "_id": 1, "id": 1, "name" : 1 }`,
 				"database":       MongoDbDatabase,
+			},
+			"my-list-collections-tool": map[string]any{
+				"type":        "mongodb-list-collections",
+				"source":      "my-instance",
+				"description": "Tool to list MongoDB collections.",
+				"database":    MongoDbDatabase,
 			},
 			"my-tool": map[string]any{
 				"type":          toolType,
