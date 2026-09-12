@@ -3,7 +3,7 @@ title: "Cloud Run"
 type: docs
 weight: 1
 description: >
-  How to set up and configure Toolbox to run on Cloud Run.
+  How to set up and configure Toolbox to run on Cloud Run using prebuilt configs or custom configuration files.
 ---
 
 
@@ -74,37 +74,134 @@ database are in the same VPC network.
    source, e.g.:
     - [AlloyDB for PostgreSQL](../../../integrations/alloydb/source.md#iam-authentication)
     - [Cloud SQL for PostgreSQL](../../../integrations/cloud-sql-pg/source.md#iam-permissions)
+    - [BigQuery](../../../integrations/bigquery/source.md)
 
-## Configure `tools.yaml` file
+## Configure Toolbox
 
-Create a `tools.yaml` file that contains your configuration for Toolbox. For
-details, see the
-[configuration](../../configuration/_index.md)
-section.
+Toolbox can be deployed using either **Prebuilt Configurations** (`--prebuilt`) or a **Custom Configuration File** (`tools.yaml`).
+
+### Popular Prebuilt Configurations
+
+Prebuilt configurations allow you to deploy Toolbox without creating a `tools.yaml` file. You pass required connection parameters through environment variables stored securely in Secret Manager.
+
+Below are examples of environment variables required for popular prebuilt toolsets:
+
+- **AlloyDB for PostgreSQL (`--prebuilt=alloydb-postgres`)**
+  - `ALLOYDB_POSTGRES_PROJECT`: The GCP project ID.
+  - `ALLOYDB_POSTGRES_REGION`: The region of your AlloyDB cluster.
+  - `ALLOYDB_POSTGRES_CLUSTER`: The ID of your AlloyDB cluster.
+  - `ALLOYDB_POSTGRES_INSTANCE`: The ID of your AlloyDB instance.
+  - `ALLOYDB_POSTGRES_DATABASE`: The database name.
+
+- **Cloud SQL for PostgreSQL (`--prebuilt=cloud-sql-postgres`)**
+  - `CLOUD_SQL_POSTGRES_PROJECT`: The GCP project ID.
+  - `CLOUD_SQL_POSTGRES_REGION`: The region of your Cloud SQL instance.
+  - `CLOUD_SQL_POSTGRES_INSTANCE`: The Cloud SQL instance ID.
+  - `CLOUD_SQL_POSTGRES_DATABASE`: The database name.
+
+- **BigQuery (`--prebuilt=bigquery`)**
+  - `BIGQUERY_PROJECT`: The GCP project ID.
+  - `BIGQUERY_LOCATION`: (Optional) Dataset location (e.g. `US`).
+
+For a full list of supported prebuilt toolsets and their required environment variables, see the [Prebuilt Configs Catalog](../../configuration/prebuilt-configs/_index.md).
+
+### Custom Configuration (`tools.yaml`)
+
+For custom tool definitions or multi-source configurations, create a `tools.yaml` file containing your configuration. For details, see the [Configuration](../../configuration/_index.md) section.
 
 ## Deploy to Cloud Run
 
-1. Upload `tools.yaml` as a secret:
+Choose one of the deployment modes below:
 
-    ```bash
-    gcloud secrets create tools --data-file=tools.yaml
-    ```
+{{< tabpane persist=header >}}
+{{< tab header="Prebuilt Config (--prebuilt)" lang="bash" >}}
+# 1. Create secrets in Secret Manager for required environment variables (Example: AlloyDB)
+echo -n "$ALLOYDB_POSTGRES_PROJECT" | gcloud secrets create ALLOYDB_POSTGRES_PROJECT \
+    --data-file=- \
+    --replication-policy="automatic"
 
-    If you already have a secret and want to update the secret version, execute
-    the following:
+echo -n "$ALLOYDB_POSTGRES_REGION" | gcloud secrets create ALLOYDB_POSTGRES_REGION \
+    --data-file=- \
+    --replication-policy="automatic"
 
-    ```bash
-    gcloud secrets versions add tools --data-file=tools.yaml
-    ```
+echo -n "$ALLOYDB_POSTGRES_CLUSTER" | gcloud secrets create ALLOYDB_POSTGRES_CLUSTER \
+    --data-file=- \
+    --replication-policy="automatic"
 
-1. Set an environment variable to the container image that you want to use for
-   cloud run:
+echo -n "$ALLOYDB_POSTGRES_INSTANCE" | gcloud secrets create ALLOYDB_POSTGRES_INSTANCE \
+    --data-file=- \
+    --replication-policy="automatic"
 
-    ```bash
-    export IMAGE=us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest
-    ```
+echo -n "$ALLOYDB_POSTGRES_DATABASE" | gcloud secrets create ALLOYDB_POSTGRES_DATABASE \
+    --data-file=- \
+    --replication-policy="automatic"
 
-   {{< notice note >}}  
+# 2. Set the Toolbox container image
+export IMAGE=us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest
+
+# 3. Deploy to Cloud Run with prebuilt toolset flag
+gcloud run deploy toolbox \
+    --image=$IMAGE \
+    --region=us-central1 \
+    --service-account toolbox-identity \
+    --args="--prebuilt=alloydb-postgres","--address=0.0.0.0","--port=8080" \
+    --set-secrets="\
+ALLOYDB_POSTGRES_PROJECT=ALLOYDB_POSTGRES_PROJECT:latest,\
+ALLOYDB_POSTGRES_REGION=ALLOYDB_POSTGRES_REGION:latest,\
+ALLOYDB_POSTGRES_CLUSTER=ALLOYDB_POSTGRES_CLUSTER:latest,\
+ALLOYDB_POSTGRES_INSTANCE=ALLOYDB_POSTGRES_INSTANCE:latest,\
+ALLOYDB_POSTGRES_DATABASE=ALLOYDB_POSTGRES_DATABASE:latest" \
+    --allow-unauthenticated
+
+# If using a VPC network for private IP database access:
+# gcloud run deploy toolbox \
+#     --image=$IMAGE \
+#     --region=us-central1 \
+#     --service-account toolbox-identity \
+#     --args="--prebuilt=alloydb-postgres","--address=0.0.0.0","--port=8080" \
+#     --set-secrets="\
+# ALLOYDB_POSTGRES_PROJECT=ALLOYDB_POSTGRES_PROJECT:latest,\
+# ALLOYDB_POSTGRES_REGION=ALLOYDB_POSTGRES_REGION:latest,\
+# ALLOYDB_POSTGRES_CLUSTER=ALLOYDB_POSTGRES_CLUSTER:latest,\
+# ALLOYDB_POSTGRES_INSTANCE=ALLOYDB_POSTGRES_INSTANCE:latest,\
+# ALLOYDB_POSTGRES_DATABASE=ALLOYDB_POSTGRES_DATABASE:latest" \
+#     --network default \
+#     --subnet default \
+#     --allow-unauthenticated
+{{< /tab >}}
+{{< tab header="Custom Config (tools.yaml)" lang="bash" >}}
+# 1. Upload tools.yaml as a secret
+gcloud secrets create tools --data-file=tools.yaml
+
+# If updating an existing secret:
+# gcloud secrets versions add tools --data-file=tools.yaml
+
+# 2. Set the Toolbox container image
+export IMAGE=us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:latest
+
+# 3. Deploy to Cloud Run using config file
+gcloud run deploy toolbox \
+    --image=$IMAGE \
+    --region=us-central1 \
+    --service-account toolbox-identity \
+    --set-secrets="/app/tools.yaml=tools:latest" \
+    --args="--config=/app/tools.yaml","--address=0.0.0.0","--port=8080" \
+    --allow-unauthenticated
+
+# If using a VPC network:
+# gcloud run deploy toolbox \
+#     --image=$IMAGE \
+#     --region=us-central1 \
+#     --service-account toolbox-identity \
+#     --set-secrets="/app/tools.yaml=tools:latest" \
+#     --args="--config=/app/tools.yaml","--address=0.0.0.0","--port=8080" \
+#     --network default \
+#     --subnet default \
+#     --allow-unauthenticated
+{{< /tab >}}
+{{< /tabpane >}}
+
+{{< notice note >}}
 **The `$PORT` Environment Variable**  
 Google Cloud Run dictates the port your application must listen on by setting
 the `$PORT` environment variable inside your container. This value defaults to
@@ -113,90 +210,69 @@ port. If there is a mismatch, the container will fail to start and the
 deployment will time out.  
 {{< /notice >}}
 
-1. Deploy Toolbox to Cloud Run using the following command:
+{{< notice note >}}
+If you are using a VPC network, use the command below. The
+`--network default` and `--subnet default` values are examples for the
+default VPC network and the default subnet in the Cloud Run region. If your
+database uses a different VPC network or subnet, replace these values. To
+find the values for your project, run:
+```bash
+gcloud compute networks list
+gcloud compute networks subnets list --regions=us-central1
+```
+For more information, see [Direct VPC egress with a VPC
+network](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc).
+{{< /notice >}}
 
-    ```bash
-    gcloud run deploy toolbox \
-        --image $IMAGE \
-        --service-account toolbox-identity \
-        --region us-central1 \
-        --set-secrets "/app/tools.yaml=tools:latest" \
-        --args="--config=/app/tools.yaml","--address=0.0.0.0","--port=8080"
-        # --allow-unauthenticated # https://cloud.google.com/run/docs/authenticating/public#gcloud
-    ```
-
-    If you are using a VPC network, use the command below. The
-    `--network default` and `--subnet default` values are examples for the
-    default VPC network and the default subnet in the Cloud Run region. If your
-    database uses a different VPC network or subnet, replace these values. To
-    find the values for your project, run:
-
-    ```bash
-    gcloud compute networks list
-    gcloud compute networks subnets list --regions=us-central1
-    ```
-
-    For more information, see [Direct VPC egress with a VPC
-    network](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc).
-
-    ```bash
-    # Replace default values if your database uses a different VPC network
-    # or subnet.
-    gcloud run deploy toolbox \
-        --image $IMAGE \
-        --service-account toolbox-identity \
-        --region us-central1 \
-        --set-secrets "/app/tools.yaml=tools:latest" \
-        --args="--config=/app/tools.yaml","--address=0.0.0.0","--port=8080" \
-        --network default \
-        --subnet default
-        # --allow-unauthenticated # https://cloud.google.com/run/docs/authenticating/public#gcloud
-    ```
+{{< notice note >}}
+This guide uses `--allow-unauthenticated` flag to allow public access to the Cloud Run service.
+To enforce the Cloud Run Invoker IAM check, see [Re-enable the Cloud Run Invoker IAM check](https://docs.cloud.google.com/run/docs/authenticating/public#re-enable_invoker)
+{{< /notice >}}
 
 ### Update deployed server to be secure
 
 {{< production-security-warning >}}
 
-To prevent DNS rebinding attack, use the `--allowed-hosts` flag to specify a
-list of hosts. In order to do that, you will
-have to re-deploy the cloud run service with the new flag.
+To prevent DNS rebinding attacks, use the `--allowed-hosts` flag to specify a
+list of hosts. In order to do that, re-deploy the Cloud Run service with the new flags.
 
-To implement CORs checks, use the `--allowed-origins` flag to specify a list of
+To implement CORS checks, use the `--allowed-origins` flag to specify a list of
 origins permitted to access the server.
 
-1. Set an environment variable to the cloud run url: 
+1. Set environment variables for the Cloud Run URL and host:
 
     ```bash
     export URL=<cloud run url>
     export HOST=<cloud run host>
     ```
 
-2. Redeploy Toolbox:
+2. Redeploy Toolbox with security flags:
+
+    For **Prebuilt Config**:
 
     ```bash
     gcloud run deploy toolbox \
-        --image $IMAGE \
+        --image=$IMAGE \
+        --region=us-central1 \
         --service-account toolbox-identity \
-        --region us-central1 \
-        --set-secrets "/app/tools.yaml=tools:latest" \
-        --args="--config=/app/tools.yaml","--address=0.0.0.0","--port=8080","--allowed-origins=$URL","--allowed-hosts=$HOST"
-        # --allow-unauthenticated # https://cloud.google.com/run/docs/authenticating/public#gcloud
+        --args="--prebuilt=alloydb-postgres","--address=0.0.0.0","--port=8080","--allowed-origins=$URL","--allowed-hosts=$HOST" \
+        --set-secrets="\
+ALLOYDB_POSTGRES_PROJECT=ALLOYDB_POSTGRES_PROJECT:latest,\
+ALLOYDB_POSTGRES_REGION=ALLOYDB_POSTGRES_REGION:latest,\
+ALLOYDB_POSTGRES_CLUSTER=ALLOYDB_POSTGRES_CLUSTER:latest,\
+ALLOYDB_POSTGRES_INSTANCE=ALLOYDB_POSTGRES_INSTANCE:latest,\
+ALLOYDB_POSTGRES_DATABASE=ALLOYDB_POSTGRES_DATABASE:latest" 
     ```
 
-    If you are using a VPC network, use the command below:
+    For **Custom Config (`tools.yaml`)**:
 
     ```bash
-    # Replace default values if your database uses a different VPC network
-    # or subnet.
     gcloud run deploy toolbox \
-        --image $IMAGE \
+        --image=$IMAGE \
+        --region=us-central1 \
         --service-account toolbox-identity \
-        --region us-central1 \
-        --set-secrets "/app/tools.yaml=tools:latest" \
-        --args="--config=/app/tools.yaml","--address=0.0.0.0","--port=8080","--allowed-origins=$URL","--allowed-hosts=$HOST" \
-        --network default \
-        --subnet default
-        # --allow-unauthenticated # https://cloud.google.com/run/docs/authenticating/public#gcloud
+        --set-secrets="/app/tools.yaml=tools:latest" \
+        --args="--config=/app/tools.yaml","--address=0.0.0.0","--port=8080","--allowed-origins=$URL","--allowed-hosts=$HOST" 
     ```
 
 ## Connecting with Toolbox Client SDK
@@ -211,7 +287,7 @@ You can connect to Toolbox Cloud Run instances directly through the SDK.
    Credentials](https://cloud.google.com/docs/authentication/set-up-adc-local-dev-environment)
    for the principal you set up the `Cloud Run Invoker` role access to.
 
-1. Run the following to retrieve a non-deterministic URL for the cloud run service:
+1. Run the following to retrieve a non-deterministic URL for the Cloud Run service:
 
     ```bash
     gcloud run services describe toolbox --format 'value(status.url)'
@@ -283,6 +359,8 @@ contain the specific error message needed to diagnose the problem.
     caused by a port mismatch. Ensure your container's `--port` argument is set to
     `8080` to match the `$PORT` environment variable provided by Cloud Run.
 
+- **Missing Environment Variables for Prebuilt Configs:** When using `--prebuilt`, ensure all required environment variables for the selected toolset are passed via `--set-secrets` or `--set-env-vars`. Check the [Prebuilt Configs Catalog](../../configuration/prebuilt-configs/_index.md) for required variable names.
+
 - **Client Receives Permission Denied Error (401 or 403):** If your client
   application (e.g., your local SDK) gets a `401 Unauthorized` or `403
   Forbidden` error when trying to call your Cloud Run service, it means the
@@ -299,3 +377,4 @@ contain the specific error message needed to diagnose the problem.
       Secret Accessor** (`roles/secretmanager.secretAccessor`) IAM role.
 
 - **Cloud Run Connections via IAP:** Currently we do not support Cloud Run connections via [IAP](https://docs.cloud.google.com/iap/docs/concepts-overview). Please disable IAP if you are using it.
+
