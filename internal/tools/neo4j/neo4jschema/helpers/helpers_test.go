@@ -557,3 +557,87 @@ func TestConvertValue(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAPOCRelationshipRecord(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []any
+		want   types.Relationship
+		wantOK bool
+	}{
+		{
+			name:   "well-formed record",
+			values: []any{"KNOWS", "Person", "Company", map[string]any{"since": "INTEGER"}, int64(5)},
+			want: types.Relationship{
+				Type:       "KNOWS",
+				StartNode:  "Person",
+				EndNode:    "Company",
+				Count:      5,
+				Properties: []types.PropertyInfo{{Name: "since", Types: []string{"INTEGER"}}},
+			},
+			wantOK: true,
+		},
+		{
+			// Go map iteration order is unspecified, so several properties must be
+			// sorted by name for the extracted schema to be stable across runs.
+			name: "multiple properties are sorted by name",
+			values: []any{
+				"KNOWS", "Person", "Company",
+				map[string]any{"since": "INTEGER", "active": "BOOLEAN", "role": "STRING"},
+				int64(2),
+			},
+			want: types.Relationship{
+				Type:      "KNOWS",
+				StartNode: "Person",
+				EndNode:   "Company",
+				Count:     2,
+				Properties: []types.PropertyInfo{
+					{Name: "active", Types: []string{"BOOLEAN"}},
+					{Name: "role", Types: []string{"STRING"}},
+					{Name: "since", Types: []string{"INTEGER"}},
+				},
+			},
+			wantOK: true,
+		},
+		{
+			// labels(n)[0] is null for a label-less node, so the start/end node
+			// value arrives as nil. The previous bare values[i].(string) panicked
+			// on it; ParseAPOCRelationshipRecord must instead yield an empty label.
+			name:   "label-less node yields nil endpoint, no panic",
+			values: []any{"KNOWS", nil, "Company", map[string]any{}, int64(3)},
+			want: types.Relationship{
+				Type:       "KNOWS",
+				StartNode:  "",
+				EndNode:    "Company",
+				Count:      3,
+				Properties: []types.PropertyInfo{},
+			},
+			wantOK: true,
+		},
+		{
+			name:   "too few values is skipped",
+			values: []any{"KNOWS", "Person"},
+			wantOK: false,
+		},
+		{
+			name:   "non-int64 count is skipped",
+			values: []any{"KNOWS", "Person", "Company", map[string]any{}, "5"},
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ParseAPOCRelationshipRecord(tt.values)
+			if ok != tt.wantOK {
+				t.Fatalf("ParseAPOCRelationshipRecord() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("ParseAPOCRelationshipRecord() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
