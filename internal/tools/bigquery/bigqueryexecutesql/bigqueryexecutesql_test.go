@@ -100,6 +100,13 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			if body.Configuration.DryRun {
 				var referencedTables []map[string]any
 				query := body.Configuration.Query.Query
+				// Simulate BigQuery returning a 404 when the dry-run touches a
+				// non-existent dataset/table. This mirrors the real failure the
+				// allowlist pre-check must front-run.
+				if strings.Contains(query, "nonexistent_dataset") {
+					http.Error(w, "googleapi: Error 404: Not found: Table test-project:nonexistent_dataset.no_such_table, notFound", http.StatusNotFound)
+					return
+				}
 				if strings.Contains(query, "allowed_dataset.my_table") {
 					referencedTables = append(referencedTables, map[string]any{
 						"projectId": "test-project",
@@ -209,6 +216,15 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			sql:     "SELECT * FROM forbidden_dataset.my_table",
 			wantErr: true,
 			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+		},
+		{
+			// Regression for #3717: a non-existent dataset outside the allowlist
+			// must fail with the allowlist policy error, not the BigQuery 404 the
+			// dry-run would otherwise raise first.
+			desc:    "querying non-existent forbidden dataset returns allowlist error, not 404",
+			sql:     "SELECT * FROM nonexistent_dataset.no_such_table",
+			wantErr: true,
+			wantSub: "query accesses dataset 'test-project.nonexistent_dataset', which is not in the allowed list",
 		},
 		{
 			desc:    "querying allowed dataset INFORMATION_SCHEMA tables",

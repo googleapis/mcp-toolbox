@@ -149,6 +149,25 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
+	// When dataset restrictions are configured, statically validate the datasets
+	// the query references *before* the dry-run. The dry-run below still runs to
+	// catch views/wildcards the parser cannot see, but running it first means a
+	// query against a non-existent dataset outside the allowlist fails with an
+	// opaque BigQuery 404 instead of the clear "not in the allowed list" policy
+	// error. Catching it here keeps the policy signal correct regardless of
+	// whether the referenced table actually exists.
+	if len(source.BigQueryAllowedDatasets()) > 0 {
+		parsedTables, parseErr := bqutil.TableParser(sql, bqClient.Project())
+		if parseErr != nil {
+			return nil, util.NewAgentError("could not parse tables from query to validate against allowed datasets", parseErr)
+		}
+		for _, tableID := range parsedTables {
+			if agentErr := checkDatasetAllowed(source, tableID); agentErr != nil {
+				return nil, agentErr
+			}
+		}
+	}
+
 	dryRunJob, err := bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source.GetMaximumBytesBilled())
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
@@ -207,12 +226,8 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 
 		for tableID := range tableIDSet {
-			parts := strings.Split(tableID, ".")
-			if len(parts) == 3 {
-				projectID, datasetID := parts[0], parts[1]
-				if !source.IsDatasetAllowed(projectID, datasetID) {
-					return nil, util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
-				}
+			if agentErr := checkDatasetAllowed(source, tableID); agentErr != nil {
+				return nil, agentErr
 			}
 		}
 	}
@@ -240,6 +255,22 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGcpError(err)
 	}
 	return resp, nil
+}
+
+// checkDatasetAllowed returns an AgentError when a fully-qualified
+// "project.dataset.table" identifier refers to a dataset that is not in the
+// source's allowed list. Identifiers that are not three-part (e.g. bare
+// function calls) are left for other validation paths and return nil.
+func checkDatasetAllowed(source compatibleSource, tableID string) util.ToolboxError {
+	parts := strings.Split(tableID, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	projectID, datasetID := parts[0], parts[1]
+	if !source.IsDatasetAllowed(projectID, datasetID) {
+		return util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
+	}
+	return nil
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
