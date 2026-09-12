@@ -29,6 +29,11 @@ import (
 
 const resourceType string = "trino-execute-sql"
 
+// impersonationParamName is the tool input parameter that supplies the Trino
+// user to impersonate. It is exposed only when impersonateUser is enabled and
+// is forwarded as the X-Trino-User header rather than bound into the SQL.
+const impersonationParamName string = "trino_user"
+
 func init() {
 	if !tools.Register(resourceType, newConfig) {
 		panic(fmt.Sprintf("tool type %q already registered", resourceType))
@@ -46,12 +51,14 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	TrinoDB() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
+	RunSQLAsUser(context.Context, string, string, []any) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
 	Type             string                 `yaml:"type" validate:"required"`
 	Source           string                 `yaml:"source" validate:"required"`
+	ImpersonateUser  bool                   `yaml:"impersonateUser"`
 	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
@@ -69,6 +76,9 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	sqlParameter := parameters.NewStringParameter("sql", "The SQL query to execute against the Trino database.")
 	params := parameters.Parameters{sqlParameter}
+	if cfg.ImpersonateUser {
+		params = append(params, parameters.NewStringParameter(impersonationParamName, "The Trino user to impersonate for this query (forwarded as the X-Trino-User header). Optional; if omitted the query runs as the source's configured user.", parameters.WithStringDefault("")))
+	}
 
 	return Tool{
 		BaseTool: tools.NewBaseTool(
@@ -109,11 +119,24 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
 	}
 
-	sliceParams := params.AsSlice()
-	sql, ok := sliceParams[0].(string)
+	paramsMap := params.AsMap()
+	sql, ok := paramsMap["sql"].(string)
 	if !ok {
 		return nil, util.NewAgentError("unable to cast the `sql` input parameter into string", nil)
 	}
+
+	if t.Cfg.ImpersonateUser {
+		user, ok := paramsMap[impersonationParamName].(string)
+		if !ok {
+			return nil, util.NewAgentError(fmt.Sprintf("unable to cast the `%s` input parameter into string", impersonationParamName), nil)
+		}
+		res, err := source.RunSQLAsUser(ctx, user, sql, []any{})
+		if err != nil {
+			return nil, util.ProcessGeneralError(err)
+		}
+		return res, nil
+	}
+
 	res, err := source.RunSQL(ctx, sql, []any{})
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)

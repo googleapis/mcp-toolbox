@@ -29,6 +29,11 @@ import (
 
 const resourceType string = "trino-sql"
 
+// impersonationParamName is the tool input parameter that supplies the Trino
+// user to impersonate. It is exposed only when impersonateUser is enabled and
+// is forwarded as the X-Trino-User header rather than bound into the statement.
+const impersonationParamName string = "trino_user"
+
 func init() {
 	if !tools.Register(resourceType, newConfig) {
 		panic(fmt.Sprintf("tool type %q already registered", resourceType))
@@ -46,6 +51,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	TrinoDB() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
+	RunSQLAsUser(context.Context, string, string, []any) (any, error)
 }
 
 type Config struct {
@@ -55,6 +61,7 @@ type Config struct {
 	Statement          string                 `yaml:"statement" validate:"required"`
 	Parameters         parameters.Parameters  `yaml:"parameters"`
 	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
+	ImpersonateUser    bool                   `yaml:"impersonateUser"`
 	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
@@ -73,6 +80,15 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	allParameters, paramManifest, err := parameters.ProcessParameters(cfg.TemplateParameters, cfg.Parameters)
 	if err != nil {
 		return nil, fmt.Errorf("unable to process parameters: %w", err)
+	}
+
+	// The impersonation user is exposed as a tool input parameter so the caller
+	// supplies it, but it is forwarded as the X-Trino-User header in Invoke
+	// rather than bound into the statement (so it stays out of cfg.Parameters).
+	if cfg.ImpersonateUser {
+		userParam := parameters.NewStringParameter(impersonationParamName, "The Trino user to impersonate for this query (forwarded as the X-Trino-User header). Optional; if omitted the query runs as the source's configured user.", parameters.WithStringDefault(""))
+		allParameters = append(allParameters, userParam)
+		paramManifest = append(paramManifest, userParam.Manifest())
 	}
 
 	return Tool{
@@ -124,6 +140,19 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewAgentError("unable to extract standard params", err)
 	}
 	sliceParams := newParams.AsSlice()
+
+	if t.Cfg.ImpersonateUser {
+		user, ok := paramsMap[impersonationParamName].(string)
+		if !ok {
+			return nil, util.NewAgentError(fmt.Sprintf("unable to cast the `%s` input parameter into string", impersonationParamName), nil)
+		}
+		res, err := source.RunSQLAsUser(ctx, user, newStatement, sliceParams)
+		if err != nil {
+			return nil, util.ProcessGeneralError(err)
+		}
+		return res, nil
+	}
+
 	res, err := source.RunSQL(ctx, newStatement, sliceParams)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
