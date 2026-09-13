@@ -68,7 +68,7 @@ Being built on the Model Context Protocol (MCP), MCP Toolbox is framework-agnost
 *   [**IDE Integrations:**](../connect-to/ides/_index.md) Connect your local Toolbox server directly to MCP-compatible development environments.
 *   [**CLI Tools:**](../connect-to/gemini-cli/_index.md) Use command-line interfaces like the Gemini CLI to interact with your databases using natural language directly from your terminal.
 *   [**MCP Client:**](../connect-to/mcp-client/_index.md) Connect to an MCP Client.
-*   [**Application Integration (Client SDKs):**](../connect-to/toolbox-sdks/_index.md) If you are building custom AI agents, you can use our Client SDKs to pull tools directly into your application code. We provide native support for major orchestration frameworks including LangChain, LlamaIndex, Genkit, and more across Python, JavaScript/TypeScript, and Go.
+*   [**Application Integration (Client SDKs):**](../connect-to/toolbox-sdks/_index.md) If you are building custom AI agents, you can use our Client SDKs to pull tools directly into your application code. We provide native support for major orchestration frameworks including LangChain, LlamaIndex, Genkit, and more across Python, JavaScript/TypeScript, Go, and Java.
 
 ---
 

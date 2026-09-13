@@ -1,4 +1,4 @@
-<!-- This file has been used in local_quickstart.md, local_quickstart_go.md & local_quickstart_js.md -->
+<!-- This file has been used in local_quickstart.md, local_quickstart_go.md, local_quickstart_js.md & local_quickstart_java.md -->
 <!-- [START configure_toolbox] -->
 
 In this section, we will download Toolbox, configure our tools in a
