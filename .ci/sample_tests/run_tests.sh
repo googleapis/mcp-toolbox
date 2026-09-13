@@ -170,6 +170,16 @@ run_go_test() {
   )
 }
 
+run_java_test() {
+  local dir=$1
+  local name=$(basename "$dir")
+  echo "--- Running Java Test: $name ---"
+  (
+    cd "$dir"
+    mvn clean compile exec:java -Dexec.mainClass="Quickstart"
+  )
+}
+
 cleanup() {
   echo "Cleaning up background processes..."
   [ -n "$TOOLBOX_PID" ] && kill "$TOOLBOX_PID" || true
@@ -199,5 +209,7 @@ find "$TARGET_ROOT" -name "$AGENT_FILE_PATTERN" | while read -r agent_file; do
         run_js_test "$sample_dir"
     elif [[ "$TARGET_LANG" == "go" ]]; then
         run_go_test "$sample_dir"
+    elif [[ "$TARGET_LANG" == "java" ]]; then
+        run_java_test "$sample_dir"
     fi
 done
