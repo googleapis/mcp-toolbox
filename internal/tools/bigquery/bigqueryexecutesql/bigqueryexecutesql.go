@@ -105,6 +105,17 @@ func (t Tool) GetSourceName() string {
 	return t.Cfg.Source
 }
 
+// splitTableID splits a fully qualified table ID into project and dataset.
+// Domain-scoped projects (example.com:project) contain dots of their own, so
+// the project is everything before the last two segments.
+func splitTableID(tableID string) (projectID, datasetID string, ok bool) {
+	parts := strings.Split(tableID, ".")
+	if len(parts) < 3 {
+		return "", "", false
+	}
+	return strings.Join(parts[:len(parts)-2], "."), parts[len(parts)-2], true
+}
+
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg
 }
@@ -149,6 +160,29 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
+	// With dataset restrictions in place, validate the parsed tables before
+	// any BigQuery call. Otherwise the dry run answers first, and a query
+	// against a non-existent foreign dataset surfaces as a BigQuery 404
+	// instead of the allowlist error, which callers cannot tell apart from
+	// "table missing".
+	if len(source.BigQueryAllowedDatasets()) > 0 {
+		parsedTables, parseErr := bqutil.TableParser(sql, bqClient.Project())
+		if parseErr != nil {
+			return nil, util.NewAgentError("could not parse tables from query to validate against allowed datasets", parseErr)
+		}
+		for _, tableID := range parsedTables {
+			projectID, datasetID, ok := splitTableID(tableID)
+			if !ok {
+				// Fail closed: a table reference that cannot be attributed
+				// to a dataset cannot be checked against the allowlist.
+				return nil, util.NewAgentError(fmt.Sprintf("could not attribute table '%s' to a dataset to validate against allowed datasets", tableID), nil)
+			}
+			if !source.IsDatasetAllowed(projectID, datasetID) {
+				return nil, util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
+			}
+		}
+	}
+
 	dryRunJob, err := bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source.GetMaximumBytesBilled())
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
@@ -183,7 +217,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		// Use a map to avoid duplicate table names.
 		tableIDSet := make(map[string]struct{})
 
-		// Get all tables from the dry run result. This is the most reliable method.
+		// Get all tables from the dry run result. The parser already ran
+		// before the dry run; this catches table shapes it cannot see
+		// (e.g. views the engine expands server-side).
 		queryStats := dryRunJob.Statistics.Query
 		if queryStats != nil {
 			for _, tableRef := range queryStats.ReferencedTables {
@@ -197,22 +233,10 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 			}
 		}
 
-		// Always run the parser to ensure we catch views/tables that the dry run might bypass
-		parsedTables, parseErr := bqutil.TableParser(sql, bqClient.Project())
-		if parseErr != nil {
-			return nil, util.NewAgentError("could not parse tables from query to validate against allowed datasets", parseErr)
-		}
-		for _, tableID := range parsedTables {
-			tableIDSet[tableID] = struct{}{}
-		}
-
 		for tableID := range tableIDSet {
-			parts := strings.Split(tableID, ".")
-			if len(parts) == 3 {
-				projectID, datasetID := parts[0], parts[1]
-				if !source.IsDatasetAllowed(projectID, datasetID) {
-					return nil, util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
-				}
+			projectID, datasetID, ok := splitTableID(tableID)
+			if ok && !source.IsDatasetAllowed(projectID, datasetID) {
+				return nil, util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
 			}
 		}
 	}
