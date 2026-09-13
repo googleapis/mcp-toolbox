@@ -173,9 +173,10 @@ const listTablesStatement = `
         END AS object_details
     FROM
         INFORMATION_SCHEMA.TABLES T
-    CROSS JOIN (SELECT @table_names := ?, @output_format := ?) AS variables
+    CROSS JOIN (SELECT @table_names := ?, @output_format := ?, @connected_schema := ?) AS variables
     WHERE
         T.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+        AND (NULLIF(TRIM(@connected_schema), '') IS NULL OR T.TABLE_SCHEMA = TRIM(@connected_schema))
         AND (NULLIF(TRIM(@table_names), '') IS NULL OR FIND_IN_SET(T.TABLE_NAME, @table_names))
         AND T.TABLE_TYPE = 'BASE TABLE'
     ORDER BY
@@ -199,6 +200,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	MySQLPool() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
+	MySQLDatabase() string
 }
 
 type Config struct {
@@ -257,7 +259,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if outputFormat != "simple" && outputFormat != "detailed" {
 		return nil, util.NewAgentError(fmt.Sprintf("invalid value for output_format: must be 'simple' or 'detailed', but got %q", outputFormat), nil)
 	}
-	resp, err := source.RunSQL(ctx, listTablesStatement, []any{tableNames, outputFormat})
+	resp, err := source.RunSQL(ctx, listTablesStatement, []any{tableNames, outputFormat, source.MySQLDatabase()})
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
