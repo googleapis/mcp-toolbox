@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -2097,30 +2098,25 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 		Query            string `json:"query"`
 	}
 
+	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc2AppName := fmt.Sprintf("test_sleep_tc2_%s", testUUID)
+	tc3AppName := fmt.Sprintf("test_sleep_tc3_%s", testUUID)
+
+	tc3Query := fmt.Sprintf("SELECT set_config('application_name', '%s', false), pg_sleep(10);", tc3AppName)
 	singleQueryWanted := queryListDetails{
-		ProcessId:        any(nil),
-		User:             "",
-		Datname:          "",
-		ApplicationName:  "",
-		ClientAddress:    "",
-		State:            "",
-		WaitEventType:    "",
-		WaitEvent:        "",
-		BackendStart:     any(nil),
-		TransactionStart: any(nil),
-		QueryStart:       any(nil),
-		QueryDuration:    any(nil),
-		Query:            "SELECT pg_sleep(10);",
+		ApplicationName: tc3AppName,
+		Query:           tc3Query,
 	}
 
 	invokeTcs := []struct {
 		name                string
 		toolName            string
 		args                map[string]any
+		appName             string
 		clientSleepSecs     int
 		waitSecsBeforeCheck int
 		wantStatusCode      int
-		want                any
+		want                []queryListDetails
 	}{
 		// exclude background monitoring apps such as "wal_uploader"
 		{
@@ -2136,7 +2132,8 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 			name:                "invoke list_active_queries when there is 1 ongoing but lower than the threshold",
 			toolName:            "list_active_queries",
 			args:                map[string]any{"min_duration": "100 seconds", "exclude_application_names": "wal_uploader"},
-			clientSleepSecs:     1,
+			appName:             tc2AppName,
+			clientSleepSecs:     3,
 			waitSecsBeforeCheck: 1,
 			wantStatusCode:      http.StatusOK,
 			want:                []queryListDetails{},
@@ -2145,6 +2142,7 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 			name:                "invoke list_active_queries when 1 ongoing query should show up",
 			toolName:            "list_active_queries",
 			args:                map[string]any{"min_duration": "1 seconds", "exclude_application_names": "wal_uploader"},
+			appName:             tc3AppName,
 			clientSleepSecs:     10,
 			waitSecsBeforeCheck: 5,
 			wantStatusCode:      http.StatusOK,
@@ -2152,9 +2150,14 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 		},
 	}
 
-	var wg sync.WaitGroup
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
+			var wg sync.WaitGroup
+			defer wg.Wait()
+
+			queryCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
 			if tc.clientSleepSecs > 0 {
 				wg.Add(1)
 
@@ -2166,8 +2169,9 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 						t.Errorf("unable to connect to test database: %s", err)
 						return
 					}
-					_, err = pool.Exec(ctx, fmt.Sprintf("SELECT pg_sleep(%d);", tc.clientSleepSecs))
-					if err != nil {
+					query := fmt.Sprintf("SELECT set_config('application_name', '%s', false), pg_sleep(%d);", tc.appName, tc.clientSleepSecs)
+					_, err = pool.Exec(queryCtx, query)
+					if err != nil && !errors.Is(err, context.Canceled) {
 						t.Errorf("Executing 'SELECT pg_sleep' failed: %s", err)
 					}
 				}()
@@ -2199,21 +2203,39 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 				resultString = string(bodyWrapper.Result)
 			}
 
-			var got any
 			var details []queryListDetails
 			if err := json.Unmarshal([]byte(resultString), &details); err != nil {
 				t.Fatalf("failed to unmarshal nested ObjectDetails string: %v", err)
 			}
-			got = details
+
+			// Ensure queries with excluded application names are not returned.
+			if excludeApp, ok := tc.args["exclude_application_names"].(string); ok && excludeApp != "" {
+				for _, d := range details {
+					if d.ApplicationName == excludeApp {
+						t.Errorf("found excluded application_name %q in active queries: %#v", excludeApp, d)
+					}
+				}
+			}
+
+			// Filter to active queries that belong to this test case.
+			got := []queryListDetails{}
+			if tc.appName == "" {
+				got = details
+			} else {
+				for _, d := range details {
+					if d.ApplicationName == tc.appName {
+						got = append(got, d)
+					}
+				}
+			}
 
 			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b queryListDetails) bool {
-				return a.Query == b.Query
+				return a.ApplicationName == b.ApplicationName && a.Query == b.Query
 			})); diff != "" {
-				t.Errorf("Unexpected result: got %#v, want: %#v", got, tc.want)
+				t.Errorf("Unexpected active queries (-want +got):\n%s", diff)
 			}
 		})
 	}
-	wg.Wait()
 }
 
 func RunPostgresListAvailableExtensionsTest(t *testing.T) {
@@ -3203,32 +3225,49 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 		Db              string `json:"db"`
 	}
 
-	singleQueryWanted := queryListDetails{
-		ProcessId:       any(nil),
-		Query:           "SELECT sleep(10)",
-		TrxStarted:      any(nil),
-		TrxDuration:     any(nil),
-		TrxWaitDuration: any(nil),
-		QueryTime:       any(nil),
-		TrxState:        "",
-		ProcessState:    "User sleep",
-		User:            "",
-		TrxRowsLocked:   any(nil),
-		TrxRowsModified: any(nil),
-		Db:              "",
+	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc2QueryTag := fmt.Sprintf("test_mysql_sleep_tc2_%s", testUUID)
+	tc3QueryTag := fmt.Sprintf("test_mysql_sleep_tc3_%s", testUUID)
+	tc4QueryTag := fmt.Sprintf("test_mysql_sleep_tc4_%s", testUUID)
+
+	makeQuery := func(sleepSecs int, tag string) string {
+		return fmt.Sprintf("SELECT sleep(%d), '%s'", sleepSecs, tag)
 	}
+
+	makeWanted := func(query string) queryListDetails {
+		return queryListDetails{
+			ProcessId:       any(nil),
+			Query:           query,
+			TrxStarted:      any(nil),
+			TrxDuration:     any(nil),
+			TrxWaitDuration: any(nil),
+			QueryTime:       any(nil),
+			TrxState:        "",
+			ProcessState:    "User sleep",
+			User:            "",
+			TrxRowsLocked:   any(nil),
+			TrxRowsModified: any(nil),
+			Db:              "",
+		}
+	}
+
+	tc3Wanted := makeWanted(makeQuery(10, tc3QueryTag))
+	tc4Wanted := makeWanted(makeQuery(10, tc4QueryTag))
 
 	invokeTcs := []struct {
 		name                string
 		requestBody         io.Reader
+		queryTag            string
 		clientSleepSecs     int
+		numClients          int
 		waitSecsBeforeCheck int
 		wantStatusCode      int
-		want                any
+		want                []queryListDetails
 	}{
 		{
 			name:                "invoke list_active_queries when the system is idle",
 			requestBody:         bytes.NewBufferString(`{}`),
+			queryTag:            "",
 			clientSleepSecs:     0,
 			waitSecsBeforeCheck: 0,
 			wantStatusCode:      http.StatusOK,
@@ -3237,48 +3276,70 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 		{
 			name:                "invoke list_active_queries when there is 1 ongoing but lower than the threshold",
 			requestBody:         bytes.NewBufferString(`{"min_duration_secs": 100}`),
-			clientSleepSecs:     10,
+			queryTag:            tc2QueryTag,
+			clientSleepSecs:     3,
 			waitSecsBeforeCheck: 1,
 			wantStatusCode:      http.StatusOK,
 			want:                []queryListDetails{},
 		},
 		{
+			// The threshold has to sit below waitSecsBeforeCheck: the wait starts
+			// before the query does, and processlist.time truncates to whole
+			// seconds, so an equal threshold loses the row to rounding.
 			name:                "invoke list_active_queries when 1 ongoing query should show up",
-			requestBody:         bytes.NewBufferString(`{"min_duration_secs": 5}`),
-			clientSleepSecs:     0,
+			requestBody:         bytes.NewBufferString(`{"min_duration_secs": 3}`),
+			queryTag:            tc3QueryTag,
+			clientSleepSecs:     10,
 			waitSecsBeforeCheck: 5,
 			wantStatusCode:      http.StatusOK,
-			want:                []queryListDetails{singleQueryWanted},
+			want:                []queryListDetails{tc3Wanted},
 		},
 		{
 			name:                "invoke list_active_queries when 2 ongoing query should show up",
 			requestBody:         bytes.NewBufferString(`{"min_duration_secs": 2}`),
+			queryTag:            tc4QueryTag,
 			clientSleepSecs:     10,
+			numClients:          2,
 			waitSecsBeforeCheck: 3,
 			wantStatusCode:      http.StatusOK,
-			want:                []queryListDetails{singleQueryWanted, singleQueryWanted},
+			want:                []queryListDetails{tc4Wanted, tc4Wanted},
 		},
 	}
 
-	var wg sync.WaitGroup
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
+			var wg sync.WaitGroup
+			defer wg.Wait()
+
+			queryCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
 			if tc.clientSleepSecs > 0 {
-				wg.Add(1)
+				numClients := tc.numClients
+				if numClients == 0 {
+					numClients = 1
+				}
 
-				go func() {
-					defer wg.Done()
+				for i := 0; i < numClients; i++ {
+					wg.Add(1)
 
-					err := pool.PingContext(ctx)
-					if err != nil {
-						t.Errorf("unable to connect to test database: %s", err)
-						return
-					}
-					_, err = pool.ExecContext(ctx, fmt.Sprintf("SELECT sleep(%d);", tc.clientSleepSecs))
-					if err != nil {
-						t.Errorf("Executing 'SELECT sleep' failed: %s", err)
-					}
-				}()
+					go func() {
+						defer wg.Done()
+
+						err := pool.PingContext(queryCtx)
+						if err != nil {
+							if !errors.Is(err, context.Canceled) {
+								t.Errorf("unable to connect to test database: %s", err)
+							}
+							return
+						}
+						query := makeQuery(tc.clientSleepSecs, tc.queryTag)
+						_, err = pool.ExecContext(queryCtx, query)
+						if err != nil && !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "interrupted") {
+							t.Errorf("Executing 'SELECT sleep' failed: %s", err)
+						}
+					}()
+				}
 			}
 
 			if tc.waitSecsBeforeCheck > 0 {
@@ -3334,23 +3395,31 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 				}
 			}
 
-			var got any
 			details := []queryListDetails{}
 			if resultString != "null" {
 				if err := json.Unmarshal([]byte(resultString), &details); err != nil {
 					t.Fatalf("failed to unmarshal nested ObjectDetails string: %v", err)
 				}
 			}
-			got = details
+
+			// Filter to active queries that belong to this test case.
+			got := details
+			if tc.queryTag != "" {
+				got = []queryListDetails{}
+				for _, d := range details {
+					if strings.Contains(d.Query, tc.queryTag) {
+						got = append(got, d)
+					}
+				}
+			}
 
 			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b queryListDetails) bool {
-				return a.Query == b.Query && a.ProcessState == b.ProcessState
+				return strings.TrimSuffix(strings.TrimSpace(a.Query), ";") == strings.TrimSuffix(strings.TrimSpace(b.Query), ";") && a.ProcessState == b.ProcessState
 			})); diff != "" {
-				t.Errorf("Unexpected result: got %#v, want: %#v", got, tc.want)
+				t.Errorf("Unexpected active queries (-want +got):\n%s", diff)
 			}
 		})
 	}
-	wg.Wait()
 }
 
 func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, pool *sql.DB, databaseName string, opts ...ToolExecOption) {
@@ -3779,9 +3848,18 @@ func RunMySQLListTableStatsTest(t *testing.T, ctx context.Context, pool *sql.DB,
 			}
 			got = details
 
-			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b tableStatsDetails) bool {
-				return a.TableSchema == b.TableSchema && a.TableName == b.TableName
-			})); diff != "" {
+			// The tool sorts on measured total_latency, so which table comes back
+			// first varies between runs. Compare as a set.
+			if diff := cmp.Diff(tc.want, got,
+				cmpopts.SortSlices(func(a, b tableStatsDetails) bool {
+					if a.TableSchema != b.TableSchema {
+						return a.TableSchema < b.TableSchema
+					}
+					return a.TableName < b.TableName
+				}),
+				cmp.Comparer(func(a, b tableStatsDetails) bool {
+					return a.TableSchema == b.TableSchema && a.TableName == b.TableName
+				})); diff != "" {
 				t.Errorf("Unexpected result: got %#v, want: %#v", got, tc.want)
 			}
 		})

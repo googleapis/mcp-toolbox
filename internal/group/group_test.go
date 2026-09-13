@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -30,16 +31,27 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
-func testFixtures() (map[string]tools.Tool, map[string]prompts.Prompt) {
+func testFixtures() (map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]resources.ResourceTemplate) {
 	toolsMap := map[string]tools.Tool{
-		"tool1": testutils.NewMockTool("tool1", "first tool", "", []parameters.Parameter{}, false, false),
-		"tool2": testutils.NewMockTool("tool2", "second tool", "", []parameters.Parameter{}, false, false),
+		"tool1":        testutils.NewMockTool("tool1", "first tool", "", []parameters.Parameter{}, false, false),
+		"tool2":        testutils.NewMockTool("tool2", "second tool", "", []parameters.Parameter{}, false, false),
+		"tool-with-ui": testutils.NewMockToolWithUI("tool-with-ui", "tool with ui", "", []parameters.Parameter{}, false, false, "ui-res"),
 	}
 	promptsMap := map[string]prompts.Prompt{
 		"prompt1": testutils.NewMockPrompt("prompt1", "first prompt", prompts.Arguments{}),
 		"prompt2": testutils.NewMockPrompt("prompt2", "second prompt", prompts.Arguments{}),
 	}
-	return toolsMap, promptsMap
+	resourcesMap := map[string]resources.Resource{
+		"res1":   testutils.NewMockResource("res1", "file://res1", "Title 1", "Desc 1", "", nil, nil),
+		"res2":   testutils.NewMockResource("res2", "file://res2", "Title 2", "Desc 2", "", nil, nil),
+		"ui-res": testutils.NewMockUIResource("ui-res", "ui://test", "UI Title", "", "", nil, nil, nil, nil, "", nil),
+	}
+	resourceTemplatesMap := map[string]resources.ResourceTemplate{
+		"tmpl1":   testutils.NewMockResourceTemplate("tmpl1", "file://tmpl1", "Title 1", "Desc 1", "", nil),
+		"tmpl2":   testutils.NewMockResourceTemplate("tmpl2", "file://tmpl2", "Title 2", "Desc 2", "", nil),
+		"ui-tmpl": testutils.NewMockUIResourceTemplate("ui-tmpl", "ui://test/{path}", "UI Template Title", "", "", nil, nil, nil, "", nil),
+	}
+	return toolsMap, promptsMap, resourcesMap, resourceTemplatesMap
 }
 
 func intPtr(v int) *int {
@@ -48,28 +60,91 @@ func intPtr(v int) *int {
 
 func TestGroupConfig_Initialize(t *testing.T) {
 	t.Parallel()
-	toolsMap, promptsMap := testFixtures()
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap := testFixtures()
 
 	testCases := []struct {
 		name           string
 		config         group.GroupConfig
 		wantTools      []string
 		wantPrompts    []string
+		wantRes        []string
+		wantResTmpl    []string
 		wantErr        string
 		wantTTLMs      *int
 		wantCacheScope string
 	}{
 		{
-			name: "tools and prompts",
+			name: "failure when ui resource is in group",
 			config: group.GroupConfig{
-				Name:        "mygroup",
-				Description: "a group",
-				ToolNames:   []string{"tool1", "tool2"},
-				PromptNames: []string{"prompt1", "prompt2"},
+				Name:          "invalid-group-res",
+				ResourceNames: []string{"ui-res"},
+			},
+			wantErr: "UI resource \"ui-res\" cannot be included in group \"invalid-group-res\": UI resources are globally accessible and cannot be scoped to groups",
+		},
+		{
+			name: "failure when ui resource template is in group",
+			config: group.GroupConfig{
+				Name:                  "invalid-group-tmpl",
+				ResourceTemplateNames: []string{"ui-tmpl"},
+			},
+			wantErr: "UI resource template \"ui-tmpl\" cannot be included in group \"invalid-group-tmpl\": UI resources are globally accessible and cannot be scoped to groups",
+		},
+		{
+			name: "success when tool with ui resource is in group without ui resource in group",
+			config: group.GroupConfig{
+				Name:      "valid-group-no-ui-res",
+				ToolNames: []string{"tool-with-ui"},
+			},
+			wantTools: []string{"tool-with-ui"},
+		},
+		{
+			name: "all primitives",
+			config: group.GroupConfig{
+				Name:                  "mygroup",
+				Description:           "a group",
+				ToolNames:             []string{"tool1", "tool2"},
+				PromptNames:           []string{"prompt1", "prompt2"},
+				ResourceNames:         []string{"res1", "res2"},
+				ResourceTemplateNames: []string{"tmpl1", "tmpl2"},
 			},
 			wantTools:   []string{"tool1", "tool2"},
 			wantPrompts: []string{"prompt1", "prompt2"},
+			wantRes:     []string{"res1", "res2"},
+			wantResTmpl: []string{"tmpl1", "tmpl2"},
 		},
+		{
+			name: "resources only",
+			config: group.GroupConfig{
+				Name:          "resonly",
+				ResourceNames: []string{"res1"},
+			},
+			wantRes: []string{"res1"},
+		},
+		{
+			name: "templates only",
+			config: group.GroupConfig{
+				Name:                  "tmplonly",
+				ResourceTemplateNames: []string{"tmpl1"},
+			},
+			wantResTmpl: []string{"tmpl1"},
+		},
+		{
+			name: "missing resource",
+			config: group.GroupConfig{
+				Name:          "g",
+				ResourceNames: []string{"nope"},
+			},
+			wantErr: "resource does not exist: \"nope\"",
+		},
+		{
+			name: "missing resource template",
+			config: group.GroupConfig{
+				Name:                  "g",
+				ResourceTemplateNames: []string{"nope"},
+			},
+			wantErr: "resource template does not exist: \"nope\"",
+		},
+
 		{
 			name: "tools only",
 			config: group.GroupConfig{
@@ -165,7 +240,7 @@ func TestGroupConfig_Initialize(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			g, err := tc.config.Initialize(toolsMap, promptsMap)
+			g, err := tc.config.Initialize(toolsMap, promptsMap, resourcesMap, resourceTemplatesMap)
 			if tc.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tc.wantErr)
@@ -184,6 +259,12 @@ func TestGroupConfig_Initialize(t *testing.T) {
 			if !slices.Equal(g.PromptNames, tc.wantPrompts) {
 				t.Errorf("prompts = %v, want %v", g.PromptNames, tc.wantPrompts)
 			}
+			if !slices.Equal(g.ResourceNames, tc.wantRes) {
+				t.Errorf("resources = %v, want %v", g.ResourceNames, tc.wantRes)
+			}
+			if !slices.Equal(g.ResourceTemplateNames, tc.wantResTmpl) {
+				t.Errorf("templates = %v, want %v", g.ResourceTemplateNames, tc.wantResTmpl)
+			}
 			for _, name := range tc.wantTools {
 				if !g.ContainsTool(name) {
 					t.Errorf("group missing tool %q", name)
@@ -192,6 +273,16 @@ func TestGroupConfig_Initialize(t *testing.T) {
 			for _, name := range tc.wantPrompts {
 				if !g.ContainsPrompt(name) {
 					t.Errorf("group missing prompt %q", name)
+				}
+			}
+			for _, name := range tc.wantRes {
+				if !g.ContainsResource(name) {
+					t.Errorf("group missing resource %q", name)
+				}
+			}
+			for _, name := range tc.wantResTmpl {
+				if !g.ContainsResourceTemplate(name) {
+					t.Errorf("group missing resource template %q", name)
 				}
 			}
 
@@ -216,13 +307,13 @@ func TestGroupConfig_Initialize(t *testing.T) {
 
 func TestGroup_ToolsetManifest(t *testing.T) {
 	t.Parallel()
-	toolsMap, _ := testFixtures()
+	toolsMap, _, _, _ := testFixtures()
 
 	g := group.NewGroup(group.GroupConfig{
 		Name:      "mygroup",
 		ToolNames: []string{"tool1", "tool2"},
 	})
-	mgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil)
+	mgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
 
 	manifest, err := g.ToolsetManifest("v1.2.3", mgr)
 	if err != nil {
@@ -255,14 +346,16 @@ func TestGroup_ToolsetManifest(t *testing.T) {
 
 func TestGroup_Contains(t *testing.T) {
 	t.Parallel()
-	toolsMap, promptsMap := testFixtures()
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap := testFixtures()
 
 	g, err := group.GroupConfig{
-		Name:        "mygroup",
-		Description: "a group",
-		ToolNames:   []string{"tool1", "tool2"},
-		PromptNames: []string{"prompt1", "prompt2"},
-	}.Initialize(toolsMap, promptsMap)
+		Name:                  "mygroup",
+		Description:           "a group",
+		ToolNames:             []string{"tool1", "tool2"},
+		PromptNames:           []string{"prompt1", "prompt2"},
+		ResourceNames:         []string{"res1", "res2"},
+		ResourceTemplateNames: []string{"tmpl1", "tmpl2"},
+	}.Initialize(toolsMap, promptsMap, resourcesMap, resourceTemplatesMap)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -279,9 +372,21 @@ func TestGroup_Contains(t *testing.T) {
 	if g.ContainsPrompt("prompt3") {
 		t.Errorf("group reports an absent prompt")
 	}
+	if !g.ContainsResource("res1") || !g.ContainsResource("res2") {
+		t.Errorf("group missing expected resources")
+	}
+	if g.ContainsResource("res3") {
+		t.Errorf("group reports an absent resource")
+	}
+	if !g.ContainsResourceTemplate("tmpl1") || !g.ContainsResourceTemplate("tmpl2") {
+		t.Errorf("group missing expected resource templates")
+	}
+	if g.ContainsResourceTemplate("tmpl3") {
+		t.Errorf("group reports an absent resource template")
+	}
 }
 
-func TestParseFromYamlGroup(t *testing.T) {
+func TestParseFromYaml(t *testing.T) {
 	tcs := []struct {
 		desc string
 		in   string
@@ -303,11 +408,108 @@ func TestParseFromYamlGroup(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "valid named group",
+			in: `
+			kind: group
+			name: my_group
+			description: a group of tools and prompts
+			tools:
+			  - tool_a
+			  - tool_b
+			prompts:
+			  - prompt_a
+			`,
+			want: map[string]group.GroupConfig{
+				"my_group": {
+					Name:        "my_group",
+					Description: "a group of tools and prompts",
+					ToolNames:   []string{"tool_a", "tool_b"},
+					PromptNames: []string{"prompt_a"},
+				},
+			},
+		},
+		{
+			desc: "named group with only description",
+			in: `
+			kind: group
+			name: my_group
+			description: just a description
+			`,
+			want: map[string]group.GroupConfig{
+				"my_group": {
+					Name:        "my_group",
+					Description: "just a description",
+				},
+			},
+		},
+		{
+			desc: "default group with only description",
+			in: `
+			kind: group
+			name:
+			description: default server instruction
+			`,
+			want: map[string]group.GroupConfig{
+				"": {
+					Description: "default server instruction",
+				},
+			},
+		},
+		{
+			desc: "default group omitting name field",
+			in: `
+			kind: group
+			description: default server instruction
+			`,
+			want: map[string]group.GroupConfig{
+				"": {
+					Description: "default server instruction",
+				},
+			},
+		},
+		{
+			desc: "kind toolset folds into a tools-only group",
+			in: `
+			kind: toolset
+			name: my_toolset
+			tools:
+			  - tool_a
+			  - tool_b
+			`,
+			want: map[string]group.GroupConfig{
+				"my_toolset": {
+					Name:      "my_toolset",
+					ToolNames: []string{"tool_a", "tool_b"},
+				},
+			},
+		},
+		{
+			desc: "group with tools and prompts",
+			in: `
+			kind: group
+			name: my_group
+			description: a group
+			tools:
+			  - tool_a
+			  - tool_b
+			prompts:
+			  - prompt_a
+			`,
+			want: map[string]group.GroupConfig{
+				"my_group": {
+					Name:        "my_group",
+					Description: "a group",
+					ToolNames:   []string{"tool_a", "tool_b"},
+					PromptNames: []string{"prompt_a"},
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, _, _, got, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, got, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -342,11 +544,69 @@ func TestFailParseFromYaml(t *testing.T) {
 			`,
 			err: "Field validation for 'TTLMs' failed on the 'gte' tag",
 		},
+		{
+			desc: "default group declaring tools",
+			in: `
+			kind: group
+			name:
+			tools:
+			  - tool_a
+			`,
+			err: "the default (nameless) group cannot declare 'tools', 'prompts', 'resources', or 'resourceTemplates'",
+		},
+		{
+			desc: "default group declaring prompts",
+			in: `
+			kind: group
+			name:
+			prompts:
+			  - prompt_a
+			`,
+			err: "the default (nameless) group cannot declare 'tools', 'prompts', 'resources', or 'resourceTemplates'",
+		},
+		{
+			desc: "unknown field",
+			in: `
+			kind: group
+			name: my_group
+			unknownField123:
+			  - something
+			`,
+			err: "unknown field \"unknownField123\"",
+		},
+		{
+			desc: "duplicate default group",
+			in: `
+kind: group
+name:
+description: first
+---
+kind: group
+name:
+description: second
+`,
+			err: "more than one default (nameless) group declared",
+		},
+		{
+			desc: "duplicate named group",
+			in: `
+kind: group
+name: my_group
+tools:
+  - tool_a
+---
+kind: group
+name: my_group
+tools:
+  - tool_b
+`,
+			err: "group \"my_group\" declared more than once",
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}

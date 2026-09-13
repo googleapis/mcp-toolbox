@@ -16,10 +16,14 @@ These JS SDKs act as clients for that service. They handle the communication nee
 * Fetch tool definitions from your running Toolbox instance.
 * Provide convenient JS objects or functions representing those tools.
 * Invoke the tools (calling the underlying APIs/services configured in Toolbox).
-* Handle authentication and parameter binding as needed.
+* Handle authentication, parameter binding, and secure parameters as needed.
 
 By using these SDKs, you can easily leverage your Toolbox-managed tools directly
 within your JS applications or AI orchestration frameworks.
+
+{{< notice note >}}
+[Secure parameters](../../../configuration/tools/_index.md#secure-parameters) are supported starting in `@toolbox-sdk/core` >= `1.2.0` and `@toolbox-sdk/adk` >= `1.2.0`, and require MCP protocol version `2026-07-28` or newer with the `com.google.cloud/toolbox.v1` extension.
+{{< /notice >}}
 
 <a class="btn btn-primary" href="https://js.mcp-toolbox.dev" role="button"><i class="fa-brands fa-js"></i> JavaScript API Reference</a>
 

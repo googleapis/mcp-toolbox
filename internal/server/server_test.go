@@ -46,6 +46,9 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -426,7 +429,9 @@ func TestUpdateServer(t *testing.T) {
 	newGroups := map[string]group.Group{
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
-	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newGroups)
+	newResources := map[string]resources.Resource{"example-resource": nil}
+	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
+	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 	if err != nil {
 		t.Errorf("error updating server: %s", err)
 	}
@@ -458,6 +463,16 @@ func TestUpdateServer(t *testing.T) {
 	gotPrompt, _ := s.PrimitiveMgr.GetPrompt("example-prompt")
 	if diff := cmp.Diff(gotPrompt, newPrompts["example-prompt"], cmp.AllowUnexported(testutils.MockPrompt{})); diff != "" {
 		t.Errorf("error updating server, prompts (-want +got):\n%s", diff)
+	}
+
+	gotResource, _ := s.PrimitiveMgr.GetResource("example-resource")
+	if diff := cmp.Diff(gotResource, newResources["example-resource"]); diff != "" {
+		t.Errorf("error updating server, resources (-want +got):\n%s", diff)
+	}
+
+	gotTemplate, _ := s.PrimitiveMgr.GetResourceTemplate("example-template")
+	if diff := cmp.Diff(gotTemplate, newResourceTemplates["example-template"]); diff != "" {
+		t.Errorf("error updating server, resource templates (-want +got):\n%s", diff)
 	}
 }
 
@@ -1363,184 +1378,6 @@ func TestMCPAuthMiddleware(t *testing.T) {
 	}
 }
 
-func TestGoogleAuthConfigValidation(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		yaml      string
-		wantError bool
-	}{
-		{
-			name: "only clientId, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-clientId: my-client-id
-`,
-			wantError: false,
-		},
-		{
-			name: "only audience, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-audience: my-audience
-`,
-			wantError: true,
-		},
-		{
-			name: "only audience, mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-audience: my-audience
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-		{
-			name: "scopesRequired, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-scopesRequired:
-  - email
-`,
-			wantError: true,
-		},
-		{
-			name: "scopesRequired, mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-scopesRequired:
-  - email
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-		{
-			name: "both clientId and audience, mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-clientId: my-client-id
-audience: my-audience
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
-			if (err != nil) != tc.wantError {
-				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
-			}
-		})
-	}
-}
-
-func TestGenericAuthConfigValidation(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		yaml      string
-		wantError bool
-	}{
-		{
-			name: "valid mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-`,
-			wantError: false,
-		},
-		{
-			name: "valid mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-		{
-			name: "introspectionEndpoint, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-introspectionEndpoint: http://example.com/introspect
-`,
-			wantError: true,
-		},
-		{
-			name: "introspectionMethod, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-introspectionMethod: POST
-`,
-			wantError: true,
-		},
-		{
-			name: "introspectionParamName, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-introspectionParamName: token
-`,
-			wantError: true,
-		},
-		{
-			name: "scopesRequired, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-scopesRequired:
-  - email
-`,
-			wantError: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
-			if (err != nil) != tc.wantError {
-				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
-			}
-		})
-	}
-}
-
 func TestDuplicateResourceConfig(t *testing.T) {
 	ctx := context.Background()
 
@@ -1652,7 +1489,7 @@ messages:
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
 			if err == nil {
 				t.Fatalf("UnmarshalPrimitiveConfig() expected a duplicate error, got nil")
 			}
@@ -1660,195 +1497,6 @@ messages:
 				t.Fatalf("UnmarshalPrimitiveConfig() error = %v, want it to mention 'declared more than once'", err)
 			}
 		})
-	}
-}
-
-func TestGroupConfigParsing(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		yaml      string
-		want      group.GroupConfig
-		wantError bool
-	}{
-		{
-			name: "valid named group",
-			yaml: `
-kind: group
-name: my_group
-description: a group of tools and prompts
-tools:
-  - tool_a
-  - tool_b
-prompts:
-  - prompt_a
-`,
-			want: group.GroupConfig{
-				Name:        "my_group",
-				Description: "a group of tools and prompts",
-				ToolNames:   []string{"tool_a", "tool_b"},
-				PromptNames: []string{"prompt_a"},
-			},
-		},
-		{
-			name: "named group with only description",
-			yaml: `
-kind: group
-name: my_group
-description: just a description
-`,
-			want: group.GroupConfig{
-				Name:        "my_group",
-				Description: "just a description",
-			},
-		},
-		{
-			name: "default group with only description",
-			yaml: `
-kind: group
-name:
-description: default server instruction
-`,
-			want: group.GroupConfig{
-				Description: "default server instruction",
-			},
-		},
-		{
-			name: "default group omitting name field",
-			yaml: `
-kind: group
-description: default server instruction
-`,
-			want: group.GroupConfig{
-				Description: "default server instruction",
-			},
-		},
-		{
-			name: "kind toolset folds into a tools-only group",
-			yaml: `
-kind: toolset
-name: my_toolset
-tools:
-  - tool_a
-  - tool_b
-`,
-			want: group.GroupConfig{
-				Name:      "my_toolset",
-				ToolNames: []string{"tool_a", "tool_b"},
-			},
-		},
-		{
-			name: "default group declaring tools is an error",
-			yaml: `
-kind: group
-name:
-tools:
-  - tool_a
-`,
-			wantError: true,
-		},
-		{
-			name: "default group declaring prompts is an error",
-			yaml: `
-kind: group
-name:
-prompts:
-  - prompt_a
-`,
-			wantError: true,
-		},
-		{
-			name: "unknown field is an error",
-			yaml: `
-kind: group
-name: my_group
-resources:
-  - res_a
-`,
-			wantError: true,
-		},
-		{
-			name: "duplicate default group is an error",
-			yaml: `
-kind: group
-name:
-description: first
----
-kind: group
-name:
-description: second
-`,
-			wantError: true,
-		},
-		{
-			name: "duplicate named group is an error",
-			yaml: `
-kind: group
-name: my_group
-tools:
-  - tool_a
----
-kind: group
-name: my_group
-tools:
-  - tool_b
-`,
-			wantError: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
-			if (err != nil) != tc.wantError {
-				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
-			}
-			if tc.wantError {
-				return
-			}
-			gc, ok := groups[tc.want.Name]
-			if !ok {
-				t.Fatalf("expected group %q to be parsed, got: %v", tc.want.Name, groups)
-			}
-			if diff := cmp.Diff(tc.want, gc); diff != "" {
-				t.Errorf("group mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestGroupConfigValues(t *testing.T) {
-	ctx := context.Background()
-	yaml := `
-kind: group
-name: my_group
-description: a group
-tools:
-  - tool_a
-  - tool_b
-prompts:
-  - prompt_a
-`
-	_, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(yaml))
-	if err != nil {
-		t.Fatalf("UnmarshalPrimitiveConfig() returned unexpected error: %v", err)
-	}
-	gc, ok := groups["my_group"]
-	if !ok {
-		t.Fatalf("expected group %q to be parsed, got: %v", "my_group", groups)
-	}
-	if gc.Name != "my_group" {
-		t.Errorf("group name: got %q, want %q", gc.Name, "my_group")
-	}
-	if gc.Description != "a group" {
-		t.Errorf("group description: got %q, want %q", gc.Description, "a group")
-	}
-	if diff := cmp.Diff([]string{"tool_a", "tool_b"}, gc.ToolNames); diff != "" {
-		t.Errorf("group tools mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff([]string{"prompt_a"}, gc.PromptNames); diff != "" {
-		t.Errorf("group prompts mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -1875,7 +1523,7 @@ func TestInitializeConfigs(t *testing.T) {
 				"my-tool": tools1.ToConfig(),
 			},
 		}
-		sourcesMap, _, _, toolsMap, _, _, err := server.InitializeConfigs(ctx, validCfg)
+		sourcesMap, _, _, toolsMap, _, _, _, _, err := server.InitializeConfigs(ctx, validCfg)
 		if err != nil {
 			t.Fatalf("unexpected error during config initialization: %s", err)
 		}
@@ -1898,13 +1546,124 @@ func TestInitializeConfigs(t *testing.T) {
 				"my-invalid-tool": testutils.NewMockTool("my-tool", "mock tool for offline config", "my-source", nil, false, false).ToConfig(),
 			},
 		}
-		_, _, _, _, _, _, err := server.InitializeConfigs(ctx, invalidCfg)
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, invalidCfg)
 		if err == nil {
 			t.Fatalf("expected error but got nil")
 		}
 		wantErr := `invalid source for "mock-tool" tool: source "my-source" is not a compatible type`
 		if err.Error() != wantErr {
 			t.Fatalf("unexpected error: want %s, got %s", wantErr, err.Error())
+		}
+	})
+	t.Run("succeeds when UI resource is present globally", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ToolConfigs: map[string]tools.ToolConfig{
+				"tool-with-ui": testutils.MockToolConfig{
+					ConfigBase: tools.ConfigBase{
+						Name: "tool-with-ui",
+						UI: &tools.ToolUIMetadata{
+							Resource: "valid-resource",
+						},
+					},
+				},
+			},
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"valid-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "valid-resource",
+							UI:   true,
+						},
+					},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("expected InitializeConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("succeeds when tool references an unverified UI resource", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ToolConfigs: map[string]tools.ToolConfig{
+				"tool-with-ui": testutils.MockToolConfig{
+					ConfigBase: tools.ConfigBase{
+						Name: "tool-with-ui",
+						UI: &tools.ToolUIMetadata{
+							Resource: "unverified-resource",
+						},
+					},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("expected InitializeConfigs to succeed without checking UI resource, got: %v", err)
+		}
+	})
+
+	t.Run("fails when group directly includes a UI resource", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"ui-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "ui-resource",
+							UI:   true,
+						},
+					},
+				},
+			},
+			GroupConfigs: map[string]group.GroupConfig{
+				"mygroup": {
+					Name:          "mygroup",
+					ResourceNames: []string{"ui-resource"},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail")
+		}
+		if !strings.Contains(err.Error(), "UI resource \"ui-resource\" cannot be included in group \"mygroup\"") {
+			t.Fatalf("expected UI resource cannot be included in group error, got: %v", err)
+		}
+	})
+
+	t.Run("succeeds when UI resource is present globally in offline mode", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ToolConfigs: map[string]tools.ToolConfig{
+				"tool-with-ui": testutils.MockToolConfig{
+					ConfigBase: tools.ConfigBase{
+						Name: "tool-with-ui",
+						UI: &tools.ToolUIMetadata{
+							Resource: "valid-resource",
+						},
+					},
+				},
+			},
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"valid-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "valid-resource",
+							UI:   true,
+						},
+					},
+				},
+			},
+		}
+
+		_, _, err := server.InitializeOfflineConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("expected InitializeOfflineConfigs to succeed, got: %v", err)
 		}
 	})
 }

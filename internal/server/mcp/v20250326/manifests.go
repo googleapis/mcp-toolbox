@@ -17,6 +17,8 @@ package v20250326
 import (
 	"fmt"
 
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -157,4 +159,68 @@ func GenerateListPromptsResult(pMgr *primitives.PrimitiveManager, g group.Group)
 		mcpManifest = append(mcpManifest, promptManifest)
 	}
 	return ListPromptsResult{Prompts: mcpManifest}, nil
+}
+
+// generateResourceManifest generates a version-specific Resource manifest for list/resources
+
+func generateAnnotations(internalAnns *resources.ResourceAnnotations) *Annotations {
+	if internalAnns == nil || (len(internalAnns.Audience) == 0 && internalAnns.Priority == nil) {
+		return nil
+	}
+	annotations := &Annotations{}
+	if internalAnns.Priority != nil {
+		annotations.Priority = internalAnns.Priority
+	}
+	for _, aud := range internalAnns.Audience {
+		annotations.Audience = append(annotations.Audience, Role(aud))
+	}
+	return annotations
+}
+
+func generateResourceManifest(name, desc, uri, mimeType string, size *int64, internalAnns *resources.ResourceAnnotations) Resource {
+	return Resource{
+		Name:        name,
+		Uri:         uri,
+		Description: desc,
+		MimeType:    mimeType,
+		Size:        size,
+		Annotations: generateAnnotations(internalAnns),
+	}
+}
+
+// GenerateListResourcesResult generates the list/resources result
+func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourcesResult, error) {
+	mcpManifest := make([]Resource, 0, len(g.ResourceNames))
+	for _, name := range g.ResourceNames {
+		res, ok := pMgr.GetResource(name)
+		if !ok {
+			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
+		}
+		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
+	}
+	return ListResourcesResult{Resources: mcpManifest}, nil
+}
+
+// generateResourceTemplateManifest generates a version-specific ResourceTemplate manifest
+func generateResourceTemplateManifest(name, desc, uriTemplate, mimeType string, internalAnns *resources.ResourceAnnotations) ResourceTemplate {
+	return ResourceTemplate{
+		Name:        name,
+		UriTemplate: uriTemplate,
+		Description: desc,
+		MimeType:    mimeType,
+		Annotations: generateAnnotations(internalAnns),
+	}
+}
+
+// GenerateListResourceTemplatesResult generates the list/resource templates result
+func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourceTemplatesResult, error) {
+	mcpManifest := make([]ResourceTemplate, 0, len(g.ResourceTemplateNames))
+	for _, name := range g.ResourceTemplateNames {
+		tmpl, ok := pMgr.GetResourceTemplate(name)
+		if !ok {
+			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
+		}
+		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType(), tmpl.GetAnnotations()))
+	}
+	return ListResourceTemplatesResult{ResourceTemplates: mcpManifest}, nil
 }
