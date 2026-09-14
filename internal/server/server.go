@@ -602,6 +602,7 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read openai token file at startup: %w", err)
 		}
+		cachedOpenAITokenBytes = []byte(strings.TrimSpace(string(cachedOpenAITokenBytes)))
 	}
 
 	s := &Server{
