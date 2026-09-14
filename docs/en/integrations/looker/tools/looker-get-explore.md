@@ -19,3 +19,30 @@ tools:
     type: looker-get-explore
     source: my_looker_source
 ```
+
+## Output Format
+
+The return type is a single map containing the explore's metadata:
+
+```json
+{
+    "name": "explore name",
+    "description": "explore description",
+    "label": "explore label",
+    "group_label": "group label",
+    "hidden": false,
+    "tags": ["tag1", "tag2"],
+    "always_filter": [
+        {
+            "field": "field_name",
+            "value": "filter value"
+        }
+    ],
+    "conditionally_filter": [
+        {
+            "field": "field_name",
+            "value": "filter value"
+        }
+    ]
+}
+```
