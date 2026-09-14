@@ -254,4 +254,10 @@ func TestAnnotations(t *testing.T) {
 	if *annotations.DestructiveHint != true {
 		t.Errorf("DestructiveHint should be true, got %v", *annotations.DestructiveHint)
 	}
+	if annotations.OpenWorldHint == nil {
+		t.Fatal("mcp manifest OpenWorldHint is nil")
+	}
+	if *annotations.OpenWorldHint != false {
+		t.Errorf("OpenWorldHint should be false, got %v", *annotations.OpenWorldHint)
+	}
 }
