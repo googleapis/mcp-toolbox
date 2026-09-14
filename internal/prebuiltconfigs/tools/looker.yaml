@@ -45,7 +45,7 @@ description: |
   This tool retrieves a list of explores defined within a specific LookML model.
   Explores represent a curated view of your data, typically joining several
   tables together to allow for focused analysis on a particular subject area.
-  The output provides details like the explore's `name` and `label`.
+  The output provides details like the explore's `name`, `label`, and whether it is `hidden`.
 
   Parameters:
   - model_name (required): The name of the LookML model, obtained from `get_models`.
