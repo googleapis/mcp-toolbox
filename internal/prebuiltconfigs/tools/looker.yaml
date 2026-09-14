@@ -51,6 +51,22 @@ description: |
   - model_name (required): The name of the LookML model, obtained from `get_models`.
 ---
 kind: tool
+name: get_explore
+type: looker-get-explore
+source: looker-source
+description: |
+  This tool retrieves detailed metadata about a specific Looker explore, including its
+  constraints and rules (e.g., `always_filter`, `conditionally_filter`, `tags`).
+
+  CRITICAL: You MUST use this tool to inspect the explore's metadata BEFORE generating
+  or running a query. If an explore has mandatory filters defined (like `always_filter`
+  or `conditionally_filter`), your query will fail unless you include them.
+
+  Parameters:
+  - model_name (required): The name of the LookML model, obtained from `get_models`.
+  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+---
+kind: tool
 name: get_dimensions
 type: looker-get-dimensions
 source: looker-source
