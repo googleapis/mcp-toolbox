@@ -2118,3 +2118,178 @@ func TestInitializeGroups(t *testing.T) {
 		}
 	})
 }
+
+func TestOpenAIAppsChallenge(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testLogger, err := log.NewLogger("standard", "DEBUG", os.Stdout, os.Stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithLogger(ctx, testLogger)
+
+	instrumentation, err := telemetry.CreateTelemetryInstrumentation("0.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithInstrumentation(ctx, instrumentation)
+
+	t.Run("serves token with OpenAIAppsChallengeFile", func(t *testing.T) {
+		tokenContent := "challenge-token-abc123xyz"
+		tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		if _, err := tmpFile.WriteString(tokenContent); err != nil {
+			t.Fatalf("failed to write token: %v", err)
+		}
+		_ = tmpFile.Close()
+
+		cfg := server.ServerConfig{
+			Version:                 "0.0.0",
+			Address:                 "127.0.0.1",
+			Port:                    0,
+			OpenAIAppsChallengeFile: tmpFile.Name(),
+			AllowedHosts:            []string{"*"},
+		}
+
+		s, err := server.NewServer(ctx, cfg)
+		if err != nil {
+			t.Fatalf("unable to initialize server: %v", err)
+		}
+
+		if err := s.Listen(ctx, "", ""); err != nil {
+			t.Fatalf("unable to start listener: %v", err)
+		}
+		go func() {
+			_ = s.Serve(ctx)
+		}()
+		defer func() {
+			_ = s.Shutdown(ctx)
+		}()
+
+		reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
+		resp, err := http.Get(reqURL)
+		if err != nil {
+			t.Fatalf("error when sending request: %s", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", resp.StatusCode)
+		}
+
+		if ct := resp.Header.Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Errorf("expected Content-Type 'text/plain; charset=utf-8', got %q", ct)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("error reading body: %s", err)
+		}
+
+		if string(body) != tokenContent {
+			t.Errorf("expected body %q, got %q", tokenContent, string(body))
+		}
+	})
+
+	t.Run("returns 404 when flag is not set", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			Version:      "0.0.0",
+			Address:      "127.0.0.1",
+			Port:         0,
+			AllowedHosts: []string{"*"},
+		}
+
+		s, err := server.NewServer(ctx, cfg)
+		if err != nil {
+			t.Fatalf("unable to initialize server: %v", err)
+		}
+
+		if err := s.Listen(ctx, "", ""); err != nil {
+			t.Fatalf("unable to start listener: %v", err)
+		}
+		go func() {
+			_ = s.Serve(ctx)
+		}()
+		defer func() {
+			_ = s.Shutdown(ctx)
+		}()
+
+		reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
+		resp, err := http.Get(reqURL)
+		if err != nil {
+			t.Fatalf("error when sending request: %s", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("expected status 404, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("returns 405 Method Not Allowed for non-GET requests", func(t *testing.T) {
+		tokenContent := "challenge-token-test"
+		tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+		if err != nil {
+			t.Fatalf("failed to create temp file: %v", err)
+		}
+		if _, err := tmpFile.WriteString(tokenContent); err != nil {
+			t.Fatalf("failed to write token: %v", err)
+		}
+		_ = tmpFile.Close()
+
+		cfg := server.ServerConfig{
+			Version:                 "0.0.0",
+			Address:                 "127.0.0.1",
+			Port:                    0,
+			OpenAIAppsChallengeFile: tmpFile.Name(),
+			AllowedHosts:            []string{"*"},
+		}
+
+		s, err := server.NewServer(ctx, cfg)
+		if err != nil {
+			t.Fatalf("unable to initialize server: %v", err)
+		}
+
+		if err := s.Listen(ctx, "", ""); err != nil {
+			t.Fatalf("unable to start listener: %v", err)
+		}
+		go func() {
+			_ = s.Serve(ctx)
+		}()
+		defer func() {
+			_ = s.Shutdown(ctx)
+		}()
+
+		reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
+		resp, err := http.Post(reqURL, "text/plain", strings.NewReader("bad"))
+		if err != nil {
+			t.Fatalf("error when sending request: %s", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("returns error when token file does not exist", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			Version:                 "0.0.0",
+			Address:                 "127.0.0.1",
+			Port:                    0,
+			OpenAIAppsChallengeFile: "nonexistent-token-file.txt",
+			AllowedHosts:            []string{"*"},
+		}
+
+		_, err := server.NewServer(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected error when token file does not exist, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read openai token file at startup") {
+			t.Errorf("expected error containing 'failed to read openai token file at startup', got %q", err.Error())
+		}
+	})
+}
