@@ -98,20 +98,3 @@ func TestDestructiveAnnotations(t *testing.T) {
 		}
 	})
 }
-
-func TestNewAnnotations(t *testing.T) {
-	ro := lookercommon.NewReadOnlyAnnotations()
-	if *ro.ReadOnlyHint != true || *ro.DestructiveHint != false || *ro.OpenWorldHint != false {
-		t.Errorf("unexpected NewReadOnlyAnnotations: %+v", ro)
-	}
-
-	w := lookercommon.NewWriteAnnotations()
-	if *w.ReadOnlyHint != false || *w.DestructiveHint != false || *w.OpenWorldHint != false {
-		t.Errorf("unexpected NewWriteAnnotations: %+v", w)
-	}
-
-	d := lookercommon.NewDestructiveAnnotations()
-	if *d.ReadOnlyHint != false || *d.DestructiveHint != true || *d.OpenWorldHint != false {
-		t.Errorf("unexpected NewDestructiveAnnotations: %+v", d)
-	}
-}
