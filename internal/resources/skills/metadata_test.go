@@ -15,6 +15,7 @@
 package skills_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
@@ -50,7 +51,10 @@ func TestWithDocMetadata(t *testing.T) {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
 
-	docs := skills.WithDocMetadata(entries, resourcesMap)
+	docs, err := skills.WithDocMetadata(entries, resourcesMap)
+	if err != nil {
+		t.Fatalf("WithDocMetadata() = %v, want nil", err)
+	}
 	if len(docs) != 1 {
 		t.Fatalf("got %d doc resources, want 1: %v", len(docs), docs)
 	}
@@ -101,7 +105,10 @@ func TestWithDocMetadataMultipleSkills(t *testing.T) {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
 
-	docs := skills.WithDocMetadata(entries, resourcesMap)
+	docs, err := skills.WithDocMetadata(entries, resourcesMap)
+	if err != nil {
+		t.Fatalf("WithDocMetadata() = %v, want nil", err)
+	}
 	want := map[string]struct{ name, description string }{
 		alphaURI: {"alpha-guide", "Query the warehouse"},
 		betaURI:  {"beta-guide", "Summarize the warehouse"},
@@ -139,7 +146,11 @@ func TestWithDocMetadataForwards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
-	doc := skills.WithDocMetadata(entries, map[string]resources.Resource{"guide": backing})[skillURI]
+	docs, err := skills.WithDocMetadata(entries, map[string]resources.Resource{"guide": backing})
+	if err != nil {
+		t.Fatalf("WithDocMetadata() = %v, want nil", err)
+	}
+	doc := docs[skillURI]
 	if doc == nil {
 		t.Fatal("no replacement for SKILL.md")
 	}
@@ -172,7 +183,69 @@ func TestWithDocMetadataNoSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
-	if docs := skills.WithDocMetadata(entries, resourcesMap); len(docs) != 0 {
+	docs, err := skills.WithDocMetadata(entries, resourcesMap)
+	if err != nil {
+		t.Fatalf("WithDocMetadata() = %v, want nil", err)
+	}
+	if len(docs) != 0 {
 		t.Errorf("got %v, want no replacements", docs)
+	}
+}
+
+// TestWithDocMetadataRejectsBadFrontmatter covers the entries Discover cannot
+// produce, since Entry.Validate rejects them first. A caller assembling entries
+// by hand gets an error rather than a SKILL.md silently missing from the result.
+func TestWithDocMetadataRejectsBadFrontmatter(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const skillURI = "skill://analytics-guide/SKILL.md"
+	resourcesMap := map[string]resources.Resource{
+		"guide": textResource(t, ctx, "guide", skillURI, skillMD("analytics-guide", "Query the warehouse")),
+	}
+
+	tcs := []struct {
+		desc        string
+		frontmatter map[string]any
+		want        string
+	}{
+		{
+			desc:        "no name",
+			frontmatter: map[string]any{"description": "Query the warehouse"},
+			want:        "frontmatter has no name",
+		},
+		{
+			desc:        "no description",
+			frontmatter: map[string]any{"name": "analytics-guide"},
+			want:        "frontmatter has no description",
+		},
+		{
+			desc:        "name is not a string",
+			frontmatter: map[string]any{"name": 7, "description": "Query the warehouse"},
+			want:        "frontmatter name is int, want a string",
+		},
+		{
+			desc:        "description is empty",
+			frontmatter: map[string]any{"name": "analytics-guide", "description": ""},
+			want:        "frontmatter description is empty",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			entries := []skills.Entry{{URI: skillURI, Frontmatter: tc.frontmatter}}
+			docs, err := skills.WithDocMetadata(entries, resourcesMap)
+			if err == nil {
+				t.Fatalf("WithDocMetadata() = %v, want an error", docs)
+			}
+			if docs != nil {
+				t.Errorf("got %v alongside the error, want nil", docs)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("WithDocMetadata() = %q, want it to mention %q", err, tc.want)
+			}
+		})
 	}
 }
