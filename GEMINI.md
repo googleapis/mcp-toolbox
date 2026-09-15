@@ -20,6 +20,9 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 -   `cmd/`: Application entry points.
 -   `internal/sources/`: Implementations of database sources (e.g., Postgres, BigQuery).
 -   `internal/tools/`: Implementations of specific tools for each source.
+-   `internal/prompts/`: Implementations of MCP prompts.
+-   `internal/resources/`: Implementations of MCP resources and resource templates (e.g., text, file).
+-   `internal/group/`: Implementations of groups scoping tools, prompts, resources, and resource templates.
 -   `tests/`: Integration tests.
 -   `evals/`: Evalsets and harness configs for evaluating the prebuilt tool configs with [EvalBench](https://github.com/googlecloudplatform/evalbench); run by `.ci/evals.cloudbuild.yaml`.
 -   `docs/en`: Project documentation. Separated logically into:
@@ -177,6 +180,7 @@ Refer to `internal/tools/postgres/postgressql/postgressql.go` for the canonical 
 
 -   **For a new source:** Add source documentation to `docs/en/integrations/<source_name>/source.md`. Ensure the root `_index.md` file contains **strictly only frontmatter** and no markdown body text.
 -   **For a new native tool:** Add tool documentation to `docs/en/integrations/<source_name>/tools/<tool_name>.md`. Ensure the `tools/_index.md` file contains **strictly only frontmatter**.
+-   **For a new resource:** Add resource documentation to `docs/en/documentation/configuration/resources/<resource_type>.md`.
 -   **Adding Integration Samples:** Add integration-specific samples to `docs/en/integrations/<source_name>/samples/`. Ensure the `samples/_index.md` file contains **strictly only frontmatter**.
 -   **Tool Inheritance (Shared Tools):** Managed databases (e.g., Cloud SQL Postgres) that use the tools of their underlying engine (e.g., Postgres) map their inherited tools by utilizing the `shared_tools` frontmatter parameter inside their `tools/_index.md` file. This file must contain only frontmatter.
 -   **New Top-Level Directories:** If adding a completely new top-level section to the documentation site, you must update the "Diátaxis Narrative Framework" section inside both `.hugo/layouts/index.llms.txt` and `.hugo/layouts/index.llms-full.txt` to keep the AI context synced with the site structure.

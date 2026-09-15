@@ -163,3 +163,116 @@ func TestServerExtensions(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateUISupport(t *testing.T) {
+	tests := []struct {
+		name       string
+		cap        McpUiClientCapabilities
+		supportsUI bool
+	}{
+		{
+			name:       "empty mime types",
+			cap:        McpUiClientCapabilities{MimeTypes: []string{}},
+			supportsUI: false,
+		},
+		{
+			name: "exact mimeType match",
+			cap: McpUiClientCapabilities{
+				MimeTypes: []string{"text/html;profile=mcp-app"},
+			},
+			supportsUI: true,
+		},
+		{
+			name: "mimeType with space",
+			cap: McpUiClientCapabilities{
+				MimeTypes: []string{"text/html; profile=mcp-app"},
+			},
+			supportsUI: true,
+		},
+		{
+			name: "unsupported mimeType",
+			cap: McpUiClientCapabilities{
+				MimeTypes: []string{"application/json"},
+			},
+			supportsUI: false,
+		},
+		{
+			name: "multiple mimeTypes with supported one",
+			cap: McpUiClientCapabilities{
+				MimeTypes: []string{"application/json", "text/html;profile=mcp-app"},
+			},
+			supportsUI: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ValidateUISupport(tc.cap)
+			if got != tc.supportsUI {
+				t.Errorf("ValidateUISupport() = %v, want %v", got, tc.supportsUI)
+			}
+		})
+	}
+}
+
+func TestCheckUISupport(t *testing.T) {
+	tests := []struct {
+		name          string
+		supportedExts map[string]any
+		supportsUI    bool
+	}{
+		{
+			name:          "nil supported extensions",
+			supportedExts: nil,
+			supportsUI:    false,
+		},
+		{
+			name:          "empty supported extensions",
+			supportedExts: map[string]any{},
+			supportsUI:    false,
+		},
+		{
+			name: "other extension only",
+			supportedExts: map[string]any{
+				"com.google.cloud/toolbox.v1": map[string]any{},
+			},
+			supportsUI: false,
+		},
+		{
+			name: "valid UI extension with correct mimeType",
+			supportedExts: map[string]any{
+				UIExtensionURI: map[string]any{
+					"mimeTypes": []any{"text/html;profile=mcp-app"},
+				},
+			},
+			supportsUI: true,
+		},
+		{
+			name: "valid UI extension with space in mimeType",
+			supportedExts: map[string]any{
+				UIExtensionURI: map[string]any{
+					"mimeTypes": []any{"text/html; profile=mcp-app"},
+				},
+			},
+			supportsUI: true,
+		},
+		{
+			name: "UI extension with unsupported mimeType",
+			supportedExts: map[string]any{
+				UIExtensionURI: map[string]any{
+					"mimeTypes": []any{"application/json"},
+				},
+			},
+			supportsUI: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CheckUISupport(tc.supportedExts)
+			if got != tc.supportsUI {
+				t.Errorf("CheckUISupport() = %v, want %v", got, tc.supportsUI)
+			}
+		})
+	}
+}

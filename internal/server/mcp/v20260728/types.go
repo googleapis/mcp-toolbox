@@ -28,13 +28,16 @@ const PROTOCOL_VERSION = util.VERSION_20260728
 
 // methods that are supported.
 const (
-	SERVER_DISCOVER = "server/discover"
-	TOOLS_LIST      = "tools/list"
-	TOOLS_CALL      = "tools/call"
-	PROMPTS_LIST    = "prompts/list"
-	PROMPTS_GET     = "prompts/get"
-	GROUPS_LIST     = "groups/list"
-	GROUPS_GET      = "groups/get"
+	SERVER_DISCOVER          = "server/discover"
+	TOOLS_LIST               = "tools/list"
+	TOOLS_CALL               = "tools/call"
+	PROMPTS_LIST             = "prompts/list"
+	PROMPTS_GET              = "prompts/get"
+	RESOURCES_LIST           = "resources/list"
+	RESOURCES_TEMPLATES_LIST = "resources/templates/list"
+	RESOURCES_READ           = "resources/read"
+	GROUPS_LIST              = "groups/list"
+	GROUPS_GET               = "groups/get"
 )
 
 /* Request Params */
@@ -190,9 +193,13 @@ type ServerCapabilities struct {
 	Extensions map[string]any `json:"extensions,omitempty"`
 	Tools      *ListChanged   `json:"tools,omitempty"`
 	Prompts    *ListChanged   `json:"prompts,omitempty"`
+	Resources  *struct {
+		Subscribe   *bool `json:"subscribe,omitempty"`
+		ListChanged *bool `json:"listChanged,omitempty"`
+	} `json:"resources,omitempty"`
 }
 
-// ListChange represents whether the server supports notification for changes to the capabilities.
+// ListChanged represents whether the server supports notification for changes to the capabilities.
 type ListChanged struct {
 	ListChanged *bool `json:"listChanged,omitempty"`
 }
@@ -506,12 +513,260 @@ type PromptMessage struct {
 	Content TextContent `json:"content"`
 }
 
+/* Resources */
+
+// Sent from the client to request a list of resources the server has.
+type ListResourcesRequest struct {
+	PaginatedRequest
+}
+
+// A known resource that the server is capable of reading.
+type Resource struct {
+	BaseMetadata
+	// The URI of this resource.
+	Uri string `json:"uri"`
+	// A description of what this resource represents.
+	//
+	// This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+	Description string `json:"description,omitempty"`
+	// The MIME type of this resource, if known.
+	MimeType string `json:"mimeType,omitempty"`
+	// Optional annotations for the client.
+	Annotations *Annotations `json:"annotations,omitempty"`
+	// The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
+	//
+	// This can be used by Hosts to display file sizes and estimate context window usage.
+	Size *int64 `json:"size,omitempty"`
+	// See [General fields: `_meta`](/specification/2025-11-25/basic/index#_meta) for notes on `_meta` usage.
+	Metadata map[string]any `json:"_meta,omitempty"`
+}
+
+// Optional annotations for the client. The client can use annotations to inform how objects are used or displayed
+type Annotations struct {
+	// Describes who the intended audience of this object or data is.
+	//
+	// It can include multiple entries to indicate content useful for multiple audiences (e.g., `["user", "assistant"]`).
+	Audience []Role `json:"audience,omitempty"`
+	// Describes how important this data is for operating the server.
+	//
+	// A value of 1 means "most important," and indicates that the data is
+	// effectively required, while 0 means "least important," and indicates that
+	// the data is entirely optional.
+	Priority *float64 `json:"priority,omitempty"`
+	// The moment the resource was last modified, as an ISO 8601 formatted string.
+	//
+	// Should be an ISO 8601 formatted string (e.g., "2025-01-12T15:00:58Z").
+	//
+	// Examples: last activity timestamp in an open file, timestamp when the resource
+	// was attached, etc.
+	LastModified string `json:"lastModified,omitempty"`
+}
+
+// The result returned by the server for a {@link ListResourcesRequest | resources/list} request.
+type ListResourcesResult struct {
+	Result
+	PaginatedResult
+	CacheableResult
+	Resources []Resource `json:"resources"`
+}
+
+// Sent from the client to request a list of resource templates the server has.
+type ListResourceTemplatesRequest struct {
+	PaginatedRequest
+}
+
+// A template description for resources available on the server.
+type ResourceTemplate struct {
+	BaseMetadata
+	// A URI template (according to RFC 6570) that can be used to construct resource URIs.
+	UriTemplate string `json:"uriTemplate"`
+	// A description of what this template is for.
+	//
+	// This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
+	Description string `json:"description,omitempty"`
+	// The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
+	MimeType string `json:"mimeType,omitempty"`
+	// Optional annotations for the client.
+	Annotations *Annotations `json:"annotations,omitempty"`
+	// See [General fields: `_meta`](/specification/2025-11-25/basic/index#_meta) for notes on `_meta` usage.
+	Metadata map[string]any `json:"_meta,omitempty"`
+}
+
+// The result returned by the server for a {@link ListResourceTemplatesRequest | resources/templates/list} request.
+type ListResourceTemplatesResult struct {
+	Result
+	PaginatedResult
+	CacheableResult
+	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
+}
+
+// Sent from the client to the server, to read a specific resource URI.
+type ReadResourceRequest struct {
+	jsonrpc.Request
+	Params ReadResourceRequestParams `json:"params"`
+}
+
+// Parameters for a `resources/read` request.
+type ReadResourceRequestParams struct {
+	RequestParams
+	// The URI of the resource. The URI can use any protocol; it is up to the server how to interpret it.
+	Uri string `json:"uri"`
+}
+
+// The result returned by the server for a {@link ReadResourceRequest | resources/read} request.
+type ReadResourceResult struct {
+	Result
+	CacheableResult
+	// Could be either TextResourceContents or BlobResourceContents.
+	// For Toolbox, we will only be sending TextResourceContents.
+	Contents []TextResourceContents `json:"contents"`
+}
+
+// The contents of a specific resource or sub-resource.
+type ResourceContents struct {
+	// The URI of this resource.
+	Uri string `json:"uri"`
+	// The MIME type of this resource, if known.
+	MimeType string `json:"mimeType,omitempty"`
+	// See [General fields: `_meta`](/specification/2025-11-25/basic/index#_meta) for notes on `_meta` usage.
+	Metadata map[string]any `json:"_meta,omitempty"`
+}
+
+// Text file contents
+type TextResourceContents struct {
+	ResourceContents
+	// The text of the item. This must only be set if the item can actually be represented as text (not binary data).
+	Text string `json:"text"`
+}
+
+// Content Security Policy configuration for UI resources.
+//
+// Servers declare which origins their UI requires. Hosts use this to enforce appropriate CSP headers.
+//
+// MCP App HTML runs in a sandboxed iframe with no same-origin server.
+// All origins must be declared—including where your bundled JS/CSS is
+// served from (localhost in dev, your CDN in production).
+type McpUiResourceCsp struct {
+	// Origins for network requests (fetch/XHR/WebSocket).
+	//
+	// - Maps to CSP connect-src directive
+	// - Empty or omitted → no network connections (secure default)
+	ConnectDomains []string `yaml:"connectDomains,omitempty" json:"connectDomains,omitempty"`
+	// Origins for static resources (images, scripts, stylesheets, fonts, media).
+	//
+	// - Maps to CSP img-src, script-src, style-src, font-src, media-src directives
+	// - Wildcard subdomains supported: https://*.example.com
+	// - Empty or omitted → no network resources (secure default)
+	ResourceDomains []string `yaml:"resourceDomains,omitempty" json:"resourceDomains,omitempty"`
+	// Origins for nested iframes.
+	//
+	// - Maps to CSP frame-src directive
+	// - Empty or omitted → no nested iframes allowed (frame-src 'none')
+	FrameDomains []string `yaml:"frameDomains,omitempty" json:"frameDomains,omitempty"`
+	// Allowed base URIs for the document.
+	//
+	// - Maps to CSP base-uri directive
+	// - Empty or omitted → only same origin allowed (base-uri 'self')
+	BaseUriDomains []string `yaml:"baseUriDomains,omitempty" json:"baseUriDomains,omitempty"`
+}
+
+// Sandbox permissions requested by the UI resource.
+//
+// Servers declare which browser capabilities their UI needs.
+// Hosts MAY honor these by setting appropriate iframe allow attributes.
+// Apps SHOULD NOT assume permissions are granted; use JS feature detection as fallback.
+type McpUiResourcePermissions struct {
+	// Request camera access.
+	//
+	// Maps to Permission Policy camera feature.
+	Camera *struct{} `yaml:"camera,omitempty" json:"camera,omitempty"`
+	// Request microphone access.
+	//
+	// Maps to Permission Policy microphone feature.
+	Microphone *struct{} `yaml:"microphone,omitempty" json:"microphone,omitempty"`
+	// Request geolocation access.
+	//
+	// Maps to Permission Policy geolocation feature.
+	Geolocation *struct{} `yaml:"geolocation,omitempty" json:"geolocation,omitempty"`
+	// Request clipboard write access.
+	//
+	// Maps to Permission Policy clipboard-write feature.
+	ClipboardWrite *struct{} `yaml:"clipboardWrite,omitempty" json:"clipboardWrite,omitempty"`
+}
+
+// UI Resource metadata for security and rendering configuration.
+type McpUiResourceMeta struct {
+	// Content Security Policy configuration for UI resources.
+	CSP *McpUiResourceCsp `yaml:"csp,omitempty" json:"csp,omitempty"`
+	// Sandbox permissions requested by the UI resource.
+	Permissions *McpUiResourcePermissions `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+	// Dedicated origin for view sandbox.
+	//
+	// Useful when views need stable, dedicated origins for OAuth callbacks, CORS policies, or API key allowlists.
+	//
+	// Host-dependent: The format and validation rules for this field are determined by each host.
+	// Servers MUST consult host-specific documentation for the expected domain format. Common patterns include:
+	// - Hash-based subdomains (e.g., {hash}.claudemcpcontent.com)
+	// - URL-derived subdomains (e.g., www-example-com.oaiusercontent.com)
+	//
+	// If omitted, host uses default sandbox origin (typically per-conversation).
+	Domain string `yaml:"domain,omitempty" json:"domain,omitempty"`
+	// Visual boundary preference - true if view prefers a visible border.
+	//
+	// Boolean requesting whether a visible border and background is provided by the host.
+	// Specifying an explicit value for this is recommended because hosts' defaults may vary.
+	//
+	// - true: request visible border + background
+	// - false: request no visible border + background
+	// - omitted: host decides border
+	PrefersBorder *bool `yaml:"prefersBorder,omitempty" json:"prefersBorder,omitempty"`
+}
+
+// Tool visibility scope - who can access the tool.
+type McpUiToolVisibility string
+
+const (
+	McpUiToolVisibilityModel McpUiToolVisibility = "model"
+	McpUiToolVisibilityApp   McpUiToolVisibility = "app"
+)
+
+// UI-related metadata for tools.
+type McpUiToolMeta struct {
+	// URI of the UI resource to display for this tool, if any.
+	ResourceURI string `yaml:"resourceUri,omitempty" json:"resourceUri,omitempty"`
+	// Who can access this tool. Default: ["model", "app"]
+	// - "model": Tool visible to and callable by the agent
+	// - "app": Tool callable by the app from this server only
+	Visibility []McpUiToolVisibility `yaml:"visibility,omitempty" json:"visibility,omitempty"`
+
+	// `csp` belongs on the UI **resource** (see McpUiResourceMeta),
+	// not the tool. Hosts read it from the `resources/read` content item
+	// (with `resources/list` entry as fallback) and ignore it here.
+	CSP any `yaml:"csp,omitempty" json:"csp,omitempty"`
+	// `permissions` belongs on the UI **resource** (see McpUiResourceMeta),
+	// not the tool. Hosts ignore it here.
+	Permissions any `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+}
+
+// McpUiClientCapabilities represents MCP Apps capability settings advertised by clients to servers.
+//
+// Clients advertise these capabilities via the extensions field in their
+// capabilities during MCP initialization. Servers can check for MCP Apps
+// support using getUiCapability.
+type McpUiClientCapabilities struct {
+	// Array of supported MIME types for UI resources.
+	// Must include "text/html;profile=mcp-app" for MCP Apps support.
+	MimeTypes []string `yaml:"mimeTypes,omitempty" json:"mimeTypes,omitempty"`
+}
+
 /* Groups */
 
 // ListGroupsRequest is sent from the client to request the list of groups the
-// server has.
+// server has. It is not paginated: a server configures a bounded set of groups,
+// so groups/list always returns all of them in one response.
 type ListGroupsRequest struct {
-	PaginatedRequest
+	jsonrpc.Request
+	Params RequestParams `json:"params,omitempty"`
 }
 
 // Group is a single entry in a groups/list response.
@@ -522,7 +777,7 @@ type Group struct {
 
 // ListGroupsResult is the server's response to a groups/list request.
 type ListGroupsResult struct {
-	jsonrpc.Result
+	Result
 	Groups []Group `json:"groups"`
 }
 
@@ -542,8 +797,11 @@ type GetGroupRequestParams struct {
 // tools and prompts. The description is intentionally omitted; it is exposed only
 // through groups/list.
 type GetGroupResult struct {
-	jsonrpc.Result
-	Name    string   `json:"name"`
-	Tools   []Tool   `json:"tools"`
-	Prompts []Prompt `json:"prompts"`
+	Result
+	CacheableResult
+	Name              string             `json:"name"`
+	Tools             []Tool             `json:"tools"`
+	Prompts           []Prompt           `json:"prompts"`
+	Resources         []Resource         `json:"resources"`
+	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
 }
