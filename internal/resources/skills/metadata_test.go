@@ -78,6 +78,52 @@ func TestWithDocMetadata(t *testing.T) {
 	}
 }
 
+// TestWithDocMetadataMultipleSkills pins that each SKILL.md takes its own
+// frontmatter identity rather than another skill's.
+func TestWithDocMetadataMultipleSkills(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		alphaURI = "skill://alpha-guide/SKILL.md"
+		betaURI  = "skill://beta-guide/SKILL.md"
+	)
+	resourcesMap := map[string]resources.Resource{
+		"alpha": textResource(t, ctx, "alpha", alphaURI, skillMD("alpha-guide", "Query the warehouse")),
+		"notes": textResource(t, ctx, "notes", "skill://alpha-guide/references/notes.md", "# Notes\n"),
+		"beta":  textResource(t, ctx, "beta", betaURI, skillMD("beta-guide", "Summarize the warehouse")),
+	}
+
+	entries, err := skills.Discover(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+
+	docs := skills.WithDocMetadata(entries, resourcesMap)
+	want := map[string]struct{ name, description string }{
+		alphaURI: {"alpha-guide", "Query the warehouse"},
+		betaURI:  {"beta-guide", "Summarize the warehouse"},
+	}
+	if len(docs) != len(want) {
+		t.Fatalf("got %d doc resources, want %d: %v", len(docs), len(want), docs)
+	}
+	for uri, w := range want {
+		doc, ok := docs[uri]
+		if !ok {
+			t.Errorf("no replacement for %q", uri)
+			continue
+		}
+		if got := doc.GetName(); got != w.name {
+			t.Errorf("%s GetName() = %q, want %q", uri, got, w.name)
+		}
+		if got := doc.GetDescription(); got != w.description {
+			t.Errorf("%s GetDescription() = %q, want %q", uri, got, w.description)
+		}
+	}
+}
+
 // TestWithDocMetadataForwards pins that only the three metadata methods change.
 func TestWithDocMetadataForwards(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
