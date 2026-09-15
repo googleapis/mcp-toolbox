@@ -143,11 +143,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
+	fields := "id,title,description,certification_metadata"
 	req := v4.RequestSearchDashboards{
 		Title:       title_ptr,
 		Description: desc_ptr,
 		Limit:       &limit,
 		Offset:      &offset,
+		Fields:      &fields,
 	}
 	logger.DebugContext(ctx, "Making request %v", req)
 	resp, err := sdk.SearchDashboards(req, source.LookerApiSettings())

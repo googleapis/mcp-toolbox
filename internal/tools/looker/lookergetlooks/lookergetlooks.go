@@ -149,11 +149,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError(fmt.Sprintf("error getting sdk: %v", err), http.StatusInternalServerError, err)
 	}
+	fields := "id,title,description,model,certification_metadata"
 	req := v4.RequestSearchLooks{
 		Title:       title_ptr,
 		Description: desc_ptr,
 		Limit:       &limit,
 		Offset:      &offset,
+		Fields:      &fields,
 	}
 	resp, err := sdk.SearchLooks(req, source.LookerApiSettings())
 	if err != nil {

@@ -125,11 +125,13 @@ func TestInvokeLookerGetLooks(t *testing.T) {
 	}
 	ctx = util.WithUserAgent(ctx, "test-agent")
 
+	var requestedFields string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/api/4.0/looks/search") {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		requestedFields = r.URL.Query().Get("fields")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[
@@ -191,6 +193,10 @@ func TestInvokeLookerGetLooks(t *testing.T) {
 	got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
 	if toolboxErr != nil {
 		t.Fatalf("unexpected invoke error: %v", toolboxErr)
+	}
+
+	if requestedFields != "id,title,description,model,certification_metadata" {
+		t.Errorf("expected fields query param 'id,title,description,model,certification_metadata', got %q", requestedFields)
 	}
 
 	gotList, ok := got.([]any)
