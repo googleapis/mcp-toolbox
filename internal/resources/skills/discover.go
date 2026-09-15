@@ -116,7 +116,7 @@ func buildEntry(ctx context.Context, root string, members []resources.Resource) 
 	refs := make([]ResourceRef, 0, len(members))
 	var frontmatter map[string]any
 	// Manifest.Validate enforces the same limit, but only once every file is in
-	// memory. Summing as we read bounds what one skill loads.
+	// memory. We sum as we read: this bounds what each skill loads.
 	var total int64
 	for _, res := range members {
 		// Subtraction, not addition: a huge hint would wrap the total negative.
