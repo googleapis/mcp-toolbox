@@ -171,6 +171,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		if v.Description != nil {
 			vMap["description"] = *v.Description
 		}
+		if v.CertificationMetadata != nil {
+			vMap["certification_metadata"] = v.CertificationMetadata
+		}
 		logger.DebugContext(ctx, "Converted to %v\n", vMap)
 		data = append(data, vMap)
 	}
