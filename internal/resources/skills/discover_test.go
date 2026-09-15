@@ -530,19 +530,19 @@ func TestDiscoverTooManyFiles(t *testing.T) {
 	}
 }
 
-// TestDiscoverRejectsOversizeSkillWhileReading pins that the total-size limit is
-// enforced as files are read, not after they are all in memory.
+// TestDiscoverRejectsOversizeSkillWhileReading checks that Discover applies the
+// total-size limit as it reads each file, not after it reads all of them.
 func TestDiscoverRejectsOversizeSkillWhileReading(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// badResource reports no size, so the hint is skipped and the check under
-	// test is the one against the bytes actually read.
-	const chunk = 4 << 20 // 4 MiB per file, five files clears the 16 MiB limit
-	// One string shared by every file. Strings are immutable and Read hands the
-	// same one back, so five files cost 4 MiB of backing array, not 20.
+	// badResource reports no size. Discover therefore skips the hint, and this
+	// test exercises the check on the bytes that Discover reads.
+	const chunk = 4 << 20 // 4 MiB per file. Five files exceed the 16 MiB limit.
+	// Every file shares one string. Strings are immutable and Read returns the
+	// same string, so five files use 4 MiB of memory, not 20 MiB.
 	chunkContent := strings.Repeat("x", chunk)
 	resourcesMap := map[string]resources.Resource{
 		"guide/SKILL.md": textResource(t, ctx, "guide/SKILL.md",
@@ -569,7 +569,7 @@ func TestDiscoverRejectsOversizeSkillWhileReading(t *testing.T) {
 	}
 }
 
-// hugeResource reports an oversize length and fails the test if it is read.
+// hugeResource reports an oversize length. The test fails if Discover reads it.
 type hugeResource struct {
 	badResource
 	t *testing.T
@@ -585,8 +585,8 @@ func (r hugeResource) Read(context.Context, map[string]any) (any, error) {
 	return "", nil
 }
 
-// TestDiscoverRejectsOversizeFileBeforeReading pins that one file too large for
-// the limit is rejected from its size hint, never pulled into memory.
+// TestDiscoverRejectsOversizeFileBeforeReading checks that Discover rejects a
+// file larger than the limit from its size hint, and does not read the file.
 func TestDiscoverRejectsOversizeFileBeforeReading(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
 	if err != nil {
