@@ -2135,145 +2135,128 @@ func TestOpenAIAppsChallenge(t *testing.T) {
 	}
 	ctx = util.WithInstrumentation(ctx, instrumentation)
 
-	t.Run("serves token with OpenAIAppsChallengeFile", func(t *testing.T) {
-		tokenContent := "challenge-token-abc123xyz"
-		tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
-		if err != nil {
-			t.Fatalf("failed to create temp file: %v", err)
-		}
-		if _, err := tmpFile.WriteString(tokenContent); err != nil {
-			t.Fatalf("failed to write token: %v", err)
-		}
-		_ = tmpFile.Close()
+tests := []struct {
+		name               string
+		setupTokenFile     func(t *testing.T) string
+		method             string
+		expectedStatus     int
+		expectedBody       string
+		expectedContentType string
+	}{
+		{
+			name: "serves token with OpenAIAppsChallengeFile",
+			setupTokenFile: func(t *testing.T) string {
+				tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+				if err != nil {
+					t.Fatalf("failed to create temp file: %v", err)
+				}
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString("challenge-token-abc123xyz\n"); err != nil {
+					t.Fatalf("failed to write token: %v", err)
+				}
+				return tmpFile.Name()
+			},
+			method:              http.MethodGet,
+			expectedStatus:      http.StatusOK,
+			expectedBody:        "challenge-token-abc123xyz", // Verifies trailing newline is trimmed
+			expectedContentType: "text/plain; charset=utf-8",
+		},
+		{
+			name:           "returns 404 when flag is not set",
+			setupTokenFile: nil, // OpenAIAppsChallengeFile left empty
+			method:         http.MethodGet,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name: "returns 405 Method Not Allowed for non-GET requests",
+			setupTokenFile: func(t *testing.T) string {
+				tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+				if err != nil {
+					t.Fatalf("failed to create temp file: %v", err)
+				}
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString("challenge-token-test"); err != nil {
+					t.Fatalf("failed to write token: %v", err)
+				}
+				return tmpFile.Name()
+			},
+			method:         http.MethodPost,
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+	}
 
-		cfg := server.ServerConfig{
-			Version:                 "0.0.0",
-			Address:                 "127.0.0.1",
-			Port:                    0,
-			OpenAIAppsChallengeFile: tmpFile.Name(),
-			AllowedHosts:            []string{"*"},
-		}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tokenPath := ""
+			if tc.setupTokenFile != nil {
+				tokenPath = tc.setupTokenFile(t)
+			}
 
-		s, err := server.NewServer(ctx, cfg)
-		if err != nil {
-			t.Fatalf("unable to initialize server: %v", err)
-		}
+			cfg := server.ServerConfig{
+				Version:                 "0.0.0",
+				Address:                 "127.0.0.1",
+				Port:                    0,
+				OpenAIAppsChallengeFile: tokenPath,
+				AllowedHosts:            []string{"*"},
+			}
 
-		if err := s.Listen(ctx, "", ""); err != nil {
-			t.Fatalf("unable to start listener: %v", err)
-		}
-		go func() {
-			_ = s.Serve(ctx)
-		}()
-		defer func() {
-			_ = s.Shutdown(ctx)
-		}()
+			s, err := server.NewServer(ctx, cfg)
+			if err != nil {
+				t.Fatalf("unable to initialize server: %v", err)
+			}
 
-		reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
-		resp, err := http.Get(reqURL)
-		if err != nil {
-			t.Fatalf("error when sending request: %s", err)
-		}
-		defer resp.Body.Close()
+			if err := s.Listen(ctx, "", ""); err != nil {
+				t.Fatalf("unable to start listener: %v", err)
+			}
 
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected status 200, got %d", resp.StatusCode)
-		}
+			go func() {
+				_ = s.Serve(ctx)
+			}()
+			defer func() {
+				_ = s.Shutdown(ctx)
+			}()
 
-		if ct := resp.Header.Get("Content-Type"); ct != "text/plain; charset=utf-8" {
-			t.Errorf("expected Content-Type 'text/plain; charset=utf-8', got %q", ct)
-		}
+			reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
+			var bodyReader io.Reader
+			if tc.method == http.MethodPost {
+				bodyReader = strings.NewReader("bad")
+			}
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatalf("error reading body: %s", err)
-		}
+			req, err := http.NewRequestWithContext(ctx, tc.method, reqURL, bodyReader)
+			if err != nil {
+				t.Fatalf("failed to construct request: %v", err)
+			}
+			if tc.method == http.MethodPost {
+				req.Header.Set("Content-Type", "text/plain")
+			}
 
-		if string(body) != tokenContent {
-			t.Errorf("expected body %q, got %q", tokenContent, string(body))
-		}
-	})
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("error when sending request: %v", err)
+			}
+			defer resp.Body.Close()
 
-	t.Run("returns 404 when flag is not set", func(t *testing.T) {
-		cfg := server.ServerConfig{
-			Version:      "0.0.0",
-			Address:      "127.0.0.1",
-			Port:         0,
-			AllowedHosts: []string{"*"},
-		}
+			if resp.StatusCode != tc.expectedStatus {
+				t.Errorf("expected status %d, got %d", tc.expectedStatus, resp.StatusCode)
+			}
 
-		s, err := server.NewServer(ctx, cfg)
-		if err != nil {
-			t.Fatalf("unable to initialize server: %v", err)
-		}
+			if tc.expectedContentType != "" {
+				if ct := resp.Header.Get("Content-Type"); ct != tc.expectedContentType {
+					t.Errorf("expected Content-Type %q, got %q", tc.expectedContentType, ct)
+				}
+			}
 
-		if err := s.Listen(ctx, "", ""); err != nil {
-			t.Fatalf("unable to start listener: %v", err)
-		}
-		go func() {
-			_ = s.Serve(ctx)
-		}()
-		defer func() {
-			_ = s.Shutdown(ctx)
-		}()
-
-		reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
-		resp, err := http.Get(reqURL)
-		if err != nil {
-			t.Fatalf("error when sending request: %s", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNotFound {
-			t.Errorf("expected status 404, got %d", resp.StatusCode)
-		}
-	})
-
-	t.Run("returns 405 Method Not Allowed for non-GET requests", func(t *testing.T) {
-		tokenContent := "challenge-token-test"
-		tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
-		if err != nil {
-			t.Fatalf("failed to create temp file: %v", err)
-		}
-		if _, err := tmpFile.WriteString(tokenContent); err != nil {
-			t.Fatalf("failed to write token: %v", err)
-		}
-		_ = tmpFile.Close()
-
-		cfg := server.ServerConfig{
-			Version:                 "0.0.0",
-			Address:                 "127.0.0.1",
-			Port:                    0,
-			OpenAIAppsChallengeFile: tmpFile.Name(),
-			AllowedHosts:            []string{"*"},
-		}
-
-		s, err := server.NewServer(ctx, cfg)
-		if err != nil {
-			t.Fatalf("unable to initialize server: %v", err)
-		}
-
-		if err := s.Listen(ctx, "", ""); err != nil {
-			t.Fatalf("unable to start listener: %v", err)
-		}
-		go func() {
-			_ = s.Serve(ctx)
-		}()
-		defer func() {
-			_ = s.Shutdown(ctx)
-		}()
-
-		reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
-		resp, err := http.Post(reqURL, "text/plain", strings.NewReader("bad"))
-		if err != nil {
-			t.Fatalf("error when sending request: %s", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusMethodNotAllowed {
-			t.Errorf("expected status 405, got %d", resp.StatusCode)
-		}
-	})
+			if tc.expectedBody != "" {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatalf("error reading body: %v", err)
+				}
+				if string(body) != tc.expectedBody {
+					t.Errorf("expected body %q, got %q", tc.expectedBody, string(body))
+				}
+			}
+		})
+	}
 
 	t.Run("returns error when token file does not exist", func(t *testing.T) {
 		cfg := server.ServerConfig{
@@ -2288,8 +2271,10 @@ func TestOpenAIAppsChallenge(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when token file does not exist, got nil")
 		}
-		if !strings.Contains(err.Error(), "failed to read openai token file at startup") {
-			t.Errorf("expected error containing 'failed to read openai token file at startup', got %q", err.Error())
+
+		expectedSubstr := "failed to read openai token file at startup"
+		if !strings.Contains(err.Error(), expectedSubstr) {
+			t.Errorf("expected error containing %q, got %q", expectedSubstr, err.Error())
 		}
 	})
 }
