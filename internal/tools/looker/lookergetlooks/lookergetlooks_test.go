@@ -237,4 +237,3 @@ func TestInvokeLookerGetLooks(t *testing.T) {
 		t.Errorf("expected certification_metadata to be omitted when nil, got %v", second["certification_metadata"])
 	}
 }
-

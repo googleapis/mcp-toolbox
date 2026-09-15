@@ -287,4 +287,3 @@ func TestInvokeLookerGetDashboard(t *testing.T) {
 		t.Errorf("expected updated_at %v, got %v", wantTime, dash.CertificationMetadata.UpdatedAt)
 	}
 }
-
