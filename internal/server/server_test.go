@@ -1678,7 +1678,7 @@ func TestInitializeConfigs(t *testing.T) {
 						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
 						URI:        "skill://analytics-guide/SKILL.md",
 					},
-					// No frontmatter, which Discover rejects.
+					// The text has no frontmatter. Discover rejects it.
 					Text: "# Just a heading\n",
 				},
 			},
@@ -1694,8 +1694,8 @@ func TestInitializeConfigs(t *testing.T) {
 		}
 	})
 
-	// The failure case above passes even if validation rejects everything, so
-	// pin the other direction: a well-formed skill must reach the server.
+	// The test above passes even if validation rejects every skill. This test
+	// checks the opposite case. A correct skill must reach the server.
 	t.Run("starts when a skill is valid", func(t *testing.T) {
 		cfg := server.ServerConfig{
 			ResourceConfigs: map[string]resources.ResourceConfig{
