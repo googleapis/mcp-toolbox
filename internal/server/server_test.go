@@ -2135,12 +2135,12 @@ func TestOpenAIAppsChallenge(t *testing.T) {
 	}
 	ctx = util.WithInstrumentation(ctx, instrumentation)
 
-tests := []struct {
-		name               string
-		setupTokenFile     func(t *testing.T) string
-		method             string
-		expectedStatus     int
-		expectedBody       string
+	tests := []struct {
+		name                string
+		setupTokenFile      func(t *testing.T) string
+		method              string
+		expectedStatus      int
+		expectedBody        string
 		expectedContentType string
 	}{
 		{
