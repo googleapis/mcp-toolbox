@@ -24,8 +24,8 @@ import (
 // backs it.
 const docMimeType = "text/markdown"
 
-// skillDoc presents a SKILL.md under the name and description its frontmatter 
-// declares. Otherwise a client sees a file resource named "SKILL.md" which 
+// skillDoc presents a SKILL.md under the name and description its frontmatter
+// declares. Otherwise a client sees a file resource named "SKILL.md" which
 // does not identify the skill.
 type skillDoc struct {
 	resources.Resource
