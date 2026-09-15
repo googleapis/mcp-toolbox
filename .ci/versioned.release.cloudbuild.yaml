@@ -12,9 +12,40 @@
 # limitations under the License.
 
 steps:
+  - id: "install-dependencies"
+    name: golang:1
+    waitFor: ["-"]
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      go get -d ./...
+
+  - id: "run-tests"
+    name: golang:1
+    waitFor:
+      - "install-dependencies"
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+
+      echo "Installing go-junit-report..."
+      go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+
+      echo "Running unit tests and generating JUnit XML report..."
+      go test -race -v ./cmd/... ./internal/... 2>&1 | /gopath/bin/go-junit-report -set-exit-code > junit-report.xml
+
   - id: "build-docker"
     name: "gcr.io/cloud-builders/docker"
-    waitFor: ["-"]
+    waitFor:
+      - "run-tests"
     script: |
       #!/usr/bin/env bash
       set -e
@@ -26,7 +57,7 @@ steps:
         export TAGS="$TAGS -t ${_DOCKER_URI}:latest"
       fi
 
-      # Build and push
+      # Build and push directly to Artifact Registry
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
         --build-arg BUILD_TYPE=container.release \
@@ -37,17 +68,6 @@ steps:
       # Pull the image to ensure it's available for provenance generation.
       docker pull ${_DOCKER_URI}:${VERSION}
       docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
-
-  - id: "install-dependencies"
-    name: golang:1
-    waitFor: ["-"]
-    env:
-      - "GOPATH=/gopath"
-    volumes:
-      - name: "go"
-        path: "/gopath"
-    script: |
-      go get -d ./...
 
   - id: "install-zig"
     name: golang:1
@@ -73,7 +93,7 @@ steps:
       set -e
       apt-get update && apt-get install -y xz-utils
       echo "Downloading macOS 14.5 SDK..."
-      gcloud storage cp gs://${_ASSETS_BUCKET}/MacOSX14.5.tar.xz sdk.tar.xz
+      gcloud storage cp gs://${_ASSETS_BUCKET}/dependencies/MacOSX14.5.tar.xz sdk.tar.xz
 
       mkdir -p /macos-sdk/MacOSX14.5.sdk
       echo "Unpacking macOS 14.5 SDK..."
@@ -451,8 +471,14 @@ steps:
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh pypi
 
-images:
-  - "${_DOCKER_URI}:latest"
+artifacts:
+  images:
+    - "${_DOCKER_URI}:latest"
+  testResults:
+    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${BUILD_ID}"
+    paths:
+      - "junit-report.xml"
+    format: JUNIT
 
 options:
   requestedVerifyOption: VERIFIED # This ensures provenance is generated
