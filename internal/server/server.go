@@ -253,9 +253,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		}
 		resourcesMap[name] = r
 	}
-	// Validate every skill the config declares, so an operator learns about a
-	// bad one at startup rather than from an agent mid-task. The entries are
-	// rebuilt where they are served, against the content current at that point.
+	// Validate every skill the config declares
 	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
