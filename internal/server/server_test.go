@@ -1693,6 +1693,40 @@ func TestInitializeConfigs(t *testing.T) {
 			t.Errorf("error = %v, want it to name the frontmatter problem", err)
 		}
 	})
+
+	// The failure case above passes even if validation rejects everything, so
+	// pin the other direction: a well-formed skill must reach the server.
+	t.Run("starts when a skill is valid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n",
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: "# Common queries\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+		for _, name := range []string{"guide", "queries"} {
+			if _, ok := resourcesMap[name]; !ok {
+				t.Errorf("resource %q missing from the map", name)
+			}
+		}
+	})
 }
 
 func TestInitializeOfflineConfigs(t *testing.T) {
