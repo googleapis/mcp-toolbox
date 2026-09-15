@@ -127,11 +127,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	paramsMap := params.AsMap()
 	embedType := paramsMap["type"].(string)
 	if embedType == "" {
-		return nil, util.NewClientServerError("parameter 'type' cannot be empty", http.StatusBadRequest, nil)
+		return nil, util.NewAgentError("parameter 'type' cannot be empty", nil)
 	}
 	contentId := paramsMap["id"].(string)
 	if contentId == "" {
-		return nil, util.NewClientServerError("parameter 'id' cannot be empty", http.StatusBadRequest, nil)
+		return nil, util.NewAgentError("parameter 'id' cannot be empty", nil)
 	}
 
 	sdk, err := source.GetLookerSDK(ctx, string(accessToken))
