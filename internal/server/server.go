@@ -45,6 +45,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
+	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -251,6 +252,12 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 			return nil, nil, nil, nil, nil, nil, nil, nil, err
 		}
 		resourcesMap[name] = r
+	}
+	// Validate every skill the config declares, so an operator learns about a
+	// bad one at startup rather than from an agent mid-task. The entries are
+	// rebuilt where they are served, against the content current at that point.
+	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	resourceNames := make([]string, 0, len(resourcesMap))
 	for name := range resourcesMap {

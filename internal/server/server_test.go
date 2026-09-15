@@ -50,7 +50,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
-	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
+	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -1667,6 +1667,30 @@ func TestInitializeConfigs(t *testing.T) {
 		_, _, err := server.InitializeOfflineConfigs(ctx, cfg)
 		if err != nil {
 			t.Fatalf("expected InitializeOfflineConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("fails to start when a skill is invalid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					// No frontmatter, which Discover rejects.
+					Text: "# Just a heading\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail on an invalid skill")
+		}
+		if !strings.Contains(err.Error(), "frontmatter") {
+			t.Errorf("error = %v, want it to name the frontmatter problem", err)
 		}
 	})
 }

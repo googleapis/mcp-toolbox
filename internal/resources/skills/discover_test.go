@@ -529,3 +529,84 @@ func TestDiscoverTooManyFiles(t *testing.T) {
 		t.Errorf("Discover() = %v, want the limit checked before any file is read", err)
 	}
 }
+
+// TestDiscoverRejectsOversizeSkillWhileReading pins that the total-size limit is
+// enforced as files are read, not after they are all in memory.
+func TestDiscoverRejectsOversizeSkillWhileReading(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// badResource reports no size, so the hint is skipped and the check under
+	// test is the one against the bytes actually read.
+	const chunk = 4 << 20 // 4 MiB per file, five files clears the 16 MiB limit
+	// One string shared by every file. Strings are immutable and Read hands the
+	// same one back, so five files cost 4 MiB of backing array, not 20.
+	chunkContent := strings.Repeat("x", chunk)
+	resourcesMap := map[string]resources.Resource{
+		"guide/SKILL.md": textResource(t, ctx, "guide/SKILL.md",
+			"skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query and summarize the warehouse")),
+	}
+	for i := range 5 {
+		name := string(rune('a' + i))
+		resourcesMap[name] = badResource{
+			uri:     "skill://analytics-guide/refs/" + name + ".md",
+			content: chunkContent,
+		}
+	}
+
+	_, err = skills.Discover(ctx, resourcesMap)
+	if err == nil {
+		t.Fatal("Discover() = nil, want a total-size error")
+	}
+	if !strings.Contains(err.Error(), "total size exceeds the limit") {
+		t.Errorf("Discover() = %v, want a total-size error", err)
+	}
+	if !strings.Contains(err.Error(), "skill://analytics-guide/SKILL.md") {
+		t.Errorf("Discover() = %v, want the error to name the skill", err)
+	}
+}
+
+// hugeResource reports an oversize length and fails the test if it is read.
+type hugeResource struct {
+	badResource
+	t *testing.T
+}
+
+func (r hugeResource) GetSize() *int64 {
+	size := int64(skills.MaxTotalSize) + 1
+	return &size
+}
+
+func (r hugeResource) Read(context.Context, map[string]any) (any, error) {
+	r.t.Error("Read() was called, want the size hint to reject the file first")
+	return "", nil
+}
+
+// TestDiscoverRejectsOversizeFileBeforeReading pins that one file too large for
+// the limit is rejected from its size hint, never pulled into memory.
+func TestDiscoverRejectsOversizeFileBeforeReading(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resourcesMap := map[string]resources.Resource{
+		"guide": textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query and summarize the warehouse")),
+		"big": hugeResource{
+			badResource: badResource{uri: "skill://analytics-guide/refs/big.md"},
+			t:           t,
+		},
+	}
+
+	_, err = skills.Discover(ctx, resourcesMap)
+	if err == nil {
+		t.Fatal("Discover() = nil, want a total-size error")
+	}
+	if !strings.Contains(err.Error(), "total size exceeds the limit") {
+		t.Errorf("Discover() = %v, want a total-size error", err)
+	}
+}
