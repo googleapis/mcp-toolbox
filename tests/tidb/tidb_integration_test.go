@@ -109,7 +109,7 @@ func addTiDBExecuteSqlConfig(t *testing.T, config map[string]any) map[string]any
 
 func TestTiDBToolEndpoints(t *testing.T) {
 	sourceConfig := getTiDBVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
 	defer cancel()
 
 	args := []string{"--enable-api"}

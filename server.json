@@ -14,11 +14,11 @@
         "url": "https://github.com/googleapis/mcp-toolbox",
         "source": "github"
     },
-    "version": "1.10.0",
+    "version": "1.11.0",
     "packages": [
         {
             "registryType": "oci",
-            "identifier": "us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:1.10.0",
+            "identifier": "us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:1.11.0",
             "transport": {
                 "type": "streamable-http",
                 "url": "http://{host}:{port}/mcp"

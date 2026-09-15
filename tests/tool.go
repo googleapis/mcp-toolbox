@@ -3283,8 +3283,11 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 			want:                []queryListDetails{},
 		},
 		{
+			// The threshold has to sit below waitSecsBeforeCheck: the wait starts
+			// before the query does, and processlist.time truncates to whole
+			// seconds, so an equal threshold loses the row to rounding.
 			name:                "invoke list_active_queries when 1 ongoing query should show up",
-			requestBody:         bytes.NewBufferString(`{"min_duration_secs": 5}`),
+			requestBody:         bytes.NewBufferString(`{"min_duration_secs": 3}`),
 			queryTag:            tc3QueryTag,
 			clientSleepSecs:     10,
 			waitSecsBeforeCheck: 5,
@@ -3845,9 +3848,18 @@ func RunMySQLListTableStatsTest(t *testing.T, ctx context.Context, pool *sql.DB,
 			}
 			got = details
 
-			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b tableStatsDetails) bool {
-				return a.TableSchema == b.TableSchema && a.TableName == b.TableName
-			})); diff != "" {
+			// The tool sorts on measured total_latency, so which table comes back
+			// first varies between runs. Compare as a set.
+			if diff := cmp.Diff(tc.want, got,
+				cmpopts.SortSlices(func(a, b tableStatsDetails) bool {
+					if a.TableSchema != b.TableSchema {
+						return a.TableSchema < b.TableSchema
+					}
+					return a.TableName < b.TableName
+				}),
+				cmp.Comparer(func(a, b tableStatsDetails) bool {
+					return a.TableSchema == b.TableSchema && a.TableName == b.TableName
+				})); diff != "" {
 				t.Errorf("Unexpected result: got %#v, want: %#v", got, tc.want)
 			}
 		})

@@ -15,7 +15,7 @@ In this section, we will download Toolbox, configure our tools in a
 
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.11.0/$OS/toolbox
     ```
 
       <!-- {x-release-please-end} -->
@@ -30,7 +30,7 @@ In this section, we will download Toolbox, configure our tools in a
     # 1. Download the detached GPG signature file (.asc)
 
     <!-- {x-release-please-start-version} -->
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/$OS/toolbox.asc
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.11.0/$OS/toolbox.asc
     <!-- {x-release-please-end} -->
 
     # 2. Import Google's public GPG signing key
