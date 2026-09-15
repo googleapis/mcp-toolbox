@@ -510,7 +510,7 @@ func hostCheck(allowedHosts map[string]struct{}) func(http.Handler) http.Handler
 			// Container orchestrators (Kubernetes, Docker, Cloud Run) typically hit
 			// /healthz via the pod IP or localhost, which would otherwise
 			// trip a strict AllowedHosts setting and break liveness probes.
-			if r.URL.Path == "/healthz" || r.URL.Path == "/.well-known/openai-apps-challenge" {
+			if r.URL.Path == "/healthz" {
 				next.ServeHTTP(w, r)
 				return
 			}
