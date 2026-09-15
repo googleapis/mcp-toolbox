@@ -24,15 +24,9 @@ import (
 // backs it.
 const docMimeType = "text/markdown"
 
-// skillDoc presents a SKILL.md under the identity its frontmatter declares,
-// rather than the one its backing resource was configured with — a file
-// resource would otherwise be listed as "SKILL.md", which tells a client
-// nothing about which skill it belongs to.
-//
-// Wrapping rather than setting these at construction keeps SKILL.md's shape out
-// of every resource type that can back one, and applies on every protocol
-// version, so a client that has not negotiated the skills extension still sees
-// a sensibly named resource.
+// skillDoc presents a SKILL.md under the name and description its frontmatter 
+// declares. Otherwise a client sees a file resource named "SKILL.md" which 
+// does not identify the skill.
 type skillDoc struct {
 	resources.Resource
 	name        string
@@ -43,13 +37,8 @@ func (s skillDoc) GetName() string        { return s.name }
 func (s skillDoc) GetDescription() string { return s.description }
 func (s skillDoc) GetMimeType() string    { return docMimeType }
 
-// WithDocMetadata returns a replacement SKILL.md resource for each entry, keyed
-// by URI, carrying the name and description that entry's frontmatter declares.
-// Resources that are not a skill's SKILL.md are absent from the result.
-//
-// Entries that have passed Entry.Validate always carry a non-empty name and
-// description. One that has not is an error rather than a skip, so a SKILL.md
-// cannot go missing from the result without saying why.
+// WithDocMetadata returns a replacement SKILL.md per each entry, keyed
+// by URI. Omits any resource that is not a skill's SKILL.md.
 func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource) (map[string]resources.Resource, error) {
 	if len(entries) == 0 {
 		return nil, nil
