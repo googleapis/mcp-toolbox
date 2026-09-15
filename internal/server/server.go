@@ -267,7 +267,10 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	// A SKILL.md is published under the name and description its frontmatter
 	// declares, so a client sees the skill rather than the filename.
-	docs := skills.WithDocMetadata(entries, resourcesMap)
+	docs, err := skills.WithDocMetadata(entries, resourcesMap)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
 	for key, r := range resourcesMap {
 		if doc, ok := docs[r.GetURI()]; ok {
 			resourcesMap[key] = doc

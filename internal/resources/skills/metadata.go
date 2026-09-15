@@ -15,6 +15,8 @@
 package skills
 
 import (
+	"fmt"
+
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 )
 
@@ -45,11 +47,12 @@ func (s skillDoc) GetMimeType() string    { return docMimeType }
 // by URI, carrying the name and description that entry's frontmatter declares.
 // Resources that are not a skill's SKILL.md are absent from the result.
 //
-// Entries must have passed Entry.Validate, which is what guarantees frontmatter
-// carries a non-empty name and description.
-func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource) map[string]resources.Resource {
+// Entries that have passed Entry.Validate always carry a non-empty name and
+// description. One that has not is an error rather than a skip, so a SKILL.md
+// cannot go missing from the result without saying why.
+func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource) (map[string]resources.Resource, error) {
 	if len(entries) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	byURI := make(map[string]Entry, len(entries))
@@ -63,12 +66,15 @@ func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource
 		if !ok {
 			continue
 		}
-		name, nameOK := e.Frontmatter["name"].(string)
-		desc, descOK := e.Frontmatter["description"].(string)
-		if !nameOK || !descOK {
-			continue
+		name, err := requiredString(e.Frontmatter, "name")
+		if err != nil {
+			return nil, fmt.Errorf("invalid skill entry %q: %w", truncate(e.URI), err)
+		}
+		desc, err := requiredString(e.Frontmatter, "description")
+		if err != nil {
+			return nil, fmt.Errorf("invalid skill entry %q: %w", truncate(e.URI), err)
 		}
 		docs[res.GetURI()] = skillDoc{Resource: res, name: name, description: desc}
 	}
-	return docs
+	return docs, nil
 }
