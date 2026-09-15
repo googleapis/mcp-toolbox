@@ -48,18 +48,3 @@ func WriteAnnotations(custom *tools.ToolAnnotations) *tools.ToolAnnotations {
 func DestructiveAnnotations(custom *tools.ToolAnnotations) *tools.ToolAnnotations {
 	return newAnnotations(custom, false, true)
 }
-
-// NewReadOnlyAnnotations creates default annotations for a Looker read-only tool.
-func NewReadOnlyAnnotations() *tools.ToolAnnotations {
-	return ReadOnlyAnnotations(nil)
-}
-
-// NewWriteAnnotations creates default annotations for a Looker additive write tool.
-func NewWriteAnnotations() *tools.ToolAnnotations {
-	return WriteAnnotations(nil)
-}
-
-// NewDestructiveAnnotations creates default annotations for a Looker destructive tool.
-func NewDestructiveAnnotations() *tools.ToolAnnotations {
-	return DestructiveAnnotations(nil)
-}
