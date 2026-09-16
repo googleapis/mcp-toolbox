@@ -74,9 +74,13 @@ func skillRoots(resourcesMap map[string]resources.Resource) []string {
 // skillMembers groups every resource under the skills that contain it, sorted by
 // URI.
 func skillMembers(resourcesMap map[string]resources.Resource, roots []string) map[string][]resources.Resource {
-	isRoot := make(map[string]bool, len(roots))
+	// Segments per root, so membership can apply the same test the manifest
+	// validation applies. A root that is not a valid URI owns no files.
+	rootSegs := make(map[string][]string, len(roots))
 	for _, root := range roots {
-		isRoot[root] = true
+		if _, segs, err := uriSegments(root); err == nil {
+			rootSegs[root] = segs
+		}
 	}
 
 	members := make(map[string][]resources.Resource, len(roots))
@@ -88,7 +92,10 @@ func skillMembers(resourcesMap map[string]resources.Resource, roots []string) ma
 		// Walk the URI's ancestors rather than every root, so the scan costs
 		// path depth instead of the number of skills.
 		for i := strings.LastIndex(uri, "/"); i > 0; i = strings.LastIndex(uri[:i], "/") {
-			if isRoot[uri[:i]] {
+			// underSkill is the test Entry.Validate applies to every ref. A
+			// looser rule here admits a member the validation then rejects,
+			// which fails startup for the whole config.
+			if segs, ok := rootSegs[uri[:i]]; ok && underSkill(uri, resources.SkillScheme, segs) {
 				members[uri[:i]] = append(members[uri[:i]], res)
 			}
 		}

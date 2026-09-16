@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -301,6 +302,46 @@ func mustLoggerCtx(t *testing.T) context.Context {
 		t.Fatal(err)
 	}
 	return ctx
+}
+
+// TestDiscoverSkipsUnrefableURIs pins the grouping to the same rule the manifest
+// validation applies. A URI that can never be a valid ref must not join a skill,
+// because Entry.Validate then rejects the skill and InitializeConfigs stops the
+// server from starting over one malformed resource.
+func TestDiscoverSkipsUnrefableURIs(t *testing.T) {
+	tcs := []struct {
+		desc string
+		uri  string
+	}{
+		{desc: "trailing slash", uri: "skill://guide/"},
+		{desc: "empty path segment", uri: "skill://guide//notes.md"},
+		{desc: "relative path segment", uri: "skill://guide/../notes.md"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx := mustLoggerCtx(t)
+			resourcesMap := map[string]resources.Resource{
+				"md":    textResource(t, ctx, "md", "skill://guide/SKILL.md", skillMD("guide", "A guide")),
+				"extra": textResource(t, ctx, "extra", tc.uri, "unrelated"),
+			}
+
+			entries, err := skills.Discover(ctx, resourcesMap)
+			if err != nil {
+				t.Fatalf("Discover() = %v, want nil", err)
+			}
+			if len(entries) != 1 {
+				t.Fatalf("got %d entries, want 1", len(entries))
+			}
+			got := make([]string, 0, len(entries[0].Resources.Refs))
+			for _, r := range entries[0].Resources.Refs {
+				got = append(got, r.URI)
+			}
+			want := []string{"skill://guide/SKILL.md"}
+			if !slices.Equal(got, want) {
+				t.Errorf("refs = %v, want %v — %q cannot be a valid ref", got, want, tc.uri)
+			}
+		})
+	}
 }
 
 // TestDiscoverFrontmatterDelimiters pins the closing delimiter to a line of its
