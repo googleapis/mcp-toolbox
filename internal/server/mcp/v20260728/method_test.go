@@ -2431,6 +2431,10 @@ func TestSkillsListHandler(t *testing.T) {
 			if !slices.Equal(gotURIs, tc.wantURIs) {
 				t.Errorf("skills = %v, want %v", gotURIs, tc.wantURIs)
 			}
+			// The URI check above already reported an unexpected empty result.
+			if len(result.Skills) == 0 {
+				return
+			}
 			// The manifest must carry a fresh digest for every member.
 			for _, ref := range result.Skills[0].Resources.Refs {
 				if !strings.HasPrefix(ref.Digest, "sha256:") {
