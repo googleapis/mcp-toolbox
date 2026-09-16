@@ -294,18 +294,23 @@ func TestDiscoverCRLFFrontmatter(t *testing.T) {
 	}
 }
 
-// TestDiscoverNoLogger covers the boot-time contract: discovery needs a logger
-// to report duplicate names, and a context without one is a wiring error
-// rather than a condition to skip past silently.
-func TestDiscoverNoLogger(t *testing.T) {
+// TestWarnOnDuplicateNamesNoLogger covers the boot-time contract. The check
+// needs a logger to report duplicate names. A context without one is a wiring
+// error, not a condition to ignore.
+func TestWarnOnDuplicateNamesNoLogger(t *testing.T) {
 	resourcesMap := map[string]resources.Resource{
 		"s": textResource(t, mustLoggerCtx(t), "s", "skill://guide/SKILL.md",
 			"---\nname: guide\ndescription: A guide\n---\n\n# guide\n"),
 	}
 
-	_, err := skills.Discover(context.Background(), skills.NewRegistry(resourcesMap))
+	entries, err := skills.Discover(mustLoggerCtx(t), skills.NewRegistry(resourcesMap))
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+
+	err = skills.WarnOnDuplicateNames(context.Background(), entries)
 	if err == nil {
-		t.Fatal("Discover() with no logger in context = nil, want an error")
+		t.Fatal("WarnOnDuplicateNames() with no logger in context = nil, want an error")
 	}
 	if !strings.Contains(err.Error(), "duplicate skill names") {
 		t.Errorf("error = %q, want it to name the operation that failed", err)
@@ -444,6 +449,9 @@ func TestDiscoverWarnsOnDuplicateNames(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2", len(entries))
 	}
+	if err := skills.WarnOnDuplicateNames(ctx, entries); err != nil {
+		t.Fatalf("WarnOnDuplicateNames() = %v, want nil", err)
+	}
 
 	got := stderr.String()
 	for _, want := range []string{
@@ -471,11 +479,40 @@ func TestDiscoverNoDuplicateWarning(t *testing.T) {
 		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
 		"b": textResource(t, ctx, "b", "skill://acme/other/SKILL.md", skillMD("other", "Two")),
 	}
-	if _, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap)); err != nil {
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDuplicateNames(ctx, entries); err != nil {
+		t.Fatalf("WarnOnDuplicateNames() = %v, want nil", err)
 	}
 	if got := stderr.String(); strings.Contains(got, "share the name") {
 		t.Errorf("unexpected duplicate-name warning: %q", got)
+	}
+}
+
+// TestDiscoverDoesNotWarn pins the split. Discover runs one time for each
+// skills/list and skills/get request, so the warning must not come from it.
+func TestDiscoverDoesNotWarn(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	reg := skills.NewRegistry(map[string]resources.Resource{
+		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
+		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
+	})
+
+	for range 3 {
+		if _, err := skills.Discover(ctx, reg); err != nil {
+			t.Fatalf("Discover() = %v, want nil", err)
+		}
+	}
+	if got := stderr.String(); strings.Contains(got, "share the name") {
+		t.Errorf("Discover() warned about duplicate names: %q", got)
 	}
 }
 
