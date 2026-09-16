@@ -8,16 +8,12 @@
 
 ## 1. Overview & Motivation
 
-A **Group** is a named collection that scopes MCP primitives together — currently tools and prompts. Toolbox serves each group on its own endpoint (`/mcp/{name}`), so connecting to that endpoint scopes `tools/list` and `prompts/list` to the group's contents.
-
-That endpoint-per-group model has a discovery gap: a client must already know a group's name to connect to it, and once connected it can only see one group at a time. Base MCP has no method for asking a server "what collections do you offer?"
+A **Group** is a named collection that scopes MCP primitives together: currently tools, prompts and resources. Toolbox serves each group on its own endpoint (`/mcp/{name}`), so connecting to that endpoint scopes `tools/list` and `prompts/list` to the group's contents.
 
 **Groups** close the gap with two server-scoped methods:
 
 - **`groups/list`** — enumerate every named group with its `name` and `description`, so a client can choose one without prior configuration.
 - **`groups/get`** — fetch a single group's tools and prompts together in one round trip, instead of connecting to that group's endpoint and issuing separate `tools/list` and `prompts/list` calls.
-
-Both are scoped to the **server**, not to the endpoint they are called on. Calling `groups/get` on `/mcp/data_analyst` can return the contents of the `admin` group.
 
 ---
 
