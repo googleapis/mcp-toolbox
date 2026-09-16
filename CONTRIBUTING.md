@@ -76,6 +76,7 @@ For technical details on how to implement new features, please refer to the
 * [Adding Integration Tests](./DEVELOPER.md#adding-integration-tests)
 * [Adding Documentation](./DEVELOPER.md#adding-documentation)
 * [Adding Prebuilt Tools](./DEVELOPER.md#adding-prebuilt-tools)
+* [Adding Prebuilt Config Evals](./DEVELOPER.md#adding-prebuilt-config-evals)
 
 ## Submitting a Pull Request
 

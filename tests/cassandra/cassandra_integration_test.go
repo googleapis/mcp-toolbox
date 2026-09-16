@@ -241,6 +241,7 @@ func TestCassandra(t *testing.T) {
 
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
 		tests.WithMcpMyToolId3NameAliceWant(mcpMyToolIdWant),
+		tests.WithMcpMySecureToolWant(selectIdNameWant),
 		tests.DisableMcpSelect1AuthTest())
 
 }

@@ -23,6 +23,7 @@ database: ${ALLOYDB_POSTGRES_DATABASE}
 user: ${ALLOYDB_POSTGRES_USER:}
 password: ${ALLOYDB_POSTGRES_PASSWORD:}
 ipType: ${ALLOYDB_POSTGRES_IP_TYPE:public}
+readOnly: ${ALLOYDB_POSTGRES_READONLY:false}
 ---
 kind: source
 name: cloud-monitoring-source
@@ -32,6 +33,7 @@ kind: source
 name: alloydb-admin-source
 type: alloydb-admin
 defaultProject: ${ALLOYDB_POSTGRES_PROJECT:}
+readOnly: ${ALLOYDB_POSTGRES_READONLY:false}
 ---
 kind: tool
 name: execute_sql

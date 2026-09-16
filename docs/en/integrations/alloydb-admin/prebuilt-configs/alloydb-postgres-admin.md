@@ -6,7 +6,10 @@ description: "Details of the AlloyDB Postgres Admin prebuilt configuration."
 
 ## AlloyDB Postgres Admin
 
-* `--prebuilt` value: `alloydb-postgres-admin`
+*   `--prebuilt` value: `alloydb-postgres-admin`
+*   **Environment Variables:**
+    *   `ALLOYDB_POSTGRES_PROJECT`: (Optional) The GCP project ID to use as the default for AlloyDB infrastructure tools.
+    *   `ALLOYDB_POSTGRES_READONLY`: (Optional) When set to `true`, suppresses write-capable admin tools (e.g., `create_cluster`, `create_instance`, `create_user`). Default: `false`.
 *   **Permissions:**
     *   **AlloyDB Viewer** (`roles/alloydb.viewer`) is required for `list` and
         `get` tools.

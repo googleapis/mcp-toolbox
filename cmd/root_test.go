@@ -266,6 +266,20 @@ func TestServerConfigFlags(t *testing.T) {
 				DisableExt: []string{"io.modelcontextprotocol/tasks"},
 			}),
 		},
+		{
+			desc: "disable version check",
+			args: []string{"--disable-version-check"},
+			want: withDefaults(server.ServerConfig{
+				DisableVersionCheck: true,
+			}),
+		},
+		{
+			desc: "openai apps challenge file",
+			args: []string{"--openai-apps-challenge-file", "openai-token.txt"},
+			want: withDefaults(server.ServerConfig{
+				OpenAIAppsChallengeFile: "openai-token.txt",
+			}),
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -639,7 +653,7 @@ func TestSingleEdit(t *testing.T) {
 	watchedFiles := map[string]bool{cleanFileToWatch: true}
 	watchDirs := map[string]bool{watchDir: true}
 
-	go watchChanges(ctx, watchDirs, watchedFiles, mockServer, 0)
+	go watchChanges(ctx, watchDirs, watchedFiles, mockServer, &internal.ToolboxOptions{})
 
 	// escape backslash so regex doesn't fail on windows filepaths
 	regexEscapedPathFile := strings.ReplaceAll(cleanFileToWatch, `\`, `\\\\*\\`)

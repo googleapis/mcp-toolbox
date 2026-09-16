@@ -66,6 +66,7 @@ type SourceConfig interface {
 type Source interface {
 	SourceType() string
 	ToConfig() SourceConfig
+	IsReadOnly() bool
 }
 
 // InitConnectionSpan adds a span for database pool connection initialization

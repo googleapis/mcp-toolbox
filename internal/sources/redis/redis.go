@@ -157,6 +157,10 @@ type Source struct {
 	Client RedisClient
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }

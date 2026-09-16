@@ -1,0 +1,60 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Shared by every database and harness: EVAL_DATASET selects the evalset,
+# EVAL_MODEL_CONFIG the harness. Nothing else here is harness-specific, so a
+# new harness needs a model config, not another run config.
+
+dataset_config: !ENV ${EVAL_DATASET}
+dataset_format: gemini-cli-format
+
+# Both dispatch on TOOLBOX_PREBUILT rather than being named by an !ENV variable:
+# this config is shared, and an unset variable yields a path EvalBench logs as an
+# error. Teardown runs in a finally block, so it covers a failed eval too.
+#
+# Setup seeds state a scenario needs; it cannot gate a run, because EvalBench
+# evaluates whether or not the script succeeds.
+set_up_script: evals/setup/dispatch.sh
+tear_down_script: evals/teardown/dispatch.sh
+
+# Viewer labels only; nothing reads them for scoring.
+eval_group: !ENV ${EVAL_GROUP}
+product_name: !ENV ${TOOLBOX_PREBUILT}
+
+# Orchestrator Configs
+orchestrator: agent
+model_config: !ENV ${EVAL_MODEL_CONFIG}
+simulated_user_model_config: evals/model_configs/gemini_3.1_pro_model.yaml
+
+# Scorer Configs
+scorers:
+  trajectory_matcher: {}
+  goal_completion:
+    model_config: evals/model_configs/gemini_3.1_pro_model.yaml
+  behavioral_metrics:
+    model_config: evals/model_configs/gemini_3.1_pro_model.yaml
+  parameter_analysis:
+    model_config: evals/model_configs/gemini_3.1_pro_model.yaml
+  turn_count: {}
+  agent_steps: {}
+  end_to_end_latency: {}
+  tool_call_latency: {}
+  token_consumption: {}
+  tokens_processed: {}
+  effective_billed_tokens: {}
+
+# Reporting Related Configs
+reporting:
+  bigquery:
+    gcp_project_id: !ENV ${EVAL_REPORTING_PROJECT}

@@ -64,7 +64,7 @@ By **default**, Toolbox will use your [Application Default Credentials
 When using this method, you need to ensure the IAM identity associated with your
 ADC (such as a service account) has the correct permissions for the queries you
 intend to run. Common roles include `roles/bigquery.user` (which includes
-permissions to run jobs and read data) or `roles/bigbigquery.dataViewer`.
+permissions to run jobs and read data) or `roles/bigquery.dataViewer`.
 Follow this [guide][set-adc] to set up your ADC.
 
 If you are running on Google Compute Engine (GCE) or Google Kubernetes Engine
@@ -104,6 +104,7 @@ name: my-bigquery-source
 type: "bigquery"
 project: "my-project-id"
 # location: "US" # Optional: Specifies the location for query jobs.
+# readOnly: false # Optional: Enforces read-only mode across all tools (defaults writeMode to "blocked").
 # writeMode: "allowed" # One of: allowed, blocked, protected. Defaults to "allowed".
 # allowedDatasets: # Optional: Restricts tool access to a specific list of datasets.
 #   - "my_dataset_1"
@@ -126,6 +127,7 @@ type: "bigquery"
 project: "my-project-id"
 useClientOAuth: true
 # location: "US" # Optional: Specifies the location for query jobs.
+# readOnly: false # Optional: Enforces read-only mode across all tools (defaults writeMode to "blocked").
 # writeMode: "allowed" # One of: allowed, blocked, protected. Defaults to "allowed".
 # allowedDatasets: # Optional: Restricts tool access to a specific list of datasets.
 #   - "my_dataset_1"
@@ -146,7 +148,8 @@ useClientOAuth: true
 | type                      |  string  |     true     | Must be "bigquery".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | project                   |  string  |     true     | Id of the Google Cloud project to use for billing and as the default project for BigQuery resources.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | location                  |  string  |    false     | Specifies the location (e.g., 'us', 'asia-northeast1') in which to run the query job. This location must match the location of any tables referenced in the query. Defaults to the table's location or 'US' if the location cannot be determined. [Learn More](https://cloud.google.com/bigquery/docs/locations)                                                                                                                                                                                                    |
-| writeMode                 |  string  |    false     | Controls the write behavior for tools. `allowed` (default): All queries are permitted. `blocked`: Only `SELECT` statements are allowed for the `bigquery-execute-sql` tool. `protected`: Enables session-based execution where all tools associated with this source instance share the same [BigQuery session](https://cloud.google.com/bigquery/docs/sessions-intro). This allows for stateful operations using temporary tables (e.g., `CREATE TEMP TABLE`). For `bigquery-execute-sql`, `SELECT` statements can be used on all tables, but write operations are restricted to the session's temporary dataset. For tools like `bigquery-sql`, `bigquery-forecast`, and `bigquery-analyze-contribution`, the `writeMode` restrictions do not apply, but they will operate within the shared session. **Note:** The `protected` mode cannot be used with `useClientOAuth: true`. It is also not recommended for multi-user server environments, as all users would share the same session. A session is terminated automatically after 24 hours of inactivity or after 7 days, whichever comes first. A new session is created on the next request, and any temporary data from the previous session will be lost. |
+| readOnly                  | boolean  |    false     | Controls whether the source operates in read-only mode across Toolbox. Setting `readOnly: true` marks the source as read-only, coordinating with MCP read-only annotations and tool suppression, and defaults `writeMode` to `blocked` (or allows `protected`). If `writeMode` is also provided, it must be consistent with `readOnly` (`readOnly: true` with `blocked` or `protected`, `readOnly: false` with `allowed`), otherwise a startup configuration error is returned. |
+| writeMode                 |  string  |    false     | Controls the write behavior for tools. `allowed` (default): All queries are permitted. `blocked`: Enforces strict read-only mode, coordinating with MCP read-only annotations and tool suppression (suppresses write-capable tools during registration, while dynamic tools like `bigquery-execute-sql` dynamically report `readOnlyHint: true`), and allows only `SELECT` statements for execution. `protected`: Enables session-based execution where all tools associated with this source instance share the same [BigQuery session](https://cloud.google.com/bigquery/docs/sessions-intro). This allows for stateful operations using temporary tables (e.g., `CREATE TEMP TABLE`), while protecting permanent datasets from modification (also classified as read-only at the Toolbox layer). For `bigquery-execute-sql`, `SELECT` statements can be used on all tables, but write operations are restricted to the session's temporary dataset. For tools like `bigquery-sql`, `bigquery-forecast`, and `bigquery-analyze-contribution`, the `writeMode` restrictions do not apply, but they will operate within the shared session. **Note:** The `protected` mode cannot be used with `useClientOAuth: true`. It is also not recommended for multi-user server environments, as all users would share the same session. A session is terminated automatically after 24 hours of inactivity or after 7 days, whichever comes first. A new session is created on the next request, and any temporary data from the previous session will be lost. |
 | allowedDatasets           | []string |    false     | An optional list of dataset IDs that tools using this source are allowed to access. If provided, any tool operation attempting to access a dataset not in this list will be rejected. To enforce this, two types of operations are also disallowed: 1) Dataset-level operations (e.g., `CREATE SCHEMA`), and 2) operations where table access cannot be statically analyzed (e.g., `EXECUTE IMMEDIATE`, `CREATE PROCEDURE`). If a single dataset is provided, it will be treated as the default for prebuilt tools. |
 | useClientOAuth            |  string  |    false     | If set to `'true'`, forwards the client's OAuth access token from the default `Authorization` header. If set to a custom header name (e.g., `X-My-Auth`), that header will be used instead. An empty string or `'false'` disables this feature. Defaults to `""` (disabled). |
 | scopes                    | []string |    false     | A list of OAuth 2.0 scopes to use for the credentials. If not provided, default scopes are used.                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -154,3 +157,46 @@ useClientOAuth: true
 | maxQueryResultRows             |   int    |    false     | The maximum number of rows to return from a query. Defaults to 50. |
 | maximumBytesBilled             |  int64   |    false     | The maximum bytes billed per query. When set, queries that exceed this limit fail before executing. |
 | apiEndpoint                    |  string  |    false     | Override the BigQuery API endpoint. |
+| sqlCommenter                   | boolean  |    false     | Overrides the global `--sql-commenter` flag for this source. When set, it takes priority; when omitted, the global flag applies. See [SQL Commenter: Job Labels](#sql-commenter-job-labels). |
+
+## Advanced Usage
+
+### SQL Commenter: Job Labels
+
+BigQuery does not retain SQL-text comments in its logs, so instead of
+prepending a comment, [SQL Commenter](../../documentation/monitoring/sql_commenter.md)
+attaches the same attributes as native
+[job labels](https://cloud.google.com/bigquery/docs/adding-labels#job-label)
+on every query job executed through the source's SQL execution path — the
+`bigquery-execute-sql`, `bigquery-sql`, `bigquery-forecast`, and
+`bigquery-analyze-contribution` tools. (The internal model-creation
+statement of `bigquery-analyze-contribution` runs outside that path and
+carries only the `mcp-toolbox-tool` label.) Labels appear in
+`INFORMATION_SCHEMA.JOBS`, the Jobs API, audit logs, and billing exports —
+no query text parsing is needed to recover them.
+
+Attribute names and values are sanitized to satisfy BigQuery label
+constraints (lowercase letters, digits, underscores, and dashes; at most 63
+characters): dots in attribute names become underscores (`tool.name` →
+`tool_name`), and any other disallowed character in a value is replaced with
+an underscore (`genai-toolbox/1.1.0` → `genai-toolbox_1_1_0`). Labels set
+explicitly by tools (such as `mcp-toolbox-tool`) always take precedence over
+SQLCommenter attributes on key collisions. Values longer than 63 characters
+are silently truncated, so two values sharing a long prefix can become
+indistinguishable; attributes are applied in sorted name order so any
+collision resolves deterministically. BigQuery's limit of 64 labels per
+job is left to the API to enforce: a job that would exceed it fails with a
+clear error rather than silently dropping telemetry.
+
+For example, to see per-tool bytes billed for agent-issued queries:
+
+```sql
+SELECT
+  (SELECT value FROM UNNEST(labels) WHERE key = 'tool_name') AS tool_name,
+  (SELECT value FROM UNNEST(labels) WHERE key = 'client') AS client,
+  SUM(total_bytes_billed) AS total_bytes_billed
+FROM `region-us`.INFORMATION_SCHEMA.JOBS
+WHERE EXISTS (SELECT 1 FROM UNNEST(labels) WHERE key = 'tool_name')
+GROUP BY tool_name, client
+ORDER BY total_bytes_billed DESC;
+```

@@ -138,7 +138,7 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 		{
 			name:     "invoke my-simple-tool",
 			toolName: "my-simple-tool",
-			args:     map[string]any{"question": "return the number 1"},
+			args:     map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			want:     "{\"execute_nl_query\":{\"number_one\":1}}",
 			isErr:    false,
 		},
@@ -153,20 +153,20 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 		{
 			name:          "Invoke my-auth-tool with invalid auth token",
 			toolName:      "my-auth-tool",
-			args:          map[string]any{"question": "return the number 1"},
+			args:          map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
 			isErr:         true,
 		},
 		{
 			name:     "Invoke my-auth-tool without auth token",
 			toolName: "my-auth-tool",
-			args:     map[string]any{"question": "return the number 1"},
+			args:     map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			isErr:    true,
 		},
 		{
 			name:          "Invoke my-auth-required-tool with auth token",
 			toolName:      "my-auth-required-tool",
-			args:          map[string]any{"question": "return the number 1"},
+			args:          map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
 			isErr:         false,
 			want:          "{\"execute_nl_query\":{\"number_one\":1}}",
@@ -174,7 +174,7 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 		{
 			name:           "Invoke my-auth-required-tool with invalid auth token",
 			toolName:       "my-auth-required-tool",
-			args:           map[string]any{"question": "return the number 1"},
+			args:           map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			requestHeader:  map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
 			isErr:          true,
 			wantStatusCode: 401,
@@ -182,7 +182,7 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 		{
 			name:           "Invoke my-auth-required-tool without auth token",
 			toolName:       "my-auth-required-tool",
-			args:           map[string]any{"question": "return the number 1"},
+			args:           map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			isErr:          true,
 			wantStatusCode: 401,
 		},

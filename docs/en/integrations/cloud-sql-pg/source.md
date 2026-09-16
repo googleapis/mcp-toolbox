@@ -146,3 +146,4 @@ The interface is identical, so there's no additional configuration required on t
 | password  |  string  |    false     | Password of the Postgres user (e.g. "my-password"). Defaults to attempting IAM authentication if unspecified.            |
 | ipType    |  string  |    false     | IP Type of the Cloud SQL instance; must be one of `public`, `private`, or `psc`. Default: `public`.                      |
 | sqlCommenter | boolean |  false     | Overrides the global `--sql-commenter` flag for this source. When set, it takes priority; when omitted, the global flag applies. |
+| readOnly  | boolean  |    false     | When set to `true`, enforces read-only execution at the database session level (`cloudsql_session_read_only=locked`) and suppresses write-capable tools. Default: `false`. |

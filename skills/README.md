@@ -8,7 +8,7 @@ workflows against this repo.
 Skills are grouped by audience:
 
 - `maintainer/` — skills for maintaining the toolbox itself (e.g. `triage-issues`,
-  `review-prs`).
+  `review-prs`, `stale-sweep`).
 
 ## Installing
 

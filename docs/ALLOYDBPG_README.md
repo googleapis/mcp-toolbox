@@ -81,6 +81,7 @@ export ALLOYDB_POSTGRES_DATABASE="<your-database-name>"
 export ALLOYDB_POSTGRES_USER="<your-database-user>"  # Optional
 export ALLOYDB_POSTGRES_PASSWORD="<your-database-password>"  # Optional
 export ALLOYDB_POSTGRES_IP_TYPE="PUBLIC"  # Optional: `PUBLIC`, `PRIVATE`, `PSC`. Defaults to `PUBLIC`.
+export ALLOYDB_POSTGRES_READONLY="true"  # Optional: Restricts tools and enforces read-only session locking on the database connection. Defaults to `false`.
 ```
 
 Add the following configuration to your MCP client (e.g., `settings.json` for Gemini CLI, `mcp_config.json` for Antigravity):

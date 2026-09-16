@@ -46,6 +46,7 @@ const listActiveQueriesStatement = `
         query
     FROM pg_stat_activity
     WHERE state = 'active'
+        AND backend_type = 'client backend'
         AND ($1::INTERVAL IS NULL OR now() - query_start >= $1::INTERVAL)
         AND ($2::text IS NULL OR application_name NOT IN (SELECT trim(app) FROM unnest(string_to_array($2, ',')) AS app))
     ORDER BY query_duration DESC

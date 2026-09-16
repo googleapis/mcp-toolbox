@@ -1,0 +1,37 @@
+{
+  "scenarios": [
+    {
+      "id": "cloudsqlpg-data-01",
+      "starting_prompt": "Give me an inventory of the ${CLOUD_SQL_POSTGRES_DATABASE} database: which schemas exist, and what user tables live in each one.",
+      "conversation_plan": "The user wants a schema-then-table inventory. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_schemas",
+        "toolbox__list_tables"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "cloudsqlpg-monitor-01",
+      "starting_prompt": "Something is slow on this instance right now. What queries are currently running?",
+      "conversation_plan": "Turn 2: ask whether anything is blocked waiting on locks. Turn 3: ask whether any transaction has been open for an unusually long time. Then end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_active_queries",
+        "toolbox__list_locks",
+        "toolbox__long_running_transactions"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlpg-monitor-02",
+      "starting_prompt": "Show me the plan the Postgres optimizer would choose for: select relname, relpages from pg_class order by relpages desc limit 10. Do not actually run the query.",
+      "conversation_plan": "The user wants an EXPLAIN plan without execution. Accept the plan and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_query_plan"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    }
+  ]
+}

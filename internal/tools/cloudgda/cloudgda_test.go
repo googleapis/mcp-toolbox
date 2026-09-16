@@ -107,7 +107,7 @@ func TestParseFromYaml(t *testing.T) {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -133,6 +133,10 @@ func (f *fakeSource) GetProjectID() string {
 
 func (f *fakeSource) UseClientAuthorization() bool {
 	return f.useClientOAuth
+}
+
+func (f *fakeSource) IsReadOnly() bool {
+	return false
 }
 
 func (f *fakeSource) SourceType() string {

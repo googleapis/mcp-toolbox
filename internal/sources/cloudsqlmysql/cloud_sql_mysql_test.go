@@ -140,10 +140,68 @@ func TestParseFromYamlCloudSQLMySQL(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "readOnly set to true",
+			in: `
+			kind: source
+			name: my-mysql-instance
+			type: cloud-sql-mysql
+			project: my-project
+			region: my-region
+			instance: my-instance
+			database: my_db
+			user: my_user
+			password: my_pass
+			readOnly: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mysql-instance": cloudsqlmysql.Config{
+					Name:     "my-mysql-instance",
+					Type:     cloudsqlmysql.SourceType,
+					Project:  "my-project",
+					Region:   "my-region",
+					Instance: "my-instance",
+					IPType:   "public",
+					Database: "my_db",
+					User:     "my_user",
+					Password: "my_pass",
+					ReadOnly: true,
+				},
+			},
+		},
+		{
+			desc: "readOnly set to false",
+			in: `
+			kind: source
+			name: my-mysql-instance
+			type: cloud-sql-mysql
+			project: my-project
+			region: my-region
+			instance: my-instance
+			database: my_db
+			user: my_user
+			password: my_pass
+			readOnly: false
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mysql-instance": cloudsqlmysql.Config{
+					Name:     "my-mysql-instance",
+					Type:     cloudsqlmysql.SourceType,
+					Project:  "my-project",
+					Region:   "my-region",
+					Instance: "my-instance",
+					IPType:   "public",
+					Database: "my_db",
+					User:     "my_user",
+					Password: "my_pass",
+					ReadOnly: false,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -152,7 +210,22 @@ func TestParseFromYamlCloudSQLMySQL(t *testing.T) {
 			}
 		})
 	}
+}
 
+func TestCloudSQLMySQLSource_IsReadOnly(t *testing.T) {
+	srcReadOnly := &cloudsqlmysql.Source{
+		Config: cloudsqlmysql.Config{ReadOnly: true},
+	}
+	if !srcReadOnly.IsReadOnly() {
+		t.Errorf("expected IsReadOnly() to be true")
+	}
+
+	srcWrite := &cloudsqlmysql.Source{
+		Config: cloudsqlmysql.Config{ReadOnly: false},
+	}
+	if srcWrite.IsReadOnly() {
+		t.Errorf("expected IsReadOnly() to be false")
+	}
 }
 
 func TestFailParseFromYaml(t *testing.T) {
@@ -210,7 +283,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}

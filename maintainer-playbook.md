@@ -181,6 +181,23 @@ for security reasons, so a maintainer must deploy the preview:
 1. **Deploy Preview:** Apply the `docs: deploy-preview` label to the PR to
    deploy a documentation preview.
 
+#### Running Prebuilt Config Evals
+
+Evals are not part of the pull request gate — they call real models against live
+databases, so they run on a schedule and otherwise on request.
+
+Apply the `evals: run` label to a PR that changes a prebuilt config, its
+evalset, or the eval CI, then comment `/gcbrun` to start a build. Only the
+configs that PR touched are evaluated. The label stays on, so later pushes
+re-run them; remove it when you are done.
+
+Unlike a docs preview, a run compiles and executes the PR's code against live
+test infrastructure — review the diff first on anything from a fork. On a fork
+PR `/gcbrun` also releases the integration test triggers waiting on it.
+
+See [Adding Prebuilt Config Evals](./DEVELOPER.md#adding-prebuilt-config-evals)
+for what the evalsets cover.
+
 ### Release Communication & Tracking
 
 > For release mechanics — release types, the version-cut steps, supported binaries, and npm/PyPI publishing — see [Releasing](#releasing).

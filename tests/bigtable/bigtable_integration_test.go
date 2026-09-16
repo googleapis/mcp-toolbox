@@ -151,13 +151,18 @@ func TestBigtableToolEndpoints(t *testing.T) {
 	)
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	runBigTableAdminToolsGetTest(t)
-	runBigTableAdminToolsTest(t, sourceConfig["instance"].(string))
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
+	if os.Getenv("RUN_EXPENSIVE_TESTS") == "true" {
+		runBigTableAdminToolsTest(t, sourceConfig["instance"].(string))
+	} else {
+		t.Log("Skipping expensive Bigtable admin tools tests (RUN_EXPENSIVE_TESTS is not true)")
+	}
+	opts := []tests.TemplateParamOption{
 		tests.WithNameFieldArray(nameFieldArray),
 		tests.WithNameColFilter(nameColFilter),
 		tests.DisableDdlTest(),
 		tests.DisableInsertTest(),
-	)
+	}
+	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam, opts...)
 }
 
 func convertToBytes(v int) []byte {
@@ -408,7 +413,6 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 		t.Fatalf("bigtable-get-cluster unexpected output: %v", getClusterResp.Result.Content)
 	}
 
-	/* TEMPORARILY DISABLED DUE TO GCP QUOTA LIMITS (project_number:107716898620)
 	// Create test instance for lifecycle tools (createinstance, updateinstance, updatecluster, createcluster, deletecluster, deleteinstance)
 	testInstId := "testi-" + uniqueID[:8]
 	testClusterId1 := "testc1-" + uniqueID[:8]
@@ -470,7 +474,6 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 	if len(deleteClusterResp.Result.Content) == 0 || !strings.Contains(deleteClusterResp.Result.Content[0].Text, "cluster deleted successfully") {
 		t.Fatalf("bigtable-delete-cluster unexpected output: %v", deleteClusterResp.Result.Content)
 	}
-	*/
 
 	// Create table
 	createTableResp := assertMCPSuccess(t, "bigtable-create-table", map[string]any{

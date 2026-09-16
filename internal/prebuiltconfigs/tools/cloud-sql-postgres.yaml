@@ -22,11 +22,13 @@ database: ${CLOUD_SQL_POSTGRES_DATABASE}
 user: ${CLOUD_SQL_POSTGRES_USER:}
 password: ${CLOUD_SQL_POSTGRES_PASSWORD:}
 ipType: ${CLOUD_SQL_POSTGRES_IP_TYPE:public}
+readOnly: ${CLOUD_SQL_POSTGRES_READONLY:false}
 ---
 kind: source
 name: cloud-sql-admin-source
 type: cloud-sql-admin
 defaultProject: ${CLOUD_SQL_POSTGRES_PROJECT:}
+readOnly: ${CLOUD_SQL_POSTGRES_READONLY:false}
 ---
 kind: source
 name: cloud-monitoring-source

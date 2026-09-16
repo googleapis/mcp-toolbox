@@ -38,6 +38,7 @@ func PersistentFlags(parentCmd *cobra.Command, opts *ToolboxOptions) {
 	persistentFlags.StringVar(&opts.Cfg.TelemetryServiceName, "telemetry-service-name", "toolbox", "Sets the value of the service.name resource attribute for telemetry data.")
 	persistentFlags.BoolVar(&opts.Cfg.SQLCommenter, "sql-commenter", false, "Enable prepending SQLCommenter-format comments to SQL statements.")
 	persistentFlags.StringSliceVar(&opts.Cfg.UserAgentMetadata, "user-agent-metadata", []string{}, "Appends additional metadata to the User-Agent.")
+	persistentFlags.BoolVar(&opts.Cfg.DisableVersionCheck, "disable-version-check", false, "Disable the startup check for newer Toolbox versions.")
 }
 
 // ConfigFileFlags defines flags related to the configuration file.
@@ -77,4 +78,5 @@ func ServeFlags(flags *pflag.FlagSet, opts *ToolboxOptions) {
 	flags.Int64Var(&opts.Cfg.HttpMaxRequestBytes, "http-max-request-bytes", server.DefaultHTTPMaxRequestBytes, "Maximum MCP HTTP request body size in bytes.")
 	flags.BoolVar(&opts.Cfg.EnableDraftSpecs, "enable-draft-specs", false, "Opt-in and test upcoming draft MCP specifications.")
 	flags.StringSliceVar(&opts.Cfg.DisableExt, "disable-ext", []string{}, "Specifies MCP extension URIs disabled on this server.")
+	flags.StringVar(&opts.Cfg.OpenAIAppsChallengeFile, "openai-apps-challenge-file", "", "Path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.")
 }

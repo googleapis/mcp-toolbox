@@ -16,9 +16,12 @@ package tools_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
@@ -58,9 +61,8 @@ func TestBaseToolGetters(t *testing.T) {
 	if diff := cmp.Diff([]string{"google"}, b.GetAuthRequired()); diff != "" {
 		t.Errorf("GetAuthRequired() mismatch (-want +got):\n%s", diff)
 	}
-	got := b.GetAnnotations()
-	if got == nil || got.ReadOnlyHint == nil || !*got.ReadOnlyHint {
-		t.Errorf("GetAnnotations() = %+v, want ReadOnlyHint=true", got)
+	if diff := cmp.Diff(tools.NewReadOnlyAnnotations(), b.GetAnnotations(nil)); diff != "" {
+		t.Errorf("GetAnnotations() mismatch (-want +got):\n%s", diff)
 	}
 	gotManifest, err := b.Manifest(nil)
 	if err != nil {
@@ -140,5 +142,134 @@ func TestBaseToolEmbedParamsPassthrough(t *testing.T) {
 	}
 	if diff := cmp.Diff(values, got); diff != "" {
 		t.Errorf("EmbedParams() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestShouldSuppress(t *testing.T) {
+	roSource := testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{ReadOnly: true}}
+	rwSource := testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{ReadOnly: false}}
+
+	tests := []struct {
+		desc        string
+		src         sources.Source
+		annotations *tools.ToolAnnotations
+		want        bool
+	}{
+		{
+			desc:        "nil source -> not suppressed",
+			src:         nil,
+			annotations: tools.NewWriteAnnotations(),
+			want:        false,
+		},
+		{
+			desc:        "read-write source with write tool -> not suppressed",
+			src:         rwSource,
+			annotations: tools.NewWriteAnnotations(),
+			want:        false,
+		},
+		{
+			desc:        "read-only source with write tool (readOnlyHint: false) -> suppressed",
+			src:         roSource,
+			annotations: tools.NewWriteAnnotations(),
+			want:        true,
+		},
+		{
+			desc:        "read-only source with destructive write tool (readOnlyHint: false, destructiveHint: true) -> suppressed",
+			src:         roSource,
+			annotations: tools.NewDestructiveAnnotations(),
+			want:        true,
+		},
+		{
+			desc:        "read-only source with read tool (readOnlyHint: true) -> not suppressed",
+			src:         roSource,
+			annotations: tools.NewReadOnlyAnnotations(),
+			want:        false,
+		},
+		{
+			desc:        "read-only source with nil annotations -> not suppressed",
+			src:         roSource,
+			annotations: nil,
+			want:        false,
+		},
+		{
+			desc: "read-only source with custom tool explicitly setting readOnlyHint: false -> suppressed",
+			src:  roSource,
+			annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: func(b bool) *bool { return &b }(false),
+			},
+			want: true,
+		},
+		{
+			desc: "read-only source with custom tool explicitly setting readOnlyHint: true -> not suppressed",
+			src:  roSource,
+			annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: func(b bool) *bool { return &b }(true),
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			cfg := testutils.MockToolConfig{
+				ConfigBase:  tools.ConfigBase{Name: "my-tool"},
+				Annotations: tt.annotations,
+			}
+			tool, err := cfg.Initialize(context.Background())
+			if err != nil {
+				t.Fatalf("unexpected error initializing mock tool: %v", err)
+			}
+			if got := tools.ShouldSuppress(context.Background(), tool, tt.src); got != tt.want {
+				t.Errorf("ShouldSuppress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigBase_GetToolUIMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   tools.ConfigBase
+		expected *tools.ToolUIMetadata
+	}{
+		{
+			name:     "no ui config",
+			config:   tools.ConfigBase{},
+			expected: nil,
+		},
+		{
+			name: "ui config with resource",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource: "my-resource",
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityModel, tools.VisibilityApp},
+			},
+		},
+		{
+			name: "ui config with visibility",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource:   "my-resource",
+					Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.config.GetToolUIMetadata()
+			if !reflect.DeepEqual(got, tc.expected) {
+				t.Errorf("GetToolUIMetadata() mismatch: expected %v, got %v", tc.expected, got)
+			}
+		})
 	}
 }

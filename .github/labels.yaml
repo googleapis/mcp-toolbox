@@ -82,6 +82,10 @@
   color: BFDADC
   description: Label to trigger Github Action docs preview.
 
+- name: 'evals: run'
+  color: 3DED97
+  description: Label to trigger prebuilt config evals on Cloud Build.
+
 - name: 'status: help wanted'
   color: 8befd7
   description: 'Status: Unplanned work open to contributions from the community.'

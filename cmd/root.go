@@ -19,7 +19,6 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -40,6 +39,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -133,29 +133,28 @@ func NewCommand(opts *internal.ToolboxOptions) *cobra.Command {
 	return cmd
 }
 
-func handleDynamicReload(ctx context.Context, toolsFile internal.Config, s *server.Server) error {
+func handleDynamicReload(ctx context.Context, cfg server.ServerConfig, s *server.Server) error {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		panic(err)
 	}
 
-	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap, err := validateReloadEdits(ctx, toolsFile)
+	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, err := validateReloadEdits(ctx, cfg)
 	if err != nil {
 		errMsg := fmt.Errorf("unable to validate reloaded edits: %w", err)
 		logger.WarnContext(ctx, errMsg.Error())
 		return err
 	}
 
-	s.PrimitiveMgr.SetPrimitives(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap)
+	s.PrimitiveMgr.SetPrimitives(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap)
 
 	return nil
 }
 
 // validateReloadEdits checks that the reloaded config configs can initialized without failing
 func validateReloadEdits(
-	ctx context.Context, toolsFile internal.Config,
-) (map[string]sources.Source, map[string]auth.AuthService, map[string]embeddingmodels.EmbeddingModel, map[string]tools.Tool, map[string]prompts.Prompt, map[string]group.Group, error,
-) {
+	ctx context.Context, cfg server.ServerConfig,
+) (map[string]sources.Source, map[string]auth.AuthService, map[string]embeddingmodels.EmbeddingModel, map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]resources.ResourceTemplate, map[string]group.Group, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		panic(err)
@@ -171,25 +170,14 @@ func validateReloadEdits(
 	ctx, span := instrumentation.Tracer.Start(ctx, "toolbox/server/reload")
 	defer span.End()
 
-	reloadedConfig := server.ServerConfig{
-		Version:               versionString,
-		SourceConfigs:         toolsFile.Sources,
-		AuthServiceConfigs:    toolsFile.AuthServices,
-		EmbeddingModelConfigs: toolsFile.EmbeddingModels,
-		ToolConfigs:           toolsFile.Tools,
-		PromptConfigs:         toolsFile.Prompts,
-		GroupConfigs:          toolsFile.Groups,
-		IgnoreUnknownTools:    util.IgnoreUnknownToolsFromContext(ctx),
-	}
-
-	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap, err := server.InitializeConfigs(ctx, reloadedConfig)
+	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, err := server.InitializeConfigs(ctx, cfg)
 	if err != nil {
 		errMsg := fmt.Errorf("unable to initialize reloaded configs: %w", err)
 		logger.WarnContext(ctx, errMsg.Error())
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
-	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap, nil
+	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, nil
 }
 
 // Helper to check if a file has a newer ModTime than stored in the map
@@ -235,7 +223,7 @@ func scanWatchedFiles(watchingFolder bool, folderToWatch string, watchedFiles ma
 }
 
 // watchChanges checks for changes in the provided yaml config(s) or folder.
-func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles map[string]bool, s *server.Server, pollTickerSecond int) {
+func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles map[string]bool, s *server.Server, opts *internal.ToolboxOptions) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		panic(err)
@@ -279,6 +267,7 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 
 	lastSeen := make(map[string]time.Time)
 	var pollTickerChan <-chan time.Time
+	pollTickerSecond := opts.Cfg.PollInterval
 	if pollTickerSecond > 0 {
 		ticker := time.NewTicker(time.Duration(pollTickerSecond) * time.Second)
 		defer ticker.Stop()
@@ -362,29 +351,21 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 
 		case <-debounce.C:
 			debounce.Stop()
-			var allFiles []string
-			parser := internal.ConfigParser{}
-			if watchingFolder {
-				logger.DebugContext(ctx, "Reloading config folder.")
-				allFiles, err = internal.GetPathsFromConfigFolder(ctx, folderToWatch)
-				if err != nil {
-					logger.WarnContext(ctx, fmt.Sprintf("error loading config folder %s", err))
-					continue
-				}
-			} else {
-				allFiles = slices.Collect(maps.Keys(watchedFiles))
-			}
-			logger.DebugContext(ctx, "Reloading tools file(s).")
-			reloadedConfig, err := parser.LoadAndMergeConfigs(ctx, allFiles)
-			if err != nil {
-				logger.WarnContext(ctx, fmt.Sprintf("error loading configs %s", err))
+			logger.DebugContext(ctx, "File change detected, attempting to reload server...")
+
+			// Create a copy to avoid mutating the original opts if validation/reload fails
+			reloadedOpts := *opts
+			reloadedOpts.PrebuiltConfigs = slices.Clone(opts.PrebuiltConfigs)
+			reloadedOpts.Configs = slices.Clone(opts.Configs)
+			reloadedOpts.Cfg.Version = versionString
+
+			if _, err := reloadedOpts.LoadConfig(ctx, &internal.ConfigParser{}); err != nil {
+				logger.WarnContext(ctx, fmt.Sprintf("Error reloading config: %s", err))
 				continue
 			}
 
-			err = handleDynamicReload(ctx, reloadedConfig, s)
-			if err != nil {
-				errMsg := fmt.Errorf("unable to parse reloaded config at %+v: %w", reloadedConfig, err)
-				logger.WarnContext(ctx, errMsg.Error())
+			if err := handleDynamicReload(ctx, reloadedOpts.Cfg, s); err != nil {
+				logger.WarnContext(ctx, fmt.Sprintf("Error reloading server: %s", err))
 				continue
 			}
 		}
@@ -527,8 +508,9 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 
 	if isCustomConfigured && !opts.Cfg.DisableReload {
 		watchDirs, watchedFiles := resolveWatcherInputs(opts.Config, opts.Configs, opts.ConfigFolder)
+
 		// start watching the file(s) or folder for changes to trigger dynamic reloading
-		go watchChanges(ctx, watchDirs, watchedFiles, s, opts.Cfg.PollInterval)
+		go watchChanges(ctx, watchDirs, watchedFiles, s, opts)
 	}
 
 	// wait for either the server to error out or the command's context to be canceled

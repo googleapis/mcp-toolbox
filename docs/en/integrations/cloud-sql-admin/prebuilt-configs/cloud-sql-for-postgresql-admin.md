@@ -7,6 +7,9 @@ description: "Details of the Cloud SQL for PostgreSQL Admin prebuilt configurati
 ## Cloud SQL for PostgreSQL Admin
 
 *   `--prebuilt` value: `cloud-sql-postgres-admin`
+*   **Environment Variables:**
+    *   `CLOUD_SQL_POSTGRES_PROJECT`: (Optional) The GCP project ID to use as the default for Cloud SQL infrastructure tools.
+    *   `CLOUD_SQL_POSTGRES_READONLY`: (Optional) When set to `true`, suppresses write-capable admin tools. Default: `false`.
 *   **Permissions:**
     *   **Cloud SQL Viewer** (`roles/cloudsql.viewer`): Provides read-only
         access to resources.

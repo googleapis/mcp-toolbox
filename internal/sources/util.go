@@ -23,8 +23,41 @@ import (
 	"strings"
 
 	"cloud.google.com/go/cloudsqlconn"
+	"github.com/google/uuid"
 	"golang.org/x/oauth2/google"
 )
+
+// NormalizeValue converts specific database types to friendly representations (e.g. UUID to string).
+func NormalizeValue(val any, oid uint32) any {
+	// 2950 is the standard OID for UUID in PostgreSQL
+	if oid == 2950 {
+		if b, ok := val.([16]byte); ok {
+			return uuid.UUID(b).String()
+		}
+	}
+	// 2951 is the standard OID for _uuid (UUID array) in PostgreSQL
+	if oid == 2951 {
+		if arr, ok := val.([][16]byte); ok {
+			strs := make([]string, len(arr))
+			for i, b := range arr {
+				strs[i] = uuid.UUID(b).String()
+			}
+			return strs
+		}
+		if arr, ok := val.([]any); ok {
+			strs := make([]any, len(arr))
+			for i, item := range arr {
+				if b, ok := item.([16]byte); ok {
+					strs[i] = uuid.UUID(b).String()
+				} else {
+					strs[i] = item
+				}
+			}
+			return strs
+		}
+	}
+	return val
+}
 
 // GetCloudSQLDialOpts retrieve dial options with the right ip type and user agent for cloud sql
 // databases.

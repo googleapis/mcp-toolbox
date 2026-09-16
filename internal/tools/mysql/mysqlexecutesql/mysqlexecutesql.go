@@ -126,3 +126,21 @@ func (t Tool) ValidateSource(source sources.Source) error {
 	}
 	return nil
 }
+
+// GetAnnotations dynamically returns readOnlyHint: true and destructiveHint: false
+// when the connected database source is in read-only mode.
+func (t Tool) GetAnnotations(src sources.Source) *tools.ToolAnnotations {
+	base := t.BaseTool.GetAnnotations(src)
+	if src == nil || !src.IsReadOnly() {
+		return base
+	}
+
+	res := tools.NewReadOnlyAnnotations()
+	if base != nil {
+		copied := *base
+		copied.ReadOnlyHint = res.ReadOnlyHint
+		copied.DestructiveHint = res.DestructiveHint
+		return &copied
+	}
+	return res
+}

@@ -42,6 +42,7 @@ var expectedToolSources = []string{
 	"cloud-sql-postgres",
 	"dataplex",
 	"dataproc",
+	"falkordb",
 	"firestore",
 	"elasticsearch",
 	"looker-conversational-analytics",
@@ -127,6 +128,7 @@ func TestGetPrebuiltTool(t *testing.T) {
 	cloudsqlmssql_observability_config := getOrFatal(t, "cloud-sql-mssql-observability")
 	cloudsqlmssql_config := getOrFatal(t, "cloud-sql-mssql")
 	dataplex_config := getOrFatal(t, "dataplex")
+	falkordb_config := getOrFatal(t, "falkordb")
 	firestoreconfig := getOrFatal(t, "firestore")
 	looker_config := getOrFatal(t, "looker")
 	lookerca_config := getOrFatal(t, "looker-conversational-analytics")
@@ -195,6 +197,9 @@ func TestGetPrebuiltTool(t *testing.T) {
 	}
 	if len(dataplex_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch dataplex prebuilt tools yaml")
+	}
+	if len(falkordb_config) <= 0 {
+		t.Fatalf("unexpected error: could not fetch falkordb prebuilt tools yaml")
 	}
 	if len(firestoreconfig) <= 0 {
 		t.Fatalf("unexpected error: could not fetch firestore prebuilt tools yaml")
