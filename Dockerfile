@@ -13,15 +13,16 @@
 # limitations under the License.
 FROM --platform=$BUILDPLATFORM golang:1 AS build
 
-# Install Zig for CGO cross-compilation
+# Install prerequisites
 RUN apt-get update && apt-get install -y xz-utils
-RUN curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz && \
-    mkdir -p /zig && \
-    tar -xf zig.tar.xz -C /zig --strip-components=1 && \
-    rm zig.tar.xz
 
 WORKDIR /go/src/mcp-toolbox
 COPY . .
+
+# Install Zig for CGO cross-compilation
+RUN mkdir -p /zig && \
+    tar -xf zig.tar.xz -C /zig --strip-components=1 && \
+    rm -f zig.tar.xz
 
 ARG TARGETOS
 ARG TARGETARCH

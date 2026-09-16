@@ -12,9 +12,57 @@
 # limitations under the License.
 
 steps:
+  - id: "install-dependencies"
+    name: golang:1
+    waitFor: ["-"]
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      go get -d ./...
+
+  - id: "run-tests"
+    name: golang:1
+    waitFor:
+      - "install-dependencies"
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+
+      echo "Installing go-junit-report..."
+      go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+
+      echo "Running unit tests and generating JUnit XML report..."
+      go test -race -v ./cmd/... ./internal/... 2>&1 | /gopath/bin/go-junit-report -set-exit-code > junit-report.xml
+
+  - id: "install-zig"
+    name: golang:1
+    waitFor: ["-"]
+    volumes:
+      - name: "zig"
+        path: "/zig-tools"
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      apt-get update && apt-get install -y xz-utils
+      echo "Downloading Zig..."
+      gcloud storage cp gs://${_ASSETS_BUCKET}/dependencies/zig-x86_64-linux-0.15.2.tar.xz zig.tar.xz
+
+      mkdir -p /zig-tools
+      echo "Unpacking Zig..."
+      tar -xf zig.tar.xz -C /zig-tools --strip-components=1
+
   - id: "build-docker"
     name: "gcr.io/cloud-builders/docker"
-    waitFor: ["-"]
+    waitFor:
+      - "install-zig"
     script: |
       #!/usr/bin/env bash
       set -e
@@ -38,30 +86,6 @@ steps:
       docker pull ${_DOCKER_URI}:${VERSION}
       docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
 
-  - id: "install-dependencies"
-    name: golang:1
-    waitFor: ["-"]
-    env:
-      - "GOPATH=/gopath"
-    volumes:
-      - name: "go"
-        path: "/gopath"
-    script: |
-      go get -d ./...
-
-  - id: "install-zig"
-    name: golang:1
-    waitFor: ["-"]
-    volumes:
-      - name: "zig"
-        path: "/zig-tools"
-    script: |
-      #!/usr/bin/env bash
-      set -e
-      apt-get update && apt-get install -y xz-utils
-      curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz
-      tar -xf zig.tar.xz -C /zig-tools --strip-components=1
-
   - id: "install-macos-sdk"
     name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ["-"]
@@ -73,7 +97,7 @@ steps:
       set -e
       apt-get update && apt-get install -y xz-utils
       echo "Downloading macOS 14.5 SDK..."
-      gcloud storage cp gs://${_ASSETS_BUCKET}/MacOSX14.5.tar.xz sdk.tar.xz
+      gcloud storage cp gs://${_ASSETS_BUCKET}/dependencies/MacOSX14.5.tar.xz sdk.tar.xz
 
       mkdir -p /macos-sdk/MacOSX14.5.sdk
       echo "Unpacking macOS 14.5 SDK..."
@@ -457,8 +481,14 @@ steps:
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh pypi
 
-images:
-  - "${_DOCKER_URI}:latest"
+artifacts:
+  images:
+    - "${_DOCKER_URI}:latest"
+  testResults:
+    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${BUILD_ID}"
+    paths:
+      - "junit-report.xml"
+    format: JUNIT
 
 options:
   requestedVerifyOption: VERIFIED # This ensures provenance is generated
@@ -471,10 +501,10 @@ options:
 substitutions:
   _REGION: us-central1
   _AR_HOSTNAME: ${_REGION}-docker.pkg.dev
-  _AR_REPO_NAME: toolbox
-  _BUCKET_NAME: mcp-toolbox-for-databases
-  _UNSIGNED_BUCKET_NAME: mcp-toolbox-for-databases-unsigned
-  _ASSETS_BUCKET: toolbox-build-assets
+  _AR_REPO_NAME: test
+  _BUCKET_NAME: moss_testing_mcp-toolbox-for-databases
+  _UNSIGNED_BUCKET_NAME: moss_testing_mcp-toolbox-for-databases-unsigned
+  _ASSETS_BUCKET: moss_testing_toolbox-build-assets
   _DOCKER_URI: ${_AR_HOSTNAME}/${PROJECT_ID}/${_AR_REPO_NAME}/toolbox
   _PUSH_LATEST: "false" # Substituted in trigger
   _EXIT_GATE_PROJECT: "mcp-toolbox"
