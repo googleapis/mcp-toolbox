@@ -115,16 +115,29 @@ func buildEntry(ctx context.Context, root string, members []resources.Resource) 
 
 	refs := make([]ResourceRef, 0, len(members))
 	var frontmatter map[string]any
+	// Manifest.Validate enforces the same limit, but only once every file is in
+	// memory. We sum as we read: this bounds what each skill loads.
+	var total int64
 	for _, res := range members {
+		// Subtraction, not addition: a huge hint would wrap the total negative.
+		if sz := res.GetSize(); sz != nil && *sz > MaxTotalSize-total {
+			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
+		}
 		content, err := readString(ctx, res)
 		if err != nil {
 			return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
 		}
+		// GetSize above is only a hint; this is authoritative.
+		size := int64(len(content))
+		if size > MaxTotalSize-total {
+			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
+		}
+		total += size
 		sum := sha256.Sum256([]byte(content))
 		refs = append(refs, ResourceRef{
 			URI:    res.GetURI(),
 			Digest: "sha256:" + hex.EncodeToString(sum[:]),
-			Size:   int64(len(content)),
+			Size:   size,
 		})
 		if res.GetURI() == skillURI {
 			frontmatter, err = parseFrontmatter(content)

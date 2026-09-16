@@ -48,7 +48,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
-	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
+	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -1664,6 +1664,64 @@ func TestInitializeConfigs(t *testing.T) {
 		_, _, err := server.InitializeOfflineConfigs(ctx, cfg)
 		if err != nil {
 			t.Fatalf("expected InitializeOfflineConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("fails to start when a skill is invalid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					// The text has no frontmatter. Discover rejects it.
+					Text: "# Just a heading\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail on an invalid skill")
+		}
+		if !strings.Contains(err.Error(), "frontmatter") {
+			t.Errorf("error = %v, want it to name the frontmatter problem", err)
+		}
+	})
+
+	// The test above passes even if validation rejects every skill. This test
+	// checks the opposite case. A correct skill must reach the server.
+	t.Run("starts when a skill is valid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n",
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: "# Common queries\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+		for _, name := range []string{"guide", "queries"} {
+			if _, ok := resourcesMap[name]; !ok {
+				t.Errorf("resource %q missing from the map", name)
+			}
 		}
 	})
 }

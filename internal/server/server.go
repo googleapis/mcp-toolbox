@@ -45,6 +45,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
+	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -253,6 +254,12 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		resourceNames = append(resourceNames, name)
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resources: %s", len(resourcesMap), strings.Join(resourceNames, ", ")))
+
+	// Validate every skill the config declares. This runs after the log above
+	// because every resource did initialize: the check is across resources.
+	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
 
 	// initialize and validate the resource templates from configs
 	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)
