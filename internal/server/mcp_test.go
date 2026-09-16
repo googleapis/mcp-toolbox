@@ -32,6 +32,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
@@ -592,7 +593,7 @@ func TestMcpEndpoint(t *testing.T) {
 				},
 			},
 
-			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get", "skills/list", "skills/get"},
 		},
 		{
 			name:     "version 2025-03-26",
@@ -611,7 +612,7 @@ func TestMcpEndpoint(t *testing.T) {
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get", "skills/list", "skills/get"},
 		},
 		{
 			name:      "version 2025-06-18",
@@ -631,7 +632,7 @@ func TestMcpEndpoint(t *testing.T) {
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get", "skills/list", "skills/get"},
 		},
 		{
 			name:      "version 2025-11-25",
@@ -651,7 +652,7 @@ func TestMcpEndpoint(t *testing.T) {
 					"serverInfo": map[string]any{"name": serverName, "version": testutils.MockVersionString},
 				},
 			},
-			invalidMethods: []string{"server/discover", "groups/list", "groups/get"},
+			invalidMethods: []string{"server/discover", "groups/list", "groups/get", "skills/list", "skills/get"},
 		},
 		{
 			name:           "version 2026-07-28",
@@ -1048,8 +1049,9 @@ func TestMcpEndpoint(t *testing.T) {
 							"supportedVersions": []any{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"},
 							"capabilities": map[string]any{
 								"extensions": map[string]any{
-									"com.google.cloud/toolbox.v1": map[string]any{},
-									"io.modelcontextprotocol/ui":  map[string]any{},
+									"com.google.cloud/toolbox.v1":    map[string]any{},
+									"io.modelcontextprotocol/ui":     map[string]any{},
+									"io.modelcontextprotocol/skills": map[string]any{},
 								},
 								"tools":     map[string]any{"listChanged": false},
 								"prompts":   map[string]any{"listChanged": false},
@@ -2636,4 +2638,149 @@ func TestMcpScopingByGroup(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMcpSkillsMethods drives skills/list and skills/get over HTTP. Digests are
+// asserted by shape rather than value, because they are recomputed per call and
+// a literal would pin the fixture's bytes rather than the behaviour.
+func TestMcpSkillsMethods(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillURI := "skill://analytics-guide/SKILL.md"
+	refURI := "skill://analytics-guide/references/queries.md"
+	resourcesMap := map[string]resources.Resource{
+		"guide": mcpTextResource(t, ctx, "guide", skillURI,
+			"---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# analytics-guide\n"),
+		"queries": mcpTextResource(t, ctx, "queries", refURI, "# Common queries\n"),
+	}
+	// Tools only exist so the default group does: SetUpPrimitives builds no
+	// groups without them, and the request path resolves a group before
+	// dispatch. Skills are not group-scoped, so they do not affect the result.
+	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
+	toolsMap, promptsMap, _, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
+	defer shutdown()
+	ts := runServer(r, false)
+	defer ts.Close()
+
+	meta := map[string]any{
+		"io.modelcontextprotocol/protocolVersion": protocolVersion20260728,
+		"io.modelcontextprotocol/clientInfo": map[string]any{
+			"version": "client-temp-version",
+			"name":    "client-name",
+		},
+		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+	}
+
+	call := func(t *testing.T, method string, params map[string]any, mcpName string) map[string]any {
+		t.Helper()
+		body := map[string]any{"jsonrpc": "2.0", "id": "skills-req", "method": method, "params": params}
+		reqMarshal, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("unexpected error during marshaling of body: %s", err)
+		}
+		header := map[string]string{
+			"Mcp-Protocol-Version": protocolVersion20260728,
+			"Mcp-Method":           method,
+		}
+		if mcpName != "" {
+			header["Mcp-Name"] = mcpName
+		}
+		_, respBody, err := runRequest(ts, http.MethodPost, "/", bytes.NewBuffer(reqMarshal), header)
+		if err != nil {
+			t.Fatalf("unexpected error during request: %s", err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(respBody, &got); err != nil {
+			t.Fatalf("unexpected error unmarshalling body: %s", err)
+		}
+		return got
+	}
+
+	t.Run("skills/list", func(t *testing.T) {
+		got := call(t, "skills/list", map[string]any{"_meta": meta}, "")
+		result, ok := got["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("no result in %#v", got)
+		}
+		if result["resultType"] != "complete" {
+			t.Errorf("resultType = %v, want complete", result["resultType"])
+		}
+		list, ok := result["skills"].([]any)
+		if !ok || len(list) != 1 {
+			t.Fatalf("skills = %#v, want exactly one skill", result["skills"])
+		}
+		entry := list[0].(map[string]any)
+		if entry["uri"] != skillURI {
+			t.Errorf("uri = %v, want %q", entry["uri"], skillURI)
+		}
+		fm := entry["frontmatter"].(map[string]any)
+		if fm["name"] != "analytics-guide" || fm["description"] != "Query the warehouse" {
+			t.Errorf("frontmatter = %#v, want the SKILL.md values", fm)
+		}
+		refs := entry["resources"].([]any)
+		if len(refs) != 2 {
+			t.Fatalf("got %d refs, want 2", len(refs))
+		}
+		wantRefURIs := []string{skillURI, refURI}
+		for i, raw := range refs {
+			ref := raw.(map[string]any)
+			if ref["uri"] != wantRefURIs[i] {
+				t.Errorf("ref %d uri = %v, want %q", i, ref["uri"], wantRefURIs[i])
+			}
+			digest, _ := ref["digest"].(string)
+			if !strings.HasPrefix(digest, "sha256:") || len(digest) != len("sha256:")+64 {
+				t.Errorf("ref %d digest = %q, want sha256: and 64 hex characters", i, digest)
+			}
+			if _, ok := ref["size"].(float64); !ok {
+				t.Errorf("ref %d has no numeric size: %#v", i, ref["size"])
+			}
+		}
+	})
+
+	t.Run("skills/get returns one skill", func(t *testing.T) {
+		got := call(t, "skills/get", map[string]any{"uri": skillURI, "_meta": meta}, skillURI)
+		result, ok := got["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("no result in %#v", got)
+		}
+		skill := result["skill"].(map[string]any)
+		if skill["uri"] != skillURI {
+			t.Errorf("uri = %v, want %q", skill["uri"], skillURI)
+		}
+	})
+
+	t.Run("skills/get on an unknown uri", func(t *testing.T) {
+		unknown := "skill://nope/SKILL.md"
+		got := call(t, "skills/get", map[string]any{"uri": unknown, "_meta": meta}, unknown)
+		want := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "skills-req",
+			"error": map[string]any{
+				"code":    float64(-32602),
+				"message": "unknown skill: " + unknown,
+			},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected response: got %#v, want %#v", got, want)
+		}
+	})
+}
+
+func mcpTextResource(t *testing.T, ctx context.Context, name, uri, content string) resources.Resource {
+	t.Helper()
+	cfg := &text.Config{
+		ResourceConfigBase: resources.ResourceConfigBase{
+			ConfigBase: resources.ConfigBase{Name: name, Type: "text", MimeType: "text/markdown"},
+			URI:        uri,
+		},
+		Text: content,
+	}
+	res, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("unable to initialize %q: %s", uri, err)
+	}
+	return res
 }
