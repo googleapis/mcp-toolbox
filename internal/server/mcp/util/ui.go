@@ -15,6 +15,8 @@
 package util
 
 import (
+	"fmt"
+
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 )
@@ -34,7 +36,7 @@ func ResolveToolUIMetadata(pMgr *primitives.PrimitiveManager, tool tools.Tool) (
 	} else if res, hasRes := pMgr.GetUIResourceFromURI(uiMetaOrig.Resource); hasRes {
 		uri = res.GetURI()
 	} else {
-		uri = ""
+		return nil, fmt.Errorf("UI resource %q for tool %q is not registered", uiMetaOrig.Resource, tool.GetName())
 	}
 
 	uiMeta := map[string]any{
