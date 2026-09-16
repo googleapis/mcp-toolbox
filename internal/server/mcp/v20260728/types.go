@@ -17,6 +17,7 @@ package v20260728
 import (
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
+	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
@@ -38,6 +39,8 @@ const (
 	RESOURCES_READ           = "resources/read"
 	GROUPS_LIST              = "groups/list"
 	GROUPS_GET               = "groups/get"
+	SKILLS_LIST              = "skills/list"
+	SKILLS_GET               = "skills/get"
 )
 
 /* Request Params */
@@ -804,4 +807,45 @@ type GetGroupResult struct {
 	Prompts           []Prompt           `json:"prompts"`
 	Resources         []Resource         `json:"resources"`
 	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
+}
+
+/* Skills */
+
+// ListSkillsRequest is sent from the client to request every skill the server
+// has. The extension permits a cursor. Toolbox returns one page and sets no
+// nextCursor.
+type ListSkillsRequest struct {
+	jsonrpc.Request
+	Params RequestParams `json:"params,omitempty"`
+}
+
+// ListSkillsResult is the server's response to a skills/list request.
+//
+// ttlMs and cacheScope are a freshness hint, not an integrity property. A host
+// still verifies each digest, so a fresh listing and a verified file are
+// independent.
+type ListSkillsResult struct {
+	Result
+	CacheableResult
+	Skills []skills.Entry `json:"skills"`
+}
+
+// GetSkillRequest is sent from the client to request one skill by URI.
+type GetSkillRequest struct {
+	jsonrpc.Request
+	Params GetSkillRequestParams `json:"params"`
+}
+
+// GetSkillRequestParams contains the parameters for a skills/get request.
+type GetSkillRequestParams struct {
+	RequestParams
+	URI string `json:"uri"`
+}
+
+// GetSkillResult is the server's response to a skills/get request. ttlMs and
+// cacheScope carry the meaning given on ListSkillsResult.
+type GetSkillResult struct {
+	Result
+	CacheableResult
+	Skill skills.Entry `json:"skill"`
 }
