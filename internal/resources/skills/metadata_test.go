@@ -46,7 +46,7 @@ func TestWithDocMetadata(t *testing.T) {
 		"docs":    textResource(t, ctx, "docs", plainURI, "unrelated"),
 	}
 
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -100,7 +100,7 @@ func TestWithDocMetadataMultipleSkills(t *testing.T) {
 		"beta":  textResource(t, ctx, "beta", betaURI, skillMD("beta-guide", "Summarize the warehouse")),
 	}
 
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -142,7 +142,7 @@ func TestWithDocMetadataForwards(t *testing.T) {
 	body := skillMD("analytics-guide", "Query and summarize the warehouse")
 	backing := textResource(t, ctx, "SKILL.md", skillURI, body)
 
-	entries, err := skills.Discover(ctx, map[string]resources.Resource{"guide": backing})
+	entries, err := skills.Discover(ctx, skills.NewRegistry(map[string]resources.Resource{"guide": backing}))
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -179,7 +179,7 @@ func TestWithDocMetadataNoSkills(t *testing.T) {
 	resourcesMap := map[string]resources.Resource{
 		"docs": textResource(t, ctx, "docs", "file://project-docs", "unrelated"),
 	}
-	entries, err := skills.Discover(ctx, resourcesMap)
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
