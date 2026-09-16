@@ -276,3 +276,22 @@ func TestCheckUISupport(t *testing.T) {
 		})
 	}
 }
+
+// TestSkillsExtensionDeclared pins the SEP-2640 extension as on by default and
+// removable by --disable-ext, which is what suppresses skills/list and skills/get.
+func TestSkillsExtensionDeclared(t *testing.T) {
+	t.Cleanup(func() { Initialize(nil) })
+
+	Initialize(nil)
+	if _, ok := ServerExtensions[SkillsExtensionURI]; !ok {
+		t.Errorf("ServerExtensions is missing %q by default", SkillsExtensionURI)
+	}
+
+	Initialize([]string{SkillsExtensionURI})
+	if _, ok := ServerExtensions[SkillsExtensionURI]; ok {
+		t.Errorf("ServerExtensions still has %q after it was disabled", SkillsExtensionURI)
+	}
+	if _, ok := ServerExtensions[ToolboxExtensionURI]; !ok {
+		t.Errorf("disabling skills also removed %q", ToolboxExtensionURI)
+	}
+}

@@ -15,6 +15,8 @@
 package primitives_test
 
 import (
+	"context"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -23,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -45,7 +48,9 @@ func TestUpdateServer(t *testing.T) {
 	newGroups := map[string]group.Group{
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
-	newResources := map[string]resources.Resource{"example-resource": nil}
+	// A real resource, not nil: NewPrimitiveManager derives the skill registry
+	// from this map, so it reads every value's URI.
+	newResources := map[string]resources.Resource{"example-resource": testutils.MockResource1}
 	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
 	primMgr := primitives.NewPrimitiveManager(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 
@@ -59,9 +64,11 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, authServices (-want +got):\n%s", diff)
 	}
 
+	// Compared by identity, not by cmp.Diff: a real resource carries unexported
+	// fields that cmp refuses to walk.
 	gotResource, _ := primMgr.GetResource("example-resource")
-	if diff := cmp.Diff(gotResource, newResources["example-resource"]); diff != "" {
-		t.Errorf("error updating server, resources (-want +got):\n%s", diff)
+	if gotResource != newResources["example-resource"] {
+		t.Errorf("error updating server, resources: got %v, want %v", gotResource, newResources["example-resource"])
 	}
 
 	gotTool, _ := primMgr.GetTool("example-tool")
@@ -229,4 +236,51 @@ func TestMatchResourceTemplateURI(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSkillRegistry pins the registry as derived from resources: built by the
+// constructor and rebuilt whenever SetPrimitives replaces the resources map.
+func TestSkillRegistry(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillDoc := textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
+		"---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# analytics-guide\n")
+
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, nil, nil, nil)
+	if got := primMgr.SkillRegistry().Len(); got != 0 {
+		t.Errorf("Len() = %d with no resources, want 0", got)
+	}
+
+	primMgr.SetPrimitives(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{"guide": skillDoc}, nil, nil)
+	if got := primMgr.SkillRegistry().Len(); got != 1 {
+		t.Fatalf("Len() = %d after SetPrimitives, want 1", got)
+	}
+	if got := primMgr.SkillRegistry().URIs(); !slices.Equal(got, []string{"skill://analytics-guide/SKILL.md"}) {
+		t.Errorf("URIs() = %v, want the one skill", got)
+	}
+
+	// A reload that drops the skill must drop it from the registry too.
+	primMgr.SetPrimitives(nil, nil, nil, nil, nil, nil, nil, nil)
+	if got := primMgr.SkillRegistry().Len(); got != 0 {
+		t.Errorf("Len() = %d after the skill was removed, want 0", got)
+	}
+}
+
+func textResource(t *testing.T, ctx context.Context, name, uri, content string) resources.Resource {
+	t.Helper()
+	cfg := &text.Config{
+		ResourceConfigBase: resources.ResourceConfigBase{
+			ConfigBase: resources.ConfigBase{Name: name, Type: "text", MimeType: "text/markdown"},
+			URI:        uri,
+		},
+		Text: content,
+	}
+	res, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("unable to initialize %q: %s", uri, err)
+	}
+	return res
 }

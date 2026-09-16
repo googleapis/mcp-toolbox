@@ -26,6 +26,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 )
@@ -43,6 +44,9 @@ type PrimitiveManager struct {
 	resources         map[string]resources.Resource
 	resourceTemplates map[string]resources.ResourceTemplate
 	groups            map[string]group.Group
+	// skillRegistry records which resources make up which skill. It is derived
+	// from resources, so it is rebuilt whenever that map is replaced.
+	skillRegistry *skills.Registry
 }
 
 func NewPrimitiveManager(
@@ -65,6 +69,7 @@ func NewPrimitiveManager(
 		resources:         resourcesMap,
 		resourceTemplates: resourceTemplatesMap,
 		groups:            groupsMap,
+		skillRegistry:     skills.NewRegistry(resourcesMap),
 	}
 
 	return primitiveMgr
@@ -140,6 +145,14 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.resources = resourcesMap
 	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
+	r.skillRegistry = skills.NewRegistry(resourcesMap)
+}
+
+// SkillRegistry returns the skill membership derived from the current resources.
+func (r *PrimitiveManager) SkillRegistry() *skills.Registry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.skillRegistry
 }
 
 // AuthServices returns a copy of the auth services map

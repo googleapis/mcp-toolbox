@@ -15,12 +15,14 @@
 package v20260728
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
+	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -360,4 +362,49 @@ func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, ur
 		Resources:         listResourcesResult.Resources,
 		ResourceTemplates: listTemplatesResult.ResourceTemplates,
 	}, nil
+}
+
+// GenerateListSkillsResult rebuilds every skill from current file content.
+//
+// The digests are recomputed here rather than reused from startup, because a
+// host that fails to verify a digest recovers by asking again. Returning the
+// startup value would give it nothing to recover to.
+func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveManager) (ListSkillsResult, error) {
+	entries, err := skills.Discover(ctx, pMgr.SkillRegistry())
+	if err != nil {
+		return ListSkillsResult{}, err
+	}
+	if entries == nil {
+		entries = []skills.Entry{}
+	}
+	return ListSkillsResult{
+		Skills: entries,
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+	}, nil
+}
+
+// GenerateGetSkillResult rebuilds one skill by URI, reporting whether it exists.
+//
+// It rebuilds the whole catalogue to answer for one skill, so an unreadable file
+// in any skill fails this request too. That keeps Discover fail-fast and a
+// broken config loud. The cost is the reason the plan expects a digest cache
+// keyed on path, mtime, and size.
+func GenerateGetSkillResult(ctx context.Context, pMgr *primitives.PrimitiveManager, uri string) (GetSkillResult, bool, error) {
+	entries, err := skills.Discover(ctx, pMgr.SkillRegistry())
+	if err != nil {
+		return GetSkillResult{}, false, err
+	}
+	for _, e := range entries {
+		if e.URI == uri {
+			return GetSkillResult{
+				Skill: e,
+				Result: Result{
+					ResultType: resultTypeComplete,
+				},
+			}, true, nil
+		}
+	}
+	return GetSkillResult{}, false, nil
 }

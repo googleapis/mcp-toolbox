@@ -17,6 +17,7 @@ package v20260728
 import (
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
+	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
@@ -38,6 +39,8 @@ const (
 	RESOURCES_READ           = "resources/read"
 	GROUPS_LIST              = "groups/list"
 	GROUPS_GET               = "groups/get"
+	SKILLS_LIST              = "skills/list"
+	SKILLS_GET               = "skills/get"
 )
 
 /* Request Params */
@@ -804,4 +807,42 @@ type GetGroupResult struct {
 	Prompts           []Prompt           `json:"prompts"`
 	Resources         []Resource         `json:"resources"`
 	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
+}
+
+/* Skills */
+
+// ListSkillsRequest is sent from the client to request every skill the server
+// has. SEP-2640 defines no cursor for this method.
+type ListSkillsRequest struct {
+	jsonrpc.Request
+	Params RequestParams `json:"params,omitempty"`
+}
+
+// ListSkillsResult is the server's response to a skills/list request.
+//
+// It is deliberately not a CacheableResult. Every entry carries a digest of the
+// file as it is now, and a cached response would hand a host back the value it
+// already failed to verify.
+type ListSkillsResult struct {
+	Result
+	Skills []skills.Entry `json:"skills"`
+}
+
+// GetSkillRequest is sent from the client to request one skill by URI.
+type GetSkillRequest struct {
+	jsonrpc.Request
+	Params GetSkillRequestParams `json:"params"`
+}
+
+// GetSkillRequestParams contains the parameters for a skills/get request.
+type GetSkillRequestParams struct {
+	RequestParams
+	URI string `json:"uri"`
+}
+
+// GetSkillResult is the server's response to a skills/get request. It is not
+// cacheable, for the reason given on ListSkillsResult.
+type GetSkillResult struct {
+	Result
+	Skill skills.Entry `json:"skill"`
 }
