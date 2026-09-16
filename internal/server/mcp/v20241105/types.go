@@ -420,6 +420,8 @@ type ResourceContents struct {
 	Uri string `json:"uri"`
 	// The MIME type of this resource, if known.
 	MimeType string `json:"mimeType,omitempty"`
+	// Additional metadata attached to this resource content.
+	Metadata map[string]any `json:"_meta,omitempty"`
 }
 
 // Text resource content.

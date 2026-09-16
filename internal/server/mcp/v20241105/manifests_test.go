@@ -50,6 +50,7 @@ func TestGenerateToolManifest(t *testing.T) {
 		authInvoke      []string
 		params          parameters.Parameters
 		annotations     *tools.ToolAnnotations
+		uiMetadata      map[string]any
 		wantMetadata    map[string]any
 		wantAnnotations []byte
 	}{
@@ -60,6 +61,7 @@ func TestGenerateToolManifest(t *testing.T) {
 			authInvoke:   []string{},
 			params:       parameters.Parameters{parameters.NewStringParameter("string-param", "string parameter")},
 			annotations:  nil,
+			uiMetadata:   nil,
 			wantMetadata: nil,
 		},
 		{
@@ -108,10 +110,28 @@ func TestGenerateToolManifest(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc:        "with UI metadata",
+			name:        "render_dashboard",
+			description: "Render dashboard",
+			authInvoke:  nil,
+			params:      nil,
+			annotations: nil,
+			uiMetadata: map[string]any{
+				"resourceUri": "ui://looker/render_dashboard.html",
+				"visibility":  []string{"model", "app"},
+			},
+			wantMetadata: map[string]any{
+				"ui": map[string]any{
+					"resourceUri": "ui://looker/render_dashboard.html",
+					"visibility":  []string{"model", "app"},
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got := generateToolManifest(tc.name, tc.description, tc.authInvoke, tc.params, tc.annotations, nil)
+			got := generateToolManifest(tc.name, tc.description, tc.authInvoke, tc.params, tc.annotations, nil, tc.uiMetadata)
 			gotM := got.Metadata
 			if diff := cmp.Diff(tc.wantMetadata, gotM); diff != "" {
 				t.Fatalf("unexpected metadata (-want +got):\n%s", diff)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -26,7 +27,7 @@ import (
 )
 
 // generateToolManifest generates Tool for list tools result
-func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string) Tool {
+func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string, uiMeta map[string]any) Tool {
 	inputSchema, authParams := generateParamManifest(params, urlParams)
 
 	var toolAnnotations *ToolAnnotations
@@ -50,6 +51,9 @@ func generateToolManifest(name, desc string, authInvoke []string, params paramet
 	}
 	if len(authParams) > 0 {
 		metadata["toolbox/authParam"] = authParams
+	}
+	if uiMeta != nil {
+		metadata["ui"] = uiMeta
 	}
 	if len(metadata) > 0 {
 		mcpManifest.Metadata = metadata
@@ -122,7 +126,11 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 		if err != nil {
 			return ListToolsResult{}, fmt.Errorf("error getting parameters for tool %q: %w", toolName, err)
 		}
-		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams)
+		uiMeta, err := mcputil.ResolveToolUIMetadata(pMgr, tool)
+		if err != nil {
+			return ListToolsResult{}, err
+		}
+		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams, uiMeta)
 		mcpManifest = append(mcpManifest, toolManifest)
 	}
 	return ListToolsResult{Tools: mcpManifest}, nil
