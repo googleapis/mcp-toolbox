@@ -8,12 +8,12 @@
 
 ## 1. Overview & Motivation
 
-A **Group** is a named collection that scopes MCP primitives together: currently tools, prompts and resources. Toolbox serves each group on its own endpoint (`/mcp/{name}`), so connecting to that endpoint scopes `tools/list` and `prompts/list` to the group's contents.
+A **Group** is a named collection that scopes all MCP primitives together — tools, prompts, resources, and resource templates. Toolbox serves each group on its own endpoint (`/mcp/{name}`), so connecting to that endpoint scopes each primitive's list method to the group's contents.
 
 This extension introduces two methods for **Groups**:
 
 - **`groups/list`** — enumerate every named group with its `name` and `description`, so a client can choose one without prior configuration.
-- **`groups/get`** — fetch a single group's tools, prompts, resources and resource templates together in one round trip.
+- **`groups/get`** — fetch all of a single group's primitives together in one round trip.
 
 ---
 
@@ -148,13 +148,13 @@ Returns every named group's `name` and `description`, sorted alphabetically by n
 
 ### 3.2 Group Contents (`groups/get`)
 
-Takes a group `name` and returns that group's tools and prompts together, along with the group's cache hints.
+Takes a group `name` and returns all of that group's primitives together, along with the group's cache hints. The result always carries a `tools`, `prompts`, `resources`, and `resourceTemplates` array; a group holding none of a given primitive returns that array empty.
 
 - The group's `description` is **intentionally omitted** from the result; it is exposed only through `groups/list`.
-- `ttlMs` and `cacheScope` are the group's own configured values — the same hints `tools/list` and `prompts/list` return when called on that group's endpoint. They default to `300000` (5 minutes) and `"public"`.
+- `ttlMs` and `cacheScope` are the group's own configured values — the same hints each primitive's list method returns when called on that group's endpoint. They default to `300000` (5 minutes) and `"public"`.
 - An **omitted or empty `name`** resolves to the default (nameless) group, which holds all primitives defined on the server. This mirrors the `/api/toolset` REST endpoint called without a toolset name. Since `groups/list` omits the default group, this is the only way to reach it over MCP.
 - An **unrecognized `name`** returns `INVALID_PARAMS` (-32602).
-- Tools are serialized exactly as `tools/list` serializes them. Because reaching `groups/get` at all requires declaring `com.google.cloud/toolbox.v1`, tools defining secure parameters are always included, with their sensitive parameters split into `secureInputSchema`. See the [Secure Parameters specification](../../secureParams/specification/secure_params.md).
+- Every primitive is serialized exactly as its own list method serializes it. Because reaching `groups/get` at all requires declaring `com.google.cloud/toolbox.v1`, tools defining secure parameters are always included, with their sensitive parameters split into `secureInputSchema`. See the [Secure Parameters specification](../../secureParams/specification/secure_params.md).
 
 #### Example `groups/get` Request
 
@@ -220,6 +220,22 @@ Takes a group `name` and returns that group's tools and prompts together, along 
         "description": "Summarize query results."
       }
     ],
+    "resources": [
+      {
+        "name": "schema_overview",
+        "uri": "schema://overview",
+        "description": "Summary of the analytics schema.",
+        "mimeType": "text/plain"
+      }
+    ],
+    "resourceTemplates": [
+      {
+        "name": "table_schema",
+        "uriTemplate": "schema://tables/{table}",
+        "description": "Schema for a single table.",
+        "mimeType": "text/plain"
+      }
+    ],
     "_meta": {
       "io.modelcontextprotocol/serverInfo": {
         "name": "Toolbox",
@@ -245,7 +261,7 @@ Groups are declared as `kind: group` documents in the Toolbox configuration:
 - **`name`** is required and unique across both `kind: group` and `kind: toolset` documents; a collision is a startup error.
 - **`description`** is optional and is surfaced only through `groups/list`. A `description` written on a `kind: toolset` is dropped with a warning, because a toolset is a tools-only group without one.
 - **`ttlMs`** defaults to `300000`; **`cacheScope`** defaults to `"public"`. Both are returned by `groups/get`.
-- Every `kind: toolset` loads as a tools-only group and is therefore visible to `groups/list` and `groups/get`, with an empty `prompts` array.
+- Every `kind: toolset` loads as a tools-only group and is therefore visible to `groups/list` and `groups/get`, with empty `prompts`, `resources`, and `resourceTemplates` arrays.
 
 ---
 

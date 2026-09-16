@@ -24,9 +24,24 @@ import type {
   CacheableResult,
   Prompt,
   RequestParams,
+  Resource,
+  ResourceTemplate,
   Result,
-} from "../../secureParams/schema/spec.types.js";
-import type { ToolWithSecureParams } from "../../secureParams/schema/schema.js";
+  Tool,
+} from "./spec.types.js";
+
+/**
+ * Tool definition in `tools/list` results augmented with `secureInputSchema`.
+ *
+ * @category `groups`
+ */
+export interface ToolWithSecureParams extends Tool {
+  /**
+   * JSON Schema object defining sensitive runtime parameters hidden from the LLM agent
+   * and passed out-of-band by the calling application.
+   */
+  secureInputSchema?: { $schema?: string; type: "object"; [key: string]: unknown };
+}
 
 /**
  * A single entry in a `groups/list` response.
@@ -84,18 +99,21 @@ export interface ListGroupsResult extends Result {
 export interface GetGroupParams extends RequestParams {
   /**
    * The name of the group to fetch. An omitted or empty string resolves to the
-   * default (nameless) group, which holds every tool and prompt on the server.
+   * default (nameless) group, which holds every primitive on the server.
    */
   name?: string;
 }
 
 /**
- * The server's response to a `groups/get` request: the group's tools and
- * prompts, plus the group's cache hints.
+ * The server's response to a `groups/get` request: all of the group's
+ * primitives, plus the group's cache hints.
+ *
+ * Every primitive array is always present; a group holding none of a given
+ * primitive returns that array empty.
  *
  * Extends {@link CacheableResult}, whose `ttlMs` and `cacheScope` carry the
- * group's own configured values — the same hints `tools/list` and
- * `prompts/list` return when called on that group's endpoint. They default to
+ * group's own configured values — the same hints each primitive's list method
+ * returns when called on that group's endpoint. They default to
  * 300000 (5 minutes) and `"public"`.
  *
  * The group's `description` is intentionally omitted; it is exposed only
@@ -122,4 +140,16 @@ export interface GetGroupResult extends CacheableResult {
    * returns.
    */
   prompts: Prompt[];
+
+  /**
+   * The resources scoped to this group, in the same shape `resources/list`
+   * returns.
+   */
+  resources: Resource[];
+
+  /**
+   * The resource templates scoped to this group, in the same shape
+   * `resources/templates/list` returns.
+   */
+  resourceTemplates: ResourceTemplate[];
 }
