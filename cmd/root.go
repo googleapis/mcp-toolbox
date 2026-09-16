@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
@@ -507,10 +508,14 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 	}
 
 	if isCustomConfigured && !opts.Cfg.DisableReload {
-		watchDirs, watchedFiles := resolveWatcherInputs(opts.Config, opts.Configs, opts.ConfigFolder)
+		if opts.ConfigPMVersion != "" {
+			go pmWatchChanges(ctx, s, opts)
+		} else {
+			watchDirs, watchedFiles := resolveWatcherInputs(opts.Config, opts.Configs, opts.ConfigFolder)
 
-		// start watching the file(s) or folder for changes to trigger dynamic reloading
-		go watchChanges(ctx, watchDirs, watchedFiles, s, opts)
+			// start watching the file(s) or folder for changes to trigger dynamic reloading
+			go watchChanges(ctx, watchDirs, watchedFiles, s, opts)
+		}
 	}
 
 	// wait for either the server to error out or the command's context to be canceled
@@ -532,4 +537,69 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 	}
 
 	return nil
+}
+
+// pmWatchChanges is a background daemon that periodically fetches the tool configuration
+// from GCP Parameter Manager to dynamically reload when changes occurred.
+func pmWatchChanges(ctx context.Context, s *server.Server, opts *internal.ToolboxOptions) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		panic(err)
+	}
+
+	pmTicker := time.NewTicker(1 * time.Minute)
+	defer pmTicker.Stop()
+
+	logger.DebugContext(ctx, "Parameter Manager polling enabled every 3 minutes")
+
+	debounceDelay := 100 * time.Millisecond
+	debounce := time.NewTimer(1 * time.Minute)
+	debounce.Stop()
+
+	var lastSeenPayload []byte
+
+	// Initial fetch to populate lastSeenPayload
+	if initialPayload, err := internal.FetchToolsFromParameterManager(ctx, opts.ConfigPMVersion); err == nil {
+		lastSeenPayload = initialPayload
+	} else {
+		logger.WarnContext(ctx, fmt.Sprintf("initial Parameter Manager fetch failed: %v", err))
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.DebugContext(ctx, "Parameter Manager watcher context cancelled")
+			return
+		case <-pmTicker.C:
+			newPayload, err := internal.FetchToolsFromParameterManager(ctx, opts.ConfigPMVersion)
+			if err != nil {
+				logger.WarnContext(ctx, fmt.Sprintf("error fetching Parameter Manager payload during polling: %v", err))
+				continue
+			}
+
+			if !bytes.Equal(lastSeenPayload, newPayload) {
+				logger.DebugContext(ctx, "Parameter Manager configuration change detected via polling")
+				lastSeenPayload = newPayload
+				debounce.Reset(debounceDelay)
+			}
+		case <-debounce.C:
+			debounce.Stop()
+			logger.DebugContext(ctx, "Parameter Manager change detected, attempting to reload server...")
+
+			reloadedOpts := *opts
+			reloadedOpts.PrebuiltConfigs = slices.Clone(opts.PrebuiltConfigs)
+			reloadedOpts.Configs = slices.Clone(opts.Configs)
+			reloadedOpts.Cfg.Version = versionString
+
+			if _, err := reloadedOpts.LoadConfig(ctx, &internal.ConfigParser{}); err != nil {
+				logger.WarnContext(ctx, fmt.Sprintf("Error reloading Parameter Manager config: %v", err))
+				continue
+			}
+
+			if err := handleDynamicReload(ctx, reloadedOpts.Cfg, s); err != nil {
+				logger.WarnContext(ctx, fmt.Sprintf("Error reloading server dynamic config: %v", err))
+				continue
+			}
+		}
+	}
 }
