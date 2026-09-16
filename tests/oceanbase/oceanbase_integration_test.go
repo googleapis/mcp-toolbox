@@ -82,12 +82,11 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
-
 	pool, err := initOceanBaseConnectionPool(OceanBaseHost, OceanBasePort, OceanBaseUser, OceanBasePass, OceanBaseDatabase)
 	if err != nil {
 		t.Fatalf("unable to create OceanBase connection pool: %s", err)
 	}
+	defer pool.Close()
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -110,7 +109,7 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 	tmplSelectCombined, tmplSelectFilterCombined := getOceanBaseTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, OceanBaseToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -127,12 +126,25 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 	// Get configs for tests
 	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := getOceanBaseWants()
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	// Keep credential-dependent helpers selectable without dropping auth coverage.
+	t.Run("list_tools", func(t *testing.T) {
+		expected := tests.GetBaseMCPExpectedTools()
+		expected = append(expected, tests.GetExecuteSQLMCPExpectedTools()...)
+		expected = append(expected, tests.GetTemplateParamMCPExpectedTools()...)
+		tests.RunMCPToolsListMethod(t, expected)
+	})
+	t.Run("invoke", func(t *testing.T) {
+		tests.RunToolInvokeTest(t, select1Want, tests.WithMCP(), tests.DisableArrayTest())
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("execute_sql", func(t *testing.T) {
+		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, tests.WithMCPSql())
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam, tests.WithMCPTemplate())
+	})
 }
 
 // OceanBase specific parameter tool info
