@@ -1240,8 +1240,7 @@ func validateAndMergeSecureParams(ctx context.Context, req *CallToolRequest, par
 }
 
 // skillsListHandler serves skills/list. It returns every skill the server
-// declares, whatever group the request path names, because SEP-2640 describes
-// one server-wide catalogue.
+// declares.
 func skillsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
