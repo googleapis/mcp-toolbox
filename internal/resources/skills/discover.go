@@ -47,10 +47,6 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 		}
 		entries = append(entries, e)
 	}
-
-	if err := warnOnDuplicateNames(ctx, entries); err != nil {
-		return nil, err
-	}
 	return entries, nil
 }
 
@@ -146,8 +142,9 @@ func cutAtDelimiter(rest string) (string, bool) {
 	}
 }
 
-// warnOnDuplicateNames reports skills sharing a frontmatter name.
-func warnOnDuplicateNames(ctx context.Context, entries []Entry) error {
+// WarnOnDuplicateNames reports the skills that share a frontmatter name. Call
+// it one time, at startup. Discover also runs one time for each request.
+func WarnOnDuplicateNames(ctx context.Context, entries []Entry) error {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("checking for duplicate skill names: %w", err)
