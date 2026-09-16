@@ -175,4 +175,16 @@ func TestAnnotations(t *testing.T) {
 	if *annotations.ReadOnlyHint != true {
 		t.Errorf("ReadOnlyHint should be true, got %v", *annotations.ReadOnlyHint)
 	}
+	if annotations.DestructiveHint == nil {
+		t.Fatal("mcp manifest DestructiveHint is nil")
+	}
+	if *annotations.DestructiveHint != false {
+		t.Errorf("DestructiveHint should be false, got %v", *annotations.DestructiveHint)
+	}
+	if annotations.OpenWorldHint == nil {
+		t.Fatal("mcp manifest OpenWorldHint is nil")
+	}
+	if *annotations.OpenWorldHint != false {
+		t.Errorf("OpenWorldHint should be false, got %v", *annotations.OpenWorldHint)
+	}
 }

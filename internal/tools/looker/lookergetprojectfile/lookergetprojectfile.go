@@ -80,7 +80,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewReadOnlyAnnotations),
+			lookercommon.ReadOnlyAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: allParameters.Manifest(), AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),

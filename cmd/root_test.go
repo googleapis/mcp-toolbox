@@ -273,6 +273,13 @@ func TestServerConfigFlags(t *testing.T) {
 				DisableVersionCheck: true,
 			}),
 		},
+		{
+			desc: "openai apps challenge file",
+			args: []string{"--openai-apps-challenge-file", "openai-token.txt"},
+			want: withDefaults(server.ServerConfig{
+				OpenAIAppsChallengeFile: "openai-token.txt",
+			}),
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
