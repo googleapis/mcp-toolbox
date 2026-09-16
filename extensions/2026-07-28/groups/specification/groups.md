@@ -152,7 +152,7 @@ Takes a group `name` and returns that group's tools and prompts together, along 
 
 - The group's `description` is **intentionally omitted** from the result; it is exposed only through `groups/list`.
 - `ttlMs` and `cacheScope` are the group's own configured values — the same hints `tools/list` and `prompts/list` return when called on that group's endpoint. They default to `300000` (5 minutes) and `"public"`.
-- An **omitted or empty `name`** resolves to the default (nameless) group, which holds every tool and prompt on the server. This mirrors the `/api/toolset` REST endpoint called without a toolset name. Since `groups/list` omits the default group, this is the only way to reach it over MCP.
+- An **omitted or empty `name`** resolves to the default (nameless) group, which holds all primitives defined on the server. This mirrors the `/api/toolset` REST endpoint called without a toolset name. Since `groups/list` omits the default group, this is the only way to reach it over MCP.
 - An **unrecognized `name`** returns `INVALID_PARAMS` (-32602).
 - Tools are serialized exactly as `tools/list` serializes them. Because reaching `groups/get` at all requires declaring `com.google.cloud/toolbox.v1`, tools defining secure parameters are always included, with their sensitive parameters split into `secureInputSchema`. See the [Secure Parameters specification](../../secureParams/specification/secure_params.md).
 
