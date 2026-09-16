@@ -1724,6 +1724,55 @@ func TestInitializeConfigs(t *testing.T) {
 			}
 		}
 	})
+
+	// A SKILL.md configured as "guide" must reach a client as the skill it
+	// declares, so a listing names the skill rather than the file backing it.
+	t.Run("publishes a skill under its frontmatter identity", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/plain"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n",
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: "# Common queries\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+
+		doc := resourcesMap["guide"]
+		if doc == nil {
+			t.Fatal("the SKILL.md resource is missing from the map")
+		}
+		if got := doc.GetName(); got != "analytics-guide" {
+			t.Errorf("GetName() = %q, want the frontmatter name", got)
+		}
+		if got := doc.GetDescription(); got != "Query the warehouse" {
+			t.Errorf("GetDescription() = %q, want the frontmatter description", got)
+		}
+		// Configured as text/plain above, so this can only come from the wrapper.
+		if got := doc.GetMimeType(); got != "text/markdown" {
+			t.Errorf("GetMimeType() = %q, want text/markdown", got)
+		}
+
+		// A supporting file keeps the identity the operator gave it.
+		if got := resourcesMap["queries"].GetName(); got != "queries" {
+			t.Errorf("supporting file GetName() = %q, want queries", got)
+		}
+	})
 }
 
 func TestInitializeOfflineConfigs(t *testing.T) {
