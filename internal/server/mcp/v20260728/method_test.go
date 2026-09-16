@@ -2431,7 +2431,7 @@ func TestSkillsListHandler(t *testing.T) {
 			if !slices.Equal(gotURIs, tc.wantURIs) {
 				t.Errorf("skills = %v, want %v", gotURIs, tc.wantURIs)
 			}
-			// The URI check above already reported an unexpected empty result.
+			// The URI check above reports an unexpected empty result.
 			if len(result.Skills) == 0 {
 				return
 			}
@@ -2556,6 +2556,45 @@ func TestSkillsGetHandler(t *testing.T) {
 				t.Error("result _meta is nil, want serverInfo")
 			}
 		})
+	}
+}
+
+// TestSkillsListEmptyCatalogue pins the wire shape when the config declares no
+// skill. A nil slice marshals to null, not to a list, so
+// GenerateListSkillsResult substitutes an empty slice.
+func TestSkillsListEmptyCatalogue(t *testing.T) {
+	ctx := skillsTestContext(t)
+	Initialize(nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{
+			"plain": skillTextResource(t, ctx, "plain", "text:///not-a-skill", "unrelated"),
+		}, nil, nil)
+
+	body, err := json.Marshal(ListSkillsRequest{
+		Request: jsonrpc.Request{Method: SKILLS_LIST},
+		Params:  RequestParams{Meta: skillsValidMeta()},
+	})
+	if err != nil {
+		t.Fatalf("unable to marshal body: %s", err)
+	}
+	res, err := skillsListHandler(ctx, "id", primitiveMgr, body, http.Header{"Mcp-Method": []string{SKILLS_LIST}})
+	if err != nil {
+		t.Fatalf("skillsListHandler() = %v, want nil", err)
+	}
+	result, ok := res.(jsonrpc.JSONRPCResponse).Result.(ListSkillsResult)
+	if !ok {
+		t.Fatalf("result is %T, want ListSkillsResult", res.(jsonrpc.JSONRPCResponse).Result)
+	}
+	if len(result.Skills) != 0 {
+		t.Errorf("skills = %v, want none", result.Skills)
+	}
+
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("unable to marshal result: %s", err)
+	}
+	if !strings.Contains(string(encoded), `"skills":[]`) {
+		t.Errorf("result marshalled to %s, want it to carry \"skills\":[]", encoded)
 	}
 }
 
