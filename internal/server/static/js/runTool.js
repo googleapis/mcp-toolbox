@@ -206,7 +206,7 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
                 method: "ui/notifications/tool-result",
                 params: {
                     content: results.result?.content || [
-                        { type: "text", text: typeof results.result === 'string' ? results.result : JSON.stringify(results.result) }
+                        { type: "text", text: results.error ? (results.error.message || JSON.stringify(results.error)) : (typeof results.result === 'string' ? results.result : JSON.stringify(results.result || {})) }
                     ],
                     isError: !!results.error,
                     structuredContent: structuredContent

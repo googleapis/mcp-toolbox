@@ -467,11 +467,27 @@ export function renderToolInterface(tool, containerElement) {
         appStatusElement.className = 'mcp-app-status';
         appStatusElement.textContent = 'App Ready';
 
+        const reloadBtn = document.createElement('button');
+        reloadBtn.className = 'mcp-app-reload-btn';
+        reloadBtn.innerHTML = '↻ Reload';
+        reloadBtn.style.marginLeft = 'auto';
+        reloadBtn.style.padding = '4px 10px';
+        reloadBtn.style.fontSize = '12px';
+        reloadBtn.style.cursor = 'pointer';
+        reloadBtn.style.background = '#f1f3f4';
+        reloadBtn.style.color = '#5f6368';
+        reloadBtn.style.border = '1px solid #dadce0';
+        reloadBtn.style.borderRadius = '4px';
+        reloadBtn.style.fontWeight = '500';
+        reloadBtn.addEventListener('click', () => {
+            loadAppResource(tool.ui.resourceUri, iframeElement, appStatusElement, currentHeaders);
+        });
+
         const exitFullscreenBtn = document.createElement('button');
         exitFullscreenBtn.className = 'mcp-app-exit-fullscreen-btn';
         exitFullscreenBtn.innerHTML = '⤓ Exit Fullscreen';
         exitFullscreenBtn.style.display = 'none';
-        exitFullscreenBtn.style.marginLeft = 'auto';
+        exitFullscreenBtn.style.marginLeft = '10px';
         exitFullscreenBtn.style.padding = '4px 10px';
         exitFullscreenBtn.style.fontSize = '12px';
         exitFullscreenBtn.style.cursor = 'pointer';
@@ -493,6 +509,7 @@ export function renderToolInterface(tool, containerElement) {
 
         appTopBar.appendChild(uriInfo);
         appTopBar.appendChild(appStatusElement);
+        appTopBar.appendChild(reloadBtn);
         appTopBar.appendChild(exitFullscreenBtn);
         appContainer.appendChild(appTopBar);
 
@@ -500,7 +517,7 @@ export function renderToolInterface(tool, containerElement) {
         iframeElement.id = `mcp-app-iframe-${TOOL_ID}`;
         iframeElement.className = 'mcp-app-iframe';
         iframeElement.title = `MCP App - ${tool.name}`;
-        iframeElement.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation');
+        iframeElement.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation');
         iframeElement.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write');
         appContainer.appendChild(iframeElement);
 
@@ -656,7 +673,7 @@ function constructCsp(csp) {
     const frame = (csp?.frameDomains && csp.frameDomains.length > 0) ? csp.frameDomains.join(' ') : "'none'";
     const baseUri = (csp?.baseUriDomains && csp.baseUriDomains.length > 0) ? csp.baseUriDomains.join(' ') : "'self'";
 
-    return `default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${resource}; style-src 'self' 'unsafe-inline' ${resource}; connect-src 'self' ${connect} ws: wss:; img-src 'self' data: ${resource}; font-src 'self' data: ${resource}; media-src 'self' data: ${resource}; frame-src ${frame}; object-src 'none'; base-uri ${baseUri};`.replace(/\s+/g, ' ').trim();
+    return `default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${resource}; style-src 'self' 'unsafe-inline' ${resource}; connect-src 'self' ${connect}; img-src 'self' data: ${resource}; font-src 'self' data: ${resource}; media-src 'self' data: ${resource}; frame-src ${frame}; object-src 'none'; base-uri ${baseUri};`.replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -867,7 +884,7 @@ window.addEventListener('message', (event) => {
                         id: data.id,
                         result: {
                             content: toolResult.result?.content || [
-                                { type: 'text', text: typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result) }
+                                { type: 'text', text: toolResult.error ? (toolResult.error.message || JSON.stringify(toolResult.error)) : (typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || {})) }
                             ],
                             structuredContent: structuredContent,
                             isError: !!toolResult.error
@@ -882,7 +899,7 @@ window.addEventListener('message', (event) => {
                         method: 'ui/notifications/tool-result',
                         params: {
                             content: toolResult.result?.content || [
-                                { type: 'text', text: typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result) }
+                                { type: 'text', text: toolResult.error ? (toolResult.error.message || JSON.stringify(toolResult.error)) : (typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || {})) }
                             ],
                             isError: !!toolResult.error,
                             structuredContent: structuredContent
