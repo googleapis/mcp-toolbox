@@ -364,6 +364,13 @@ func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, ur
 	}, nil
 }
 
+// The catalogue is server-wide, so no group scopes it and none supplies its
+// ttlMs. Every client reads the same content, which is what public means.
+const (
+	skillsTTLMs      = group.DefaultTTLMs
+	skillsCacheScope = cacheScopePublic
+)
+
 // GenerateListSkillsResult rebuilds every skill from current file content.
 //
 // The digests are recomputed here rather than reused from startup, because a
@@ -381,6 +388,10 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 		Skills: entries,
 		Result: Result{
 			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      skillsTTLMs,
+			CacheScope: skillsCacheScope,
 		},
 	}, nil
 }
@@ -401,6 +412,10 @@ func GenerateGetSkillResult(ctx context.Context, pMgr *primitives.PrimitiveManag
 				Skill: e,
 				Result: Result{
 					ResultType: resultTypeComplete,
+				},
+				CacheableResult: CacheableResult{
+					TtlMs:      skillsTTLMs,
+					CacheScope: skillsCacheScope,
 				},
 			}, true, nil
 		}
