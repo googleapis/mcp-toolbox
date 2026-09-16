@@ -70,16 +70,6 @@ Clients indicate support for the `com.google.cloud/toolbox.v1` extension by adve
 }
 ```
 
-### 2.3 Availability Matrix
-
-Both methods belong to the experimental Toolbox extension, not to the base MCP specification. A client on any earlier protocol version cannot reach them at all — the methods are not registered on those versions, so the request fails at method dispatch rather than at capability negotiation.
-
-| Client's protocol version | Declares `com.google.cloud/toolbox.v1` | Result                                        |
-| ------------------------- | -------------------------------------- | --------------------------------------------- |
-| Earlier than `2026-07-28` | n/a                                    | `METHOD_NOT_FOUND` (-32601)                   |
-| `2026-07-28`              | No                                     | `MISSING_REQUIRED_CLIENT_CAPABILITY` (-32021) |
-| `2026-07-28`              | Yes                                    | Served                                        |
-
 ---
 
 ## 3. Protocol Methods & Behavior
@@ -261,7 +251,8 @@ Groups are declared as `kind: group` documents in the Toolbox configuration:
 - **`name`** is required and unique across both `kind: group` and `kind: toolset` documents; a collision is a startup error.
 - **`description`** is optional and is surfaced only through `groups/list`. A `description` written on a `kind: toolset` is dropped with a warning, because a toolset is a tools-only group without one.
 - **`ttlMs`** defaults to `300000`; **`cacheScope`** defaults to `"public"`. Both are returned by `groups/get`.
-- Every `kind: toolset` loads as a tools-only group and is therefore visible to `groups/list` and `groups/get`, with empty `prompts`, `resources`, and `resourceTemplates` arrays.
+
+**Note:** `kind: toolset` is not a separate concept at runtime. Every toolset document is folded into a tools-only group when the configuration loads, so every toolset is visible to `groups/list` and `groups/get`, with empty `prompts`, `resources`, and `resourceTemplates` arrays. See the [Toolsets configuration documentation](../../../../docs/en/documentation/configuration/toolsets/_index.md).
 
 ---
 
