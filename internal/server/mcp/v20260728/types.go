@@ -812,7 +812,8 @@ type GetGroupResult struct {
 /* Skills */
 
 // ListSkillsRequest is sent from the client to request every skill the server
-// has. SEP-2640 defines no cursor for this method.
+// has. The extension permits a cursor. Toolbox returns one page and sets no
+// nextCursor.
 type ListSkillsRequest struct {
 	jsonrpc.Request
 	Params RequestParams `json:"params,omitempty"`
@@ -820,11 +821,12 @@ type ListSkillsRequest struct {
 
 // ListSkillsResult is the server's response to a skills/list request.
 //
-// It is deliberately not a CacheableResult. Every entry carries a digest of the
-// file as it is now, and a cached response would hand a host back the value it
-// already failed to verify.
+// ttlMs and cacheScope are a freshness hint, not an integrity property. A host
+// still verifies each digest, so a fresh listing and a verified file are
+// independent.
 type ListSkillsResult struct {
 	Result
+	CacheableResult
 	Skills []skills.Entry `json:"skills"`
 }
 
@@ -840,9 +842,10 @@ type GetSkillRequestParams struct {
 	URI string `json:"uri"`
 }
 
-// GetSkillResult is the server's response to a skills/get request. It is not
-// cacheable, for the reason given on ListSkillsResult.
+// GetSkillResult is the server's response to a skills/get request. ttlMs and
+// cacheScope carry the meaning given on ListSkillsResult.
 type GetSkillResult struct {
 	Result
+	CacheableResult
 	Skill skills.Entry `json:"skill"`
 }

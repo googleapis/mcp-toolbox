@@ -2708,6 +2708,10 @@ func TestMcpSkillsMethods(t *testing.T) {
 		if result["resultType"] != "complete" {
 			t.Errorf("resultType = %v, want complete", result["resultType"])
 		}
+		// The extension requires both on every skills/list result.
+		if result["ttlMs"] != float64(300000) || result["cacheScope"] != "public" {
+			t.Errorf("ttlMs/cacheScope = %v/%v, want 300000/public", result["ttlMs"], result["cacheScope"])
+		}
 		list, ok := result["skills"].([]any)
 		if !ok || len(list) != 1 {
 			t.Fatalf("skills = %#v, want exactly one skill", result["skills"])
@@ -2749,6 +2753,10 @@ func TestMcpSkillsMethods(t *testing.T) {
 		skill := result["skill"].(map[string]any)
 		if skill["uri"] != skillURI {
 			t.Errorf("uri = %v, want %q", skill["uri"], skillURI)
+		}
+		// The extension requires both on skills/get too.
+		if result["ttlMs"] != float64(300000) || result["cacheScope"] != "public" {
+			t.Errorf("ttlMs/cacheScope = %v/%v, want 300000/public", result["ttlMs"], result["cacheScope"])
 		}
 	})
 

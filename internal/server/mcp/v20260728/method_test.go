@@ -2424,6 +2424,10 @@ func TestSkillsListHandler(t *testing.T) {
 			if result.Meta == nil {
 				t.Error("result _meta is nil, want serverInfo")
 			}
+			if result.TtlMs != skillsTTLMs || result.CacheScope != skillsCacheScope {
+				t.Errorf("ttlMs/cacheScope = %d/%q, want %d/%q",
+					result.TtlMs, result.CacheScope, skillsTTLMs, skillsCacheScope)
+			}
 			var gotURIs []string
 			for _, e := range result.Skills {
 				gotURIs = append(gotURIs, e.URI)
@@ -2554,6 +2558,10 @@ func TestSkillsGetHandler(t *testing.T) {
 			}
 			if result.Meta == nil {
 				t.Error("result _meta is nil, want serverInfo")
+			}
+			if result.TtlMs != skillsTTLMs || result.CacheScope != skillsCacheScope {
+				t.Errorf("ttlMs/cacheScope = %d/%q, want %d/%q",
+					result.TtlMs, result.CacheScope, skillsTTLMs, skillsCacheScope)
 			}
 		})
 	}
