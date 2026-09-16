@@ -279,13 +279,11 @@ them, and an unset one fails startup as it does today.
 
 ### Disabling MCP Extensions
 
-By default, Toolbox advertises support for its own custom MCP extensions (e.g., `com.google.cloud/toolbox.v1`) during the client discovery phase. This extension signals to clients that they can leverage Toolbox-specific features that fall outside the official MCP specification (see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for a list of currently supported capabilities).
-
-Toolbox also advertises standard MCP extensions, which the same flag disables:
+During the client discovery phase, Toolbox advertises the extensions below. One is Toolbox's own; the others are defined by the MCP specification.
 
 | Extension URI | What it provides |
 | :--- | :--- |
-| `com.google.cloud/toolbox.v1` | Toolbox-specific capabilities, such as secure parameters and `groups/*` |
+| `com.google.cloud/toolbox.v1` | Toolbox-specific features that fall outside the official MCP specification, such as secure parameters and `groups/*`. See the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for the capabilities this extension covers. |
 | `io.modelcontextprotocol/ui` | [MCP Apps](../documentation/configuration/mcp-apps/index.md) interactive UI resources |
 | `io.modelcontextprotocol/skills` | Agent Skills discovery through `skills/list` and `skills/get` |
 
