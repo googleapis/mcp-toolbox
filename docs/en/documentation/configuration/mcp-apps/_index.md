@@ -11,7 +11,7 @@ The [**MCP Apps**](https://github.com/modelcontextprotocol/ext-apps) extension (
 {{< notice note >}}
 **Protocol Version Differences**:
 - **Modern Protocol (`2026-07-28`)**: Supports the official MCP extensions capability negotiation. The server advertises `io.modelcontextprotocol/ui` under `capabilities.extensions` during `server/discover`, and dynamically enables `_meta.ui` on tools when the client also advertises `io.modelcontextprotocol/ui` in its request capabilities.
-- **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**: The core schema for earlier protocol versions does not define an `extensions` block on `ServerCapabilities`. Instead, Toolbox exposes UI metadata directly on tools in `tools/list` via `_meta.ui` and serves UI HTML templates via `resources/read`, allowing clients that negotiate earlier protocol versions (such as Gemini Enterprise) to discover and render interactive MCP Apps.
+- **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**: The core schema for earlier protocol versions does not define an `extensions` block on `ServerCapabilities`. Instead, Toolbox exposes UI metadata directly on tools in `tools/list` via `_meta.ui` and serves UI HTML templates via `resources/read`, allowing clients that negotiate earlier protocol versions to discover and render interactive MCP Apps.
 {{< /notice >}}
 
 ## Defining a UI Resource
@@ -129,13 +129,15 @@ Unlike standard tools, prompts, or resources that are scoped to specific [Groups
 ## Capability Negotiation & Graceful Degradation
 
 - **Modern Protocol (`2026-07-28`)**: Employs dynamic client capability negotiation to ensure backwards compatibility with standard text-only MCP clients:
-  1. **Client Advertising**: During initialization or discovery, clients that support interactive apps advertise the extension in their capability parameters:
+  1. **Client Advertising**: Clients that support interactive apps advertise the extension in their request metadata (`_meta`):
      ```json
      {
-       "capabilities": {
-         "extensions": {
-           "io.modelcontextprotocol/ui": {
-             "mimeTypes": ["text/html;profile=mcp-app"]
+       "_meta": {
+         "io.modelcontextprotocol/clientCapabilities": {
+           "extensions": {
+             "io.modelcontextprotocol/ui": {
+               "mimeTypes": ["text/html;profile=mcp-app"]
+             }
            }
          }
        }
@@ -160,7 +162,7 @@ Unlike standard tools, prompts, or resources that are scoped to specific [Groups
 
 - **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**:
   - Because earlier protocol versions do not define standard extension capability exchange, Toolbox always preserves and populates `_meta.ui` on tools in `tools/list` whenever a UI resource is linked.
-  - Hosts speaking older protocol versions that support embedded web applications (such as Gemini Enterprise) can inspect `tool._meta.ui` directly and read the backing resource via `resources/read`.
+  - Hosts speaking older protocol versions that support embedded web applications can inspect `tool._meta.ui` directly and read the backing resource via `resources/read`.
 
 ## Reading UI Resources
 
