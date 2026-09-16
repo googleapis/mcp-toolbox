@@ -32,17 +32,20 @@ import (
 	"github.com/goccy/go-yaml/token"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/auth/generic"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 type Config struct {
-	Sources         server.SourceConfigs         `yaml:"sources"`
-	AuthServices    server.AuthServiceConfigs    `yaml:"authServices"`
-	EmbeddingModels server.EmbeddingModelConfigs `yaml:"embeddingModels"`
-	Tools           server.ToolConfigs           `yaml:"tools"`
-	Prompts         server.PromptConfigs         `yaml:"prompts"`
-	Groups          server.GroupConfigs          `yaml:"groups"`
+	Sources           server.SourceConfigs           `yaml:"sources"`
+	AuthServices      server.AuthServiceConfigs      `yaml:"authServices"`
+	EmbeddingModels   server.EmbeddingModelConfigs   `yaml:"embeddingModels"`
+	Tools             server.ToolConfigs             `yaml:"tools"`
+	Prompts           server.PromptConfigs           `yaml:"prompts"`
+	Resources         server.ResourceConfigs         `yaml:"resources"`
+	ResourceTemplates server.ResourceTemplateConfigs `yaml:"resourceTemplates"`
+	Groups            server.GroupConfigs            `yaml:"groups"`
 }
 
 type ConfigParser struct {
@@ -200,7 +203,7 @@ func (p *ConfigParser) ParseConfig(ctx context.Context, raw []byte) (Config, err
 	}
 
 	// Parse contents
-	config.Sources, config.AuthServices, config.EmbeddingModels, config.Tools, config.Prompts, config.Groups, err = server.UnmarshalPrimitiveConfig(ctx, raw)
+	config.Sources, config.AuthServices, config.EmbeddingModels, config.Tools, config.Prompts, config.Resources, config.ResourceTemplates, config.Groups, err = server.UnmarshalPrimitiveConfig(ctx, raw)
 	if err != nil {
 		return config, err
 	}
@@ -231,7 +234,7 @@ func ConvertConfig(ctx context.Context, raw []byte) ([]byte, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(raw), yaml.UseOrderedMap())
 	encoder := yaml.NewEncoder(&buf, yaml.UseLiteralStyleIfMultiline(true))
 
-	nestedFormatKey := []string{"sources", "authServices", "embeddingModels", "tools", "toolsets", "prompts", "groups"}
+	nestedFormatKey := []string{"sources", "authServices", "embeddingModels", "tools", "toolsets", "prompts", "resources", "resourceTemplates", "groups"}
 	docIndex := 0
 	for {
 		if err := decoder.Decode(&input); err != nil {
@@ -271,6 +274,10 @@ func ConvertConfig(ctx context.Context, raw []byte) ([]byte, error) {
 					key = "toolset"
 				case "prompts":
 					key = "prompt"
+				case "resources":
+					key = "resource"
+				case "resourceTemplates":
+					key = "resourceTemplate"
 				case "groups":
 					key = "group"
 				}
@@ -413,15 +420,18 @@ func processValue(v any, isToolset bool) any {
 // All resource names (sources, authServices, tools, groups) must be unique across all files.
 func mergeConfigs(files ...Config) (Config, error) {
 	merged := Config{
-		Sources:         make(server.SourceConfigs),
-		AuthServices:    make(server.AuthServiceConfigs),
-		EmbeddingModels: make(server.EmbeddingModelConfigs),
-		Tools:           make(server.ToolConfigs),
-		Prompts:         make(server.PromptConfigs),
-		Groups:          make(server.GroupConfigs),
+		Sources:           make(server.SourceConfigs),
+		AuthServices:      make(server.AuthServiceConfigs),
+		EmbeddingModels:   make(server.EmbeddingModelConfigs),
+		Tools:             make(server.ToolConfigs),
+		Prompts:           make(server.PromptConfigs),
+		Resources:         make(server.ResourceConfigs),
+		ResourceTemplates: make(server.ResourceTemplateConfigs),
+		Groups:            make(server.GroupConfigs),
 	}
 
 	var conflicts []string
+	seenResourceURIs := make(map[string]string)
 
 	for fileIndex, file := range files {
 		// Check for conflicts and merge sources
@@ -471,6 +481,42 @@ func mergeConfigs(files ...Config) (Config, error) {
 			}
 		}
 
+		// Check for conflicts and merge resources (by Name AND URI)
+		for name, resource := range file.Resources {
+			// Check for Name collision
+			if _, exists := merged.Resources[name]; exists {
+				conflicts = append(conflicts, fmt.Sprintf("resource '%s' (file #%d)", name, fileIndex+1))
+				continue
+			}
+
+			// Check for URI collision
+			if resource.GetURI() != "" {
+				if existingName, exists := seenResourceURIs[resource.GetURI()]; exists {
+					conflicts = append(conflicts, fmt.Sprintf("resource URI '%s' used by '%s' and '%s' (file #%d)", resource.GetURI(), existingName, name, fileIndex+1))
+					continue
+				}
+				seenResourceURIs[resource.GetURI()] = name
+			}
+
+			merged.Resources[name] = resource
+		}
+
+		// Check for conflicts and merge resource templates
+		for name, rt := range file.ResourceTemplates {
+			if _, exists := merged.ResourceTemplates[name]; exists {
+				conflicts = append(conflicts, fmt.Sprintf("resourceTemplate '%s' (file #%d)", name, fileIndex+1))
+			} else {
+				// Check for URI collisions with static resources
+				uriStr := rt.GetURITemplate()
+				if existingName, exists := seenResourceURIs[uriStr]; exists {
+					conflicts = append(conflicts, fmt.Sprintf("resourceTemplate URI '%s' used by '%s' and '%s' (file #%d)", rt.GetURITemplate(), existingName, name, fileIndex+1))
+				} else {
+					seenResourceURIs[uriStr] = name
+					merged.ResourceTemplates[name] = rt
+				}
+			}
+		}
+
 		// Check for conflicts and merge groups
 		for name, grp := range file.Groups {
 			if _, exists := merged.Groups[name]; exists {
@@ -483,7 +529,7 @@ func mergeConfigs(files ...Config) (Config, error) {
 
 	// If conflicts were detected, return an error
 	if len(conflicts) > 0 {
-		return Config{}, fmt.Errorf("resource conflicts detected:\n  - %s\n\nPlease ensure each source, authService, tool, prompt and group has a unique name across all files", strings.Join(conflicts, "\n  - "))
+		return Config{}, fmt.Errorf("resource conflicts detected:\n  - %s\n\nPlease ensure each source, authService, tool, prompt, resource, resourceTemplate and group has a unique name across all files", strings.Join(conflicts, "\n  - "))
 	}
 
 	// Ensure only one authService has mcpEnabled = true
@@ -511,7 +557,13 @@ func (p *ConfigParser) LoadAndMergeConfigs(ctx context.Context, filePaths []stri
 			return Config{}, fmt.Errorf("unable to read config file at %q: %w", filePath, err)
 		}
 
-		config, err := p.ParseConfig(ctx, buf)
+		absPath, err := filepath.Abs(filePath)
+		if err != nil {
+			absPath = filePath
+		}
+		fileCtx := context.WithValue(ctx, resources.BaseDirKey, filepath.Dir(absPath))
+
+		config, err := p.ParseConfig(fileCtx, buf)
 		if err != nil {
 			return Config{}, fmt.Errorf("unable to parse config file at %q: %w", filePath, err)
 		}

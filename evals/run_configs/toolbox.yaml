@@ -19,6 +19,15 @@
 dataset_config: !ENV ${EVAL_DATASET}
 dataset_format: gemini-cli-format
 
+# Both dispatch on TOOLBOX_PREBUILT rather than being named by an !ENV variable:
+# this config is shared, and an unset variable yields a path EvalBench logs as an
+# error. Teardown runs in a finally block, so it covers a failed eval too.
+#
+# Setup seeds state a scenario needs; it cannot gate a run, because EvalBench
+# evaluates whether or not the script succeeds.
+set_up_script: evals/setup/dispatch.sh
+tear_down_script: evals/teardown/dispatch.sh
+
 # Viewer labels only; nothing reads them for scoring.
 eval_group: !ENV ${EVAL_GROUP}
 product_name: !ENV ${TOOLBOX_PREBUILT}
