@@ -248,6 +248,23 @@ func TestDiscoverNoSkills(t *testing.T) {
 	}
 }
 
+// TestDiscoverNilRegistry covers a caller that never built a registry. The config
+// declares no skills, and that is not an error.
+func TestDiscoverNilRegistry(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := skills.Discover(ctx, nil)
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("got %d entries, want none", len(entries))
+	}
+}
+
 // TestDiscoverCRLFFrontmatter covers a SKILL.md checked out with Windows line
 // endings. Only the delimiters are normalised, so the digest still covers the
 // raw bytes the resource returns.

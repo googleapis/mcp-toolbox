@@ -15,6 +15,7 @@
 package skills
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -29,6 +30,9 @@ import (
 // are recomputed per request instead: a digest cached for the process lifetime
 // would hand a host back the same value it already failed to verify, leaving the
 // refresh path SEP-2640 specifies with nothing to refresh to.
+//
+// A nil *Registry reports no skills. A caller that holds one before the config
+// loads needs no nil check.
 type Registry struct {
 	members map[string][]resources.Resource
 	uris    []string
@@ -53,9 +57,6 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		if root, ok := strings.CutSuffix(uri, "/"+skillFile); ok {
 			isRoot[root] = true
 		}
-	}
-	if len(isRoot) == 0 {
-		return &Registry{}
 	}
 
 	members := make(map[string][]resources.Resource, len(isRoot))
@@ -93,19 +94,28 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	return &Registry{members: members, uris: uris}
 }
 
-// URIs returns every skill's SKILL.md URI, sorted.
+// URIs returns a copy of every skill's SKILL.md URI, sorted.
 func (r *Registry) URIs() []string {
-	return r.uris
+	if r == nil {
+		return nil
+	}
+	return slices.Clone(r.uris)
 }
 
-// Members returns the resources making up one skill, sorted by URI, reporting
-// whether the skill is registered.
+// Members returns a copy of one skill's resources, sorted by URI. The second
+// result reports whether the skill is registered.
 func (r *Registry) Members(skillURI string) ([]resources.Resource, bool) {
+	if r == nil {
+		return nil, false
+	}
 	m, ok := r.members[skillURI]
-	return m, ok
+	return slices.Clone(m), ok
 }
 
 // Len reports how many skills are registered.
 func (r *Registry) Len() int {
+	if r == nil {
+		return 0
+	}
 	return len(r.uris)
 }

@@ -140,6 +140,49 @@ func TestNewRegistryNoSkills(t *testing.T) {
 	}
 }
 
+// TestNilRegistry pins the nil receiver as usable. PR9 and PR11 each hold this
+// pointer, and one the caller never built must report no skills, not panic.
+func TestNilRegistry(t *testing.T) {
+	var reg *skills.Registry
+
+	if got := reg.Len(); got != 0 {
+		t.Errorf("Len() = %d, want 0", got)
+	}
+	if got := reg.URIs(); len(got) != 0 {
+		t.Errorf("URIs() = %v, want empty", got)
+	}
+	if members, ok := reg.Members("skill://analytics-guide/SKILL.md"); ok {
+		t.Errorf("Members() = %v, true, want false", members)
+	}
+}
+
+// TestRegistryReturnsCopies pins the accessor results as safe to modify. Several
+// callers share one registry, so a write to one result must not change what the
+// next caller reads.
+func TestRegistryReturnsCopies(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+
+	reg := skills.NewRegistry(map[string]resources.Resource{
+		"guide": textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query the warehouse")),
+		"queries": textResource(t, ctx, "queries",
+			"skill://analytics-guide/references/queries.md", "# Common queries\n"),
+	})
+
+	wantURIs := slices.Clone(reg.URIs())
+	reg.URIs()[0] = "skill://tampered/SKILL.md"
+	if got := reg.URIs(); !slices.Equal(got, wantURIs) {
+		t.Errorf("URIs() = %v after a caller wrote to an earlier result, want %v", got, wantURIs)
+	}
+
+	wantMembers := memberURIs(t, reg, "skill://analytics-guide/SKILL.md")
+	members, _ := reg.Members("skill://analytics-guide/SKILL.md")
+	members[0] = members[len(members)-1]
+	if got := memberURIs(t, reg, "skill://analytics-guide/SKILL.md"); !slices.Equal(got, wantMembers) {
+		t.Errorf("Members() = %v after a caller wrote to an earlier result, want %v", got, wantMembers)
+	}
+}
+
 // TestRegistryMembersUnknownURI covers the lookup a caller makes with a URI from
 // the wire, which names no registered skill.
 func TestRegistryMembersUnknownURI(t *testing.T) {
