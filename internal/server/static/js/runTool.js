@@ -63,14 +63,12 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
             } else if (VALUE_TYPE === 'object') {
                 if (!RAW_VALUE || RAW_VALUE.trim() === '') {
                     typedParams[NAME] = {};
-                } else if (RAW_VALUE.trim().startsWith('{')) {
+                } else {
                     try {
                         typedParams[NAME] = JSON.parse(RAW_VALUE.trim());
                     } catch (e) {
-                        throw new Error(`Invalid JSON object format for ${NAME}: ${e.message}`);
+                        throw new Error(`Invalid JSON format for object parameter ${NAME}: ${e.message}`);
                     }
-                } else {
-                    typedParams[NAME] = RAW_VALUE;
                 }
             } else {
                 switch (VALUE_TYPE) {

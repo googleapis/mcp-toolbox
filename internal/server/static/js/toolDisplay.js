@@ -18,6 +18,7 @@ import { escapeHtml } from './sanitize.js'
 import { createMcpHeaders, createMcpRequestBody } from './mcpClient.js';
 
 let activeTool = null;
+const toolHeadersMap = new Map();
 let activeHeaders = {
     "Content-Type": "application/json"
 };
@@ -347,6 +348,7 @@ export function renderToolInterface(tool, containerElement) {
         "Content-Type": "application/json"
     };
     activeHeaders = currentHeaders;
+    toolHeadersMap.set(TOOL_ID, currentHeaders);
 
     // function to update lastResults so we can toggle json
     const updateLastResults = (newResults) => {
@@ -355,6 +357,7 @@ export function renderToolInterface(tool, containerElement) {
     const updateCurrentHeaders = (newHeaders) => {
         currentHeaders = newHeaders;
         activeHeaders = newHeaders;
+        toolHeadersMap.set(TOOL_ID, newHeaders);
         const newModal = createHeaderEditorModal(TOOL_ID, currentHeaders, tool.parameters, tool.authRequired, updateCurrentHeaders);
         containerElement.appendChild(newModal);
     };
@@ -663,13 +666,16 @@ function injectCspIntoHtml(html, cspHeader) {
     // Only escape & and " so that single-quoted CSP keywords ('self', 'unsafe-inline') are preserved literally
     const safeCspHeader = cspHeader.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     const metaTag = `<meta http-equiv="Content-Security-Policy" content="${safeCspHeader}">`;
-    const headIndex = html.indexOf('<head>');
-    if (headIndex !== -1) {
-        return html.slice(0, headIndex + 6) + '\n  ' + metaTag + html.slice(headIndex + 6);
+    
+    const headMatch = html.match(/<head[^>]*>/i);
+    if (headMatch) {
+        const index = headMatch.index + headMatch[0].length;
+        return html.slice(0, index) + '\n  ' + metaTag + html.slice(index);
     }
-    const htmlIndex = html.indexOf('<html>');
-    if (htmlIndex !== -1) {
-        return html.slice(0, htmlIndex + 6) + '\n<head>' + metaTag + '</head>' + html.slice(htmlIndex + 6);
+    const htmlMatch = html.match(/<html[^>]*>/i);
+    if (htmlMatch) {
+        const index = htmlMatch.index + htmlMatch[0].length;
+        return html.slice(0, index) + '\n<head>' + metaTag + '</head>' + html.slice(index);
     }
     return '<head>' + metaTag + '</head>\n' + html;
 }
@@ -721,6 +727,19 @@ window.addEventListener('message', (event) => {
     const sender = event.source;
     const senderOrigin = (event.origin && event.origin !== 'null') ? event.origin : '*';
 
+    // Verify that the sender is one of our managed iframes to prevent unauthorized cross-document message attacks
+    let matchingIframe = null;
+    try {
+        const iframes = Array.from(document.querySelectorAll('.mcp-app-iframe'));
+        matchingIframe = iframes.find(f => f.contentWindow === sender);
+    } catch (e) {
+        // Ignore cross-origin access errors
+    }
+
+    if (!matchingIframe) {
+        return;
+    }
+
     if (data && typeof data === 'object') {
         const hasId = data.id !== undefined && data.id !== null;
         console.debug('[MCP Host Received Message]', data);
@@ -751,22 +770,7 @@ window.addEventListener('message', (event) => {
         } else if (data.method === 'ui/request-display-mode' || data.method === 'requestDisplayMode' || data.type === 'ui/requestDisplayMode' || data.type === 'ui/set_display_mode') {
             console.debug('Handling MCP Apps request-display-mode:', data);
             const mode = data.params?.mode || data.params?.displayMode || data.mode || data.displayMode || 'inline';
-            let matchingIframe = null;
-            try {
-                const iframes = Array.from(document.querySelectorAll('.mcp-app-iframe'));
-                matchingIframe = iframes.find(f => {
-                    try {
-                        return f.contentWindow === sender;
-                    } catch {
-                        return false;
-                    }
-                });
-            } catch {
-                matchingIframe = null;
-            }
-            if (!matchingIframe) {
-                matchingIframe = document.querySelector('.mcp-app-iframe');
-            }
+            // matchingIframe is already resolved at the top of the message handler
             const mcpContainer = matchingIframe?.closest('.mcp-app-container') || document.querySelector('.mcp-app-container');
 
             setAppDisplayMode(mcpContainer, matchingIframe, mode);
@@ -823,9 +827,12 @@ window.addEventListener('message', (event) => {
             const toolName = toolCallParams.name || 'render_visualization';
             const toolArgs = toolCallParams.arguments || {};
 
+            const toolId = matchingIframe ? matchingIframe.id.replace('mcp-app-iframe-', '') : '';
+            const toolHeaders = toolHeadersMap.get(toolId) || activeHeaders;
+
             fetch('/mcp', {
                 method: 'POST',
-                headers: createMcpHeaders('tools/call', toolName, activeHeaders),
+                headers: createMcpHeaders('tools/call', toolName, toolHeaders),
                 body: JSON.stringify(createMcpRequestBody('tools/call', {
                     name: toolName,
                     arguments: toolArgs
@@ -906,22 +913,7 @@ window.addEventListener('message', (event) => {
             });
         } else if (data.method === 'ui/notifications/size-changed' || data.method === 'ui/size-changed' || data.type === 'ui/size_changed' || data.type === 'size_changed') {
             const height = data.params?.height || data.height;
-            let matchingIframe = null;
-            try {
-                const iframes = Array.from(document.querySelectorAll('.mcp-app-iframe'));
-                matchingIframe = iframes.find(f => {
-                    try {
-                        return f.contentWindow === event.source;
-                    } catch {
-                        return false;
-                    }
-                });
-            } catch {
-                matchingIframe = null;
-            }
-            if (!matchingIframe) {
-                matchingIframe = document.querySelector('.mcp-app-iframe');
-            }
+            // matchingIframe is already resolved at the top of the message handler
             if (matchingIframe && height && typeof height === 'number') {
                 const container = matchingIframe.closest('.mcp-app-container');
                 if (!container || (!container.classList.contains('mcp-app-fullscreen') && container.style.position !== 'fixed')) {

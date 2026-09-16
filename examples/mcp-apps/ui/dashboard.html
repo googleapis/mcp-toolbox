@@ -401,6 +401,9 @@
 
     // Handle incoming messages from host
     window.addEventListener('message', (event) => {
+      // Verify that the message is coming from the parent window
+      if (event.source !== window.parent) return;
+
       const msg = event.data;
       if (!msg) return;
 
