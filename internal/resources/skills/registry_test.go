@@ -15,6 +15,7 @@
 package skills_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
@@ -34,18 +35,6 @@ func memberURIs(t *testing.T, reg *skills.Registry, skillURI string) []string {
 		uris = append(uris, m.GetURI())
 	}
 	return uris
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func TestNewRegistry(t *testing.T) {
@@ -76,7 +65,7 @@ func TestNewRegistry(t *testing.T) {
 		"skill://analytics-guide/SKILL.md",
 		"skill://analytics-guide-v2/SKILL.md",
 	}
-	if got := reg.URIs(); !equalStrings(got, wantURIs) {
+	if got := reg.URIs(); !slices.Equal(got, wantURIs) {
 		t.Errorf("URIs() = %v, want %v", got, wantURIs)
 	}
 
@@ -84,12 +73,12 @@ func TestNewRegistry(t *testing.T) {
 		"skill://analytics-guide/SKILL.md",
 		"skill://analytics-guide/references/queries.md",
 	}
-	if got := memberURIs(t, reg, "skill://analytics-guide/SKILL.md"); !equalStrings(got, wantMembers) {
+	if got := memberURIs(t, reg, "skill://analytics-guide/SKILL.md"); !slices.Equal(got, wantMembers) {
 		t.Errorf("Members() = %v, want %v", got, wantMembers)
 	}
 
 	wantDecoy := []string{"skill://analytics-guide-v2/SKILL.md"}
-	if got := memberURIs(t, reg, "skill://analytics-guide-v2/SKILL.md"); !equalStrings(got, wantDecoy) {
+	if got := memberURIs(t, reg, "skill://analytics-guide-v2/SKILL.md"); !slices.Equal(got, wantDecoy) {
 		t.Errorf("Members() = %v, want %v — the other skill's files must not leak in", got, wantDecoy)
 	}
 }
@@ -120,7 +109,7 @@ func TestNewRegistryNestedSkill(t *testing.T) {
 		"skill://acme/billing/refunds/SKILL.md",
 		"skill://acme/billing/refunds/notes.md",
 	}
-	if got := memberURIs(t, reg, "skill://acme/billing/SKILL.md"); !equalStrings(got, wantParent) {
+	if got := memberURIs(t, reg, "skill://acme/billing/SKILL.md"); !slices.Equal(got, wantParent) {
 		t.Errorf("Members() = %v, want %v — a nested skill's files stay listed in the enclosing skill", got, wantParent)
 	}
 
@@ -128,7 +117,7 @@ func TestNewRegistryNestedSkill(t *testing.T) {
 		"skill://acme/billing/refunds/SKILL.md",
 		"skill://acme/billing/refunds/notes.md",
 	}
-	if got := memberURIs(t, reg, "skill://acme/billing/refunds/SKILL.md"); !equalStrings(got, wantChild) {
+	if got := memberURIs(t, reg, "skill://acme/billing/refunds/SKILL.md"); !slices.Equal(got, wantChild) {
 		t.Errorf("Members() = %v, want %v", got, wantChild)
 	}
 }
