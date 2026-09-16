@@ -86,8 +86,6 @@ func TestFirebirdToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
-
 	db, err := initFirebirdConnection(FirebirdHost, FirebirdPort, FirebirdUser, FirebirdPass, FirebirdDatabase)
 	if err != nil {
 		t.Fatalf("unable to create firebird connection pool: %s", err)
@@ -112,7 +110,7 @@ func TestFirebirdToolEndpoints(t *testing.T) {
 	tmplSelectCombined, tmplSelectFilterCombined := getFirebirdTmplToolStatement()
 	toolsFile = addFirebirdTemplateParamConfig(t, toolsFile, FirebirdToolType, tmplSelectCombined, tmplSelectFilterCombined)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -132,15 +130,25 @@ func TestFirebirdToolEndpoints(t *testing.T) {
 	select1Statement := `SELECT 1 AS "constant" FROM RDB$DATABASE;`
 	templateParamCreateColArray := `["id INTEGER","name VARCHAR(255)","age INTEGER"]`
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want,
-		tests.WithNullWant(nullWant),
-		tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, tests.WithSelect1Statement(select1Statement))
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
-		tests.WithCreateColArray(templateParamCreateColArray))
+	// Keep credential-dependent helpers selectable without dropping auth coverage.
+	t.Run("list_tools", func(t *testing.T) {
+		tests.RunMCPToolsListMethod(t, getFirebirdMCPExpectedTools())
+	})
+	t.Run("invoke", func(t *testing.T) {
+		tests.RunToolInvokeTest(t, select1Want, tests.WithMCP(),
+			tests.WithNullWant(nullWant), tests.DisableArrayTest())
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("execute_sql", func(t *testing.T) {
+		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want,
+			tests.WithSelect1Statement(select1Statement), tests.WithMCPSql())
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
+			tests.WithCreateColArray(templateParamCreateColArray), tests.WithMCPTemplate())
+	})
 }
 
 func setupFirebirdTable(t *testing.T, ctx context.Context, db *sql.DB, createStatements []string, insertStatement, tableName string, params []any) func(*testing.T) {
@@ -461,4 +469,47 @@ func getFirebirdTmplToolStatement() (string, string) {
 	tmplSelectCombined := "SELECT id AS \"id\", name AS \"name\", age AS \"age\" FROM {{.tableName}} WHERE id = ?"
 	tmplSelectFilterCombined := "SELECT id AS \"id\", name AS \"name\", age AS \"age\" FROM {{.tableName}} WHERE {{.columnFilter}} = ?"
 	return tmplSelectCombined, tmplSelectFilterCombined
+}
+
+// Firebird customizes the array parameter and template manifests in its fixtures.
+func getFirebirdMCPExpectedTools() []tests.MCPToolManifest {
+	expected := tests.GetBaseMCPExpectedTools()
+	for i := range expected {
+		if expected[i].Name == "my-array-tool" {
+			expected[i].InputSchema = map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"idArray": map[string]any{
+						"type": "array", "description": "ID array (Firebird will use first element only)",
+						"items": map[string]any{"type": "integer", "description": "ID"},
+					},
+				},
+				"required": []any{"idArray"},
+			}
+		}
+	}
+	expected = append(expected, tests.GetExecuteSQLMCPExpectedTools()...)
+	templates := tests.GetTemplateParamMCPExpectedTools()
+	for i := range templates {
+		switch templates[i].Name {
+		case "insert-table-templateParams-tool":
+			templates[i].Description = "Insert table tool with template parameters"
+		case "select-templateParams-tool":
+			templates[i].Description = "Select table tool with template parameters"
+		case "select-templateParams-combined-tool":
+			templates[i].Description = "Select table tool with combined template parameters"
+		case "select-fields-templateParams-tool":
+			templates[i].Description = "Select specific fields tool with template parameters"
+			templates[i].InputSchema = map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"tableName": map[string]any{"type": "string", "description": "some description"}},
+				"required":   []any{"tableName"},
+			}
+		case "select-filter-templateParams-combined-tool":
+			templates[i].Description = "Select table tool with filter template parameters"
+			properties := templates[i].InputSchema["properties"].(map[string]any)
+			properties["name"] = map[string]any{"type": "string", "description": "the name to filter by"}
+		}
+	}
+	return append(expected, templates...)
 }
