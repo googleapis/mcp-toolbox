@@ -74,12 +74,21 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		}
 	}
 
-	uris := make([]string, 0, len(members))
-	for skillURI, m := range members {
-		uris = append(uris, skillURI)
+	// Order by skill root, not by SKILL.md URI: "guide-v2" sorts before "guide"
+	// once "/SKILL.md" is appended, because "-" precedes "/".
+	roots := make([]string, 0, len(isRoot))
+	for root := range isRoot {
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+
+	uris := make([]string, 0, len(roots))
+	for _, root := range roots {
+		uris = append(uris, root+"/"+skillFile)
+	}
+	for _, m := range members {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
-	sort.Strings(uris)
 
 	return &Registry{members: members, uris: uris}
 }

@@ -30,16 +30,15 @@ import (
 const skillFile = "SKILL.md"
 
 // Discover builds one Entry per skill. A skill can have 1 or more supporting files.
-func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Entry, error) {
-	roots := skillRoots(resourcesMap)
-	if len(roots) == 0 {
+func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
+	if reg.Len() == 0 {
 		return nil, nil
 	}
-	members := skillMembers(resourcesMap, roots)
 
-	entries := make([]Entry, 0, len(roots))
-	for _, root := range roots {
-		e, err := buildEntry(ctx, root, members[root])
+	entries := make([]Entry, 0, reg.Len())
+	for _, skillURI := range reg.URIs() {
+		members, _ := reg.Members(skillURI)
+		e, err := buildEntry(ctx, skillURI, members)
 		if err != nil {
 			return nil, err
 		}
@@ -55,60 +54,8 @@ func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) (
 	return entries, nil
 }
 
-// A list of root dir of every skill in the map, sorted
-func skillRoots(resourcesMap map[string]resources.Resource) []string {
-	var roots []string
-	for _, res := range resourcesMap {
-		uri := res.GetURI()
-		if !strings.HasPrefix(uri, resources.SkillScheme+"://") {
-			continue
-		}
-		if root, ok := strings.CutSuffix(uri, "/"+skillFile); ok {
-			roots = append(roots, root)
-		}
-	}
-	sort.Strings(roots)
-	return roots
-}
-
-// skillMembers groups every resource under the skills that contain it, sorted by
-// URI.
-func skillMembers(resourcesMap map[string]resources.Resource, roots []string) map[string][]resources.Resource {
-	// Segments per root, so membership can apply the same test the manifest
-	// validation applies. A root that is not a valid URI owns no files.
-	rootSegs := make(map[string][]string, len(roots))
-	for _, root := range roots {
-		if _, segs, err := uriSegments(root); err == nil {
-			rootSegs[root] = segs
-		}
-	}
-
-	members := make(map[string][]resources.Resource, len(roots))
-	for _, res := range resourcesMap {
-		uri := res.GetURI()
-		if !strings.HasPrefix(uri, resources.SkillScheme+"://") {
-			continue
-		}
-		// Walk the URI's ancestors rather than every root, so the scan costs
-		// path depth instead of the number of skills.
-		for i := strings.LastIndex(uri, "/"); i > 0; i = strings.LastIndex(uri[:i], "/") {
-			// underSkill is the test Entry.Validate applies to every ref. A
-			// looser rule here admits a member the validation then rejects,
-			// which fails startup for the whole config.
-			if segs, ok := rootSegs[uri[:i]]; ok && underSkill(uri, resources.SkillScheme, segs) {
-				members[uri[:i]] = append(members[uri[:i]], res)
-			}
-		}
-	}
-	for _, m := range members {
-		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
-	}
-	return members
-}
-
-// buildEntry hashes every file under root and assembles its entry.
-func buildEntry(ctx context.Context, root string, members []resources.Resource) (Entry, error) {
-	skillURI := root + "/" + skillFile
+// buildEntry hashes every file of one skill and assembles its entry.
+func buildEntry(ctx context.Context, skillURI string, members []resources.Resource) (Entry, error) {
 	if len(members) > MaxRefs {
 		return Entry{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
 	}
