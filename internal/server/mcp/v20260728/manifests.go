@@ -389,8 +389,7 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 //
 // It rebuilds the whole catalogue to answer for one skill, so an unreadable file
 // in any skill fails this request too. That keeps Discover fail-fast and a
-// broken config loud. The cost is the reason the plan expects a digest cache
-// keyed on path, mtime, and size.
+// broken config loud.
 func GenerateGetSkillResult(ctx context.Context, pMgr *primitives.PrimitiveManager, uri string) (GetSkillResult, bool, error) {
 	entries, err := skills.Discover(ctx, pMgr.SkillRegistry())
 	if err != nil {
