@@ -123,8 +123,12 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
         updateLastResults(results);
         displayResults(results, responseArea, prettifyCheckbox.checked);
 
+        // A tool can fail either at the JSON-RPC transport level (results.error)
+        // or at the tool level (result.isError with the reason in content).
+        const isError = !!results.error || results.result?.isError === true;
+
         if (statusElement) {
-            statusElement.textContent = results.error ? 'Tool Error' : 'App Active';
+            statusElement.textContent = isError ? 'Tool Error' : 'App Active';
         }
 
         // Send MCP App postMessage to iframe if this is an App tool
@@ -208,8 +212,9 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
                     content: results.result?.content || [
                         { type: "text", text: results.error ? (results.error.message || JSON.stringify(results.error)) : (typeof results.result === 'string' ? results.result : JSON.stringify(results.result || {})) }
                     ],
-                    isError: !!results.error,
-                    structuredContent: structuredContent
+                    isError: isError,
+                    // Don't hand back error text as if it were renderable data.
+                    structuredContent: isError ? undefined : structuredContent
                 }
             };
 
@@ -260,12 +265,23 @@ function parseArrayParameter(rawValue, valueType, paramName) {
 
     return parsedArray.map((item, index) => {
         switch (ELEMENT_TYPE) {
-            case 'number':
+            case 'number': {
                 const NUM = Number(item);
-                if (isNaN(NUM)) {
+                if (item === '' || item === null || isNaN(NUM)) {
                     throw new Error(`Invalid number "${item}" found in array for ${paramName} at index ${index}.`);
                 }
                 return NUM;
+            }
+            case 'integer': {
+                const INT = Number(item);
+                if (item === '' || item === null || isNaN(INT)) {
+                    throw new Error(`Invalid integer "${item}" found in array for ${paramName} at index ${index}.`);
+                }
+                if (!Number.isInteger(INT)) {
+                    throw new Error(`Value "${item}" in array for ${paramName} at index ${index} must be an integer.`);
+                }
+                return INT;
+            }
             case 'boolean':
                 return item === true || String(item).toLowerCase() === 'true';
             case 'string':

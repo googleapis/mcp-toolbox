@@ -15,7 +15,7 @@
 import { handleRunTool, displayResults } from './runTool.js';
 import { createGoogleAuthMethodItem } from './auth.js'
 import { escapeHtml } from './sanitize.js'
-import { createMcpHeaders, createMcpRequestBody } from './mcpClient.js';
+import { createMcpHeaders, createMcpRequestBody, MCP_PROTOCOL_VERSION } from './mcpClient.js';
 
 let activeTool = null;
 const toolHeadersMap = new Map();
@@ -773,7 +773,7 @@ window.addEventListener('message', (event) => {
                 jsonrpc: '2.0',
                 id: data.id,
                 result: {
-                    protocolVersion: data.params?.protocolVersion || '2026-01-26',
+                    protocolVersion: data.params?.protocolVersion || MCP_PROTOCOL_VERSION,
                     hostInfo: { name: 'MCP Toolbox Playground', version: '1.0.0' },
                     hostCapabilities: {
                         openLinks: {},
@@ -919,8 +919,18 @@ window.addEventListener('message', (event) => {
                 let parsedData = null;
                 try {
                     if (toolResult.result && Array.isArray(toolResult.result.content)) {
-                        const text = toolResult.result.content.find(c => c.type === 'text')?.text;
-                        if (text) parsedData = JSON.parse(text);
+                        // SQL-backed tools return one text item per row, so collect them all
+                        // rather than truncating the result to the first row.
+                        const textItems = toolResult.result.content.filter(c => c.type === 'text');
+                        if (textItems.length === 1) {
+                            parsedData = JSON.parse(textItems[0].text);
+                        } else if (textItems.length > 1) {
+                            try {
+                                parsedData = textItems.map(c => JSON.parse(c.text));
+                            } catch {
+                                parsedData = textItems.map(c => c.text);
+                            }
+                        }
                     } else if (toolResult.result) {
                         parsedData = toolResult.result;
                     }
@@ -928,8 +938,15 @@ window.addEventListener('message', (event) => {
                     parsedData = toolResult.result;
                 }
 
+                // A tool can fail either at the JSON-RPC transport level (toolResult.error)
+                // or at the tool level (result.isError with the reason in content).
+                const isError = !!toolResult.error || toolResult.result?.isError === true;
+
                 let structuredContent;
-                if (Array.isArray(parsedData)) {
+                if (isError) {
+                    // Don't hand back error text as if it were renderable data.
+                    structuredContent = undefined;
+                } else if (Array.isArray(parsedData)) {
                     structuredContent = {
                         data: parsedData,
                         queryData: parsedData
@@ -945,17 +962,19 @@ window.addEventListener('message', (event) => {
                     structuredContent = parsedData;
                 }
 
+                const resultContent = toolResult.result?.content || [
+                    { type: 'text', text: toolResult.error ? (toolResult.error.message || JSON.stringify(toolResult.error)) : (typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || {})) }
+                ];
+
                 // 1. Reply to the app's callServerTool request
                 if (hasId && sender) {
                     sender.postMessage({
                         jsonrpc: '2.0',
                         id: data.id,
                         result: {
-                            content: toolResult.result?.content || [
-                                { type: 'text', text: toolResult.error ? (toolResult.error.message || JSON.stringify(toolResult.error)) : (typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || {})) }
-                            ],
+                            content: resultContent,
                             structuredContent: structuredContent,
-                            isError: !!toolResult.error
+                            isError: isError
                         }
                     }, senderOrigin);
                 }
@@ -966,10 +985,8 @@ window.addEventListener('message', (event) => {
                         jsonrpc: '2.0',
                         method: 'ui/notifications/tool-result',
                         params: {
-                            content: toolResult.result?.content || [
-                                { type: 'text', text: toolResult.error ? (toolResult.error.message || JSON.stringify(toolResult.error)) : (typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || {})) }
-                            ],
-                            isError: !!toolResult.error,
+                            content: resultContent,
+                            isError: isError,
                             structuredContent: structuredContent
                         }
                     };

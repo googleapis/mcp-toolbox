@@ -112,6 +112,18 @@
       }
     }
 
+    .status-badge.error {
+      background-color: #fce8e6;
+      color: #c5221f;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .status-badge.error {
+        background-color: #3c1512;
+        color: #f28b82;
+      }
+    }
+
     .btn {
       background-color: var(--primary-color);
       color: #ffffff;
@@ -437,6 +449,19 @@
       // Handle tool execution result notification
       if (msg.method === 'ui/notifications/tool-result') {
         const badge = document.getElementById('statusBadge');
+
+        if (msg.params?.isError) {
+          const errorItem = Array.isArray(msg.params.content)
+            ? msg.params.content.find(c => c.type === 'text')
+            : null;
+          const detail = errorItem && errorItem.text ? `: ${errorItem.text}` : '';
+          // textContent is used (not innerHTML) so server-provided text cannot inject markup.
+          badge.textContent = `Tool execution failed${detail}`;
+          badge.className = 'status-badge error';
+          notifySize();
+          return;
+        }
+
         badge.textContent = 'Live Data Connected';
         badge.className = 'status-badge';
 
