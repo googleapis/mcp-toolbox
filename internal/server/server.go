@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -106,6 +107,9 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to get logger from context: %w", err)
 	}
 
+	if err := checkStartupFields(cfg); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
 	// initialize and validate the sources from configs
 	sourcesMap := make(map[string]sources.Source)
 	for name, sc := range cfg.SourceConfigs {
@@ -117,7 +121,9 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 				trace.WithAttributes(attribute.String("source_name", name)),
 			)
 			defer span.End()
-			s, err := sc.Initialize(childCtx, instrumentation.Tracer)
+			childCtx = sources.WithSourceDoc(childCtx, cfg.SourceDocs[name])
+			childCtx = sources.WithUnresolvedEnvVars(childCtx, cfg.UnresolvedEnvVars)
+			s, err := sc.Initialize(childCtx, instrumentation.Tracer, cfg.DeferSourceConnect)
 			if err != nil {
 				return nil, fmt.Errorf("unable to initialize source %q: %w", name, err)
 			}
@@ -133,6 +139,9 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		sourceNames = append(sourceNames, name)
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d sources: %s", len(sourcesMap), strings.Join(sourceNames, ", ")))
+	if cfg.DeferSourceConnect {
+		l.InfoContext(ctx, "Source connections are deferred; each source connects on first use.")
+	}
 
 	// initialize and validate the auth services from configs
 	authServicesMap := make(map[string]auth.AuthService)
@@ -356,6 +365,38 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 }
 
 // initializeTools initializes and validates the tools from the config.
+// checkStartupFields rejects a source that left an environment variable
+// unresolved on a field the tool catalog reads. Deferring one of those would
+// publish a tool list that contradicts the configuration: a read-only source
+// whose readOnly did not resolve reads as writable, and its write tools would
+// be listed rather than suppressed.
+//
+// Every offending field is reported at once. Each one costs a restart to fix,
+// since a running process cannot pick up a new environment.
+func checkStartupFields(cfg ServerConfig) error {
+	var problems []string
+	for _, name := range slices.Sorted(maps.Keys(cfg.SourceConfigs)) {
+		doc := cfg.SourceDocs[name]
+		if doc == nil {
+			continue
+		}
+		required := sources.StartupRequiredFields(cfg.SourceConfigs[name].SourceConfigType())
+		for _, key := range sources.UnresolvedKeys(doc, cfg.UnresolvedEnvVars) {
+			if !slices.Contains(required, key) {
+				continue
+			}
+			_, unset := sources.ResolveDoc(map[string]any{key: doc[key]}, cfg.UnresolvedEnvVars)
+			problems = append(problems, fmt.Sprintf(
+				"source %q: %q needs %s, which is unset; it decides which tools are listed, so it cannot be deferred",
+				name, key, strings.Join(unset, ", ")))
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("unresolved configuration required at startup:\n  - %s", strings.Join(problems, "\n  - "))
+}
+
 func initializeTools(ctx context.Context, cfg ServerConfig, sourcesMap map[string]sources.Source, instrumentation *telemetry.Instrumentation, l log.Logger) (map[string]tools.Tool, error) {
 	toolsMap := make(map[string]tools.Tool)
 	for name, tc := range cfg.ToolConfigs {

@@ -63,6 +63,20 @@ func ConfigFileFlags(parentCmd *cobra.Command, flags *pflag.FlagSet, opts *Toolb
 }
 
 // ServeFlags defines flags for starting and configuring the server.
+// ValidateServeFlags rejects flag combinations that cannot be honoured. Every
+// command that registers ServeFlags has to call it, since the flags are shared
+// but the commands do not share a run path.
+func ValidateServeFlags(cfg server.ServerConfig) error {
+	// Tolerating an unset variable only helps a source that has not connected
+	// yet. Connecting eagerly would reach the same variable a moment later and
+	// fail anyway, having traded the parser's report — which names every one of
+	// them with a line and column — for one source's connect error.
+	if cfg.DeferEnvVarParsing && !cfg.DeferSourceConnect {
+		return fmt.Errorf("--defer-env-var-parsing requires --defer-source-connect")
+	}
+	return nil
+}
+
 func ServeFlags(flags *pflag.FlagSet, opts *ToolboxOptions) {
 	flags.StringVarP(&opts.Cfg.Address, "address", "a", "127.0.0.1", "Address of the interface the server will listen on.")
 	flags.IntVarP(&opts.Cfg.Port, "port", "p", 5000, "Port the server will listen on.")
@@ -79,4 +93,6 @@ func ServeFlags(flags *pflag.FlagSet, opts *ToolboxOptions) {
 	flags.BoolVar(&opts.Cfg.EnableDraftSpecs, "enable-draft-specs", false, "Opt-in and test upcoming draft MCP specifications.")
 	flags.StringSliceVar(&opts.Cfg.DisableExt, "disable-ext", []string{}, "Specifies MCP extension URIs disabled on this server.")
 	flags.StringVar(&opts.Cfg.OpenAIAppsChallengeFile, "openai-apps-challenge-file", "", "Path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.")
+	flags.BoolVar(&opts.Cfg.DeferSourceConnect, "defer-source-connect", false, "Connect to each source on first use instead of at startup. Tools can be listed without any source being reachable.")
+	flags.BoolVar(&opts.Cfg.DeferEnvVarParsing, "defer-env-var-parsing", false, "Leave an unset environment variable unresolved instead of failing startup; it is read again when the source connects. Requires --defer-source-connect.")
 }

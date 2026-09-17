@@ -306,6 +306,8 @@ func (opts *ToolboxOptions) LoadConfig(ctx context.Context, parser *ConfigParser
 	}
 
 	opts.Cfg.SourceConfigs = finalConfig.Sources
+	opts.Cfg.SourceDocs = finalConfig.SourceDocs
+	opts.Cfg.UnresolvedEnvVars = parser.MissingEnvVars
 	opts.Cfg.AuthServiceConfigs = finalConfig.AuthServices
 	opts.Cfg.EmbeddingModelConfigs = finalConfig.EmbeddingModels
 	opts.Cfg.ToolConfigs = finalConfig.Tools

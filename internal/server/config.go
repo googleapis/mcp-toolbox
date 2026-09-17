@@ -114,6 +114,20 @@ type ServerConfig struct {
 	DisableVersionCheck bool
 	// OpenAIAppsChallengeFile specifies the path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.
 	OpenAIAppsChallengeFile string
+	// SourceDocs holds each source's configuration as written, keyed by name,
+	// before decoding. A source whose environment variables were unresolved at
+	// startup decodes without those fields and resolves against this instead
+	// when it connects.
+	SourceDocs map[string]map[string]any
+	// UnresolvedEnvVars names the variables left in place because they were
+	// unset. Anything else that looks like a reference is data.
+	UnresolvedEnvVars []string
+	// DeferSourceConnect connects each source on first use instead of at startup.
+	DeferSourceConnect bool
+	// DeferEnvVarParsing leaves an unset ${VAR} unresolved instead of failing
+	// startup, to be read again when the source connects. Requires
+	// DeferSourceConnect.
+	DeferEnvVarParsing bool
 }
 
 type logFormat string
@@ -429,7 +443,11 @@ func UnmarshalYAMLSourceConfig(ctx context.Context, name string, r map[string]an
 	if !ok {
 		return nil, fmt.Errorf("missing 'type' field or it is not a string")
 	}
-	dec, err := util.NewStrictDecoder(r)
+	newDecoder := util.NewStrictDecoder
+	if len(sources.UnresolvedKeys(r, sources.UnresolvedEnvVarsFromContext(ctx))) > 0 {
+		newDecoder = util.NewStrictDecoderAllowingEnvRefs
+	}
+	dec, err := newDecoder(r)
 	if err != nil {
 		return nil, fmt.Errorf("error creating decoder: %w", err)
 	}
@@ -438,6 +456,43 @@ func UnmarshalYAMLSourceConfig(ctx context.Context, name string, r map[string]an
 		return nil, err
 	}
 	return sourceConfig, nil
+}
+
+// SourceDocs returns the undecoded configuration of each source, keyed by name,
+// in the same shape UnmarshalYAMLSourceConfig receives.
+//
+// A source that left an environment variable unresolved decodes with that field
+// missing, so the decoded config alone cannot rebuild it. This map, not the
+// decoded config, is what the source resolves against when it connects.
+func SourceDocs(ctx context.Context, raw []byte) (map[string]map[string]any, error) {
+	file, err := parser.ParseBytes(raw, 0)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse YAML: %s", yaml.FormatError(err, false, false))
+	}
+
+	docs := make(map[string]map[string]any)
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	for _, doc := range file.Docs {
+		if doc == nil || doc.Body == nil {
+			continue
+		}
+		var resource map[string]any
+		if err := decoder.DecodeFromNodeContext(ctx, doc.Body, &resource); err != nil {
+			// UnmarshalPrimitiveConfig reports malformed documents; this pass
+			// only collects the ones it will accept.
+			continue
+		}
+		if kind, ok := resource["kind"].(string); !ok || kind != "source" {
+			continue
+		}
+		name, ok := resource["name"].(string)
+		if !ok {
+			continue
+		}
+		delete(resource, "kind")
+		docs[name] = resource
+	}
+	return docs, nil
 }
 
 func UnmarshalYAMLAuthServiceConfig(ctx context.Context, name string, r map[string]any) (auth.AuthServiceConfig, error) {

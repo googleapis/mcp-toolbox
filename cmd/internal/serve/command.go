@@ -71,6 +71,11 @@ func runServe(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 		_ = shutdown(ctx)
 	}()
 
+	if err := internal.ValidateServeFlags(opts.Cfg); err != nil {
+		opts.Logger.ErrorContext(ctx, err.Error())
+		return err
+	}
+
 	// start server
 	s, err := server.NewServer(ctx, opts.Cfg)
 	if err != nil {

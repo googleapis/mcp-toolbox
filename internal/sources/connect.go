@@ -17,9 +17,11 @@ package sources
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/singleflight"
@@ -52,6 +54,15 @@ type ConnectOnce[T any] struct {
 	tracer     trace.Tracer
 	timeout    time.Duration
 
+	// cfg is the configuration the source was built from, and doc is the same
+	// configuration as written, before decoding. They differ only when a field
+	// named an environment variable that was unset at startup: cfg decodes
+	// without it, doc still carries the reference. Resolving happens here, once
+	// per source, so no source has to know whether it was deferred.
+	cfg        SourceConfig
+	doc        map[string]any
+	unresolved []string
+
 	// startupCtx is the context Initialize ran under. The connect derives from
 	// it rather than from the caller that triggers it, so a source that
 	// connects on first use sees what one that connected at startup would.
@@ -79,7 +90,7 @@ type ConnectOnce[T any] struct {
 // ctx must be the context Initialize was called with: every later connect runs
 // under it, so the source reports the startup user agent and cannot pick up
 // request-scoped values from whichever caller happens to trigger it.
-func NewConnectOnce[T any](ctx context.Context, name, sourceType string, tracer trace.Tracer, opts ...Option) *ConnectOnce[T] {
+func NewConnectOnce[T any](ctx context.Context, name, sourceType string, cfg SourceConfig, tracer trace.Tracer, opts ...Option) *ConnectOnce[T] {
 	o := options{timeout: ConnectTimeout}
 	for _, opt := range opts {
 		opt(&o)
@@ -87,7 +98,38 @@ func NewConnectOnce[T any](ctx context.Context, name, sourceType string, tracer 
 	if o.timeout < ConnectTimeout {
 		o.timeout = ConnectTimeout
 	}
-	return &ConnectOnce[T]{name: name, sourceType: sourceType, tracer: tracer, startupCtx: ctx, timeout: o.timeout}
+	return &ConnectOnce[T]{
+		name:       name,
+		sourceType: sourceType,
+		cfg:        cfg,
+		doc:        SourceDocFromContext(ctx),
+		unresolved: UnresolvedEnvVarsFromContext(ctx),
+		tracer:     tracer,
+		startupCtx: ctx,
+		timeout:    o.timeout,
+	}
+}
+
+// resolvedConfig returns the configuration to connect with. A source whose
+// fields all resolved at startup gets the one it was built from; one that
+// deferred a field is rebuilt through its registered factory, so the defaults
+// that factory applies survive and its validators run against real values.
+func (c *ConnectOnce[T]) resolvedConfig(ctx context.Context) (SourceConfig, error) {
+	if len(UnresolvedKeys(c.doc, c.unresolved)) == 0 {
+		return c.cfg, nil
+	}
+	resolved, unset := ResolveDoc(c.doc, c.unresolved)
+	if len(unset) == 1 {
+		return nil, fmt.Errorf("environment variable %s is not set", unset[0])
+	}
+	if len(unset) > 1 {
+		return nil, fmt.Errorf("environment variables %s are not set", strings.Join(unset, ", "))
+	}
+	dec, err := util.NewStrictDecoder(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read configuration: %w", err)
+	}
+	return DecodeConfig(ctx, c.sourceType, c.name, dec)
 }
 
 // OnClose registers how to release the connection. A source that holds a
@@ -150,20 +192,21 @@ func (c *ConnectOnce[T]) Close(ctx context.Context) error {
 	return nil
 }
 
-// Do returns the connection, making it on the first call. Concurrent callers
-// share one attempt, and a failed attempt is not remembered.
+// DoWithConfig returns the connection, making it on the first call, and hands
+// connect the resolved configuration. Concurrent callers share one attempt, and
+// a failed attempt is not remembered.
 //
 // Because a failure is retried by the next caller rather than cached, connect
 // must release whatever it had already built before it returns an error. A
 // pool that fails its ping and is returned unclosed leaks once per tool call,
 // not once per process.
-func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (T, error)) (T, error) {
+func (c *ConnectOnce[T]) DoWithConfig(ctx context.Context, connect func(context.Context, SourceConfig) (T, error)) (T, error) {
 	var zero T
 	if value, ok := c.Get(); ok {
 		return value, nil
 	}
 	if c.isClosed() {
-		return zero, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
+		return zero, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
 	}
 
 	ch := c.initGroup.DoChan("", func() (any, error) {
@@ -173,7 +216,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 			return value, nil
 		}
 		if c.isClosed() {
-			return nil, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
+			return nil, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
 		}
 
 		// The attempt is shared by every waiter and the handle outlives the
@@ -197,10 +240,16 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 		childCtx, span := InitConnectionSpan(connectCtx, c.tracer, c.sourceType, c.name)
 		defer span.End()
 
-		value, err := connect(childCtx)
+		cfg, err := c.resolvedConfig(childCtx)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
-			return nil, fmt.Errorf("unable to initialize source %q: %w", c.name, err)
+			return nil, fmt.Errorf("unable to connect to source %q: %w", c.name, err)
+		}
+
+		value, err := connect(childCtx, cfg)
+		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			return nil, fmt.Errorf("unable to connect to source %q: %w", c.name, err)
 		}
 
 		c.mu.Lock()
@@ -213,7 +262,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 			if cerr := c.release(context.WithoutCancel(childCtx), value); cerr != nil {
 				return nil, fmt.Errorf("unable to close source %q: %w", c.name, cerr)
 			}
-			return nil, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
+			return nil, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
 		}
 		c.value, c.ready = value, true
 		c.mu.Unlock()
@@ -229,6 +278,6 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 		return value, nil
 	case <-ctx.Done():
 		// Only this caller gives up; the shared attempt runs on for the others.
-		return zero, fmt.Errorf("unable to initialize source %q: %w", c.name, ctx.Err())
+		return zero, fmt.Errorf("unable to connect to source %q: %w", c.name, ctx.Err())
 	}
 }

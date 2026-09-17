@@ -32,6 +32,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
+	"go.opentelemetry.io/otel"
 )
 
 func TestParseFromYamlLooker(t *testing.T) {
@@ -190,7 +191,7 @@ func TestGetLookerSDK_ClientIPPropagation(t *testing.T) {
 	ctx = util.WithLogger(ctx, logger)
 	ctx = util.WithUserAgent(ctx, "test-agent")
 
-	src, err := cfg.Initialize(ctx, nil)
+	src, err := cfg.Initialize(ctx, otel.Tracer("test"), false)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}
@@ -273,7 +274,7 @@ func TestGetHostURL(t *testing.T) {
 	ctx = util.WithLogger(ctx, logger)
 	ctx = util.WithUserAgent(ctx, "test-agent")
 
-	srcVal, err := cfg.Initialize(ctx, nil)
+	srcVal, err := cfg.Initialize(ctx, otel.Tracer("test"), false)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}
@@ -315,7 +316,7 @@ func TestGetHostURL(t *testing.T) {
 
 	// Scenario 2: Failure Path & Fallback TTL
 	// Reinitialize Source to clear the success cache
-	srcVal, _ = cfg.Initialize(ctx, nil)
+	srcVal, _ = cfg.Initialize(ctx, otel.Tracer("test"), false)
 	src = srcVal.(*looker.Source)
 	sdk, _ = src.GetLookerSDK(ctx, "mock-token-123")
 
@@ -377,7 +378,7 @@ func TestGetHostURL_Concurrent(t *testing.T) {
 	ctx = util.WithLogger(ctx, logger)
 	ctx = util.WithUserAgent(ctx, "test-agent")
 
-	srcVal, _ := cfg.Initialize(ctx, nil)
+	srcVal, _ := cfg.Initialize(ctx, otel.Tracer("test"), false)
 	src := srcVal.(*looker.Source)
 	sdk, _ := src.GetLookerSDK(ctx, "mock-token-123")
 

@@ -97,20 +97,32 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	retryBaseDelay, err := time.ParseDuration(r.RetryBaseDelay)
-	if err != nil {
-		return nil, fmt.Errorf("invalid retryBaseDelay: %w", err)
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	// Mirrors the sleeps initCockroachDBConnectionPoolWithRetry makes before it
+	// gives up, so the connect is not capped below its own retry budget and the
+	// later attempts fail on the database rather than on the deadline. The
+	// ceiling has to be fixed before the holder exists, so it is best effort: a
+	// delay that does not parse yet, because it still names an environment
+	// variable, leaves the default ceiling and is reported by the connect.
+	var opts []sources.Option
+	if retryBaseDelay, err := time.ParseDuration(r.RetryBaseDelay); err == nil {
+		var backoff time.Duration
+		for attempt := 0; attempt < r.MaxRetries; attempt++ {
+			backoff += retryBaseDelay * time.Duration(math.Pow(2, float64(attempt)))
+		}
+		if backoff > 0 {
+			opts = append(opts, sources.WithMinConnectTimeout(backoff))
+		}
 	}
-
-	pool, err := initCockroachDBConnectionPoolWithRetry(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.MaxRetries, retryBaseDelay)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
-	}
-
 	s := &Source{
 		Config: r,
-		Pool:   pool,
+		conn:   sources.NewConnectOnce[*pgxpool.Pool](ctx, r.Name, SourceType, r, tracer, opts...),
+	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -119,7 +131,24 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *pgxpool.Pool
+	conn *sources.ConnectOnce[*pgxpool.Pool]
+}
+
+func (s *Source) pool(ctx context.Context) (*pgxpool.Pool, error) {
+	return s.conn.DoWithConfig(ctx, func(ctx context.Context, sc sources.SourceConfig) (*pgxpool.Pool, error) {
+		r := sc.(Config)
+		// A malformed delay needs no network to detect, but the value is only
+		// known to be final here, so this is where it is rejected.
+		retryBaseDelay, err := time.ParseDuration(r.RetryBaseDelay)
+		if err != nil {
+			return nil, fmt.Errorf("invalid retryBaseDelay: %w", err)
+		}
+		pool, err := initCockroachDBConnectionPoolWithRetry(ctx, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.MaxRetries, retryBaseDelay)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -134,18 +163,26 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// CockroachDBPool reports the pool once connected.
 func (s *Source) CockroachDBPool() *pgxpool.Pool {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
 }
 
+// PostgresPool reports the pool once connected; it is the discriminator the postgres tools assert on.
 func (s *Source) PostgresPool() *pgxpool.Pool {
-	return s.Pool
+	pool, _ := s.conn.Get()
+	return pool
 }
 
 // ExecuteTxWithRetry executes a function within a transaction with automatic retry logic
 // using the official CockroachDB retry mechanism from cockroach-go/v2
 func (s *Source) ExecuteTxWithRetry(ctx context.Context, fn func(pgx.Tx) error) error {
-	return crdbpgx.ExecuteTx(ctx, s.Pool, pgx.TxOptions{}, fn)
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return err
+	}
+	return crdbpgx.ExecuteTx(ctx, pool, pgx.TxOptions{}, fn)
 }
 
 // Query executes a query using the connection pool with MCP security enforcement.
@@ -164,7 +201,12 @@ func (s *Source) Query(ctx context.Context, sql string, args ...interface{}) (pg
 		return nil, err
 	}
 
-	return s.Pool.Query(ctx, modifiedSQL, args...)
+	pool, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return pool.Query(ctx, modifiedSQL, args...)
 }
 
 // ============================================================================
@@ -472,11 +514,7 @@ func (s *Source) EmitTelemetry(ctx context.Context, event TelemetryEvent) {
 	}
 }
 
-func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string, queryParams map[string]string, maxRetries int, baseDelay time.Duration) (*pgxpool.Pool, error) {
-	//nolint:all
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initCockroachDBConnectionPoolWithRetry(ctx context.Context, host, port, user, pass, dbname string, queryParams map[string]string, maxRetries int, baseDelay time.Duration) (*pgxpool.Pool, error) {
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		userAgent = "genai-toolbox"

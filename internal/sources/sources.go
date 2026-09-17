@@ -22,6 +22,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // CloudPlatformScope is the OAuth2 scope for Google Cloud Platform services.
@@ -56,10 +57,32 @@ func DecodeConfig(ctx context.Context, sourceType string, name string, decoder *
 	return sourceConfig, err
 }
 
+// startupRequiredFields names, per source type, the config keys that first
+// connect cannot be left to resolve.
+var startupRequiredFields = make(map[string][]string)
+
+// RegisterStartupFields declares config keys of sourceType that must hold a
+// real value before the server starts, because something other than the
+// connection reads them. Today that means whatever feeds IsReadOnly: the
+// catalog suppresses write-capable tools against a read-only source, so a key
+// left unresolved would publish a tool list that contradicts the config.
+//
+// Meant to be called from the source's init, beside Register.
+func RegisterStartupFields(sourceType string, keys ...string) {
+	startupRequiredFields[sourceType] = keys
+}
+
+// StartupRequiredFields reports the config keys of sourceType that cannot be
+// deferred. Source types that register none return nil.
+func StartupRequiredFields(sourceType string) []string {
+	return startupRequiredFields[sourceType]
+}
+
 // SourceConfig is the interface for configuring a source.
 type SourceConfig interface {
 	SourceConfigType() string
-	Initialize(ctx context.Context, tracer trace.Tracer) (Source, error)
+	// Initialize builds the source; with deferConnect it returns before connecting.
+	Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (Source, error)
 }
 
 // Source is the interface for the source itself.
@@ -71,6 +94,11 @@ type Source interface {
 
 // InitConnectionSpan adds a span for database pool connection initialization
 func InitConnectionSpan(ctx context.Context, tracer trace.Tracer, sourceType, sourceName string) (context.Context, trace.Span) {
+	// Sources that never opened a span before this path existed are still
+	// initialized with a nil tracer in tests.
+	if tracer == nil {
+		tracer = noop.NewTracerProvider().Tracer("")
+	}
 	ctx, span := tracer.Start(
 		ctx,
 		"toolbox/server/source/connect",

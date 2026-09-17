@@ -72,15 +72,16 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	client, err := initGCSClient(ctx, tracer, r.Name, r.Project)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create client: %w", err)
-	}
-
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: r,
-		client: client,
+		conn:   sources.NewConnectOnce[*storage.Client](ctx, r.Name, SourceType, r, tracer),
+	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.client(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -89,7 +90,18 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	client *storage.Client
+	conn *sources.ConnectOnce[*storage.Client]
+}
+
+func (s *Source) client(ctx context.Context) (*storage.Client, error) {
+	return s.conn.DoWithConfig(ctx, func(ctx context.Context, sc sources.SourceConfig) (*storage.Client, error) {
+		r := sc.(Config)
+		client, err := initGCSClient(ctx, r.Project)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create client: %w", err)
+		}
+		return client, nil
+	})
 }
 
 func (s *Source) validateBucket(bucket string) error {
@@ -179,8 +191,10 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// StorageClient reports the client once connected.
 func (s *Source) StorageClient() *storage.Client {
-	return s.client
+	client, _ := s.conn.Get()
+	return client
 }
 
 func (s *Source) GetProjectID() string {
@@ -197,7 +211,11 @@ func (s *Source) ListObjects(ctx context.Context, bucket, prefix, delimiter stri
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	it := s.client.Bucket(bucket).Objects(ctx, &storage.Query{
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	it := client.Bucket(bucket).Objects(ctx, &storage.Query{
 		Prefix:    prefix,
 		Delimiter: delimiter,
 	})
@@ -249,7 +267,11 @@ func (s *Source) ReadObject(ctx context.Context, bucket, object string, offset, 
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	reader, err := s.client.Bucket(bucket).Object(object).NewRangeReader(ctx, offset, length)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := client.Bucket(bucket).Object(object).NewRangeReader(ctx, offset, length)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open object %q in bucket %q: %w", object, bucket, err)
 	}
@@ -287,7 +309,11 @@ func (s *Source) ListBuckets(ctx context.Context, project, prefix string, maxRes
 	if project == "" {
 		project = s.Project
 	}
-	it := s.client.Buckets(ctx, project)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	it := client.Buckets(ctx, project)
 	if prefix != "" {
 		it.Prefix = prefix
 	}
@@ -323,7 +349,11 @@ func (s *Source) CreateBucket(ctx context.Context, bucket, project, location str
 		attrs.UniformBucketLevelAccess = storage.UniformBucketLevelAccess{Enabled: true}
 	}
 
-	bkt := s.client.Bucket(bucket)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bkt := client.Bucket(bucket)
 	if err := bkt.Create(ctx, project, attrs); err != nil {
 		return nil, fmt.Errorf("failed to create bucket %q in project %q: %w", bucket, project, err)
 	}
@@ -344,7 +374,11 @@ func (s *Source) GetBucketMetadata(ctx context.Context, bucket string) (*storage
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	attrs, err := s.client.Bucket(bucket).Attrs(ctx)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := client.Bucket(bucket).Attrs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata for bucket %q: %w", bucket, err)
 	}
@@ -357,7 +391,11 @@ func (s *Source) GetBucketIAMPolicy(ctx context.Context, bucket string) (map[str
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	policy, err := s.client.Bucket(bucket).IAM().Policy(ctx)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := client.Bucket(bucket).IAM().Policy(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get IAM policy for bucket %q: %w", bucket, err)
 	}
@@ -399,7 +437,11 @@ func (s *Source) GetObjectMetadata(ctx context.Context, bucket, object string) (
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	attrs, err := s.client.Bucket(bucket).Object(object).Attrs(ctx)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := client.Bucket(bucket).Object(object).Attrs(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get metadata for object %q in bucket %q: %w", object, bucket, err)
 	}
@@ -418,7 +460,11 @@ func (s *Source) DownloadObject(ctx context.Context, bucket, object, destination
 	if err := s.validateLocalPath(destination); err != nil {
 		return nil, err
 	}
-	reader, err := s.client.Bucket(bucket).Object(object).NewReader(ctx)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := client.Bucket(bucket).Object(object).NewReader(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open object %q in bucket %q: %w", object, bucket, err)
 	}
@@ -476,7 +522,11 @@ func (s *Source) UploadObject(ctx context.Context, bucket, object, source, conte
 		contentType = mime.TypeByExtension(filepath.Ext(source))
 	}
 
-	w := s.client.Bucket(bucket).Object(object).NewWriter(ctx)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	w := client.Bucket(bucket).Object(object).NewWriter(ctx)
 	if contentType != "" {
 		w.ContentType = contentType
 	}
@@ -511,7 +561,11 @@ func (s *Source) WriteObject(ctx context.Context, bucket, object, content, conte
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	w := s.client.Bucket(bucket).Object(object).NewWriter(ctx)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	w := client.Bucket(bucket).Object(object).NewWriter(ctx)
 	if contentType != "" {
 		w.ContentType = contentType
 	}
@@ -548,8 +602,12 @@ func (s *Source) CopyObject(ctx context.Context, sourceBucket, sourceObject, des
 	if err := s.validateBucket(destinationBucket); err != nil {
 		return nil, err
 	}
-	src := s.client.Bucket(sourceBucket).Object(sourceObject)
-	dst := s.client.Bucket(destinationBucket).Object(destinationObject)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	src := client.Bucket(sourceBucket).Object(sourceObject)
+	dst := client.Bucket(destinationBucket).Object(destinationObject)
 
 	attrs, err := dst.CopierFrom(src).Run(ctx)
 	if err != nil {
@@ -573,7 +631,11 @@ func (s *Source) MoveObject(ctx context.Context, bucket, sourceObject, destinati
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	attrs, err := s.client.Bucket(bucket).Object(sourceObject).Move(ctx, storage.MoveObjectDestination{Object: destinationObject})
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	attrs, err := client.Bucket(bucket).Object(sourceObject).Move(ctx, storage.MoveObjectDestination{Object: destinationObject})
 	if err != nil {
 		return nil, fmt.Errorf("failed to move %q to %q in bucket %q: %w", sourceObject, destinationObject, bucket, err)
 	}
@@ -592,7 +654,11 @@ func (s *Source) DeleteObject(ctx context.Context, bucket, object string) (map[s
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	if err := s.client.Bucket(bucket).Object(object).Delete(ctx); err != nil {
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.Bucket(bucket).Object(object).Delete(ctx); err != nil {
 		return nil, fmt.Errorf("failed to delete object %q in bucket %q: %w", object, bucket, err)
 	}
 
@@ -608,7 +674,11 @@ func (s *Source) DeleteBucket(ctx context.Context, bucket string) (map[string]an
 	if err := s.validateBucket(bucket); err != nil {
 		return nil, err
 	}
-	if err := s.client.Bucket(bucket).Delete(ctx); err != nil {
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.Bucket(bucket).Delete(ctx); err != nil {
 		return nil, fmt.Errorf("failed to delete bucket %q: %w", bucket, err)
 	}
 
@@ -618,11 +688,7 @@ func (s *Source) DeleteBucket(ctx context.Context, bucket string) (map[string]an
 	}, nil
 }
 
-func initGCSClient(ctx context.Context, tracer trace.Tracer, name, project string) (*storage.Client, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initGCSClient(ctx context.Context, project string) (*storage.Client, error) {
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, err

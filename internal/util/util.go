@@ -168,6 +168,50 @@ func NewStrictDecoder(v interface{}) (*yaml.Decoder, error) {
 	return dec, nil
 }
 
+// NewStrictDecoderAllowingEnvRefs is NewStrictDecoder for a document that still
+// names an environment variable, which only happens when the caller asked for
+// unset variables to be tolerated. A reference on a non-string field is left
+// unset instead of failing to decode, and resolved when the source connects.
+//
+// It is a separate constructor because a custom unmarshaler intercepts every
+// value of its type, and reporting a genuinely malformed one costs the position
+// and snippet the strict decoder would have given. Only a document that already
+// carries a reference pays that.
+func NewStrictDecoderAllowingEnvRefs(v interface{}) (*yaml.Decoder, error) {
+	b, err := yaml.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("fail to marshal %q: %w", v, err)
+	}
+
+	dec := yaml.NewDecoder(
+		bytes.NewReader(b),
+		yaml.Strict(),
+		yaml.Validator(validator.New()),
+		tolerateEnvReference[int](), tolerateEnvReference[*int](),
+		tolerateEnvReference[int64](), tolerateEnvReference[*int64](),
+		tolerateEnvReference[uint](), tolerateEnvReference[uint64](),
+		tolerateEnvReference[bool](), tolerateEnvReference[*bool](),
+	)
+	return dec, nil
+}
+
+// tolerateEnvReference lets a field of type T hold an environment variable that
+// was not resolved. "${MAX_RETRIES}" is not a number, so decoding it would fail
+// and take the whole source down with it; instead the field is left as the
+// factory set it and the reference is resolved again when the source connects.
+//
+// Only an unset variable reaches here. A variable that is set is substituted
+// while the file is read, and one that is unset is an error unless the caller
+// asked for it to be tolerated, so this never hides a malformed value.
+func tolerateEnvReference[T any]() yaml.DecodeOption {
+	return yaml.CustomUnmarshaler[T](func(v *T, b []byte) error {
+		if IsEnvReferenceScalar(b) {
+			return nil
+		}
+		return yaml.Unmarshal(b, v)
+	})
+}
+
 // loggerKey is the key used to store logger within context
 const loggerKey contextKey = "logger"
 

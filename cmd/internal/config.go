@@ -34,10 +34,15 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/auth/generic"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 type Config struct {
+	// SourceDocs holds each source's configuration as written, before decoding.
+	// A source that left an environment variable unresolved decodes without
+	// that field, so this is what it resolves against when it connects.
+	SourceDocs        map[string]map[string]any      `yaml:"-"`
 	Sources           server.SourceConfigs           `yaml:"sources"`
 	AuthServices      server.AuthServiceConfigs      `yaml:"authServices"`
 	EmbeddingModels   server.EmbeddingModelConfigs   `yaml:"embeddingModels"`
@@ -53,13 +58,19 @@ type ConfigParser struct {
 	OptionalEnvVars []string
 	requiredEnvVars []string
 
-	// AllowMissingEnvVars, when true, substitutes the variable name for an unset
-	// required ${VAR} placeholder instead of erroring. Used by offline flows like
-	// skills-generate, where source env vars are needed only to satisfy config
-	// parsing/validation, never to connect. A non-empty placeholder is used (not
-	// "") so required string fields still pass validation. The served path leaves
-	// this false so missing config still fails fast.
+	// AllowMissingEnvVars, when true, leaves an unset required ${VAR} in place
+	// instead of erroring. Used by flows that never connect during parsing —
+	// skills-generate, and serving with a deferred connect. The reference is
+	// non-empty, so a required string field still passes validation, and it
+	// names its own variable, so whatever resolves it later needs no separate
+	// bookkeeping. Eager serving leaves this false so missing config still
+	// fails fast.
 	AllowMissingEnvVars bool
+
+	// MissingEnvVars names the variables left unresolved. Callers report the
+	// list rather than let an unresolved reference pass for real config
+	// silently.
+	MissingEnvVars []string
 }
 
 // parseEnv replaces environment variables ${ENV_NAME} with their values.
@@ -119,8 +130,16 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 			output.WriteString(defaultValue)
 		} else {
 			if p.AllowMissingEnvVars {
-				p.EnvVars[variableName] = variableName
-				output.WriteString(variableName)
+				// The reference is left as written rather than replaced with a
+				// stand-in value. A field holding "${DB_HOST}" still says which
+				// variable it needs, so whoever resolves it later does not have
+				// to be told separately.
+				reference := input[start:end]
+				p.EnvVars[variableName] = reference
+				if !slices.Contains(p.MissingEnvVars, variableName) {
+					p.MissingEnvVars = append(p.MissingEnvVars, variableName)
+				}
+				output.WriteString(reference)
 			} else if !seenMissing[variableName] {
 				seenMissing[variableName] = true
 				line, column := lineColumnAt(input, start)
@@ -203,7 +222,12 @@ func (p *ConfigParser) ParseConfig(ctx context.Context, raw []byte) (Config, err
 	}
 
 	// Parse contents
+	ctx = sources.WithUnresolvedEnvVars(ctx, p.MissingEnvVars)
 	config.Sources, config.AuthServices, config.EmbeddingModels, config.Tools, config.Prompts, config.Resources, config.ResourceTemplates, config.Groups, err = server.UnmarshalPrimitiveConfig(ctx, raw)
+	if err != nil {
+		return config, err
+	}
+	config.SourceDocs, err = server.SourceDocs(ctx, raw)
 	if err != nil {
 		return config, err
 	}
@@ -420,6 +444,7 @@ func processValue(v any, isToolset bool) any {
 // All resource names (sources, authServices, tools, groups) must be unique across all files.
 func mergeConfigs(files ...Config) (Config, error) {
 	merged := Config{
+		SourceDocs:        make(map[string]map[string]any),
 		Sources:           make(server.SourceConfigs),
 		AuthServices:      make(server.AuthServiceConfigs),
 		EmbeddingModels:   make(server.EmbeddingModelConfigs),
@@ -442,6 +467,9 @@ func mergeConfigs(files ...Config) (Config, error) {
 				}
 			} else {
 				merged.Sources[name] = source
+				if doc, ok := file.SourceDocs[name]; ok {
+					merged.SourceDocs[name] = doc
+				}
 			}
 		}
 
