@@ -23,6 +23,16 @@ let activeHeaders = {
     "Content-Type": "application/json"
 };
 
+// Bounds applied to the height an MCP App may request via
+// `ui/notifications/size-changed`. The app is untrusted input, so the requested
+// value is clamped to keep the playground layout usable.
+const MIN_APP_IFRAME_HEIGHT = 480;
+const MAX_APP_IFRAME_HEIGHT = 10000;
+
+// Display modes the playground host is able to render. Anything else requested
+// by an app falls back to 'inline'.
+const SUPPORTED_DISPLAY_MODES = new Set(['inline', 'fullscreen']);
+
 /**
  * Helper function to create form inputs for parameters.
  */
@@ -793,7 +803,10 @@ window.addEventListener('message', (event) => {
             }, senderOrigin);
         } else if (data.method === 'ui/request-display-mode' || data.method === 'requestDisplayMode' || data.type === 'ui/requestDisplayMode' || data.type === 'ui/set_display_mode') {
             console.debug('Handling MCP Apps request-display-mode:', data);
-            const mode = data.params?.mode || data.params?.displayMode || data.mode || data.displayMode || 'inline';
+            const requestedMode = data.params?.mode || data.params?.displayMode || data.mode || data.displayMode;
+            // The mode is untrusted app input; fall back to 'inline' for anything
+            // that is not a supported display mode.
+            const mode = SUPPORTED_DISPLAY_MODES.has(requestedMode) ? requestedMode : 'inline';
             // matchingIframe is already resolved at the top of the message handler
             const mcpContainer = matchingIframe?.closest('.mcp-app-container') || document.querySelector('.mcp-app-container');
 
@@ -1014,12 +1027,16 @@ window.addEventListener('message', (event) => {
                 }
             });
         } else if (data.method === 'ui/notifications/size-changed' || data.method === 'ui/size-changed' || data.type === 'ui/size_changed' || data.type === 'size_changed') {
-            const height = data.params?.height || data.height;
-            // matchingIframe is already resolved at the top of the message handler
-            if (matchingIframe && height && typeof height === 'number') {
+            const height = data.params?.height ?? data.height;
+            // matchingIframe is already resolved at the top of the message handler.
+            // The height comes from an untrusted app, so reject anything that is not a
+            // finite positive number (e.g. NaN, Infinity, strings, negatives) and clamp
+            // the accepted value so an app cannot blow up the playground layout.
+            if (matchingIframe && typeof height === 'number' && Number.isFinite(height) && height > 0) {
                 const container = matchingIframe.closest('.mcp-app-container');
                 if (!container || (!container.classList.contains('mcp-app-fullscreen') && container.style.position !== 'fixed')) {
-                    matchingIframe.style.height = `${Math.max(480, Math.ceil(height))}px`;
+                    const clampedHeight = Math.min(MAX_APP_IFRAME_HEIGHT, Math.max(MIN_APP_IFRAME_HEIGHT, Math.ceil(height)));
+                    matchingIframe.style.height = `${clampedHeight}px`;
                 }
             }
         } else if (data.method === 'ping' || data.method === 'ui/ping') {

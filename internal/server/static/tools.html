@@ -21,14 +21,18 @@
 
     <script src="/ui/js/navbar.js?v=2"></script>
     <script src="/ui/js/mainContent.js?v=2"></script>
-    <script type="module" src="/ui/js/tools.js?v=2"></script>
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             const navbarContainer = document.getElementById('navbar-container');
             const activeNav = navbarContainer.getAttribute('data-active-nav');
             renderNavbar('navbar-container', activeNav);
             renderMainContent('main-content-container', 'tool-display-area', getToolInstructions());
-            
+
+            // Initialize tools only after renderMainContent has created
+            // #tool-display-area, so no polling for the element is needed.
+            const { initTools } = await import('/ui/js/tools.js?v=2');
+            initTools();
+
             // Initialize resize functionality
             const { initializeResize } = await import('/ui/js/resize.js');
             initializeResize();

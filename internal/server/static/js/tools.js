@@ -16,6 +16,9 @@ import { loadTools } from "./loadTools.js";
 
 /**
  * Initializes and loads the tools for the tools view.
+ *
+ * The caller is responsible for invoking this only after the main content area
+ * (which owns `#tool-display-area`) has been rendered.
  */
 export function initTools() {
     const toolDisplayArea = document.getElementById('tool-display-area');
@@ -23,17 +26,9 @@ export function initTools() {
     const DEFAULT_TOOLSET = ""; // will return all tools
 
     if (!secondaryPanelContent || !toolDisplayArea) {
-        // Retry until mainContentContainer is rendered
-        setTimeout(initTools, 50);
+        console.error('Required DOM elements not found.');
         return;
     }
 
     loadTools(secondaryPanelContent, toolDisplayArea, DEFAULT_TOOLSET);
 }
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTools);
-} else {
-    initTools();
-}
-
