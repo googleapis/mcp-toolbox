@@ -469,14 +469,27 @@
       }
     });
 
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function buildCategoryFilters(items) {
       const categories = ['All', ...new Set(items.map(i => i.category || 'General'))];
       const container = document.getElementById('filtersBar');
-      container.innerHTML = categories.map(cat => `
-        <button class="filter-chip ${cat === currentCategory ? 'active' : ''}" onclick="filterCategory('${cat}')">
-          ${cat === 'All' ? 'All Products' : cat}
-        </button>
-      `).join('');
+      container.innerHTML = '';
+      categories.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = `filter-chip ${cat === currentCategory ? 'active' : ''}`;
+        btn.textContent = cat === 'All' ? 'All Products' : cat;
+        btn.addEventListener('click', () => filterCategory(cat));
+        container.appendChild(btn);
+      });
     }
 
     function filterCategory(category) {
@@ -529,9 +542,10 @@
         chartContainer.innerHTML = items.map(item => {
           const rev = Number(item.revenue) || 0;
           const pct = Math.min(100, Math.round((rev / maxRev) * 100));
+          const prodEsc = escapeHtml(item.product);
           return `
             <div class="bar-item">
-              <div class="bar-label" title="${item.product}">${item.product}</div>
+              <div class="bar-label" title="${prodEsc}">${prodEsc}</div>
               <div class="bar-container">
                 <div class="bar-fill" style="width: ${pct}%;"></div>
               </div>
@@ -548,8 +562,8 @@
       } else {
         tableBody.innerHTML = items.map(item => `
           <tr>
-            <td style="font-weight: 500;">${item.product}</td>
-            <td>${item.category || '-'}</td>
+            <td style="font-weight: 500;">${escapeHtml(item.product)}</td>
+            <td>${escapeHtml(item.category || '-')}</td>
             <td>${Number(item.units_sold || 0).toLocaleString()}</td>
             <td>$${Number(item.revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
             <td><span class="star-rating">★</span> ${item.rating ? Number(item.rating).toFixed(1) : '-'}</td>

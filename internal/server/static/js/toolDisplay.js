@@ -713,6 +713,9 @@ async function loadAppResource(uri, iframeElement, statusElement, headers) {
             throw new Error(`HTTP error ${response.status}`);
         }
         const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error.message || 'Unknown MCP error');
+        }
         if (data.result && data.result.contents && data.result.contents.length > 0) {
             const resContent = data.result.contents[0];
             if (resContent.text) {
@@ -730,7 +733,11 @@ async function loadAppResource(uri, iframeElement, statusElement, headers) {
                         statusElement.textContent = 'App Ready (Restricted CSP)';
                     }
                 }
+            } else {
+                throw new Error('Resource content text is empty');
             }
+        } else {
+            throw new Error('No resource contents returned');
         }
     } catch (e) {
         console.error('Error fetching UI resource:', e);
@@ -806,7 +813,18 @@ window.addEventListener('message', (event) => {
             }, senderOrigin);
         } else if (data.method === 'ui/open-link' || data.method === 'open-link' || data.type === 'ui/openUrl' || data.type === 'open_link' || data.action === 'open_link') {
             const targetUrl = data.params?.url || data.payload?.url || data.url;
-            if (targetUrl && typeof targetUrl === 'string') {
+            if (!targetUrl || typeof targetUrl !== 'string') {
+                if (hasId && sender) {
+                    sender.postMessage({
+                        jsonrpc: '2.0',
+                        id: data.id,
+                        error: {
+                            code: -32602,
+                            message: 'URL is required and must be a string'
+                        }
+                    }, senderOrigin);
+                }
+            } else {
                 try {
                     const parsed = new URL(targetUrl, window.location.href);
                     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
@@ -833,16 +851,50 @@ window.addEventListener('message', (event) => {
                         }
                     } else {
                         console.warn('Blocked opening non-http/https URL from MCP App:', targetUrl);
+                        if (hasId && sender) {
+                            sender.postMessage({
+                                jsonrpc: '2.0',
+                                id: data.id,
+                                error: {
+                                    code: -32602,
+                                    message: 'Only http and https URLs are allowed'
+                                }
+                            }, senderOrigin);
+                        }
                     }
                 } catch (e) {
                     console.error('Invalid URL requested by MCP App:', targetUrl, e);
+                    if (hasId && sender) {
+                        sender.postMessage({
+                            jsonrpc: '2.0',
+                            id: data.id,
+                            error: {
+                                code: -32602,
+                                message: `Invalid URL: ${e.message}`
+                            }
+                        }, senderOrigin);
+                    }
                 }
             }
         } else if (data.method === 'tools/call' || data.method === 'callTool') {
             console.debug('Handling MCP Apps tools/call request:', data);
             const toolCallParams = data.params || {};
-            const toolName = toolCallParams.name || 'render_visualization';
+            const toolName = toolCallParams.name;
             const toolArgs = toolCallParams.arguments || {};
+
+            if (!toolName || typeof toolName !== 'string') {
+                if (hasId && sender) {
+                    sender.postMessage({
+                        jsonrpc: '2.0',
+                        id: data.id,
+                        error: {
+                            code: -32602,
+                            message: 'Tool name is required and must be a string'
+                        }
+                    }, senderOrigin);
+                }
+                return;
+            }
 
             const toolId = matchingIframe ? matchingIframe.id.replace('mcp-app-iframe-', '') : '';
             const toolHeaders = toolHeadersMap.get(toolId) || activeHeaders;
@@ -855,7 +907,13 @@ window.addEventListener('message', (event) => {
                     arguments: toolArgs
                 }, hasId ? data.id : 'tool-call'))
             })
-            .then(res => res.json())
+            .then(async res => {
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(`HTTP error ${res.status}: ${errorText || res.statusText}`);
+                }
+                return res.json();
+            })
             .then(toolResult => {
                 console.debug('Tool call response from server:', toolResult);
                 let parsedData = null;
@@ -870,12 +928,22 @@ window.addEventListener('message', (event) => {
                     parsedData = toolResult.result;
                 }
 
-                const rawData = parsedData?.visualizationData?.queryResult?.data || parsedData?.data || [];
-                const structuredContent = {
-                    ...parsedData,
-                    queryData: rawData,
-                    visualizationData: parsedData?.visualizationData
-                };
+                let structuredContent;
+                if (Array.isArray(parsedData)) {
+                    structuredContent = {
+                        data: parsedData,
+                        queryData: parsedData
+                    };
+                } else if (parsedData && typeof parsedData === 'object') {
+                    const rawData = parsedData.visualizationData?.queryResult?.data || parsedData.data || [];
+                    structuredContent = {
+                        ...parsedData,
+                        queryData: rawData,
+                        visualizationData: parsedData.visualizationData
+                    };
+                } else {
+                    structuredContent = parsedData;
+                }
 
                 // 1. Reply to the app's callServerTool request
                 if (hasId && sender) {

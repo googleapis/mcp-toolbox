@@ -269,8 +269,9 @@ function parseArrayParameter(rawValue, valueType, paramName) {
             case 'boolean':
                 return item === true || String(item).toLowerCase() === 'true';
             case 'string':
-            default:
                 return String(item);
+            default:
+                return item;
         }
     });
 }
