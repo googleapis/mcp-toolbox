@@ -107,16 +107,17 @@ func TestUpdateServer(t *testing.T) {
 func TestGetUIResourcesAndTemplates(t *testing.T) {
 	regularRes := testutils.NewMockResource("regular-res", "file:///reg", "", "", "", nil, nil)
 	uiRes := testutils.NewMockUIResource("ui-res", "ui://test", "", "", "", nil, nil, nil, nil, "", nil)
+	// Keyed by URI, as the server builds it.
 	resourcesMap := map[string]resources.Resource{
-		"regular-res": regularRes,
-		"ui-res":      uiRes,
+		regularRes.GetURI(): regularRes,
+		uiRes.GetURI():      uiRes,
 	}
 
 	regularTmpl := testutils.NewMockResourceTemplate("regular-tmpl", "file:///tmpl/{path}", "", "", "", nil)
 	uiTmpl := testutils.NewMockUIResourceTemplate("ui-tmpl", "ui://tmpl/{path}", "", "", "", nil, nil, nil, "", nil)
 	templatesMap := map[string]resources.ResourceTemplate{
-		"regular-tmpl": regularTmpl,
-		"ui-tmpl":      uiTmpl,
+		regularTmpl.GetURITemplate(): regularTmpl,
+		uiTmpl.GetURITemplate():      uiTmpl,
 	}
 
 	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, templatesMap, nil)
@@ -143,6 +144,151 @@ func TestGetUIResourcesAndTemplates(t *testing.T) {
 	}
 	if _, _, ok := primMgr.GetUIResourceTemplateByURI("ui://nonexistent/path"); ok {
 		t.Errorf("expected nonexistent URI to not be matched by GetUIResourceTemplateByURI")
+	}
+}
+
+// The resource map is keyed by URI, but group configs and a tool's ui.resource
+// field both refer to resources by name, so both have to resolve.
+func TestGetResourceByNameOrURI(t *testing.T) {
+	res := testutils.NewMockResource("my-guide", "file:///guide.md", "", "", "", nil, nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{res.GetURI(): res}, nil, nil)
+
+	for _, key := range []string{"my-guide", "file:///guide.md"} {
+		got, ok := primMgr.GetResource(key)
+		if !ok {
+			t.Fatalf("GetResource(%q) = not found, want the resource", key)
+		}
+		if got.GetName() != "my-guide" {
+			t.Errorf("GetResource(%q) returned %q, want %q", key, got.GetName(), "my-guide")
+		}
+	}
+
+	if _, ok := primMgr.GetResource("nonexistent"); ok {
+		t.Error("GetResource(\"nonexistent\") = found, want not found")
+	}
+}
+
+// Resource names are not validated, so a name is allowed to look like a URI. The
+// name must win, otherwise re-keying the map by URI would silently redirect an
+// existing config to a different resource.
+func TestGetResourcePrefersNameOverURI(t *testing.T) {
+	// decoy's *name* is the same string as target's *URI*.
+	target := testutils.NewMockResource("target", "skill://guide/SKILL.md", "", "", "", nil, nil)
+	decoy := testutils.NewMockResource("skill://guide/SKILL.md", "file:///decoy.md", "", "", "", nil, nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, map[string]resources.Resource{
+		target.GetURI(): target,
+		decoy.GetURI():  decoy,
+	}, nil, nil)
+
+	got, ok := primMgr.GetResource("skill://guide/SKILL.md")
+	if !ok {
+		t.Fatal("GetResource() = not found, want the decoy resource")
+	}
+	if got.GetName() != "skill://guide/SKILL.md" {
+		t.Errorf("GetResource() resolved to %q, want the resource named %q", got.GetName(), "skill://guide/SKILL.md")
+	}
+}
+
+// The resource template map is keyed by URI template, but group configs and a
+// tool's ui.resource field both refer to templates by name, so both have to
+// resolve.
+func TestGetResourceTemplateByNameOrURITemplate(t *testing.T) {
+	tmpl := testutils.NewMockResourceTemplate("my-guides", "file:///guides/{path}", "", "", "", nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, nil,
+		map[string]resources.ResourceTemplate{tmpl.GetURITemplate(): tmpl}, nil)
+
+	for _, key := range []string{"my-guides", "file:///guides/{path}"} {
+		got, ok := primMgr.GetResourceTemplate(key)
+		if !ok {
+			t.Fatalf("GetResourceTemplate(%q) = not found, want the template", key)
+		}
+		if got.GetName() != "my-guides" {
+			t.Errorf("GetResourceTemplate(%q) returned %q, want %q", key, got.GetName(), "my-guides")
+		}
+	}
+
+	if _, ok := primMgr.GetResourceTemplate("nonexistent"); ok {
+		t.Error("GetResourceTemplate(\"nonexistent\") = found, want not found")
+	}
+}
+
+// Template names are not validated, so a name is allowed to look like a URI
+// template. The name must win, otherwise re-keying the map by URI template would
+// silently redirect an existing config to a different template.
+func TestGetResourceTemplatePrefersNameOverURITemplate(t *testing.T) {
+	// decoy's *name* is the same string as target's *URI template*.
+	target := testutils.NewMockResourceTemplate("target", "skill://guides/{path}", "", "", "", nil)
+	decoy := testutils.NewMockResourceTemplate("skill://guides/{path}", "file:///decoy/{path}", "", "", "", nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, nil, map[string]resources.ResourceTemplate{
+		target.GetURITemplate(): target,
+		decoy.GetURITemplate():  decoy,
+	}, nil)
+
+	got, ok := primMgr.GetResourceTemplate("skill://guides/{path}")
+	if !ok {
+		t.Fatal("GetResourceTemplate() = not found, want the decoy template")
+	}
+	if got.GetName() != "skill://guides/{path}" {
+		t.Errorf("GetResourceTemplate() resolved to %q, want the template named %q", got.GetName(), "skill://guides/{path}")
+	}
+}
+
+// SetPrimitives is the dynamic-reload path (cmd/root.go), so it has to rebuild
+// the name indexes alongside the resource and template maps or name lookups go
+// stale.
+func TestSetPrimitivesRebuildsNameIndexes(t *testing.T) {
+	beforeRes := testutils.NewMockResource("before", "file:///before.md", "", "", "", nil, nil)
+	beforeTmpl := testutils.NewMockResourceTemplate("before-tmpl", "file:///before/{path}", "", "", "", nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{beforeRes.GetURI(): beforeRes},
+		map[string]resources.ResourceTemplate{beforeTmpl.GetURITemplate(): beforeTmpl}, nil)
+
+	afterRes := testutils.NewMockResource("after", "file:///after.md", "", "", "", nil, nil)
+	afterTmpl := testutils.NewMockResourceTemplate("after-tmpl", "file:///after/{path}", "", "", "", nil)
+	primMgr.SetPrimitives(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{afterRes.GetURI(): afterRes},
+		map[string]resources.ResourceTemplate{afterTmpl.GetURITemplate(): afterTmpl}, nil)
+
+	got, ok := primMgr.GetResource("after")
+	if !ok {
+		t.Fatal("GetResource(\"after\") = not found, want the reloaded resource")
+	}
+	if got.GetName() != "after" {
+		t.Errorf("GetResource(\"after\") returned %q, want %q", got.GetName(), "after")
+	}
+	if _, ok := primMgr.GetResource("before"); ok {
+		t.Error("GetResource(\"before\") = found, want the stale name to be dropped")
+	}
+
+	gotTmpl, ok := primMgr.GetResourceTemplate("after-tmpl")
+	if !ok {
+		t.Fatal("GetResourceTemplate(\"after-tmpl\") = not found, want the reloaded template")
+	}
+	if gotTmpl.GetName() != "after-tmpl" {
+		t.Errorf("GetResourceTemplate(\"after-tmpl\") returned %q, want %q", gotTmpl.GetName(), "after-tmpl")
+	}
+	if _, ok := primMgr.GetResourceTemplate("before-tmpl"); ok {
+		t.Error("GetResourceTemplate(\"before-tmpl\") = found, want the stale name to be dropped")
+	}
+}
+
+// GetUIResourceFromURI must index the map directly rather than go through
+// GetResource, whose name-first precedence would return the decoy here.
+func TestGetUIResourceFromURIIgnoresNames(t *testing.T) {
+	uiRes := testutils.NewMockUIResource("ui-res", "ui://panel", "", "", "", nil, nil, nil, nil, "", nil)
+	decoy := testutils.NewMockResource("ui://panel", "file:///decoy.md", "", "", "", nil, nil)
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, map[string]resources.Resource{
+		uiRes.GetURI(): uiRes,
+		decoy.GetURI(): decoy,
+	}, nil, nil)
+
+	got, ok := primMgr.GetUIResourceFromURI("ui://panel")
+	if !ok {
+		t.Fatal("GetUIResourceFromURI() = not found, want the UI resource")
+	}
+	if got.GetName() != "ui-res" {
+		t.Errorf("GetUIResourceFromURI() resolved to %q, want %q", got.GetName(), "ui-res")
 	}
 }
 

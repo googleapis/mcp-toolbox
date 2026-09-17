@@ -326,7 +326,8 @@ func TestGenerateListToolsResult(t *testing.T) {
 		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
 		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
 		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
-		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		// Keyed by URI, as the server builds it; the tool refers to it by name.
+		resourcesMap := map[string]resources.Resource{resMock.GetURI(): resMock}
 		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
 		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
 
@@ -350,7 +351,8 @@ func TestGenerateListToolsResult(t *testing.T) {
 		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
 		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
 		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
-		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		// Keyed by URI, as the server builds it; the tool refers to it by name.
+		resourcesMap := map[string]resources.Resource{resMock.GetURI(): resMock}
 		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
 		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
 

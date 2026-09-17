@@ -43,6 +43,36 @@ type PrimitiveManager struct {
 	resources         map[string]resources.Resource
 	resourceTemplates map[string]resources.ResourceTemplate
 	groups            map[string]group.Group
+	// resourceNameIndex maps a resource's name to its URI, the key of resources.
+	resourceNameIndex map[string]string
+	// resourceTemplateNameIndex maps a resource template's name to its URI
+	// template, the key of resourceTemplates.
+	resourceTemplateNameIndex map[string]string
+}
+
+// indexResourceNames builds the name to URI index for the resource map.
+func indexResourceNames(resourcesMap map[string]resources.Resource) map[string]string {
+	index := make(map[string]string, len(resourcesMap))
+	for uri, res := range resourcesMap {
+		if res == nil {
+			continue
+		}
+		index[res.GetName()] = uri
+	}
+	return index
+}
+
+// indexResourceTemplateNames builds the name to URI template index for the
+// resource template map.
+func indexResourceTemplateNames(resourceTemplatesMap map[string]resources.ResourceTemplate) map[string]string {
+	index := make(map[string]string, len(resourceTemplatesMap))
+	for uriTemplate, rt := range resourceTemplatesMap {
+		if rt == nil {
+			continue
+		}
+		index[rt.GetName()] = uriTemplate
+	}
+	return index
 }
 
 func NewPrimitiveManager(
@@ -56,15 +86,17 @@ func NewPrimitiveManager(
 	groupsMap map[string]group.Group,
 ) *PrimitiveManager {
 	primitiveMgr := &PrimitiveManager{
-		mu:                sync.RWMutex{},
-		sources:           sourcesMap,
-		authServices:      authServicesMap,
-		embeddingModels:   embeddingModelsMap,
-		tools:             toolsMap,
-		prompts:           promptsMap,
-		resources:         resourcesMap,
-		resourceTemplates: resourceTemplatesMap,
-		groups:            groupsMap,
+		mu:                        sync.RWMutex{},
+		sources:                   sourcesMap,
+		authServices:              authServicesMap,
+		embeddingModels:           embeddingModelsMap,
+		tools:                     toolsMap,
+		prompts:                   promptsMap,
+		resources:                 resourcesMap,
+		resourceTemplates:         resourceTemplatesMap,
+		groups:                    groupsMap,
+		resourceNameIndex:         indexResourceNames(resourcesMap),
+		resourceTemplateNameIndex: indexResourceTemplateNames(resourceTemplatesMap),
 	}
 
 	return primitiveMgr
@@ -105,19 +137,29 @@ func (r *PrimitiveManager) GetPrompt(promptName string) (prompts.Prompt, bool) {
 	return prompt, ok
 }
 
-// GetResource returns a specific resource by name.
-func (r *PrimitiveManager) GetResource(name string) (resources.Resource, bool) {
+// GetResource returns a specific resource by name or by URI. Names are resolved
+// first.
+func (r *PrimitiveManager) GetResource(nameOrURI string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	resource, ok := r.resources[name]
+	if uri, ok := r.resourceNameIndex[nameOrURI]; ok {
+		resource, ok := r.resources[uri]
+		return resource, ok
+	}
+	resource, ok := r.resources[nameOrURI]
 	return resource, ok
 }
 
-// GetResourceTemplate returns a specific resource template by name.
-func (r *PrimitiveManager) GetResourceTemplate(name string) (resources.ResourceTemplate, bool) {
+// GetResourceTemplate returns a specific resource template by name or by URI
+// template. Names are resolved first.
+func (r *PrimitiveManager) GetResourceTemplate(nameOrURITemplate string) (resources.ResourceTemplate, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	rt, exists := r.resourceTemplates[name]
+	if uriTemplate, ok := r.resourceTemplateNameIndex[nameOrURITemplate]; ok {
+		rt, ok := r.resourceTemplates[uriTemplate]
+		return rt, ok
+	}
+	rt, exists := r.resourceTemplates[nameOrURITemplate]
 	return rt, exists
 }
 
@@ -140,6 +182,8 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.resources = resourcesMap
 	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
+	r.resourceNameIndex = indexResourceNames(resourcesMap)
+	r.resourceTemplateNameIndex = indexResourceTemplateNames(resourceTemplatesMap)
 }
 
 // AuthServices returns a copy of the auth services map
@@ -157,10 +201,8 @@ func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 func (r *PrimitiveManager) GetUIResourceFromURI(uri string) (resources.Resource, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, res := range r.resources {
-		if res.IsUI() && res.GetURI() == uri {
-			return res, true
-		}
+	if res, ok := r.resources[uri]; ok && res.IsUI() {
+		return res, true
 	}
 	return nil, false
 }

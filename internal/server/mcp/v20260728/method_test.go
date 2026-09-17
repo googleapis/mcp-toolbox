@@ -2171,15 +2171,24 @@ func TestResourcesReadHandler(t *testing.T) {
 }
 
 func TestGetResourceOrTemplateByURI(t *testing.T) {
-	resourcesMap := map[string]resources.Resource{
+	resourcesByName := map[string]resources.Resource{
 		"res1":  testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
 		"res2":  testutils.NewMockResource("res2", "file:///res2", "", "", "", nil, nil),
 		"uiRes": testutils.NewMockUIResource("uiRes", "ui://test-ui", "", "", "", nil, nil, nil, nil, "", nil),
 	}
-	templatesMap := map[string]resources.ResourceTemplate{
+	templatesByName := map[string]resources.ResourceTemplate{
 		"tmpl1":  testutils.NewMockResourceTemplate("tmpl1", "file:///tmpl/{path}", "", "", "", nil),
 		"tmpl2":  testutils.NewMockResourceTemplate("tmpl2", "file:///other/{path}", "", "", "", nil),
 		"uiTmpl": testutils.NewMockUIResourceTemplate("uiTmpl", "ui://tmpl/{path}", "", "", "", nil, nil, nil, "", nil),
+	}
+	// Groups resolve names; the PrimitiveManager is keyed by URI, as the server builds it.
+	resourcesMap := make(map[string]resources.Resource, len(resourcesByName))
+	for _, res := range resourcesByName {
+		resourcesMap[res.GetURI()] = res
+	}
+	templatesMap := make(map[string]resources.ResourceTemplate, len(templatesByName))
+	for _, tmpl := range templatesByName {
+		templatesMap[tmpl.GetURITemplate()] = tmpl
 	}
 
 	// Create a group that only contains res1 and tmpl1
@@ -2187,7 +2196,7 @@ func TestGetResourceOrTemplateByURI(t *testing.T) {
 		Name:                  "test_group",
 		ResourceNames:         []string{"res1"},
 		ResourceTemplateNames: []string{"tmpl1"},
-	}.Initialize(nil, nil, resourcesMap, templatesMap)
+	}.Initialize(nil, nil, resourcesByName, templatesByName)
 	if err != nil {
 		t.Fatalf("failed to init group: %v", err)
 	}
