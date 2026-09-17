@@ -47,8 +47,8 @@ description: |
 
   Parameters:
   All parameters for this tool are identical to those of the `query` tool.
-  This includes `model_name`, `explore_name`, `fields` (required),
-  and optional parameters like `pivots`, `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, and `query_timezone`.
+  This includes `model`, `explore`, `fields` (required),
+  and optional parameters like `pivots`, `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, and `tz`.
 
   Output:
   The result of this tool is the raw SQL text.

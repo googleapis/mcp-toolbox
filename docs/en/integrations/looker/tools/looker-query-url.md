@@ -42,8 +42,8 @@ description: |
   along with the `query_id` and `slug`.
 
   Parameters:
-  All query parameters (e.g., `model_name`, `explore_name`, `fields`, `pivots`,
-  `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, `query_timezone`) are the same as the `query` tool.
+  All query parameters (e.g., `model`, `explore`, `fields`, `pivots`,
+  `filters`, `filter_expression`, `dynamic_fields`, `sorts`, `limit`, `tz`) are the same as the `query` tool.
 
   Additionally, it accepts an optional `vis_config` parameter:
   - vis_config (optional): A JSON object that controls the default visualization
