@@ -359,6 +359,12 @@ type ToolExecConfig struct {
 // ToolExecOption is a functional option used to configure a ToolExecConfig.
 type ToolExecOption func(*ToolExecConfig)
 
+// IsMCP reports whether the test cases should run over the MCP endpoint. Source-specific
+// test helpers use it to select the endpoint the same way the shared helpers do.
+func (c *ToolExecConfig) IsMCP() bool {
+	return c.isMCP
+}
+
 // WithMCPExec flags the test harness to route the request through the local MCP server
 // instead of the Native Toolbox REST API.
 func WithMCPExec() ToolExecOption {
