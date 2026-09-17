@@ -19,12 +19,14 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	_ "github.com/microsoft/go-mssqldb"
+	"github.com/microsoft/go-mssqldb/azuread"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -47,16 +49,49 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (sources
 	return actual, nil
 }
 
+// azureFedAuth maps the `azureAuth.mode` field onto the fedauth workflow the
+// azuread driver expects. The keys are the modes allowed by the oneof tag below.
+var azureFedAuth = map[string]string{
+	"default":           azuread.ActiveDirectoryDefault,
+	"workload-identity": azuread.ActiveDirectoryWorkloadIdentity,
+	"managed-identity":  azuread.ActiveDirectoryManagedIdentity,
+	"service-principal": azuread.ActiveDirectoryServicePrincipal,
+}
+
+// AzureAuthConfig configures Microsoft Entra ID authentication for the database
+// connection, for Azure SQL servers where SQL authentication is disabled. Omit the
+// whole block to keep using a user and password.
+type AzureAuthConfig struct {
+	Mode string `yaml:"mode" validate:"required,oneof=default workload-identity managed-identity service-principal"`
+	// ClientID identifies the credential to use, and is required when a host maps to
+	// more than one identity — a pod with several user-assigned managed identities,
+	// for instance — so the credential is not left to be guessed.
+	ClientID string `yaml:"clientId"`
+	// TenantID is needed where the tenant cannot be inferred from the server.
+	TenantID string `yaml:"tenantId"`
+	// DisableInstanceDiscovery skips the authority metadata request, which
+	// network-isolated and sovereign-cloud deployments cannot reach.
+	DisableInstanceDiscovery bool `yaml:"disableInstanceDiscovery"`
+	// AdditionallyAllowedTenants permits tokens from tenants beyond the configured
+	// one, for multi-tenant credentials.
+	AdditionallyAllowedTenants []string `yaml:"additionallyAllowedTenants"`
+}
+
 type Config struct {
 	// Cloud SQL MSSQL configs
-	Name     string `yaml:"name" validate:"required"`
-	Type     string `yaml:"type" validate:"required"`
-	Host     string `yaml:"host" validate:"required"`
-	Port     string `yaml:"port" validate:"required"`
-	User     string `yaml:"user" validate:"required"`
-	Password string `yaml:"password" validate:"required"`
+	Name string `yaml:"name" validate:"required"`
+	Type string `yaml:"type" validate:"required"`
+	Host string `yaml:"host" validate:"required"`
+	Port string `yaml:"port" validate:"required"`
+	// User and Password are the SQL login. They are not required when azureAuth is
+	// set, since an Entra-only server has no SQL logins to hand out. In
+	// service-principal mode Password carries the client secret.
+	User     string `yaml:"user" validate:"required_without=AzureAuth"`
+	Password string `yaml:"password" validate:"required_without=AzureAuth"`
 	Database string `yaml:"database" validate:"required"`
 	Encrypt  string `yaml:"encrypt"`
+	// AzureAuth switches the connection to Microsoft Entra ID authentication.
+	AzureAuth *AzureAuthConfig `yaml:"azureAuth"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -66,7 +101,7 @@ func (r Config) SourceConfigType() string {
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
 	// Initializes a MSSQL source
-	db, err := initMssqlConnection(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.Encrypt)
+	db, err := initMssqlConnection(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.Encrypt, r.AzureAuth)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create db connection: %w", err)
 	}
@@ -156,6 +191,7 @@ func initMssqlConnection(
 	ctx context.Context,
 	tracer trace.Tracer,
 	name, host, port, user, pass, dbname, encrypt string,
+	azure *AzureAuthConfig,
 ) (
 	*sql.DB,
 	error,
@@ -176,15 +212,51 @@ func initMssqlConnection(
 		query.Add("encrypt", encrypt)
 	}
 
+	// SQL authentication carries the login in the DSN user info. Entra
+	// authentication leaves it empty and drives the credential from query
+	// parameters instead, so the two cannot disagree about the identity.
+	driverName := "sqlserver"
+	var userInfo *url.Userinfo
+	if azure == nil {
+		userInfo = url.UserPassword(user, pass)
+	} else {
+		workflow, ok := azureFedAuth[azure.Mode]
+		if !ok {
+			return nil, fmt.Errorf("unsupported azureAuth mode %q", azure.Mode)
+		}
+		driverName = azuread.DriverName
+		query.Add("fedauth", workflow)
+		// The driver reads the client id, and optionally its tenant, from
+		// 'user id' in clientID@tenantID form.
+		if azure.ClientID != "" {
+			userID := azure.ClientID
+			if azure.TenantID != "" {
+				userID = fmt.Sprintf("%s@%s", azure.ClientID, azure.TenantID)
+			}
+			query.Add("user id", userID)
+		}
+		if azure.DisableInstanceDiscovery {
+			query.Add("disableinstancediscovery", "true")
+		}
+		if len(azure.AdditionallyAllowedTenants) > 0 {
+			query.Add("additionallyallowedtenants", strings.Join(azure.AdditionallyAllowedTenants, ","))
+		}
+		// A service principal authenticates with a client secret, which the driver
+		// reads from 'password'.
+		if pass != "" {
+			query.Add("password", pass)
+		}
+	}
+
 	url := &url.URL{
 		Scheme:   "sqlserver",
-		User:     url.UserPassword(user, pass),
+		User:     userInfo,
 		Host:     fmt.Sprintf("%s:%s", host, port),
 		RawQuery: query.Encode(),
 	}
 
 	// Open database connection
-	db, err := sql.Open("sqlserver", url.String())
+	db, err := sql.Open(driverName, url.String())
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open: %w", err)
 	}
