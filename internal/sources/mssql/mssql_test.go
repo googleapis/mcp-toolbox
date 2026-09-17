@@ -142,6 +142,37 @@ func TestParseFromYamlMssql(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "authenticating as the caller, with an on-behalf-of exchange",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			useClientOAuth: "true"
+			azureOnBehalfOf:
+			  clientId: my-client-id
+			  clientSecret: my-client-secret
+			  tenantId: my-tenant-id
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mssql-instance": mssql.Config{
+					Name:           "my-mssql-instance",
+					Type:           mssql.SourceType,
+					Host:           "my-server.database.windows.net",
+					Port:           "1433",
+					Database:       "my_db",
+					UseClientOAuth: "true",
+					AzureOnBehalfOf: &mssql.AzureOnBehalfOfConfig{
+						ClientID:     "my-client-id",
+						ClientSecret: "my-client-secret",
+						TenantID:     "my-tenant-id",
+					},
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -188,7 +219,7 @@ func TestFailParseFromYaml(t *testing.T) {
 			database: my_db
 			user: my_user
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required_without' tag",
+			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required_without_all' tag",
 		},
 		{
 			desc: "entra id tenant without a client id",
@@ -264,6 +295,11 @@ func TestInitializeRejectsMixedIdentity(t *testing.T) {
 			desc:    "a service principal without its client secret",
 			cfg:     mssql.Config{AzureAuth: &mssql.AzureAuthConfig{Mode: "service-principal", ClientID: "11111111-1111-1111-1111-111111111111"}},
 			wantErr: "needs the client secret in 'password'",
+		},
+		{
+			desc:    "an on-behalf-of block without useClientOAuth",
+			cfg:     mssql.Config{User: "my_user", Password: "my_pass", AzureOnBehalfOf: &mssql.AzureOnBehalfOfConfig{ClientID: "c", ClientSecret: "s", TenantID: "t"}},
+			wantErr: "needs useClientOAuth",
 		},
 	}
 	for _, tc := range tcs {
