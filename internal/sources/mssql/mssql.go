@@ -65,8 +65,10 @@ type AzureAuthConfig struct {
 	Mode string `yaml:"mode" validate:"required,oneof=default workload-identity managed-identity service-principal"`
 	// ClientID identifies the credential to use, and is required when a host maps to
 	// more than one identity — a pod with several user-assigned managed identities,
-	// for instance — so the credential is not left to be guessed.
-	ClientID string `yaml:"clientId"`
+	// for instance — so the credential is not left to be guessed. The driver only
+	// reads a tenant alongside a client id, so one without the other is refused
+	// rather than silently dropped; a service principal always needs one.
+	ClientID string `yaml:"clientId" validate:"required_with=TenantID,required_if=Mode service-principal"`
 	// TenantID is needed where the tenant cannot be inferred from the server.
 	TenantID string `yaml:"tenantId"`
 	// DisableInstanceDiscovery skips the authority metadata request, which
@@ -100,6 +102,19 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	if r.AzureAuth != nil {
+		// The identity is the Entra credential, so a SQL user has no meaning here
+		// and is refused rather than silently ignored.
+		if r.User != "" {
+			return nil, fmt.Errorf("azureAuth authenticates with an Entra identity, so 'user' must not be set")
+		}
+		// The driver reads a service principal's client secret from 'password';
+		// without it the failure would surface as a login error at connect time.
+		if r.AzureAuth.Mode == "service-principal" && r.Password == "" {
+			return nil, fmt.Errorf("azureAuth mode service-principal needs the client secret in 'password'")
+		}
+	}
+
 	// Initializes a MSSQL source
 	db, err := initMssqlConnection(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.Encrypt, r.AzureAuth)
 	if err != nil {
@@ -242,8 +257,8 @@ func initMssqlConnection(
 			query.Add("additionallyallowedtenants", strings.Join(azure.AdditionallyAllowedTenants, ","))
 		}
 		// A service principal authenticates with a client secret, which the driver
-		// reads from 'password'.
-		if pass != "" {
+		// reads from 'password'. No other mode uses it, so it is not sent otherwise.
+		if azure.Mode == "service-principal" {
 			query.Add("password", pass)
 		}
 	}
