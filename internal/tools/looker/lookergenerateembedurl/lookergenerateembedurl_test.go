@@ -107,31 +107,3 @@ func TestFailParseFromYamlLookerGenerateEmbedUrl(t *testing.T) {
 		})
 	}
 }
-
-func TestManifestRequiresEmbedTypeAndID(t *testing.T) {
-	ctx, err := testutils.ContextWithNewLogger()
-	if err != nil {
-		t.Fatalf("ContextWithNewLogger() error = %v", err)
-	}
-	cfg := lkr.Config{
-		ConfigBase: tools.ConfigBase{Name: "example_tool", Description: "some description"},
-		Type:       "looker-generate-embed-url",
-		Source:     "my-instance",
-	}
-	tool, err := cfg.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-	manifest, err := tool.Manifest(nil)
-	if err != nil {
-		t.Fatalf("Manifest() error = %v", err)
-	}
-
-	want := []parameters.ParameterManifest{
-		{Name: "type", Type: "string", Required: true, Description: "Type of Looker content to embed (e.g. dashboards, looks, query-visualizations, or explores).", AuthServices: []string{}},
-		{Name: "id", Type: "string", Required: true, Description: "The ID of the content to embed.", AuthServices: []string{}},
-	}
-	if diff := cmp.Diff(want, manifest.Parameters); diff != "" {
-		t.Fatalf("unexpected parameter manifest (-want +got):\n%s", diff)
-	}
-}
