@@ -36,7 +36,7 @@ func init() {
 }
 
 type compatibleSource interface {
-	OceanBasePool() *sql.DB
+	OceanBasePoolContext(context.Context) (*sql.DB, error)
 	RunSQL(context.Context, string, []any) (any, error)
 }
 
