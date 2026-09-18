@@ -15,10 +15,12 @@
 kind: source
 name: oracle-source
 type: oracle
-connectionString: ${ORACLE_CONNECTION_STRING}
+connectionString: ${ORACLE_CONNECTION_STRING:}
+tnsAlias: ${ORACLE_TNS_ALIAS:}
+tnsAdmin: ${ORACLE_TNS_ADMIN:}
 walletLocation: ${ORACLE_WALLET:}
-user: ${ORACLE_USERNAME}
-password: ${ORACLE_PASSWORD}
+user: ${ORACLE_USERNAME:}
+password: ${ORACLE_PASSWORD:}
 useOCI: ${ORACLE_USE_OCI:false}
 ---
 kind: tool
@@ -40,7 +42,7 @@ statement: |
         t.last_analyzed
   FROM  user_tables t
   LEFT JOIN user_segments s ON t.table_name = s.segment_name AND s.segment_type IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION')
-  WHERE (:1 IS NULL OR INSTR(',' || :1 || ',', ',' || t.table_name || ',') > 0)
+  WHERE INSTR(',' || NVL(:1, t.table_name) || ',', ',' || t.table_name || ',') > 0
   GROUP BY t.table_name, t.num_rows, t.last_analyzed
 parameters:
 - name: table_names_csv
