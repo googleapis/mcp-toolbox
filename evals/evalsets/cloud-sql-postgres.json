@@ -3,18 +3,18 @@
     {
       "id": "cloudsqlpg-data-01",
       "starting_prompt": "Give me an inventory of the ${CLOUD_SQL_POSTGRES_DATABASE} database: which schemas exist, and what user tables live in each one.",
-      "conversation_plan": "The user wants a schema-then-table inventory. Accept a short summary and end the conversation.",
+      "conversation_plan": "The user wants a schema-then-table inventory. Accept a short summary and end the conversation. Success Criteria: the assistant lists schemas using list_schemas and retrieves table inventory using list_tables. Failure Criteria: the assistant guesses schema or table names without calling list_schemas and list_tables.",
       "expected_trajectory": [
         "toolbox__list_schemas",
         "toolbox__list_tables"
       ],
       "kind": "tools",
-      "max_turns": 1
+      "max_turns": 2
     },
     {
       "id": "cloudsqlpg-monitor-01",
       "starting_prompt": "Something is slow on this instance right now. What queries are currently running?",
-      "conversation_plan": "Turn 2: ask whether anything is blocked waiting on locks. Turn 3: ask whether any transaction has been open for an unusually long time. Then end the conversation.",
+      "conversation_plan": "Turn 2: ask whether anything is blocked waiting on locks. Turn 3: ask whether any transaction has been open for an unusually long time. Then end the conversation. Success Criteria: the assistant checks active queries using list_active_queries, checks lock contention using list_locks, and inspects long-running transactions using long_running_transactions. Failure Criteria: the assistant skips any of the three diagnostic tools or fabricates active session state.",
       "expected_trajectory": [
         "toolbox__list_active_queries",
         "toolbox__list_locks",
@@ -26,12 +26,48 @@
     {
       "id": "cloudsqlpg-monitor-02",
       "starting_prompt": "Show me the plan the Postgres optimizer would choose for: select relname, relpages from pg_class order by relpages desc limit 10. Do not actually run the query.",
-      "conversation_plan": "The user wants an EXPLAIN plan without execution. Accept the plan and end the conversation.",
+      "conversation_plan": "The user wants an EXPLAIN plan without execution. Accept the plan and end the conversation. Success Criteria: the assistant generates an EXPLAIN plan using get_query_plan without executing the query via execute_sql. Failure Criteria: the assistant executes the query directly or fabricates an execution plan without calling get_query_plan.",
       "expected_trajectory": [
         "toolbox__get_query_plan"
       ],
       "kind": "tools",
       "max_turns": 1
+    },
+    {
+      "id": "cloudsqlpg-data-02",
+      "starting_prompt": "We are conducting a health check on the ${CLOUD_SQL_POSTGRES_DATABASE} database. Can you check for table bloat to see if any tables are wasting storage with dead tuples?",
+      "conversation_plan": "Turn 2: The user reviews bloated tables and asks if there are any invalid or corrupt indexes on the database that need rebuilding. Turn 3: User asks for autovacuum configuration details to understand maintenance frequency. Once reported, end the conversation. Success Criteria: the assistant queries table bloat using list_top_bloated_tables, checks index validity using list_invalid_indexes, and retrieves autovacuum settings using list_autovacuum_configurations. Failure Criteria: the assistant guesses health metrics or autovacuum settings without calling the respective tools.",
+      "expected_trajectory": [
+        "toolbox__list_top_bloated_tables",
+        "toolbox__list_invalid_indexes",
+        "toolbox__list_autovacuum_configurations"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlpg-data-03",
+      "starting_prompt": "We want to install extensions on ${CLOUD_SQL_POSTGRES_DATABASE} for AI workloads. What extensions are available on this server, and which ones are currently installed?",
+      "conversation_plan": "Turn 2: The user notes the extension list and asks what the current memory configurations (such as shared_buffers and work_mem) are set to. Once memory settings are reported, end the conversation. Success Criteria: the assistant inspects available and installed extensions using list_available_extensions and list_installed_extensions, and queries memory settings using list_memory_configurations. Failure Criteria: the assistant fabricates extension availability or memory settings without calling the tools.",
+      "expected_trajectory": [
+        "toolbox__list_available_extensions",
+        "toolbox__list_installed_extensions",
+        "toolbox__list_memory_configurations"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "cloudsqlpg-data-04",
+      "starting_prompt": "We are auditing replication health and database roles on ${CLOUD_SQL_POSTGRES_DATABASE}. Are there any active replicas or replication slots retaining WAL on this server?",
+      "conversation_plan": "Turn 2: The user reviews the replication status and asks to list all database roles and their attributes to complete the security audit. Once roles are reported, end the conversation. Success Criteria: the assistant checks replica lag using replication_stats, inspects replication slots using list_replication_slots, and lists database roles using list_roles. Failure Criteria: the assistant guesses replication state or role permissions without calling the respective tools.",
+      "expected_trajectory": [
+        "toolbox__replication_stats",
+        "toolbox__list_replication_slots",
+        "toolbox__list_roles"
+      ],
+      "kind": "tools",
+      "max_turns": 2
     }
   ]
 }
