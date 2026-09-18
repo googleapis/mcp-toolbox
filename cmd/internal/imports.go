@@ -274,6 +274,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboards"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdimensions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplores"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplore"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfieldvaluesuggestions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfilters"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetgitbranch"
