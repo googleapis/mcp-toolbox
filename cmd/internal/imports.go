@@ -190,6 +190,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cockroachdb/cockroachdblisttables"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cockroachdb/cockroachdbsql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/conversationalanalytics/conversationalanalyticsaskdataagent"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/conversationalanalytics/conversationalanalyticscreatedataagent"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/conversationalanalytics/conversationalanalyticsgetdataagentinfo"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/conversationalanalytics/conversationalanalyticslistaccessibledataagents"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/couchbase"
