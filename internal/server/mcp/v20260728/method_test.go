@@ -399,7 +399,7 @@ func TestServerDiscoverHandler(t *testing.T) {
 					t.Fatalf("unexpected error during marshaling")
 				}
 			}
-			got, err := serverDiscoverHandler(tt.context, dummyID, body, tt.header)
+			got, err := serverDiscoverHandler(tt.context, dummyID, "", body, tt.header)
 
 			if tt.wantErr {
 				if err == nil {

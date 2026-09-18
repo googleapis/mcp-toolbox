@@ -22,6 +22,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -246,6 +248,109 @@ func TestCheckVersion(t *testing.T) {
 			}
 			if !strings.Contains(output, tc.wantInfoLog) {
 				t.Errorf("expected info log containing %q, but got: %s", tc.wantInfoLog, output)
+			}
+		})
+	}
+}
+
+func TestDefaultGroupInstructions(t *testing.T) {
+	t.Setenv("BIGQUERY_PROJECT", "mock-project")
+	t.Setenv("POSTGRES_HOST", "localhost")
+	t.Setenv("POSTGRES_PORT", "5432")
+	t.Setenv("POSTGRES_DATABASE", "mock")
+	t.Setenv("POSTGRES_USER", "mock")
+	t.Setenv("POSTGRES_PASSWORD", "mock")
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	tests := []struct {
+		desc            string
+		prebuiltConfigs []string
+		customContent   string
+		wantInstruction bool
+		wantDescription string
+	}{
+		{
+			desc:            "single prebuilt with group description inherits instructions",
+			prebuiltConfigs: []string{"bigquery/data"},
+			wantInstruction: true,
+			wantDescription: "Use these skills when you need to handle large-scale data exploration",
+		},
+		{
+			desc:            "single prebuilt with legacy toolset (no description) does not set instructions",
+			prebuiltConfigs: []string{"postgres/data"},
+			wantInstruction: false,
+		},
+		{
+			desc:            "prebuilt source with multiple toolsets does not set instructions",
+			prebuiltConfigs: []string{"bigquery"},
+			wantInstruction: false,
+		},
+		{
+			desc:            "multiple prebuilt configs does not set instructions",
+			prebuiltConfigs: []string{"postgres/health", "bigquery/data"},
+			wantInstruction: false,
+		},
+		{
+			desc:            "prebuilt toolset with custom config (no default group) suppresses instructions",
+			prebuiltConfigs: []string{"bigquery/data"},
+			customContent: `
+kind: tool
+name: custom_tool
+type: bigquery-sql
+source: bigquery-source
+statement: "SELECT 1;"
+description: "A custom tool"
+`,
+			wantInstruction: false,
+		},
+		{
+			desc:            "prebuilt toolset with custom default group preserves custom instructions",
+			prebuiltConfigs: []string{"bigquery/data"},
+			customContent: `
+kind: group
+description: "Explicit custom server instructions"
+`,
+			wantInstruction: true,
+			wantDescription: "Explicit custom server instructions",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			opts := &ToolboxOptions{
+				PrebuiltConfigs: tt.prebuiltConfigs,
+			}
+
+			if tt.customContent != "" {
+				customPath := filepath.Join(t.TempDir(), "custom.yaml")
+				if err := os.WriteFile(customPath, []byte(tt.customContent), 0644); err != nil {
+					t.Fatalf("failed to write custom config: %v", err)
+				}
+				opts.Configs = []string{customPath}
+			}
+
+			parser := &ConfigParser{}
+			_, err := opts.LoadConfig(ctx, parser)
+			if err != nil {
+				t.Fatalf("unexpected error loading config: %v", err)
+			}
+
+			defaultGroup, exists := opts.Cfg.GroupConfigs[""]
+			if tt.wantInstruction {
+				if !exists || defaultGroup.Description == "" {
+					t.Fatalf("expected default group with description, got %v", defaultGroup)
+				}
+				if !strings.Contains(defaultGroup.Description, tt.wantDescription) {
+					t.Errorf("expected description to contain %q, got %q", tt.wantDescription, defaultGroup.Description)
+				}
+			} else {
+				if exists && defaultGroup.Description != "" {
+					t.Errorf("expected no default group instructions, got %q", defaultGroup.Description)
+				}
 			}
 		})
 	}

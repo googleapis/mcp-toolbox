@@ -2637,3 +2637,132 @@ func TestMcpScopingByGroup(t *testing.T) {
 		})
 	}
 }
+
+func TestMcpServerInstructions(t *testing.T) {
+	const testInstructions = "Guidelines for using server tools."
+	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
+
+	// setup server with default group instructions
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	defaultGroup := groups[""]
+	defaultGroup.Description = testInstructions
+	groups[""] = defaultGroup
+
+	r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups, withEnableDraftSpecs())
+	defer shutdown()
+	ts := runServer(r, false)
+	defer ts.Close()
+
+	// setup server without default group instructions (empty fallback)
+	plainTools, plainPrompts, plainRes, plainTmpl, plainGroups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	rPlain, shutdownPlain := setUpServer(t, "mcp", plainTools, plainPrompts, plainRes, plainTmpl, plainGroups, withEnableDraftSpecs())
+	defer shutdownPlain()
+	tsPlain := runServer(rPlain, false)
+	defer tsPlain.Close()
+
+	// pre-2026 protocol versions (initialize)
+	initVersions := []string{protocolVersion20241105, protocolVersion20250326, protocolVersion20250618, protocolVersion20251125}
+	for _, pv := range initVersions {
+		t.Run("initialize "+pv, func(t *testing.T) {
+			initBody := map[string]any{
+				"jsonrpc": jsonrpcVersion,
+				"id":      "mcp-init",
+				"method":  "initialize",
+				"params":  map[string]any{"protocolVersion": pv},
+			}
+			reqBytes, _ := json.Marshal(initBody)
+
+			// With instructions
+			_, respBody, err := runRequest(ts, http.MethodPost, "/", bytes.NewBuffer(reqBytes), nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var res map[string]any
+			if err := json.Unmarshal(respBody, &res); err != nil {
+				t.Fatalf("unexpected error unmarshalling response: %v", err)
+			}
+			resultMap, ok := res["result"].(map[string]any)
+			if !ok {
+				t.Fatalf("unexpected error: failed to assert result type, full response: %v", res)
+			}
+			if got, ok := resultMap["instructions"]; !ok || got != testInstructions {
+				t.Errorf("expected instructions %q, got %v", testInstructions, got)
+			}
+
+			// Without instructions (must be omitted via omitempty)
+			_, plainResp, err := runRequest(tsPlain, http.MethodPost, "/", bytes.NewBuffer(reqBytes), nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			var plainResMap map[string]any
+			if err := json.Unmarshal(plainResp, &plainResMap); err != nil {
+				t.Fatalf("unexpected error unmarshalling response: %v", err)
+			}
+			plainResult, ok := plainResMap["result"].(map[string]any)
+			if !ok {
+				t.Fatalf("unexpected error: failed to assert result type, full response: %v", plainResMap)
+			}
+			if _, exists := plainResult["instructions"]; exists {
+				t.Errorf("expected instructions to be omitted, got %v", plainResult["instructions"])
+			}
+		})
+	}
+
+	// 2026-07-28 protocol version (server/discover)
+	t.Run("server/discover 2026-07-28", func(t *testing.T) {
+		discoverBody := map[string]any{
+			"jsonrpc": jsonrpcVersion,
+			"id":      "discover-req",
+			"method":  "server/discover",
+			"params": map[string]any{
+				"_meta": map[string]any{
+					"io.modelcontextprotocol/protocolVersion": protocolVersion20260728,
+					"io.modelcontextprotocol/clientInfo": map[string]any{
+						"version": "1.0",
+						"name":    "test-client",
+					},
+					"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+				},
+			},
+		}
+		reqBytes, _ := json.Marshal(discoverBody)
+		header := map[string]string{
+			"Mcp-Protocol-Version": protocolVersion20260728,
+			"Mcp-Method":           "server/discover",
+		}
+
+		// with instructions
+		_, respBody, err := runRequest(ts, http.MethodPost, "/", bytes.NewBuffer(reqBytes), header)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var res map[string]any
+		if err := json.Unmarshal(respBody, &res); err != nil {
+			t.Fatalf("unexpected error unmarshalling body: %v", err)
+		}
+		resultMap, ok := res["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("unexpected error: failed to assert result type, full response: %v", res)
+		}
+		if got, ok := resultMap["instructions"]; !ok || got != testInstructions {
+			t.Errorf("expected instructions %q, got %v", testInstructions, got)
+		}
+
+		// without instructions
+		_, plainResp, err := runRequest(tsPlain, http.MethodPost, "/", bytes.NewBuffer(reqBytes), header)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var plainResMap map[string]any
+		if err := json.Unmarshal(plainResp, &plainResMap); err != nil {
+			t.Fatalf("unexpected error unmarshalling response: %v", err)
+		}
+		plainResult, ok := plainResMap["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("unexpected error: failed to assert result type, full response: %v", plainResMap)
+		}
+		if _, exists := plainResult["instructions"]; exists {
+			t.Errorf("expected instructions to be omitted, got %v", plainResult["instructions"])
+		}
+	})
+}

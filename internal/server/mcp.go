@@ -844,7 +844,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 			version = mcputil.GetLatestSupportedVersion(s.enableDraftSpecs)
 		}
 
-		result, err := mcp.ProcessMethod(ctx, version, baseMessage.Id, baseMessage.Method, group.Group{}, nil, body, nil)
+		result, err := mcp.ProcessMethod(ctx, version, baseMessage.Id, baseMessage.Method, group.Group{}, s.serverInstructions(), nil, body, nil)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			if rpcErr, ok := result.(jsonrpc.JSONRPCError); ok {
@@ -867,7 +867,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 			span.SetAttributes(attribute.String("error.type", metricErrorType))
 			return "", rpcErr, err
 		}
-		result, err := mcp.ProcessMethod(ctx, protocolVersion, baseMessage.Id, baseMessage.Method, g, s.PrimitiveMgr, body, header)
+		result, err := mcp.ProcessMethod(ctx, protocolVersion, baseMessage.Id, baseMessage.Method, g, s.serverInstructions(), s.PrimitiveMgr, body, header)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			// Set error.type based on JSON-RPC error code
@@ -912,4 +912,14 @@ func prmHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		s.logger.ErrorContext(r.Context(), fmt.Sprintf("Failed to encode PRM response: %v", err))
 		http.Error(w, "Failed to encode PRM response", http.StatusInternalServerError)
 	}
+}
+
+// Helper to retrieve instructions from the default group if set
+func (s *Server) serverInstructions() string {
+	if s.PrimitiveMgr != nil {
+		if g, ok := s.PrimitiveMgr.GetGroup(""); ok {
+			return g.Description
+		}
+	}
+	return ""
 }
