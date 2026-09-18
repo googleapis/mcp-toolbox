@@ -2386,7 +2386,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"looker_conversational_analytics_tools": group.GroupConfig{
 					Name:      "looker_conversational_analytics_tools",
-					ToolNames: []string{"ask_data_insights", "get_models", "get_explores"},
+					ToolNames: []string{"ask_data_insights", "get_models", "get_explores", "create_agent", "delete_agent", "get_agent", "list_agents", "update_agent", "create_conversation", "delete_conversation", "get_conversation", "update_conversation", "list_conversations", "create_conversation_message", "list_conversation_messages", "delete_conversation_message", "get_conversation_message", "update_conversation_message", "conversational_analytics_chat"},
 				},
 			},
 		},
