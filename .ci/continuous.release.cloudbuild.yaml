@@ -34,7 +34,7 @@ steps:
         go get -d ./...
 
   - id: "install-zig"
-    name: golang:1
+    name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ['-']
     volumes:
       - name: 'zig'
@@ -43,7 +43,11 @@ steps:
         #!/usr/bin/env bash
         set -e
         apt-get update && apt-get install -y xz-utils
-        curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz
+        echo "Downloading Zig..."
+        gcloud storage cp gs://${_ASSETS_BUCKET}/zig/zig.tar.xz zig.tar.xz
+
+        mkdir -p /zig-tools
+        echo "Unpacking Zig..."
         tar -xf zig.tar.xz -C /zig-tools --strip-components=1
 
   - id: "install-macos-sdk"
