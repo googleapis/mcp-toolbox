@@ -314,6 +314,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbfindone"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbinsertmany"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbinsertone"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodblistcollections"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbupdatemany"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbupdateone"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlexecutesql"

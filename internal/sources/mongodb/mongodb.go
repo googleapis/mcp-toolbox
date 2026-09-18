@@ -101,6 +101,10 @@ func (s *Source) MongoClient() *mongo.Client {
 	return s.Client
 }
 
+func (s *Source) ListCollections(ctx context.Context, database string) ([]string, error) {
+	return s.MongoClient().Database(database).ListCollectionNames(ctx, bson.D{})
+}
+
 func parseData(ctx context.Context, cur *mongo.Cursor) ([]any, error) {
 	var data = []any{}
 	err := cur.All(ctx, &data)
