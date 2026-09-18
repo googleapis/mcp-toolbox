@@ -79,4 +79,6 @@ func ServeFlags(flags *pflag.FlagSet, opts *ToolboxOptions) {
 	flags.BoolVar(&opts.Cfg.EnableDraftSpecs, "enable-draft-specs", false, "Opt-in and test upcoming draft MCP specifications.")
 	flags.StringSliceVar(&opts.Cfg.DisableExt, "disable-ext", []string{}, "Specifies MCP extension URIs disabled on this server.")
 	flags.StringVar(&opts.Cfg.OpenAIAppsChallengeFile, "openai-apps-challenge-file", "", "Path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.")
+	flags.IntVar(&opts.Cfg.MaxRows, "max-rows", 0, "Default cap on the number of rows a tool result may contain. 0 means uncapped. Overridden per tool by the maxRows field.")
+	flags.IntVar(&opts.Cfg.MaxResponseBytes, "max-response-bytes", 0, "Default cap on the serialized size of a tool result, in bytes. 0 means uncapped. Overridden per tool by the maxResponseBytes field.")
 }

@@ -27,7 +27,9 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
 // Dummy JSONRPC ID for testing
@@ -984,4 +986,110 @@ func TestGetResourceOrTemplateByURI(t *testing.T) {
 			t.Fatal("expected error for unknown URI")
 		}
 	})
+}
+
+// TestToolsCallHandlerResultCaps covers the precedence between a tool's
+// declared caps and the server-wide defaults carried on the context: a
+// declared cap wins, an omitted one inherits the default, and a declared 0
+// opts out of a default the server did set.
+func TestToolsCallHandlerResultCaps(t *testing.T) {
+	intPtr := func(i int) *int { return &i }
+
+	tcs := []struct {
+		name string
+		// MockTool.Invoke returns []any{name}; a 1-byte budget drops that row.
+		toolMaxResponseBytes *int
+		serverMaxRows        int
+		serverBytes          int
+		wantTruncated        bool
+	}{
+		{
+			name:                 "tool cap applies with no server default",
+			toolMaxResponseBytes: intPtr(1),
+			wantTruncated:        true,
+		},
+		{
+			name:          "server default applies to a tool that declares nothing",
+			serverBytes:   1,
+			wantTruncated: true,
+		},
+		{
+			name:                 "explicit zero opts out of the server default",
+			toolMaxResponseBytes: intPtr(0),
+			serverBytes:          1,
+			wantTruncated:        false,
+		},
+		{
+			name:          "uncapped by default",
+			wantTruncated: false,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			testLogger, err := log.NewStdLogger(os.Stdout, os.Stderr, "info")
+			if err != nil {
+				t.Fatalf("unable to initialize logger: %s", err)
+			}
+			ctxLogger := util.WithLogger(ctx, testLogger)
+
+			cappedCfg := testutils.MockToolConfig{
+				ConfigBase: tools.ConfigBase{Name: "capped_tool", MaxResponseBytes: tc.toolMaxResponseBytes},
+				Type:       "mock-tool",
+				Parameters: parameters.Parameters{},
+			}
+			capped, err := cappedCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("unable to initialize capped mock tool: %s", err)
+			}
+			toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, []testutils.MockTool{capped.(testutils.MockTool), testutils.MockTool1}, nil, nil, nil)
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
+			primitiveMgr.SetResultCaps(tc.serverMaxRows, tc.serverBytes)
+
+			body, err := json.Marshal(CallToolRequest{
+				Request: jsonrpc.Request{Method: TOOLS_CALL},
+				Params: struct {
+					Name      string         `json:"name"`
+					Arguments map[string]any `json:"arguments,omitempty"`
+				}{Name: "capped_tool"},
+			})
+			if err != nil {
+				t.Fatalf("unexpected error during marshaling: %v", err)
+			}
+
+			got, err := toolsCallHandler(ctxLogger, dummyID, mustGroup(t, primitiveMgr), primitiveMgr, body, nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			resp, ok := got.(jsonrpc.JSONRPCResponse)
+			if !ok {
+				t.Fatalf("unexpected response type %T", got)
+			}
+			result, ok := resp.Result.(CallToolResult)
+			if !ok {
+				t.Fatalf("unexpected result type %T", resp.Result)
+			}
+
+			var notice string
+			for _, c := range result.Content {
+				if strings.Contains(c.Text, `"truncation"`) {
+					notice = c.Text
+				}
+			}
+			if !tc.wantTruncated {
+				if notice != "" {
+					t.Fatalf("expected no truncation notice, got %q", notice)
+				}
+				return
+			}
+			if notice == "" {
+				t.Fatalf("expected a truncation notice, got content %v", result.Content)
+			}
+			if !strings.Contains(notice, `"truncated":true`) {
+				t.Errorf("expected structured truncation notice, got %q", notice)
+			}
+		})
+	}
 }

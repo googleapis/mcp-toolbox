@@ -139,6 +139,8 @@ type Tool interface {
 	GetAuthTokenHeaderName(sources.Source) (string, error)
 	GetParameters(sources.Source) (parameters.Parameters, error)
 	GetScopesRequired() []string
+	GetMaxRows() *int
+	GetMaxResponseBytes() *int
 	ValidateSource(sources.Source) error
 	HasSecureParams() bool
 }
@@ -180,6 +182,8 @@ type ToolMeta interface {
 	GetAuthRequired() []string
 	GetScopesRequired() []string
 	GetToolUIMetadata() *ToolUIMetadata
+	GetMaxRows() *int
+	GetMaxResponseBytes() *int
 }
 
 // ToolVisibility defines the visibility of a tool in the UI.
@@ -207,6 +211,14 @@ type ConfigBase struct {
 	AuthRequired   []string        `yaml:"authRequired"`
 	ScopesRequired []string        `yaml:"scopesRequired"`
 	UI             *ToolUIMetadata `yaml:"ui,omitempty"`
+	// MaxRows caps how many elements of a list-shaped result are returned;
+	// MaxResponseBytes caps the serialized size of the returned result.
+	// Both are pointers so an omitted field ("inherit the server-wide
+	// default") stays distinguishable from an explicit 0 ("uncapped, even if
+	// the server sets a default"). Truncation is reported to the caller
+	// through a structured notice (see CapResult).
+	MaxRows          *int `yaml:"maxRows"          validate:"omitempty,gte=0"`
+	MaxResponseBytes *int `yaml:"maxResponseBytes" validate:"omitempty,gte=0"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
@@ -224,6 +236,8 @@ func (c ConfigBase) GetToolUIMetadata() *ToolUIMetadata {
 	}
 	return c.UI
 }
+func (c ConfigBase) GetMaxRows() *int          { return c.MaxRows }
+func (c ConfigBase) GetMaxResponseBytes() *int { return c.MaxResponseBytes }
 
 // BaseTool provides default implementations of various methods on the Tool
 // interface. Tools embed BaseTool to drop their boilerplate and override
@@ -261,6 +275,8 @@ func (b BaseTool[T]) GetDescription() string                           { return 
 func (b BaseTool[T]) GetAuthRequired() []string                        { return b.Cfg.GetAuthRequired() }
 func (b BaseTool[T]) HasSecureParams() bool                            { return b.hasSecureParams }
 func (b BaseTool[T]) GetScopesRequired() []string                      { return b.Cfg.GetScopesRequired() }
+func (b BaseTool[T]) GetMaxRows() *int                                 { return b.Cfg.GetMaxRows() }
+func (b BaseTool[T]) GetMaxResponseBytes() *int                        { return b.Cfg.GetMaxResponseBytes() }
 func (b BaseTool[T]) GetAnnotations(_ sources.Source) *ToolAnnotations { return b.annotations }
 
 // Manifest returns the precomputed metadata. It and GetParameters stay trivial
