@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/googleapis/mcp-toolbox/compare/v1.12.0...v1.13.0) (2026-09-18)
+
+
+### Features
+
+* **bigtable:** Add prebuilt config for bigtable ([#4068](https://github.com/googleapis/mcp-toolbox/issues/4068)) ([576b9f7](https://github.com/googleapis/mcp-toolbox/commit/576b9f74f93a7564dcaaf6d6c06d799b8de3fb1d))
+
 ## [1.12.0](https://github.com/googleapis/mcp-toolbox/compare/v1.11.0...v1.12.0) (2026-09-17)
 
 
