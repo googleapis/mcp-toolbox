@@ -58,6 +58,7 @@ type compatibleSource interface {
 	BigQuerySession() bigqueryds.BigQuerySessionProvider
 	RetrieveClientAndService(tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error)
 	RunSQL(context.Context, *bigqueryapi.Client, string, string, []bigqueryapi.QueryParameter, []*bigqueryapi.ConnectionProperty, map[string]string) (any, error)
+	AppendJobLabels(context.Context, map[string]string) map[string]string
 }
 
 type Config struct {
@@ -219,7 +220,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	)
 
 	createModelQuery := bqClient.Query(createModelSQL)
-	createModelQuery.Labels = map[string]string{"mcp-toolbox-tool": resourceType}
+	createModelQuery.Labels = source.AppendJobLabels(ctx, map[string]string{"mcp-toolbox-tool": resourceType})
 
 	// Get session from provider if in protected mode.
 	// Otherwise, a new session will be created by the first query.
