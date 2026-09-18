@@ -80,66 +80,90 @@ func (c Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	var service *healthcare.Service
-	var serviceCreator HealthcareServiceCreator
-	var tokenSource oauth2.TokenSource
-
-	svc, tok, err := initHealthcareConnection(ctx, tracer, c.Name)
-	if err != nil {
-		return nil, fmt.Errorf("error creating service from ADC: %w", err)
-	}
-	if c.UseClientOAuth {
-		serviceCreator, err = newHealthcareServiceCreator(ctx, tracer, c.Name)
-		if err != nil {
-			return nil, fmt.Errorf("error constructing service creator: %w", err)
-		}
-	} else {
-		service = svc
-		tokenSource = tok
-	}
-
-	dsName := fmt.Sprintf("projects/%s/locations/%s/datasets/%s", c.Project, c.Region, c.Dataset)
-	if _, err = svc.Projects.Locations.Datasets.FhirStores.Get(dsName).Do(); err != nil {
-		if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
-			return nil, fmt.Errorf("dataset '%s' not found", dsName)
-		}
-		return nil, fmt.Errorf("failed to verify existence of dataset '%s': %w", dsName, err)
-	}
-
-	allowedFHIRStores := make(map[string]struct{})
+func (c Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	// The allow lists are config, so tool schemas can read them without connecting; verifying the stores exist stays in the connect.
+	allowedFHIRStores := make(map[string]struct{}, len(c.AllowedFHIRStores))
 	for _, store := range c.AllowedFHIRStores {
-		name := fmt.Sprintf("%s/fhirStores/%s", dsName, store)
-		_, err := svc.Projects.Locations.Datasets.FhirStores.Get(name).Do()
-		if err != nil {
-			if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
-				return nil, fmt.Errorf("allowedFhirStore '%s' not found in dataset '%s'", store, dsName)
-			}
-			return nil, fmt.Errorf("failed to verify allowedFhirStore '%s' in datasest '%s': %w", store, dsName, err)
-		}
 		allowedFHIRStores[store] = struct{}{}
 	}
-	allowedDICOMStores := make(map[string]struct{})
+	allowedDICOMStores := make(map[string]struct{}, len(c.AllowedDICOMStores))
 	for _, store := range c.AllowedDICOMStores {
-		name := fmt.Sprintf("%s/dicomStores/%s", dsName, store)
-		_, err := svc.Projects.Locations.Datasets.DicomStores.Get(name).Do()
-		if err != nil {
-			if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
-				return nil, fmt.Errorf("allowedDicomStore '%s' not found in dataset '%s'", store, dsName)
-			}
-			return nil, fmt.Errorf("failed to verify allowedDicomFhirStore '%s' in datasest '%s': %w", store, dsName, err)
-		}
 		allowedDICOMStores[store] = struct{}{}
 	}
 	s := &Source{
 		Config:             c,
-		service:            service,
-		serviceCreator:     serviceCreator,
-		tokenSource:        tokenSource,
+		conn:               sources.NewConnectOnce[*clientSet](ctx, c.Name, SourceType, tracer),
 		allowedFHIRStores:  allowedFHIRStores,
 		allowedDICOMStores: allowedDICOMStores,
 	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.clients(ctx); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+type clientSet struct {
+	service        *healthcare.Service
+	serviceCreator HealthcareServiceCreator
+	tokenSource    oauth2.TokenSource
+}
+
+func (s *Source) clients(ctx context.Context) (*clientSet, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
+		c := s.Config
+
+		var service *healthcare.Service
+		var serviceCreator HealthcareServiceCreator
+		var tokenSource oauth2.TokenSource
+
+		svc, tok, err := initHealthcareConnection(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error creating service from ADC: %w", err)
+		}
+		if c.UseClientOAuth {
+			serviceCreator, err = newHealthcareServiceCreator(ctx, s.conn.Tracer(), c.Name)
+			if err != nil {
+				return nil, fmt.Errorf("error constructing service creator: %w", err)
+			}
+		} else {
+			service = svc
+			tokenSource = tok
+		}
+
+		dsName := fmt.Sprintf("projects/%s/locations/%s/datasets/%s", c.Project, c.Region, c.Dataset)
+		if _, err = svc.Projects.Locations.Datasets.FhirStores.Get(dsName).Do(); err != nil {
+			if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
+				return nil, fmt.Errorf("dataset '%s' not found", dsName)
+			}
+			return nil, fmt.Errorf("failed to verify existence of dataset '%s': %w", dsName, err)
+		}
+
+		for _, store := range c.AllowedFHIRStores {
+			name := fmt.Sprintf("%s/fhirStores/%s", dsName, store)
+			_, err := svc.Projects.Locations.Datasets.FhirStores.Get(name).Do()
+			if err != nil {
+				if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
+					return nil, fmt.Errorf("allowedFhirStore '%s' not found in dataset '%s'", store, dsName)
+				}
+				return nil, fmt.Errorf("failed to verify allowedFhirStore '%s' in datasest '%s': %w", store, dsName, err)
+			}
+		}
+		for _, store := range c.AllowedDICOMStores {
+			name := fmt.Sprintf("%s/dicomStores/%s", dsName, store)
+			_, err := svc.Projects.Locations.Datasets.DicomStores.Get(name).Do()
+			if err != nil {
+				if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
+					return nil, fmt.Errorf("allowedDicomStore '%s' not found in dataset '%s'", store, dsName)
+				}
+				return nil, fmt.Errorf("failed to verify allowedDicomFhirStore '%s' in datasest '%s': %w", store, dsName, err)
+			}
+		}
+
+		return &clientSet{service: service, serviceCreator: serviceCreator, tokenSource: tokenSource}, nil
+	})
 }
 
 func newHealthcareServiceCreator(ctx context.Context, tracer trace.Tracer, name string) (func(string) (*healthcare.Service, error), error) {
@@ -147,8 +171,11 @@ func newHealthcareServiceCreator(ctx context.Context, tracer trace.Tracer, name 
 	if err != nil {
 		return nil, err
 	}
+	// The creator outlives this call, so it must not capture the connect's
+	// cancellation, nor the span of whichever caller happened to trigger it.
+	creatorCtx := trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
 	return func(tokenString string) (*healthcare.Service, error) {
-		return initHealthcareConnectionWithOAuthToken(ctx, tracer, name, userAgent, tokenString)
+		return initHealthcareConnectionWithOAuthToken(creatorCtx, tracer, name, userAgent, tokenString)
 	}, nil
 }
 
@@ -170,10 +197,7 @@ func initHealthcareConnectionWithOAuthToken(ctx context.Context, tracer trace.Tr
 	return service, nil
 }
 
-func initHealthcareConnection(ctx context.Context, tracer trace.Tracer, name string) (*healthcare.Service, oauth2.TokenSource, error) {
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initHealthcareConnection(ctx context.Context) (*healthcare.Service, oauth2.TokenSource, error) {
 	cred, err := google.FindDefaultCredentials(ctx, healthcare.CloudHealthcareScope)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to find default Google Cloud credentials with scope %q: %w", healthcare.CloudHealthcareScope, err)
@@ -196,9 +220,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	service            *healthcare.Service
-	serviceCreator     HealthcareServiceCreator
-	tokenSource        oauth2.TokenSource
+	conn               *sources.ConnectOnce[*clientSet]
 	allowedFHIRStores  map[string]struct{}
 	allowedDICOMStores map[string]struct{}
 }
@@ -227,16 +249,13 @@ func (s *Source) DatasetID() string {
 	return s.Dataset
 }
 
+// Service reports the ADC-backed service once connected.
 func (s *Source) Service() *healthcare.Service {
-	return s.service
-}
-
-func (s *Source) ServiceCreator() HealthcareServiceCreator {
-	return s.serviceCreator
-}
-
-func (s *Source) TokenSource() oauth2.TokenSource {
-	return s.tokenSource
+	cs, ok := s.conn.Get()
+	if !ok {
+		return nil
+	}
+	return cs.service
 }
 
 func (s *Source) AllowedFHIRStores() map[string]struct{} {
@@ -288,12 +307,16 @@ func parseResults(resp *http.Response) (any, error) {
 	return jsonMap, nil
 }
 
-func (s *Source) getService(tokenStr string) (*healthcare.Service, error) {
-	svc := s.Service()
-	var err error
+// getService callers fixed by tool interfaces have no context of their own and pass context.Background(); ConnectOnce bounds the attempt.
+func (s *Source) getService(ctx context.Context, tokenStr string) (*healthcare.Service, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, err
+	}
+	svc := cs.service
 	// Initialize new service if using user OAuth token
 	if s.UseClientAuthorization() {
-		svc, err = s.ServiceCreator()(tokenStr)
+		svc, err = cs.serviceCreator(tokenStr)
 		if err != nil {
 			return nil, fmt.Errorf("error creating service from OAuth access token: %w", err)
 		}
@@ -430,7 +453,7 @@ func (s *Source) FHIRFetchPage(ctx context.Context, pageURL, tokenStr string) (a
 }
 
 func (s *Source) FHIRPatientEverything(storeID, patientID, tokenStr string, opts []googleapi.CallOption) (any, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +468,7 @@ func (s *Source) FHIRPatientEverything(storeID, patientID, tokenStr string, opts
 }
 
 func (s *Source) FHIRPatientSearch(storeID, tokenStr string, opts []googleapi.CallOption) (any, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -464,7 +487,7 @@ func (s *Source) FHIRPatientSearch(storeID, tokenStr string, opts []googleapi.Ca
 }
 
 func (s *Source) GetDataset(tokenStr string) (*healthcare.Dataset, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +501,7 @@ func (s *Source) GetDataset(tokenStr string) (*healthcare.Dataset, error) {
 }
 
 func (s *Source) GetFHIRResource(storeID, resType, resID, tokenStr string) (any, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -495,7 +518,7 @@ func (s *Source) GetFHIRResource(storeID, resType, resID, tokenStr string) (any,
 }
 
 func (s *Source) GetDICOMStore(storeID, tokenStr string) (*healthcare.DicomStore, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +532,7 @@ func (s *Source) GetDICOMStore(storeID, tokenStr string) (*healthcare.DicomStore
 }
 
 func (s *Source) GetFHIRStore(storeID, tokenStr string) (*healthcare.FhirStore, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -523,7 +546,7 @@ func (s *Source) GetFHIRStore(storeID, tokenStr string) (*healthcare.FhirStore, 
 }
 
 func (s *Source) GetDICOMStoreMetrics(storeID, tokenStr string) (*healthcare.DicomStoreMetrics, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -537,7 +560,7 @@ func (s *Source) GetDICOMStoreMetrics(storeID, tokenStr string) (*healthcare.Dic
 }
 
 func (s *Source) GetFHIRStoreMetrics(storeID, tokenStr string) (*healthcare.FhirStoreMetrics, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -551,7 +574,7 @@ func (s *Source) GetFHIRStoreMetrics(storeID, tokenStr string) (*healthcare.Fhir
 }
 
 func (s *Source) ListDICOMStores(tokenStr string) ([]*healthcare.DicomStore, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +602,7 @@ func (s *Source) ListDICOMStores(tokenStr string) ([]*healthcare.DicomStore, err
 }
 
 func (s *Source) ListFHIRStores(tokenStr string) ([]*healthcare.FhirStore, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +630,7 @@ func (s *Source) ListFHIRStores(tokenStr string) ([]*healthcare.FhirStore, error
 }
 
 func (s *Source) RetrieveRenderedDICOMInstance(storeID, study, series, sop string, frame int, tokenStr string) (any, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +657,7 @@ func (s *Source) RetrieveRenderedDICOMInstance(storeID, study, series, sop strin
 }
 
 func (s *Source) SearchDICOM(toolType, storeID, dicomWebPath, tokenStr string, opts []googleapi.CallOption) (any, error) {
-	svc, err := s.getService(tokenStr)
+	svc, err := s.getService(context.Background(), tokenStr)
 	if err != nil {
 		return nil, err
 	}
