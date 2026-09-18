@@ -69,8 +69,6 @@ func TestRedisToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
-
 	client, err := initRedisClient(ctx, RedisAddress, RedisPass)
 	if err != nil {
 		t.Fatalf("unable to create Redis connection: %s", err)
@@ -83,7 +81,7 @@ func TestRedisToolEndpoints(t *testing.T) {
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetRedisValkeyToolsConfig(sourceConfig, RedisToolType)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -100,18 +98,38 @@ func TestRedisToolEndpoints(t *testing.T) {
 	// Get configs for tests
 	select1Want, mcpMyFailToolWant, invokeParamWant, invokeIdNullWant, nullWant, mcpSelect1Want, mcpInvokeParamWant := tests.GetRedisValkeyWants()
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want,
-		tests.WithMyToolId3NameAliceWant(invokeParamWant),
-		tests.WithMyArrayToolWant(invokeParamWant),
-		tests.WithMyToolById4Want(invokeIdNullWant),
-		tests.WithNullWant(nullWant),
-	)
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
-		tests.WithMcpMyToolId3NameAliceWant(mcpInvokeParamWant),
-		tests.WithMcpMySecureToolWant(invokeParamWant),
-	)
+	// Keep discovery independent of the credential-dependent invocation helpers.
+	t.Run("list_tools", func(t *testing.T) {
+		expectedTools := tests.GetBaseMCPExpectedTools()
+		for i := range expectedTools {
+			if expectedTools[i].Name == "my-array-tool" {
+				// Redis accepts a command array rather than SQL ID/name arrays.
+				expectedTools[i].InputSchema = map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"cmdArray": map[string]any{"type": "array", "description": "cmd array", "items": map[string]any{"type": "string", "description": "field"}},
+					},
+					"required": []any{"cmdArray"},
+				}
+			}
+		}
+		tests.RunMCPToolsListMethod(t, expectedTools)
+	})
+	t.Run("invoke", func(t *testing.T) {
+		tests.RunToolInvokeTest(t, select1Want,
+			tests.WithMyToolId3NameAliceWant(invokeParamWant),
+			tests.WithMyArrayToolWant(invokeParamWant),
+			tests.WithMyToolById4Want(invokeIdNullWant),
+			tests.WithNullWant(nullWant),
+			tests.WithMCP(),
+		)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
+			tests.WithMcpMyToolId3NameAliceWant(mcpInvokeParamWant),
+			tests.WithMcpMySecureToolWant(invokeParamWant),
+		)
+	})
 }
 
 func setupRedisDB(t *testing.T, ctx context.Context, client *redis.Client) func(*testing.T) {
