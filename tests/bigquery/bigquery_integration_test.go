@@ -182,7 +182,7 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 	select1Want := "[{\"f0_\":1}]"
 	invokeParamWant := "[{\"id\":1,\"name\":\"Alice\"},{\"id\":3,\"name\":\"Sid\"}]"
 	datasetInfoWant := "\"Location\":\"US\",\"DefaultTableExpiration\":0,\"Labels\":null,\"Access\":"
-	tableInfoWant := "{\"Name\":\"\",\"Location\":\"US\",\"Description\":\"\",\"Schema\":[{\"Name\":\"id\""
+	tableInfoWant := "\"Schema\":[{\"Name\":\"id\",\"Type\":\"INTEGER\"},{\"Name\":\"name\",\"Type\":\"STRING\"}]"
 	ddlWant := `"Query executed successfully and returned no content."`
 	dataInsightsWant := `FINAL_RESPONSE`
 	// Partial message; the full error message is too long.
