@@ -2290,7 +2290,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"data": group.GroupConfig{
 					Name:        "data",
 					Description: "Use these skills when you need to explore the database schema and execute SQL queries to interact with your data.",
-					ToolNames:   []string{"execute_sql", "list_tables"},
+					ToolNames:   []string{"execute_sql", "list_tables", "get_database_object_source_code"},
 				},
 				"monitor": group.GroupConfig{
 					Name:        "monitor",
@@ -2378,7 +2378,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"data": group.GroupConfig{
 					Name:      "data",
-					ToolNames: []string{"execute_sql", "list_tables"},
+					ToolNames: []string{"execute_sql", "list_tables", "get_database_object_source_code"},
 				},
 			},
 		},
