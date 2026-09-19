@@ -261,7 +261,7 @@ func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]st
 			if strValue, ok := headerValue.(string); ok {
 				allHeaders[p.GetName()] = strValue
 			} else {
-				return nil, fmt.Errorf("header param %s got value of type %t, not string", p.GetName(), headerValue)
+				return nil, fmt.Errorf("header param %s got value of type %T, not string", p.GetName(), headerValue)
 			}
 		}
 	}
