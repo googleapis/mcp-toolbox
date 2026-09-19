@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"text/template"
 
 	yaml "github.com/goccy/go-yaml"
@@ -29,6 +30,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 const resourceType string = "http"
@@ -55,18 +58,19 @@ type compatibleSource interface {
 }
 
 type Config struct {
-	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Path             string                 `yaml:"path" validate:"required"`
-	Method           tools.HTTPMethod       `yaml:"method" validate:"required"`
-	Headers          map[string]string      `yaml:"headers"`
-	RequestBody      string                 `yaml:"requestBody"`
-	PathParams       parameters.Parameters  `yaml:"pathParams"`
-	QueryParams      parameters.Parameters  `yaml:"queryParams"`
-	BodyParams       parameters.Parameters  `yaml:"bodyParams"`
-	HeaderParams     parameters.Parameters  `yaml:"headerParams"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	tools.ConfigBase      `yaml:",inline"`
+	Type                  string                 `yaml:"type" validate:"required"`
+	Source                string                 `yaml:"source" validate:"required"`
+	Path                  string                 `yaml:"path" validate:"required"`
+	Method                tools.HTTPMethod       `yaml:"method" validate:"required"`
+	Headers               map[string]string      `yaml:"headers"`
+	RequestBody           string                 `yaml:"requestBody"`
+	PathParams            parameters.Parameters  `yaml:"pathParams"`
+	QueryParams           parameters.Parameters  `yaml:"queryParams"`
+	BodyParams            parameters.Parameters  `yaml:"bodyParams"`
+	HeaderParams          parameters.Parameters  `yaml:"headerParams"`
+	SendGoogleAccessToken bool                   `yaml:"sendGoogleAccessToken"`
+	Annotations           *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface
@@ -76,9 +80,14 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
-func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
+func (cfg Config) Initialize(ctx context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
+	}
+
+	var googleAccessTokenProvider *adcTokenProvider
+	if cfg.SendGoogleAccessToken {
+		googleAccessTokenProvider = &adcTokenProvider{}
 	}
 
 	// Create a slice for all parameters
@@ -105,6 +114,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 			tools.Manifest{Description: cfg.Description, Parameters: paramManifest, AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),
+		googleAccessTokenProvider: googleAccessTokenProvider,
 	}, nil
 }
 
@@ -113,6 +123,7 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
+	googleAccessTokenProvider *adcTokenProvider
 }
 
 func (t Tool) GetSourceName() string {
@@ -268,6 +279,65 @@ func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]st
 	return allHeaders, nil
 }
 
+type adcTokenProvider struct {
+	mu          sync.Mutex
+	tokenSource oauth2.TokenSource
+}
+
+func (p *adcTokenProvider) getTokenSource(ctx context.Context) (oauth2.TokenSource, error) {
+	if p == nil {
+		return nil, fmt.Errorf("google ADC token provider is not initialized")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("google ADC token provider invocation context is not initialized")
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.tokenSource == nil {
+		// ADC token sources may retain this context for later token refreshes.
+		// Keep invocation values, such as a custom HTTP client, while ensuring
+		// completion of the first invocation does not cancel future refreshes.
+		credentials, err := google.FindDefaultCredentials(context.WithoutCancel(ctx), sources.CloudPlatformScope)
+		if err != nil {
+			return nil, fmt.Errorf("unable to initialize Google ADC: %w", err)
+		}
+		if credentials.TokenSource == nil {
+			return nil, fmt.Errorf("google ADC did not provide a token source")
+		}
+		p.tokenSource = credentials.TokenSource
+	}
+	return p.tokenSource, nil
+}
+
+func (p *adcTokenProvider) Token(ctx context.Context) (*oauth2.Token, error) {
+	tokenSource, err := p.getTokenSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	token, err := tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get Google access token from ADC: %w", err)
+	}
+	return token, nil
+}
+
+func setGoogleAccessToken(
+	ctx context.Context,
+	req *http.Request,
+	tokenProvider *adcTokenProvider,
+) error {
+	token, err := tokenProvider.Token(ctx)
+	if err != nil {
+		return err
+	}
+	if !token.Valid() {
+		return fmt.Errorf("google ADC returned an invalid or expired access token")
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	return nil
+}
+
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
 	source, ok := s.(compatibleSource)
 	if !ok {
@@ -306,6 +376,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	// Set request headers
 	for k, v := range allHeaders {
 		req.Header.Set(k, v)
+	}
+	if t.Cfg.SendGoogleAccessToken {
+		if err := setGoogleAccessToken(ctx, req, t.googleAccessTokenProvider); err != nil {
+			return nil, util.NewClientServerError("error authenticating HTTP request with Google ADC", http.StatusInternalServerError, err)
+		}
 	}
 
 	resp, err := source.RunRequest(ctx, req)
