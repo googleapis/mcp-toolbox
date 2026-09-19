@@ -149,6 +149,23 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
+	if len(source.BigQueryAllowedDatasets()) > 0 {
+		// Check the allowlist from a static parse of the SQL text before the
+		// dry run. A query naming a disallowed dataset that doesn't exist
+		// (or the caller can't see) would otherwise have its dry run fail
+		// with an opaque BigQuery 404/403 before the clearer allowlist
+		// AgentError is ever reached. The dry-run-based check below still
+		// runs afterward, since it catches tables a view resolves to that
+		// aren't visible in the raw SQL text.
+		preDryRunTables, parseErr := bqutil.TableParser(sql, bqClient.Project())
+		if parseErr != nil {
+			return nil, util.NewAgentError("could not parse tables from query to validate against allowed datasets", parseErr)
+		}
+		if err := checkDatasetsAllowed(preDryRunTables, source); err != nil {
+			return nil, err
+		}
+	}
+
 	dryRunJob, err := bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source.GetMaximumBytesBilled())
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
@@ -206,14 +223,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 			tableIDSet[tableID] = struct{}{}
 		}
 
+		tableIDs := make([]string, 0, len(tableIDSet))
 		for tableID := range tableIDSet {
-			parts := strings.Split(tableID, ".")
-			if len(parts) == 3 {
-				projectID, datasetID := parts[0], parts[1]
-				if !source.IsDatasetAllowed(projectID, datasetID) {
-					return nil, util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
-				}
-			}
+			tableIDs = append(tableIDs, tableID)
+		}
+		if err := checkDatasetsAllowed(tableIDs, source); err != nil {
+			return nil, err
 		}
 	}
 
@@ -240,6 +255,22 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGcpError(err)
 	}
 	return resp, nil
+}
+
+// checkDatasetsAllowed returns an AgentError naming the first table ID (in
+// "project.dataset.table" form) whose dataset is not in source's configured
+// allowlist, or nil if every table is allowed.
+func checkDatasetsAllowed(tableIDs []string, source compatibleSource) util.ToolboxError {
+	for _, tableID := range tableIDs {
+		parts := strings.Split(tableID, ".")
+		if len(parts) == 3 {
+			projectID, datasetID := parts[0], parts[1]
+			if !source.IsDatasetAllowed(projectID, datasetID) {
+				return util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
+			}
+		}
+	}
+	return nil
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
