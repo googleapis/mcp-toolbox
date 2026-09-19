@@ -17,6 +17,7 @@ If you are building custom AI agents or orchestrating multi-step workflows in co
 *   **[Python SDKs](toolbox-sdks/python-sdk/_index.md)**: Connect using our Core SDK, or leverage native integrations for LangChain, LlamaIndex, and the Agent Development Kit (ADK).
 *   **[JavaScript / TypeScript SDKs](toolbox-sdks/javascript-sdk/_index.md)**: Build Node.js applications using our Core SDK or ADK integrations.
 *   **[Go SDKs](toolbox-sdks/go-sdk/_index.md)**: Build highly concurrent agents with our Go Core SDK, or use our integrations for Genkit and ADK.
+*   **[Java SDKs](toolbox-sdks/java-sdk/_index.md)**: Build enterprise Java applications and agent integrations using our Java Core SDK.
 
 ## MCP Clients & CLIs
 
