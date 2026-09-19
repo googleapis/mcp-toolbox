@@ -14,6 +14,7 @@
 
 import { renderToolInterface } from "./toolDisplay.js";
 import { escapeHtml } from "./sanitize.js";
+import { createMcpHeaders, createMcpRequestBody } from "./mcpClient.js";
 
 let currentToolsList = [];
 
@@ -30,15 +31,8 @@ export async function loadTools(secondNavContent, toolDisplayArea, toolsetName) 
         const url = toolsetName ? `/mcp/${toolsetName}` : `/mcp`;
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'MCP-Protocol-Version': '2025-11-25'
-            },
-            body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: "1",
-                method: "tools/list",
-            })
+            headers: createMcpHeaders('tools/list'),
+            body: JSON.stringify(createMcpRequestBody('tools/list', {}, '1'))
         });
         
         if (!response.ok) {
@@ -130,12 +124,18 @@ function renderToolDetails(toolName, toolDisplayArea) {
 
     let toolAuthRequired = [];
     let toolAuthParams = {};
+    let toolUIMeta = null;
     if (toolObject._meta) {
         if (toolObject._meta["toolbox/authInvoke"]) {
             toolAuthRequired = toolObject._meta["toolbox/authInvoke"];
         }
         if (toolObject._meta["toolbox/authParam"]) {
             toolAuthParams = toolObject._meta["toolbox/authParam"];
+        }
+        if (toolObject._meta.ui && toolObject._meta.ui.resourceUri) {
+            toolUIMeta = toolObject._meta.ui;
+        } else if (toolObject._meta["ui/resourceUri"]) {
+            toolUIMeta = { resourceUri: toolObject._meta["ui/resourceUri"] };
         }
     }
 
@@ -181,7 +181,8 @@ function renderToolDetails(toolName, toolDisplayArea) {
         name: toolName,
         description: toolObject.description || "No description provided.",
         authRequired: toolAuthRequired,
-        parameters: toolParameters
+        parameters: toolParameters,
+        ui: toolUIMeta
     };
 
     console.debug("Transformed toolInterfaceData:", toolInterfaceData);
