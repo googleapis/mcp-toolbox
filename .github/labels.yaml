@@ -124,6 +124,18 @@
 - name: 'product: clickhouse'
   color: 5065c7
   description: 'ClickHouse'
+- name: 'product: cloudhealthcare'
+  color: 5065c7
+  description: 'Cloud Healthcare'
+- name: 'product: cloudlogging'
+  color: 5065c7
+  description: 'Cloud Logging'
+- name: 'product: cloudmonitoring'
+  color: 5065c7
+  description: 'Cloud Monitoring'
+- name: 'product: cloudstorage'
+  color: 5065c7
+  description: 'Cloud Storage'
 - name: 'product: mssql'
   color: 5065c7
   description: 'SQL Server'
@@ -136,9 +148,18 @@
 - name: 'product: couchbase'
   color: 5065c7
   description: 'Couchbase'
+- name: 'product: databaseinsights'
+  color: 5065c7
+  description: 'Database Insights'
+- name: 'product: datalineage'
+  color: 5065c7
+  description: 'Data Lineage'
 - name: 'product: dataplex'
   color: 5065c7
   description: 'Dataplex'
+- name: 'product: dataproc'
+  color: 5065c7
+  description: 'Dataproc'
 - name: 'product: dgraph'
   color: 5065c7
   description: 'Dgraph'
@@ -154,6 +175,9 @@
 - name: 'product: looker'
   color: 5065c7
   description: 'Looker'
+- name: 'product: memorystore'
+  color: 5065c7
+  description: 'Memorystore'
 - name: 'product: mindsdb'
   color: 5065c7
   description: 'MindsDB'
