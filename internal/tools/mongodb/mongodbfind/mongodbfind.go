@@ -54,19 +54,18 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase        `yaml:",inline"`
-	Type                    string                 `yaml:"type" validate:"required"`
-	Source                  string                 `yaml:"source" validate:"required"`
-	Database                string                 `yaml:"database" validate:"required"`
-	Collection              string                 `yaml:"collection"`
-	CollectionAllowedValues []string               `yaml:"collectionAllowedValues"`
-	FilterPayload           string                 `yaml:"filterPayload" validate:"required"`
-	FilterParams            parameters.Parameters  `yaml:"filterParams"`
-	ProjectPayload          string                 `yaml:"projectPayload"`
-	ProjectParams           parameters.Parameters  `yaml:"projectParams"`
-	SortPayload             string                 `yaml:"sortPayload"`
-	SortParams              parameters.Parameters  `yaml:"sortParams"`
-	Limit                   int64                  `yaml:"limit"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	FilterPayload           string                `yaml:"filterPayload" validate:"required"`
+	FilterParams            parameters.Parameters `yaml:"filterParams"`
+	ProjectPayload          string                `yaml:"projectPayload"`
+	ProjectParams           parameters.Parameters `yaml:"projectParams"`
+	SortPayload             string                `yaml:"sortPayload"`
+	SortParams              parameters.Parameters `yaml:"sortParams"`
+	Limit                   int64                 `yaml:"limit"`
 }
 
 // validate interface
