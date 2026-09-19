@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,9 +97,61 @@ func invokeCommand(args []string) (*cobra.Command, *internal.ToolboxOptions, str
 	return c, opts, buf.String(), err
 }
 
+// commandOutput captures both log streams and allows snapshots while background
+// work, such as the version check, is still writing.
+type commandOutput struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *commandOutput) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *commandOutput) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestCommandOutputConcurrentLogging(t *testing.T) {
+	buf := new(commandOutput)
+	logger, err := log.NewStdLogger(buf, buf, "INFO")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const count = 100
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for _, write := range []func(){
+		func() { logger.InfoContext(context.Background(), "version check") },
+		func() { logger.WarnContext(context.Background(), "shutdown") },
+		func() { _ = buf.String() },
+	} {
+		wg.Go(func() {
+			<-start
+			for range count {
+				write()
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	output := buf.String()
+	for _, message := range []string{"version check", "shutdown"} {
+		if got := strings.Count(output, message); got != count {
+			t.Errorf("got %d %q messages, want %d", got, message, count)
+		}
+	}
+}
+
 // invokeCommandWithContext executes the command with a context and returns the captured output.
 func invokeCommandWithContext(ctx context.Context, args []string) (*cobra.Command, *internal.ToolboxOptions, string, error) {
-	buf := new(bytes.Buffer)
+	buf := new(commandOutput)
 	opts := internal.NewToolboxOptions(internal.WithIOStreams(buf, buf))
 	c := NewCommand(opts)
 
