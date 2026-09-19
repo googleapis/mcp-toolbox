@@ -379,23 +379,20 @@ func (t Tool) GetAPOCSchema(ctx context.Context, source compatibleSource) ([]typ
 				}
 				for result.Next(ctx) {
 					record := result.Record()
-					relType, startNode, endNode := record.Values[0].(string), record.Values[1].(string), record.Values[2].(string)
-					properties, count := record.Values[3].(map[string]any), record.Values[4].(int64)
-
-					if relType == "" || count == 0 {
+					relationship, ok := helpers.ParseAPOCRelationshipRecord(record.Values)
+					if !ok {
 						continue
 					}
-					relationship := types.Relationship{Type: relType, StartNode: startNode, EndNode: endNode, Count: count, Properties: []types.PropertyInfo{}}
-					for prop, propType := range properties {
-						relationship.Properties = append(relationship.Properties, types.PropertyInfo{Name: prop, Types: []string{propType.(string)}})
+					if relationship.Type == "" || relationship.Count == 0 {
+						continue
 					}
 					mu.Lock()
 					relationships = append(relationships, relationship)
-					stats.RelationshipsByType[relType] += count
-					stats.TotalRelationships += count
+					stats.RelationshipsByType[relationship.Type] += relationship.Count
+					stats.TotalRelationships += relationship.Count
 					propCount := int64(len(relationship.Properties))
 					stats.TotalProperties += propCount
-					stats.PropertiesByRelType[relType] += propCount
+					stats.PropertiesByRelType[relationship.Type] += propCount
 					mu.Unlock()
 				}
 				mu.Lock()
