@@ -297,6 +297,15 @@ type compatibleSource interface {
 	RunSQL(context.Context, string, []any) (any, error)
 }
 
+// clientAuthorizedSource is implemented by sources that can authenticate to the
+// database as the caller rather than as one configured identity. Sources that
+// cannot are unaffected: the tool keeps using the source's own connection.
+type clientAuthorizedSource interface {
+	UseClientAuthorization() bool
+	GetAuthTokenHeaderName() string
+	RunSQLForClient(context.Context, tools.AccessToken, string, []any) (any, error)
+}
+
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
 	Type             string                 `yaml:"type" validate:"required"`
@@ -354,7 +363,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		sql.Named("table_names", paramsMap["table_names"]),
 		sql.Named("output_format", outputFormat),
 	}
-	resp, err := source.RunSQL(ctx, listTablesStatement, namedArgs)
+	resp, err := runSQL(ctx, s, source, accessToken, listTablesStatement, namedArgs)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
@@ -380,4 +389,32 @@ func (t Tool) ValidateSource(source sources.Source) error {
 		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
 	return nil
+}
+
+// runSQL sends the statement to the source, as the caller when the source is
+// configured to authenticate that way.
+func runSQL(ctx context.Context, s sources.Source, source compatibleSource, accessToken tools.AccessToken, statement string, params []any) (any, error) {
+	if ca, ok := s.(clientAuthorizedSource); ok && ca.UseClientAuthorization() {
+		return ca.RunSQLForClient(ctx, accessToken, statement, params)
+	}
+	return source.RunSQL(ctx, statement, params)
+}
+
+func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
+	s, ok := source.(clientAuthorizedSource)
+	if !ok {
+		return false, nil
+	}
+	return s.UseClientAuthorization(), nil
+}
+
+func (t Tool) GetAuthTokenHeaderName(source sources.Source) (string, error) {
+	s, ok := source.(clientAuthorizedSource)
+	if !ok {
+		return "Authorization", nil
+	}
+	if name := s.GetAuthTokenHeaderName(); name != "" {
+		return name, nil
+	}
+	return "Authorization", nil
 }
