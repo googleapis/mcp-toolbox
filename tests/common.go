@@ -535,6 +535,11 @@ func AddMSSQLPrebuiltToolConfig(t *testing.T, config map[string]any) map[string]
 		"source":      "my-instance",
 		"description": "Lists tables in the database.",
 	}
+	tools["list_indexes"] = map[string]any{
+		"type":        "mssql-list-indexes",
+		"source":      "my-instance",
+		"description": "Lists indexes in the database.",
+	}
 	config["tools"] = tools
 	return config
 }
