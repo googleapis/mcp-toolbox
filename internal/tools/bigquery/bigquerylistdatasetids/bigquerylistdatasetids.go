@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	bigqueryapi "cloud.google.com/go/bigquery"
 	yaml "github.com/goccy/go-yaml"
@@ -31,6 +32,8 @@ import (
 
 const resourceType string = "bigquery-list-dataset-ids"
 const projectKey string = "project"
+const limitKey string = "limit"
+const prefixKey string = "prefix"
 
 func init() {
 	if !tools.Register(resourceType, newConfig) {
@@ -120,6 +123,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if !ok {
 		return nil, util.NewAgentError(fmt.Sprintf("invalid or missing '%s' parameter; expected a string", projectKey), nil)
 	}
+	limit, _ := mapParams[limitKey].(int)
+	if limit < 0 {
+		return nil, util.NewAgentError(fmt.Sprintf("invalid '%s' parameter: %d must be >= 0 (use 0 for no limit)", limitKey, limit), nil)
+	}
+	prefix, _ := mapParams[prefixKey].(string)
 
 	bqClient, _, err := source.RetrieveClientAndService(accessToken)
 	if err != nil {
@@ -130,6 +138,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 
 	var datasetIds []any
 	for {
+		if limit > 0 && len(datasetIds) >= limit {
+			break
+		}
 		dataset, err := datasetIterator.Next()
 		if err == iterator.Done {
 			break
@@ -142,6 +153,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		id := dataset.DatasetID
 		if len(id) >= 2 && id[0] == '"' && id[len(id)-1] == '"' {
 			id = id[1 : len(id)-1]
+		}
+		if prefix != "" && !strings.HasPrefix(id, prefix) {
+			continue
 		}
 		datasetIds = append(datasetIds, id)
 	}
@@ -173,7 +187,9 @@ func buildParams(allowedDatasets []string, defaultProject string) parameters.Par
 		projectParameterDescription = "This parameter will be ignored. The list of datasets is restricted to a pre-configured list; No need to provide a project ID."
 	}
 	projectParameter := parameters.NewStringParameter(projectKey, projectParameterDescription, parameters.WithStringDefault(defaultProject))
-	return parameters.Parameters{projectParameter}
+	limitParameter := parameters.NewIntParameter(limitKey, "Maximum number of dataset ids to return. A value of 0 (the default) returns every dataset id in the project.", parameters.WithIntDefault(0))
+	prefixParameter := parameters.NewStringParameter(prefixKey, "Only return dataset ids that start with this prefix (case-sensitive). Empty (the default) returns every dataset id.", parameters.WithStringDefault(""))
+	return parameters.Parameters{projectParameter, limitParameter, prefixParameter}
 }
 
 // resolveParams builds the tool's parameters using the source's allowed-dataset configuration.
