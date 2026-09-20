@@ -17,7 +17,6 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -50,7 +49,7 @@ func TestInitializeGoogleAccessTokenIsLazy(t *testing.T) {
 	if httpTool.googleAccessTokenProvider == nil {
 		t.Fatal("Google access token provider was not configured")
 	}
-	if httpTool.googleAccessTokenProvider.tokenSource != nil {
+	if httpTool.googleAccessTokenProvider.token != nil {
 		t.Fatal("Google ADC was resolved during tool initialization")
 	}
 }
@@ -66,7 +65,7 @@ func TestSetGoogleAccessToken(t *testing.T) {
 		context.Background(),
 		req,
 		&adcTokenProvider{
-			tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "adc-token"}),
+			token: &oauth2.Token{AccessToken: "adc-token"},
 		},
 	)
 	if err != nil {
@@ -78,6 +77,11 @@ func TestSetGoogleAccessToken(t *testing.T) {
 }
 
 func TestSetGoogleAccessTokenError(t *testing.T) {
+	useLocalADC(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"credentials unavailable"}`))
+	})
 	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
 	if err != nil {
 		t.Fatalf("unable to create request: %s", err)
@@ -86,9 +90,7 @@ func TestSetGoogleAccessTokenError(t *testing.T) {
 	err = setGoogleAccessToken(
 		context.Background(),
 		req,
-		&adcTokenProvider{
-			tokenSource: errorTokenSource{err: errors.New("credentials unavailable")},
-		},
+		&adcTokenProvider{},
 	)
 	if err == nil {
 		t.Fatal("expected setGoogleAccessToken to return an error")
@@ -158,12 +160,4 @@ func TestGoogleAccessTokenUsesInvocationContext(t *testing.T) {
 	if got, want := req.Header.Get("Authorization"), "Bearer "+accessToken; got != want {
 		t.Fatalf("unexpected Authorization header: got %q, want %q", got, want)
 	}
-}
-
-type errorTokenSource struct {
-	err error
-}
-
-func (s errorTokenSource) Token() (*oauth2.Token, error) {
-	return nil, s.err
 }

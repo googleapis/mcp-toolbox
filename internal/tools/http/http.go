@@ -280,11 +280,12 @@ func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]st
 }
 
 type adcTokenProvider struct {
-	mu          sync.Mutex
-	tokenSource oauth2.TokenSource
+	mu         sync.Mutex
+	token      *oauth2.Token
+	refreshing chan struct{}
 }
 
-func (p *adcTokenProvider) getTokenSource(ctx context.Context) (oauth2.TokenSource, error) {
+func (p *adcTokenProvider) Token(ctx context.Context) (*oauth2.Token, error) {
 	if p == nil {
 		return nil, fmt.Errorf("google ADC token provider is not initialized")
 	}
@@ -292,30 +293,52 @@ func (p *adcTokenProvider) getTokenSource(ctx context.Context) (oauth2.TokenSour
 		return nil, fmt.Errorf("google ADC token provider invocation context is not initialized")
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.tokenSource == nil {
-		// ADC token sources may retain this context for later token refreshes.
-		// Keep invocation values, such as a custom HTTP client, while ensuring
-		// completion of the first invocation does not cancel future refreshes.
-		credentials, err := google.FindDefaultCredentials(context.WithoutCancel(ctx), sources.CloudPlatformScope)
-		if err != nil {
-			return nil, fmt.Errorf("unable to initialize Google ADC: %w", err)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		if credentials.TokenSource == nil {
-			return nil, fmt.Errorf("google ADC did not provide a token source")
+		p.mu.Lock()
+		if p.token.Valid() {
+			token := p.token
+			p.mu.Unlock()
+			return token, nil
 		}
-		p.tokenSource = credentials.TokenSource
+		if done := p.refreshing; done != nil {
+			p.mu.Unlock()
+			// Waiting for another invocation must respect this caller's deadline.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-done:
+				continue
+			}
+		}
+		p.refreshing = make(chan struct{})
+		p.mu.Unlock()
+
+		// OAuth sources retain their creation context. Cache only the token so
+		// every refresh uses the active invocation, not a finished request.
+		token, err := fetchGoogleAccessToken(ctx)
+		p.mu.Lock()
+		if err == nil {
+			p.token = token
+		}
+		close(p.refreshing)
+		p.refreshing = nil
+		p.mu.Unlock()
+		return token, err
 	}
-	return p.tokenSource, nil
 }
 
-func (p *adcTokenProvider) Token(ctx context.Context) (*oauth2.Token, error) {
-	tokenSource, err := p.getTokenSource(ctx)
+func fetchGoogleAccessToken(ctx context.Context) (*oauth2.Token, error) {
+	credentials, err := google.FindDefaultCredentials(ctx, sources.CloudPlatformScope)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to initialize Google ADC: %w", err)
 	}
-	token, err := tokenSource.Token()
+	if credentials.TokenSource == nil {
+		return nil, fmt.Errorf("google ADC did not provide a token source")
+	}
+	token, err := credentials.TokenSource.Token()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get Google access token from ADC: %w", err)
 	}
