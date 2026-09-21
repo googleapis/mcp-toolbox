@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -76,18 +77,11 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	refParameter := parameters.NewStringParameter("ref", "The ref to use as the start of a new branch. Defaults to HEAD of current branch if not specified.", parameters.WithStringDefault(""))
 	params := parameters.Parameters{projectIdParameter, branchParameter, refParameter}
 
-	annotations := &tools.ToolAnnotations{}
-	if cfg.Annotations != nil {
-		*annotations = *cfg.Annotations
-	}
-	readOnlyHint := false
-	annotations.ReadOnlyHint = &readOnlyHint
-
 	// finish tool setup
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			annotations,
+			lookercommon.WriteAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: params.Manifest(), AuthRequired: cfg.AuthRequired},
 			params,
 		),

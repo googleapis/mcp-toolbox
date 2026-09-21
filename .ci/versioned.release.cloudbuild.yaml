@@ -425,6 +425,9 @@ steps:
       - "publish-npm-to-ar"
     env:
       - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh npm
@@ -447,6 +450,9 @@ steps:
       - "publish-pypi-to-ar"
     env:
       - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh pypi
@@ -471,3 +477,6 @@ substitutions:
   _ASSETS_BUCKET: toolbox-build-assets
   _DOCKER_URI: ${_AR_HOSTNAME}/${PROJECT_ID}/${_AR_REPO_NAME}/toolbox
   _PUSH_LATEST: "false" # Substituted in trigger
+  _EXIT_GATE_PROJECT: "mcp-toolbox"
+  _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
+  _PUSH_TO_EXIT_GATES: "false"

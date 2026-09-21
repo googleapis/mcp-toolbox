@@ -21,8 +21,8 @@ Before you begin, ensure you have the following:
 
 ### Running from Local Source
 
-1. **Configuration:** Create a `tools.yaml` file to configure your sources and
-   tools. See the [Configuration section in the
+1. **Configuration:** Create a `tools.yaml` file to configure your sources,
+   tools, prompts, resources, and groups. See the [Configuration section in the
    README](./README.md#Configuration) for details.
 1. **CLI Flags:** List available command-line flags for the Toolbox server:
 
@@ -339,6 +339,8 @@ When updating documentation, you must adhere to the structural constraints enfor
 * **Adding Inherited/Shared Tools (e.g., Managed Databases):**
   * If a new database inherits tools from a base integration (like Cloud SQL inheriting Postgres tools), create the `tools/` directory with an `_index.md` file.
   * Map the inherited tools dynamically by adding the `shared_tools` YAML array to the frontmatter of this `tools/_index.md` file. **This file must strictly contain only frontmatter.**
+* **Adding a New Resource:**
+  * Add resource documentation in a subfolder with an `_index.md` file within `docs/en/documentation/configuration/resources/` (e.g., `docs/en/documentation/configuration/resources/<resource_type>/_index.md`).
 * **Adding Samples:**
   * **Physical Location:**
     1. **Quickstarts:** `docs/en/documentation/getting-started/quickstart/`.
