@@ -78,7 +78,7 @@ Fix only safe, unambiguous internal links. Report everything else.
 
 | Category | Action | Criteria |
 |---|---|---|
-| **Safe to fix** | Rewrite in place to a file-relative `.md` link | • Directory link<br>• Site-absolute `](/path/)`<br>• Hardcoded `https://mcp-toolbox.dev/...`<br>• Moved file with exactly one obvious git successor<br>• Renamed heading anchor |
+| **Safe to fix** | Rewrite in place to a file-relative `.md` link | • Directory link<br>• Site-absolute `[Text](/path/)`<br>• Hardcoded `https://mcp-toolbox.dev/...`<br>• Moved file with exactly one obvious git successor<br>• Renamed heading anchor |
 | **Needs decision** | Report with a recommendation. Do not apply. | • Target is missing or deleted<br>• Several candidate targets after a split or reorg<br>• Link points into an `ignoreFiles` path (see `hugo.toml`)<br>• `_index.md` has no `type: docs` |
 | **External** | Report `file:line`, URL, and status | • External URL returns 404, 403, or 500 |
 | **Ignore-worthy** | Propose a commented `.lycheeignore` regex | • Endpoint is auth-walled, rate-limited, or flaky |

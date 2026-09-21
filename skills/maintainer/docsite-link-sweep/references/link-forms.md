@@ -26,7 +26,7 @@ different roots:
 - A release deploys to `https://mcp-toolbox.dev/<version>/`.
 - A PR preview deploys to `/`.
 
-A link such as `](/reference/cli/)` always resolves to `mcp-toolbox.dev/reference/cli/`. It sends
+A link such as `[CLI](/reference/cli/)` always resolves to `mcp-toolbox.dev/reference/cli/`. It sends
 the reader out of `/dev/` or out of an archived release, and into the latest release.
 
 ## Shortcode-generated links
