@@ -1940,19 +1940,17 @@ func TestLooker(t *testing.T) {
 				"parameters": []any{
 					map[string]any{
 						"authServices": []any{},
-						"description":  "Type of Looker content to embed (ie. dashboards, looks, query-visualization)",
+						"description":  "Type of Looker content to embed (e.g. dashboards, looks, query-visualizations, or explores).",
 						"name":         "type",
-						"required":     false,
+						"required":     true,
 						"type":         "string",
-						"default":      "",
 					},
 					map[string]any{
 						"authServices": []any{},
 						"description":  "The ID of the content to embed.",
 						"name":         "id",
-						"required":     false,
+						"required":     true,
 						"type":         "string",
-						"default":      "",
 					},
 				},
 			},

@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.12.0](https://github.com/googleapis/mcp-toolbox/compare/v1.11.0...v1.12.0) (2026-09-17)
+
+
+### Features
+
+* Added logic to serve /.well-known/openai-apps-challenge ([#4038](https://github.com/googleapis/mcp-toolbox/issues/4038)) ([7ac00a2](https://github.com/googleapis/mcp-toolbox/commit/7ac00a2dc940b0e6e07e2b75ca79fef08bd87d77))
+* **tool/looker:** Expose certification_metadata in looker dashboard and look tools ([#4041](https://github.com/googleapis/mcp-toolbox/issues/4041)) ([ed42084](https://github.com/googleapis/mcp-toolbox/commit/ed420847be0d86209f5505f4a436ca7963eb3fc3))
+
+
+### Bug Fixes
+
+* **prebuilt/cloud-sql-postgres:** Clarify execute_sql tool description ([#3884](https://github.com/googleapis/mcp-toolbox/issues/3884)) ([ed4cfde](https://github.com/googleapis/mcp-toolbox/commit/ed4cfde6d6d5133120a9ed6811aab8947f3eb540))
+* **source/cockroachdb,source/redis:** Release the handle when a connect attempt fails ([#3933](https://github.com/googleapis/mcp-toolbox/issues/3933)) ([2d52f8a](https://github.com/googleapis/mcp-toolbox/commit/2d52f8aee5e0d373db30dc7d70bca175570dd29e))
+* **tool/looker-generate-embed-url:** Require embed parameters ([#3913](https://github.com/googleapis/mcp-toolbox/issues/3913)) ([93520cf](https://github.com/googleapis/mcp-toolbox/commit/93520cf4ab4059ec4c1ed77f25bf3a836d3192c6))
+* **tools/looker:** Add additional annotations to support OpenAI plugins ([#4035](https://github.com/googleapis/mcp-toolbox/issues/4035)) ([7b41e73](https://github.com/googleapis/mcp-toolbox/commit/7b41e73c3f7486afe55022fbcb437e26e931b8d0))
+
 ## [1.11.0](https://github.com/googleapis/mcp-toolbox/compare/v1.10.0...v1.11.0) (2026-09-10)
 
 

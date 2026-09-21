@@ -441,6 +441,21 @@ func TestPrebuiltFlag(t *testing.T) {
 			args: []string{"--prebuilt", "alloydb-postgres/monitor"},
 			want: []string{"alloydb-postgres/monitor"},
 		},
+		{
+			desc: "bigtable prebuilt flag",
+			args: []string{"--prebuilt", "bigtable"},
+			want: []string{"bigtable"},
+		},
+		{
+			desc: "bigtable prebuilt toolset flag",
+			args: []string{"--prebuilt", "bigtable/data"},
+			want: []string{"bigtable/data"},
+		},
+		{
+			desc: "multiple bigtable prebuilt toolset flags",
+			args: []string{"--prebuilt", "bigtable/admin,bigtable/views"},
+			want: []string{"bigtable/admin", "bigtable/views"},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -601,8 +616,12 @@ func TestResolveWatcherInputs(t *testing.T) {
 }
 
 // helper function for testing file detection in dynamic reloading
-func tmpFileWithCleanup(content []byte) (string, func(), error) {
-	f, err := os.CreateTemp("", "*")
+func tmpFileWithCleanup(t *testing.T, content []byte) (string, func(), error) {
+	dir := t.TempDir()
+	if evalDir, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = evalDir
+	}
+	f, err := os.CreateTemp(dir, "*")
 	if err != nil {
 		return "", nil, err
 	}
@@ -627,7 +646,7 @@ func TestSingleEdit(t *testing.T) {
 	defer pw.Close()
 	defer pr.Close()
 
-	fileToWatch, cleanup, err := tmpFileWithCleanup([]byte("initial content"))
+	fileToWatch, cleanup, err := tmpFileWithCleanup(t, []byte("initial content"))
 	if err != nil {
 		t.Fatalf("error editing config %s", err)
 	}
@@ -663,9 +682,9 @@ func TestSingleEdit(t *testing.T) {
 	regexEscapedPathDir = path.Clean(regexEscapedPathDir)
 
 	begunWatchingDir := regexp.MustCompile(fmt.Sprintf(`DEBUG "Added directory %s to watcher."`, regexEscapedPathDir))
-	_, err = testutils.WaitForString(ctx, begunWatchingDir, pr)
+	out, err := testutils.WaitForString(ctx, begunWatchingDir, pr)
 	if err != nil {
-		t.Fatalf("timeout or error waiting for watcher to start: %s", err)
+		t.Fatalf("timeout or error waiting for watcher to start: %s\noutput:\n%s", err, out)
 	}
 
 	err = os.WriteFile(fileToWatch, []byte("modification"), 0777)
@@ -675,9 +694,9 @@ func TestSingleEdit(t *testing.T) {
 
 	// only check substring of DEBUG message due to some OS/editors firing different operations
 	detectedFileChange := regexp.MustCompile(fmt.Sprintf(`event detected in %s"`, regexEscapedPathFile))
-	_, err = testutils.WaitForString(ctx, detectedFileChange, pr)
+	out, err = testutils.WaitForString(ctx, detectedFileChange, pr)
 	if err != nil {
-		t.Fatalf("timeout or error waiting for file to detect write: %s", err)
+		t.Fatalf("timeout or error waiting for file to detect write: %s\noutput:\n%s", err, out)
 	}
 }
 
@@ -1102,5 +1121,123 @@ authServices:
 	}
 	if !strings.Contains(err.Error(), "MCP Auth cannot be enabled together with the legacy HTTP API") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestBigtablePrebuiltCLI(t *testing.T) {
+	t.Run("missing BIGTABLE_PROJECT fails", func(t *testing.T) {
+		os.Unsetenv("BIGTABLE_PROJECT")
+		t.Setenv("BIGTABLE_INSTANCE", "test-instance")
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_, _, _, err := invokeCommandWithContext(ctx, []string{"--prebuilt", "bigtable"})
+		if err == nil {
+			t.Fatal("expected error when BIGTABLE_PROJECT is unset, got nil")
+		}
+		if !strings.Contains(err.Error(), "BIGTABLE_PROJECT") {
+			t.Errorf("expected error message to mention BIGTABLE_PROJECT, got: %v", err)
+		}
+	})
+
+	t.Run("missing BIGTABLE_INSTANCE fails", func(t *testing.T) {
+		t.Setenv("BIGTABLE_PROJECT", "test-project")
+		os.Unsetenv("BIGTABLE_INSTANCE")
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_, _, _, err := invokeCommandWithContext(ctx, []string{"--prebuilt", "bigtable"})
+		if err == nil {
+			t.Fatal("expected error when BIGTABLE_INSTANCE is unset, got nil")
+		}
+		if !strings.Contains(err.Error(), "BIGTABLE_INSTANCE") {
+			t.Errorf("expected error message to mention BIGTABLE_INSTANCE, got: %v", err)
+		}
+	})
+
+	t.Setenv("BIGTABLE_PROJECT", "test-project")
+	t.Setenv("BIGTABLE_INSTANCE", "test-instance")
+	t.Setenv("BIGTABLE_EMULATOR_HOST", "localhost:8086")
+
+	testCases := []struct {
+		desc         string
+		args         []string
+		wantErr      bool
+		errString    string
+		wantTools    int
+		wantGroups   []string
+		mustHaveTool string
+	}{
+		{
+			desc:         "full bigtable prebuilt loads all 27 tools and 3 groups",
+			args:         []string{"--prebuilt", "bigtable"},
+			wantTools:    27,
+			wantGroups:   []string{"admin", "data", "views"},
+			mustHaveTool: "execute_sql",
+		},
+		{
+			desc:         "bigtable/admin group loads 10 admin tools",
+			args:         []string{"--prebuilt", "bigtable/admin"},
+			wantTools:    10,
+			wantGroups:   []string{"admin"},
+			mustHaveTool: "create_instance",
+		},
+		{
+			desc:         "bigtable/data group loads 7 data tools",
+			args:         []string{"--prebuilt", "bigtable/data"},
+			wantTools:    7,
+			wantGroups:   []string{"data"},
+			mustHaveTool: "list_schemas",
+		},
+		{
+			desc:         "bigtable/views group loads 10 view tools",
+			args:         []string{"--prebuilt", "bigtable/views"},
+			wantTools:    10,
+			wantGroups:   []string{"views"},
+			mustHaveTool: "create_logical_view",
+		},
+		{
+			desc:      "nonexistent bigtable group fails",
+			args:      []string{"--prebuilt", "bigtable/nonexistent"},
+			wantErr:   true,
+			errString: "toolset 'nonexistent' not found in prebuilt configuration 'bigtable'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+
+			_, opts, output, err := invokeCommandWithContext(ctx, tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error but got nil")
+				}
+				if !strings.Contains(err.Error(), tc.errString) {
+					t.Errorf("expected error containing %q, got %q", tc.errString, err.Error())
+				}
+				return
+			}
+
+			if err != nil && err != context.DeadlineExceeded && err != context.Canceled {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(output, "Server ready to serve!") {
+				t.Errorf("server did not start successfully. Output:\n%s", output)
+			}
+			if _, ok := opts.Cfg.SourceConfigs["bigtable-source"]; !ok {
+				t.Errorf("expected source 'bigtable-source' in SourceConfigs")
+			}
+			if len(opts.Cfg.ToolConfigs) != tc.wantTools {
+				t.Errorf("expected %d tools in ToolConfigs, got %d", tc.wantTools, len(opts.Cfg.ToolConfigs))
+			}
+			if _, ok := opts.Cfg.ToolConfigs[tc.mustHaveTool]; !ok {
+				t.Errorf("expected tool %q in ToolConfigs, not found", tc.mustHaveTool)
+			}
+			for _, grp := range tc.wantGroups {
+				if _, ok := opts.Cfg.GroupConfigs[grp]; !ok {
+					t.Errorf("expected group %q in GroupConfigs, not found", grp)
+				}
+			}
+		})
 	}
 }
