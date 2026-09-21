@@ -68,27 +68,46 @@ func initValkeyClient(ctx context.Context, addr []string) (valkey.Client, error)
 }
 
 func TestValkeyToolEndpoints(t *testing.T) {
+	setupValkeyTest(t, "--enable-api")
+	tests.RunToolGetTest(t)
+	runValkeyCallTests(t)
+}
+
+func setupValkeyTest(t *testing.T, args ...string) {
+	t.Helper()
+
 	sourceConfig := getValkeyVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	client, err := initValkeyClient(ctx, []string{ValkeyAddress})
 	if err != nil {
 		t.Fatalf("unable to create Valkey connection: %s", err)
 	}
 
+	t.Cleanup(func() { client.Close() })
+
 	// set up data for param tool
 	teardownDB := setupValkeyDB(t, ctx, client)
-	defer teardownDB(t)
+	t.Cleanup(func() { teardownDB(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetRedisValkeyToolsConfig(sourceConfig, ValkeyToolType)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -98,40 +117,20 @@ func TestValkeyToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
-	select1Want, mcpMyFailToolWant, invokeParamWant, invokeIdNullWant, nullWant, mcpSelect1Want, mcpInvokeParamWant := tests.GetRedisValkeyWants()
+}
 
-	// Keep discovery independent of the credential-dependent invocation helpers.
-	t.Run("list_tools", func(t *testing.T) {
-		expectedTools := tests.GetBaseMCPExpectedTools()
-		for i := range expectedTools {
-			if expectedTools[i].Name == "my-array-tool" {
-				// Valkey accepts a command array rather than SQL ID/name arrays.
-				expectedTools[i].InputSchema = map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"cmdArray": map[string]any{"type": "array", "description": "cmd array", "items": map[string]any{"type": "string", "description": "field"}},
-					},
-					"required": []any{"cmdArray"},
-				}
-			}
-		}
-		tests.RunMCPToolsListMethod(t, expectedTools)
-	})
+func runValkeyCallTests(t *testing.T, options ...tests.InvokeTestOption) {
+	select1Want, mcpMyFailToolWant, invokeParamWant, invokeIdNullWant, nullWant, mcpSelect1Want, mcpInvokeParamWant := tests.GetRedisValkeyWants()
 	t.Run("invoke", func(t *testing.T) {
-		tests.RunToolInvokeTest(t, select1Want,
-			tests.WithMyToolId3NameAliceWant(invokeParamWant),
-			tests.WithMyArrayToolWant(invokeParamWant),
-			tests.WithMyToolById4Want(invokeIdNullWant),
-			tests.WithNullWant(nullWant),
-			tests.WithMCP(),
-		)
+		opts := []tests.InvokeTestOption{
+			tests.WithMyToolId3NameAliceWant(invokeParamWant), tests.WithMyArrayToolWant(invokeParamWant),
+			tests.WithMyToolById4Want(invokeIdNullWant), tests.WithNullWant(nullWant),
+		}
+		tests.RunToolInvokeTest(t, select1Want, append(opts, options...)...)
 	})
 	t.Run("mcp_call", func(t *testing.T) {
 		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
-			tests.WithMcpMyToolId3NameAliceWant(mcpInvokeParamWant),
-			tests.WithMcpMySecureToolWant(invokeParamWant),
-		)
+			tests.WithMcpMyToolId3NameAliceWant(mcpInvokeParamWant), tests.WithMcpMySecureToolWant(invokeParamWant))
 	})
 }
 
