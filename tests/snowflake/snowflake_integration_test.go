@@ -49,7 +49,7 @@ func getSnowflakeVars(t *testing.T) map[string]any {
 	case SnowflakeUser:
 		t.Fatal("'SNOWFLAKE_USER' not set")
 	case SnowflakePassword:
-		t.Fatal("'SNOWFLAKE_PASSWORD' not set")
+		t.Fatal("'SNOWFLAKE_PASS' not set")
 	case SnowflakeDatabase:
 		t.Fatal("'SNOWFLAKE_DATABASE' not set")
 	case SnowflakeSchema:
