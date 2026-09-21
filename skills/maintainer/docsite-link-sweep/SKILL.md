@@ -2,41 +2,46 @@
 name: docsite-link-sweep
 description: >-
   Sweep the googleapis/mcp-toolbox docs for broken and non-canonical links, report each
-  finding with its cause, and apply the safe class of internal link fixes. Use when a
-  maintainer asks for a link sweep or a docs health check, triages the weekly "Link Checker
-  Report" issue, or after a docs reorg, page rename, or directory move. Example requests:
-  "check the docs for broken links", "link sweep", "fix the dead links in docs/". The skill
-  edits the working tree and makes one commit. It never pushes, never opens a PR, and never
-  rewrites external links or ambiguous targets.
+  finding with its cause, and apply the safe class of internal link fixes. CI does not check
+  links on this repo, so this skill is the only link check that runs. Use when a maintainer
+  asks for a link sweep or a docs health check, before a release, or after a docs reorg, page
+  rename, or directory move. Example requests: "check the docs for broken links", "link
+  sweep", "fix the dead links in docs/". The skill edits the working tree and makes one
+  commit. It never pushes, never opens a PR, and never rewrites external links or ambiguous
+  targets.
 ---
 
 # Docsite Link Sweep (mcp-toolbox)
 
-Two link checkers run on this repo, and each one misses what the other catches:
+**No link check runs in CI.** Both link checker workflows are disabled at the GitHub Actions
+level, so a broken link now merges without warning and nobody files the weekly report issue.
+Run this skill yourself. Nothing else catches these.
+
+The skill drives two tools, and each one misses what the other catches:
 
 - **Lychee** resolves a link as a filesystem path or a network URL. It knows nothing about Hugo.
 - **Hugo** resolves a `.md` link to a pretty URL and generates links from shortcodes. It never checks an external URL.
 
-This skill covers the gap. It applies safe mechanical fixes to internal links. It reports external and ambiguous failures for a maintainer to decide.
+The skill covers the gap. It applies safe mechanical fixes to internal links. It reports external and ambiguous failures for a maintainer to decide.
 
 ## Prerequisites
 
 - **Clean git working tree.** Commit or stash docs changes before you start.
-- **`lychee`.** Install with `brew install lychee`, or run `docker run --rm -v "$PWD:/input" lycheeverse/lychee`. If lychee is absent, run the grep and build passes only.
+- **`lychee`.** Install with `brew install lychee`, or run `docker run --rm -v "$PWD:/input" lycheeverse/lychee`. Lychee is now the only external URL check anywhere in this repo. Without it, run the grep and build passes, then report that external URLs went unchecked.
 - **`hugo`**, Extended v0.146.0 or later, for shortcode and build verification.
 
-Default scope is `README.md` and `docs/en/`. For a PR, use the changed markdown files instead.
+Default scope is `README.md` and `docs/en/`. Sweep the full scope by default, because no CI pass has covered these files since the workflows went dark. Narrow to the changed markdown files only when the maintainer asks to check one PR.
 
 ## References
 
-- [`DEVELOPER.md`](references/DEVELOPER.md): canonical link rules.
+- [`DEVELOPER.md`](references/DEVELOPER.md): canonical link rules. Its "Link Checking and Fixing with Lychee" section says the repo uses lychee for link checks. That claim is stale for CI. The link rules and the `.lycheeignore` guidance in it remain correct.
 - [`references/link-forms.md`](references/link-forms.md): path-to-URL mapping, version leaks, and Hugo traps.
-- [`.lycheeignore`](https://github.com/googleapis/mcp-toolbox/blob/main/.lycheeignore): excluded domains and URLs. Every entry must carry a comment.
-- [`link_checker.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker.yaml): the PR check. [`link_checker_report.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker_report.yaml): the weekly report.
+- [`.lycheeignore`](https://github.com/googleapis/mcp-toolbox/blob/main/.lycheeignore): excluded domains and URLs. The local lychee CLI still reads this file, so it still applies. Every entry must carry a comment.
+- [`link_checker.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker.yaml) and [`link_checker_report.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker_report.yaml): both disabled. The YAML still declares a `pull_request` trigger and a weekly `schedule`, so read the workflow state, not the file. Check with `gh api repos/googleapis/mcp-toolbox/actions/workflows`. Treat these files as the reference for flags to reuse, not as a check that runs.
 
 ## 1. Detect
 
-Run lychee. The two `--exclude` patterns match the PR workflow:
+Run lychee. Keep the two `--exclude` patterns. `neo4j+` and `bolt://` are database schemes, and lychee cannot fetch them:
 
 ```bash
 lychee --quiet --no-progress --exclude '^neo4j\+.*' --exclude '^bolt://.*' README.md docs/
