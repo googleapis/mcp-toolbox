@@ -15,8 +15,10 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -110,17 +112,25 @@ func getSQLiteTmplToolStatement() (string, string) {
 }
 
 func TestSQLiteToolEndpoint(t *testing.T) {
+	tableName := setupSQLiteTest(t, "--enable-api")
+	tests.RunToolGetTest(t)
+	runSQLiteCallTests(t, tableName, nil, nil)
+}
+
+func setupSQLiteTest(t *testing.T, args ...string) string {
+	t.Helper()
+
 	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer teardownDb(t)
-	defer db.Close()
+	t.Cleanup(func() { teardownDb(t) })
+	t.Cleanup(func() { db.Close() })
 
 	sourceConfig := getSQLiteVars(t)
 	sourceConfig["database"] = sqliteDb
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -140,11 +150,20 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	tmplSelectCombined, tmplSelectFilterCombined := getSQLiteTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, SQLiteToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -154,41 +173,46 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
+	return tableNameTemplateParam
+}
+
+func runSQLiteCallTests(t *testing.T, tableName string, invokeOptions []tests.InvokeTestOption, templateOptions []tests.TemplateParamOption) {
+
 	select1Want := "[{\"1\":1}]"
 	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: SQL logic error: near \"SELEC\": syntax error (1)"}],"isError":true}}`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"1\":1}"}]}}`
 
-	// Keep credential-dependent helpers in separate subtests so that discovery
-	// and template parameters can also be exercised without Google credentials.
-	t.Run("list_tools", func(t *testing.T) {
-		expectedTools := tests.GetBaseMCPExpectedTools()
-		expectedTools = append(expectedTools, tests.GetTemplateParamMCPExpectedTools()...)
-		tests.RunMCPToolsListMethod(t, expectedTools)
-	})
 	t.Run("invoke", func(t *testing.T) {
-		tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest(), tests.WithMCP())
+		opts := append([]tests.InvokeTestOption{tests.DisableArrayTest()}, invokeOptions...)
+		tests.RunToolInvokeTest(t, select1Want, opts...)
 	})
 	t.Run("mcp_call", func(t *testing.T) {
 		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	})
 	t.Run("template_parameters", func(t *testing.T) {
-		tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam, tests.WithMCPTemplate())
+		tests.RunToolInvokeWithTemplateParameters(t, tableName, templateOptions...)
 	})
 }
 
 func TestSQLiteExecuteSqlTool(t *testing.T) {
+	tableName := setupSQLiteExecuteSQLTest(t, "--enable-api")
+	runSQLiteExecuteSQLTests(t, tableName)
+}
+
+func setupSQLiteExecuteSQLTest(t *testing.T, args ...string) string {
+	t.Helper()
+
 	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer teardownDb(t)
-	defer db.Close()
+	t.Cleanup(func() { teardownDb(t) })
+	t.Cleanup(func() { db.Close() })
 
 	sourceConfig := getSQLiteVars(t)
 	sourceConfig["database"] = sqliteDb
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	// Create a table and insert data
 	tableName := "exec_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -211,11 +235,20 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 		},
 	}
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolConfig)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolConfig, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -223,6 +256,15 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
 		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	return tableName
+}
+
+func runSQLiteExecuteSQLTests(t *testing.T, tableName string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
 	}
 
 	// Table-driven test cases
@@ -256,6 +298,53 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if !config.IsMCP() {
+				args, err := json.Marshal(tc.arguments)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, body := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke", bytes.NewReader(args), nil)
+				wantStatus := http.StatusOK
+				if response.StatusCode != wantStatus {
+					t.Fatalf("unexpected HTTP status: got %d, want %d; body: %s", response.StatusCode, wantStatus, body)
+				}
+				if tc.wantError != "" {
+					var wrapper struct {
+						Result string `json:"result"`
+					}
+					if err := json.Unmarshal(body, &wrapper); err != nil {
+						t.Fatal(err)
+					}
+					var failure struct {
+						Error string `json:"error"`
+					}
+					if err := json.Unmarshal([]byte(wrapper.Result), &failure); err != nil {
+						t.Fatal(err)
+					}
+					if !strings.Contains(failure.Error, tc.wantError) {
+						t.Fatalf("expected error %q, got %s", tc.wantError, body)
+					}
+					return
+				}
+				var result struct {
+					Result string `json:"result"`
+				}
+				if err := json.Unmarshal(body, &result); err != nil {
+					t.Fatal(err)
+				}
+				var rows []json.RawMessage
+				if err := json.Unmarshal([]byte(result.Result), &rows); err != nil {
+					t.Fatal(err)
+				}
+				content := make([]v20251125.TextContent, 0, len(rows))
+				for _, row := range rows {
+					content = append(content, v20251125.TextContent{Type: "text", Text: string(row)})
+				}
+				if diff := cmp.Diff(tc.wantContent, content); diff != "" {
+					t.Fatalf("unexpected API rows (-want +got):\n%s", diff)
+				}
+				return
+			}
 			status, resp, err := tests.InvokeMCPTool(t, "my-exec-sql-tool", tc.arguments, nil)
 			if err != nil {
 				t.Fatalf("unable to invoke tool: %s", err)
