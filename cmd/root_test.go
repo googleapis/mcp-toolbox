@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,8 +73,31 @@ func withDefaults(c server.ServerConfig) server.ServerConfig {
 	return c
 }
 
+type threadSafeBuffer struct {
+	b bytes.Buffer
+	m sync.Mutex
+}
+
+func (b *threadSafeBuffer) Read(p []byte) (n int, err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.Read(p)
+}
+
+func (b *threadSafeBuffer) Write(p []byte) (n int, err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *threadSafeBuffer) String() string {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.String()
+}
+
 func invokeCommand(args []string) (*cobra.Command, *internal.ToolboxOptions, string, error) {
-	buf := new(bytes.Buffer)
+	buf := new(threadSafeBuffer)
 	opts := internal.NewToolboxOptions(internal.WithIOStreams(buf, buf))
 	c := NewCommand(opts)
 
@@ -98,7 +122,7 @@ func invokeCommand(args []string) (*cobra.Command, *internal.ToolboxOptions, str
 
 // invokeCommandWithContext executes the command with a context and returns the captured output.
 func invokeCommandWithContext(ctx context.Context, args []string) (*cobra.Command, *internal.ToolboxOptions, string, error) {
-	buf := new(bytes.Buffer)
+	buf := new(threadSafeBuffer)
 	opts := internal.NewToolboxOptions(internal.WithIOStreams(buf, buf))
 	c := NewCommand(opts)
 
