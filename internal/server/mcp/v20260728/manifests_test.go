@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -49,6 +50,7 @@ func TestGenerateToolManifest(t *testing.T) {
 		authInvoke      []string
 		params          parameters.Parameters
 		annotations     *tools.ToolAnnotations
+		uiMetadata      map[string]any
 		wantMetadata    map[string]any
 		wantAnnotations []byte
 	}{
@@ -107,10 +109,28 @@ func TestGenerateToolManifest(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc:        "with ui metadata",
+			name:        "basic",
+			description: "foo bar",
+			authInvoke:  []string{},
+			params:      parameters.Parameters{parameters.NewStringParameter("string-param", "string parameter")},
+			annotations: nil,
+			uiMetadata: map[string]any{
+				"resourceUri": "mcp://my-app",
+				"visibility":  []string{"model", "app"},
+			},
+			wantMetadata: map[string]any{
+				"ui": map[string]any{
+					"resourceUri": "mcp://my-app",
+					"visibility":  []string{"model", "app"},
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got := generateToolManifest(tc.name, tc.description, tc.authInvoke, tc.params, tc.annotations, nil)
+			got := generateToolManifest(tc.name, tc.description, tc.authInvoke, tc.params, tc.annotations, nil, tc.uiMetadata)
 			gotM := got.Metadata
 			if diff := cmp.Diff(tc.wantMetadata, gotM); diff != "" {
 				t.Fatalf("unexpected metadata (-want +got):\n%s", diff)
@@ -185,7 +205,7 @@ func TestParamManifest(t *testing.T) {
 				Required: []string{"foo-string2", "foo-string3-auth", "foo-int2", "foo-float", "foo-array2", "foo-map-int", "foo-map-any"},
 			},
 			wantAuthParam: map[string][]string{
-				"foo-string3-auth": []string{"my-google-auth-service", "other-auth-service"},
+				"foo-string3-auth": {"my-google-auth-service", "other-auth-service"},
 			},
 		},
 		{
@@ -231,74 +251,143 @@ func TestParamManifest(t *testing.T) {
 }
 
 func TestGenerateListToolsResult(t *testing.T) {
-	tool1 := testutils.NewMockTool("no_params", "", "", []parameters.Parameter{}, false, false)
-	tool2 := testutils.NewMockTool(
-		"some_params",
-		"", "",
-		parameters.Parameters{
-			parameters.NewIntParameter("param1", "This is the first parameter."),
-			parameters.NewIntParameter("param2", "This is the second parameter."),
-		}, false, false)
-	toolsMap := make(map[string]tools.Tool)
-	toolsMap[tool1.GetName()] = tool1
-	toolsMap[tool2.GetName()] = tool2
-	g := group.NewGroup(group.GroupConfig{
-		Name:      "test-toolset",
-		ToolNames: []string{"no_params", "some_params"},
+	t.Run("basic", func(t *testing.T) {
+		tool1 := testutils.NewMockTool("no_params", "", "", []parameters.Parameter{}, false, false)
+		tool2 := testutils.NewMockTool(
+			"some_params",
+			"", "",
+			parameters.Parameters{
+				parameters.NewIntParameter("param1", "This is the first parameter."),
+				parameters.NewIntParameter("param2", "This is the second parameter."),
+			}, false, false)
+		toolsMap := make(map[string]tools.Tool)
+		toolsMap[tool1.GetName()] = tool1
+		toolsMap[tool2.GetName()] = tool2
+		g := group.NewGroup(group.GroupConfig{
+			Name:      "test-toolset",
+			ToolNames: []string{"no_params", "some_params"},
+		})
+
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
+		got, err := GenerateListToolsResult(pMgr, g, nil, false, true)
+		if err != nil {
+			t.Fatalf("unable to generate list tools result: %s", err)
+		}
+		want := ListToolsResult{
+			Result: Result{
+				ResultType: resultTypeComplete,
+			},
+			CacheableResult: CacheableResult{
+				TtlMs:      300000,
+				CacheScope: cacheScopePublic,
+			},
+			Tools: []Tool{
+				{
+					BaseMetadata: BaseMetadata{Name: "no_params"},
+					Description:  "",
+					ToolInputSchema: InputSchema{
+						Type:       "object",
+						Properties: map[string]parameters.ParameterMcpManifest{},
+						Required:   []string{},
+					},
+				},
+				{
+					BaseMetadata: BaseMetadata{Name: "some_params"},
+					Description:  "",
+					ToolInputSchema: InputSchema{
+						Type: "object",
+						Properties: map[string]parameters.ParameterMcpManifest{
+							"param1": {
+								Type:                 "integer",
+								Description:          "This is the first parameter.",
+								Items:                nil,
+								Default:              nil,
+								AdditionalProperties: nil,
+							},
+							"param2": {
+								Type:                 "integer",
+								Description:          "This is the second parameter.",
+								Items:                nil,
+								Default:              nil,
+								AdditionalProperties: nil,
+							},
+						},
+						Required: []string{"param1", "param2"},
+					},
+				},
+			},
+		}
+		if diff := cmp.Diff(got, want); diff != "" {
+			t.Fatalf("unexpected list tools result (-want +got):\n%s", diff)
+		}
+
+	})
+	t.Run("ui metadata success", func(t *testing.T) {
+		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
+		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
+		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
+		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, false, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		uiMeta, ok := res.Tools[0].Metadata["ui"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected metadata to have ui map, got %v", res.Tools[0].Metadata["ui"])
+		}
+		if uiMeta["resourceUri"] != "file:///test/path" {
+			t.Errorf("expected resourceUri=file:///test/path, got %v", uiMeta["resourceUri"])
+		}
 	})
 
-	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil)
-	got, err := GenerateListToolsResult(pMgr, g, nil, false)
-	if err != nil {
-		t.Fatalf("unable to generate list tools result: %s", err)
-	}
-	want := ListToolsResult{
-		Result: Result{
-			ResultType: resultTypeComplete,
-		},
-		CacheableResult: CacheableResult{
-			TtlMs:      300000,
-			CacheScope: cacheScopePublic,
-		},
-		Tools: []Tool{
-			Tool{
-				BaseMetadata: BaseMetadata{Name: "no_params"},
-				Description:  "",
-				ToolInputSchema: InputSchema{
-					Type:       "object",
-					Properties: map[string]parameters.ParameterMcpManifest{},
-					Required:   []string{},
-				},
-			},
-			Tool{
-				BaseMetadata: BaseMetadata{Name: "some_params"},
-				Description:  "",
-				ToolInputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]parameters.ParameterMcpManifest{
-						"param1": parameters.ParameterMcpManifest{
-							Type:                 "integer",
-							Description:          "This is the first parameter.",
-							Items:                nil,
-							Default:              nil,
-							AdditionalProperties: nil,
-						},
-						"param2": parameters.ParameterMcpManifest{
-							Type:                 "integer",
-							Description:          "This is the second parameter.",
-							Items:                nil,
-							Default:              nil,
-							AdditionalProperties: nil,
-						},
-					},
-					Required: []string{"param1", "param2"},
-				},
-			},
-		},
-	}
-	if diff := cmp.Diff(got, want); diff != "" {
-		t.Fatalf("unexpected list tools result (-want +got):\n%s", diff)
-	}
+	t.Run("ui metadata graceful degradation when client does not support ui", func(t *testing.T) {
+		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
+		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
+		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
+		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, false, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		if res.Tools[0].Metadata != nil && res.Tools[0].Metadata["ui"] != nil {
+			t.Fatalf("expected tool to not have ui metadata when client does not support UI, got %v", res.Tools[0].Metadata["ui"])
+		}
+	})
+
+	t.Run("ui metadata empty resourceUri when resource not in primitive manager", func(t *testing.T) {
+		toolDirectURI := testutils.NewMockToolWithUI("tool-direct", "", "", nil, false, false, "ui://direct-uri")
+		toolsMap := map[string]tools.Tool{"tool-direct": toolDirectURI}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-direct"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, false, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		uiMeta, ok := res.Tools[0].Metadata["ui"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected metadata to have ui map, got %v", res.Tools[0].Metadata["ui"])
+		}
+		if uiMeta["resourceUri"] != "" {
+			t.Errorf("expected resourceUri=\"\", got %v", uiMeta["resourceUri"])
+		}
+	})
+
 }
 
 func TestGeneratePromptManifest(t *testing.T) {
@@ -366,7 +455,7 @@ func TestGenerateListPromptsResult(t *testing.T) {
 	gMap := map[string]group.Group{
 		g.Name: g,
 	}
-	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, promptsMap, gMap)
+	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, promptsMap, nil, nil, gMap)
 	got, err := GenerateListPromptsResult(pMgr, g)
 	if err != nil {
 		t.Fatalf("unable to generate list prompt result: %s", err)
@@ -380,16 +469,16 @@ func TestGenerateListPromptsResult(t *testing.T) {
 			CacheScope: cacheScopePublic,
 		},
 		Prompts: []Prompt{
-			Prompt{
+			{
 				BaseMetadata: BaseMetadata{Name: "prompt1"},
 				Description:  "First test prompt",
 				Arguments:    []PromptArgument{},
 			},
-			Prompt{
+			{
 				BaseMetadata: BaseMetadata{Name: "prompt2"},
 				Description:  "Second test prompt",
 				Arguments: []PromptArgument{
-					PromptArgument{
+					{
 						BaseMetadata: BaseMetadata{Name: "arg1"},
 						Description:  "Test argument",
 						Required:     true,
@@ -490,7 +579,7 @@ func TestGenerateToolManifestWithSecureParams(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := generateToolManifest("test-tool", "desc", nil, tc.params, nil, tc.urlParams)
+			got := generateToolManifest("test-tool", "desc", nil, tc.params, nil, tc.urlParams, nil)
 
 			if diff := cmp.Diff(tc.wantStandard, got.ToolInputSchema); diff != "" {
 				t.Errorf("unexpected standard schema (-want +got):\n%s", diff)
@@ -570,9 +659,9 @@ func TestGenerateListToolsResultWithSecureParams(t *testing.T) {
 				Name:      "test-toolset",
 				ToolNames: tc.toolNames,
 			})
-			pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil)
+			pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
 
-			got, err := GenerateListToolsResult(pMgr, g, tc.urlParams, tc.supportsSecure)
+			got, err := GenerateListToolsResult(pMgr, g, tc.urlParams, tc.supportsSecure, true)
 			if err != nil {
 				t.Fatalf("failed GenerateListToolsResult: %s", err)
 			}
@@ -585,5 +674,237 @@ func TestGenerateListToolsResultWithSecureParams(t *testing.T) {
 				tc.verifyFunc(t, got.Tools)
 			}
 		})
+	}
+}
+
+func TestGenerateResourceManifest(t *testing.T) {
+	t.Parallel()
+	size := int64(2048)
+	priority := 0.9
+	testCases := []struct {
+		name         string
+		resName      string
+		title        string
+		description  string
+		uri          string
+		mimeType     string
+		size         *int64
+		internalAnns *resources.ResourceAnnotations
+		want         Resource
+	}{
+		{
+			name:        "Basic resource with all fields",
+			resName:     "test-res",
+			title:       "Test Resource Title",
+			description: "A test resource.",
+			uri:         "file://test",
+			mimeType:    "text/plain",
+			size:        &size,
+			internalAnns: &resources.ResourceAnnotations{
+				Audience:     []resources.AudienceRole{resources.RoleUser, resources.RoleAssistant},
+				Priority:     &priority,
+				LastModified: "2026-09-08T00:00:00Z",
+			},
+			want: Resource{
+				BaseMetadata: BaseMetadata{
+					Name:  "test-res",
+					Title: "Test Resource Title",
+				},
+				Description: "A test resource.",
+				Uri:         "file://test",
+				MimeType:    "text/plain",
+				Size:        &size,
+				Annotations: &Annotations{
+					Audience:     []Role{Role("user"), Role("assistant")},
+					Priority:     &priority,
+					LastModified: "2026-09-08T00:00:00Z",
+				},
+			},
+		},
+		{
+			name:    "Minimal resource",
+			resName: "min-res",
+			uri:     "file://min",
+			want: Resource{
+				BaseMetadata: BaseMetadata{
+					Name: "min-res",
+				},
+				Uri: "file://min",
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := generateResourceManifest(tc.resName, tc.title, tc.description, tc.uri, tc.mimeType, tc.size, tc.internalAnns)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("generateResourceManifest() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGenerateResourceTemplateManifest(t *testing.T) {
+	t.Parallel()
+	priority := 0.7
+	testCases := []struct {
+		name         string
+		tmplName     string
+		title        string
+		description  string
+		uriTemplate  string
+		mimeType     string
+		internalAnns *resources.ResourceAnnotations
+		want         ResourceTemplate
+	}{
+		{
+			name:        "Basic template with all fields",
+			tmplName:    "test-tmpl",
+			title:       "Test Template Title",
+			description: "A test template.",
+			uriTemplate: "file://{path}",
+			mimeType:    "text/plain",
+			internalAnns: &resources.ResourceAnnotations{
+				Audience:     []resources.AudienceRole{resources.RoleUser},
+				Priority:     &priority,
+				LastModified: "2026-09-08T00:00:00Z",
+			},
+			want: ResourceTemplate{
+				BaseMetadata: BaseMetadata{
+					Name:  "test-tmpl",
+					Title: "Test Template Title",
+				},
+				Description: "A test template.",
+				UriTemplate: "file://{path}",
+				MimeType:    "text/plain",
+				Annotations: &Annotations{
+					Audience:     []Role{Role("user")},
+					Priority:     &priority,
+					LastModified: "2026-09-08T00:00:00Z",
+				},
+			},
+		},
+		{
+			name:        "Minimal template",
+			tmplName:    "min-tmpl",
+			uriTemplate: "file://{path}",
+			want: ResourceTemplate{
+				BaseMetadata: BaseMetadata{
+					Name: "min-tmpl",
+				},
+				UriTemplate: "file://{path}",
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := generateResourceTemplateManifest(tc.tmplName, tc.title, tc.description, tc.uriTemplate, tc.mimeType, tc.internalAnns)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("generateResourceTemplateManifest() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGenerateListResourcesResult(t *testing.T) {
+	size := int64(1024)
+	res1 := testutils.NewMockResource("res1", "file://res1", "Title 1", "Desc 1", "text/plain", &size, nil)
+	res2 := testutils.NewMockResource("res2", "file://res2", "", "", "", nil, nil)
+
+	resourcesMap := make(map[string]resources.Resource)
+	resourcesMap[res1.GetName()] = res1
+	resourcesMap[res2.GetName()] = res2
+
+	g := group.NewGroup(group.GroupConfig{
+		Name:          "test-resourceset",
+		ResourceNames: []string{"res1", "res2"},
+	})
+	gMap := map[string]group.Group{
+		g.Name: g,
+	}
+	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, gMap)
+	got, err := GenerateListResourcesResult(pMgr, g)
+	if err != nil {
+		t.Fatalf("unable to generate list resources result: %s", err)
+	}
+	want := ListResourcesResult{
+		Result: Result{
+			ResultType: "complete",
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      300000,
+			CacheScope: "public",
+		},
+		Resources: []Resource{
+			{
+				BaseMetadata: BaseMetadata{
+					Name:  "res1",
+					Title: "Title 1",
+				},
+				Uri:         "file://res1",
+				Description: "Desc 1",
+				MimeType:    "text/plain",
+				Size:        &size,
+			},
+			{
+				BaseMetadata: BaseMetadata{
+					Name: "res2",
+				},
+				Uri: "file://res2",
+			},
+		},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("unexpected list resources result (-want +got):\n%s", diff)
+	}
+}
+
+func TestGenerateListResourceTemplatesResult(t *testing.T) {
+	tmpl1 := testutils.NewMockResourceTemplate("tmpl1", "file://{path}", "Title 1", "Desc 1", "text/plain", nil)
+	tmpl2 := testutils.NewMockResourceTemplate("tmpl2", "https://{domain}/res", "", "", "", nil)
+
+	templatesMap := make(map[string]resources.ResourceTemplate)
+	templatesMap[tmpl1.GetName()] = tmpl1
+	templatesMap[tmpl2.GetName()] = tmpl2
+
+	g := group.NewGroup(group.GroupConfig{
+		Name:                  "test-templateset",
+		ResourceTemplateNames: []string{"tmpl1", "tmpl2"},
+	})
+	gMap := map[string]group.Group{
+		g.Name: g,
+	}
+	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, nil, templatesMap, gMap)
+	got, err := GenerateListResourceTemplatesResult(pMgr, g)
+	if err != nil {
+		t.Fatalf("unable to generate list resource templates result: %s", err)
+	}
+	want := ListResourceTemplatesResult{
+		Result: Result{
+			ResultType: "complete",
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      300000,
+			CacheScope: "public",
+		},
+		ResourceTemplates: []ResourceTemplate{
+			{
+				BaseMetadata: BaseMetadata{
+					Name:  "tmpl1",
+					Title: "Title 1",
+				},
+				UriTemplate: "file://{path}",
+				Description: "Desc 1",
+				MimeType:    "text/plain",
+			},
+			{
+				BaseMetadata: BaseMetadata{
+					Name: "tmpl2",
+				},
+				UriTemplate: "https://{domain}/res",
+			},
+		},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("unexpected list resource templates result (-want +got):\n%s", diff)
 	}
 }
