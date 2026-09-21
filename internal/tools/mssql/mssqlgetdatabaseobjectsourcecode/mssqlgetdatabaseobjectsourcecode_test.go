@@ -15,6 +15,7 @@
 package mssqlgetdatabaseobjectsourcecode_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -68,6 +69,46 @@ func TestParseFromYamlMssqlGetDatabaseObjectSourceCode(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Fatalf("incorrect parse: diff %v", diff)
+			}
+		})
+	}
+}
+
+func TestGetStatement(t *testing.T) {
+	tcs := []struct {
+		desc       string
+		objectType string
+		namesOnly  bool
+		wantVal    string
+	}{
+		{
+			desc:       "namesOnly true",
+			objectType: "tables",
+			namesOnly:  true,
+			wantVal:    "DECLARE @NamesOnly BIT = 1;",
+		},
+		{
+			desc:       "namesOnly false",
+			objectType: "tables",
+			namesOnly:  false,
+			wantVal:    "DECLARE @NamesOnly BIT = 0;",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			stmt, err := mssqlgetdatabaseobjectsourcecode.GetStatement(tc.objectType, tc.namesOnly)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(stmt, tc.wantVal) {
+				t.Errorf("expected statement to contain %q, got: %s", tc.wantVal, stmt)
+			}
+			if !strings.Contains(stmt, "IF @NamesOnly = 1") {
+				t.Errorf("expected statement to contain IF @NamesOnly = 1 check")
+			}
+			if !strings.Contains(stmt, "#SqlResourceList") {
+				t.Errorf("expected statement to contain #SqlResourceList in ELSE block")
 			}
 		})
 	}
