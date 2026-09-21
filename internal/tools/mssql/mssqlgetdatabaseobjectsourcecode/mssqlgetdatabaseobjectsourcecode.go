@@ -102,35 +102,40 @@ var objectTypeQueries = map[string]queryPair{
 }
 
 func getStatement(objectType string, namesOnly bool) (string, error) {
-	var selectQueries []string
+	var namesOnlyQueries []string
+	var fullQueries []string
 	order := []string{"procedures", "views", "functions", "triggers", "linked_servers", "tables"}
 
 	if objectType == "all" || objectType == "" {
 		for _, ot := range order {
 			qp := objectTypeQueries[ot]
-			if namesOnly {
-				selectQueries = append(selectQueries, qp.namesOnly)
-			} else {
-				selectQueries = append(selectQueries, qp.full)
-			}
+			namesOnlyQueries = append(namesOnlyQueries, qp.namesOnly)
+			fullQueries = append(fullQueries, qp.full)
 		}
 	} else if qp, ok := objectTypeQueries[objectType]; ok {
-		if namesOnly {
-			selectQueries = append(selectQueries, qp.namesOnly)
-		} else {
-			selectQueries = append(selectQueries, qp.full)
-		}
+		namesOnlyQueries = append(namesOnlyQueries, qp.namesOnly)
+		fullQueries = append(fullQueries, qp.full)
 	} else {
 		return "", fmt.Errorf("unsupported object_type: %q", objectType)
 	}
 
-	unionSelects := strings.Join(selectQueries, "\nUNION ALL\n")
+	namesOnlySelects := strings.Join(namesOnlyQueries, "\nUNION ALL\n")
+	fullSelects := strings.Join(fullQueries, "\nUNION ALL\n")
 
+	namesOnlyVal := 0
 	if namesOnly {
-		return unionSelects + ";", nil
+		namesOnlyVal = 1
 	}
 
-	stmt := fmt.Sprintf(`-- Create a temporary table to hold procedure names
+	stmt := fmt.Sprintf(`DECLARE @NamesOnly BIT = %d;
+
+IF @NamesOnly = 1
+BEGIN
+%s;
+END
+ELSE
+BEGIN
+-- Create a temporary table to hold procedure names
 CREATE TABLE #SqlResourceList (
     RowID INT IDENTITY(1,1),
     ResourceName NVARCHAR(500),
@@ -178,7 +183,8 @@ END;
 
 -- Clean up
 DROP TABLE #SqlResourceList;
-`, unionSelects)
+END;
+`, namesOnlyVal, namesOnlySelects, fullSelects)
 
 	return stmt, nil
 }
