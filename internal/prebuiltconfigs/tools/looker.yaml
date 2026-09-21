@@ -852,7 +852,8 @@ description: |
   - type (required): The type of content to embed. Common values include:
     - `dashboards`
     - `looks`
-    - `explore`
+    - `query-visualizations`
+    - `explores`
   - id (required): The unique identifier for the content.
     - For dashboards and looks, use the numeric ID (e.g., "123").
     - For explores, use the format "model_name/explore_name".
