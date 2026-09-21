@@ -617,6 +617,79 @@ ui:
 
 UI resources are strictly global across all groups and cannot be declared in group resources. For details on defining UI resources, Content Security Policy, and device permissions, see the [MCP Apps](../mcp-apps/) documentation.
 
+## Result Caps
+
+You can bound the size of any tool's results by declaring caps in its
+configuration. This protects both the server and the calling LLM's context
+window from unexpectedly large result sets (for example, a query without a
+`LIMIT` clause matching millions of rows).
+
+| **field**        | **type** | **default**  | **description**                                                       |
+|------------------|:--------:|:------------:|-----------------------------------------------------------------------|
+| maxRows          |   int    | server default | Maximum number of elements returned for list-shaped results.        |
+| maxResponseBytes |   int    | server default | Maximum serialized size of the returned result, in bytes.           |
+
+```yaml
+kind: tool
+name: search_flights
+type: postgres-sql
+source: my-pg-instance
+statement: |
+  SELECT * FROM flights WHERE origin = @origin
+maxRows: 200
+maxResponseBytes: 65536
+```
+
+Both caps apply to every invocation surface (MCP `tools/call` and the HTTP
+API). For list-shaped results, `maxResponseBytes` drops whole trailing rows
+rather than cutting a row mid-way. A result that is not list-shaped and
+exceeds the byte cap is returned as a `truncatedResult` string holding the
+leading fragment, since a document cut mid-way is no longer valid JSON.
+
+When a cap fires, the response includes a structured truncation notice so the
+calling model can tell a capped result from a complete one — as an additional
+text content item in MCP responses, or a `truncation` field alongside `result`
+in HTTP API responses:
+
+```json
+{"truncation": {"truncated": true, "appliedLimit": "maxRows", "returnedRows": 200, "totalRows": 1434}}
+```
+
+Result caps are a guardrail, not a paging mechanism: agents that need to walk
+a large result set should page explicitly (for example, with `LIMIT` and
+`OFFSET` parameters in the statement).
+
+### Server-wide defaults
+
+Rather than declaring caps on every tool, you can set defaults for the whole
+server with the `--max-rows` and `--max-response-bytes` flags:
+
+```bash
+toolbox --config tools.yaml --max-rows 500 --max-response-bytes 262144
+```
+
+A tool that declares the field overrides the server default; a tool that omits
+it inherits the default. Declaring `0` on a tool is an explicit opt-out, so a
+tool whose results are always small — or one that must return a complete result
+to be useful at all — can stay uncapped under a server-wide default:
+
+```yaml
+kind: tool
+name: get_airport_by_id     # returns exactly one row
+type: postgres-sql
+source: my-pg-instance
+statement: SELECT * FROM airports WHERE id = @id
+maxRows: 0                  # never capped, whatever --max-rows is set to
+```
+
+{{< notice note >}}
+Caps are applied to the result after the tool has produced it, so they bound
+what reaches the model, not what the server does to build the response. They
+are not a defense against expensive or abusive workloads — use source-level
+controls for that, such as BigQuery's `maxQueryResultRows` and
+`maximumBytesBilled`, which are enforced while the query runs.
+{{< /notice >}}
+
 ## Using tools with MCP Toolbox Client SDKs
 
 Once your tools are defined in your configuration, you can retrieve them directly from your application code.

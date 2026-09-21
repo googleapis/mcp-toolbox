@@ -40,6 +40,8 @@ description: >
 |              | `--user-agent-metadata`    | Appends additional metadata to the User-Agent.                                                                                                                            |             |
 |              | `--poll-interval`          | Specifies the polling frequency (seconds) for configuration file updates.                                                                                                 | `0`         |
 |              | `--enable-draft-specs`     | Opt-in and test upcoming draft MCP specifications.                                                                                                                        | `false`     |
+|              | `--max-rows`               | Default cap on the number of rows a tool result may contain. `0` means uncapped. Overridden per tool by the `maxRows` field.                                              | `0`         |
+|              | `--max-response-bytes`     | Default cap on the serialized size of a tool result, in bytes. `0` means uncapped. Overridden per tool by the `maxResponseBytes` field.                                   | `0`         |
 | `-v`         | `--version`                | version for toolbox                                                                                                                                                       |             |
 
 ## Sub Commands

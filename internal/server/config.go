@@ -114,6 +114,10 @@ type ServerConfig struct {
 	DisableVersionCheck bool
 	// OpenAIAppsChallengeFile specifies the path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.
 	OpenAIAppsChallengeFile string
+	// MaxRows and MaxResponseBytes are the server-wide result caps applied to
+	// tools that do not declare their own. Zero means uncapped.
+	MaxRows          int
+	MaxResponseBytes int
 }
 
 type logFormat string
