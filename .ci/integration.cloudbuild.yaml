@@ -277,11 +277,11 @@ steps:
     args:
       - -c
       - |
-        PATTERN="(^|/)bigtable/|$$(cat .ci/core_pattern.txt)"
+        PATTERN="(^|/)internal/sources/bigtable/|(^|/)internal/tools/bigtable/|(^|/)tests/bigtable/|$$(cat .ci/core_pattern.txt)"
 
         if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
           echo "Changes detected. Running Bigtable tests..."
-          if grep -qE "(^|/)bigtable/" /workspace/changed_files.txt; then
+          if grep -qE "(^|/)internal/sources/bigtable/|(^|/)internal/tools/bigtable/|(^|/)tests/bigtable/" /workspace/changed_files.txt; then
             export RUN_EXPENSIVE_TESTS="true"
           fi
           if [ "$$RUN_EXPENSIVE_TESTS" != "true" ]; then

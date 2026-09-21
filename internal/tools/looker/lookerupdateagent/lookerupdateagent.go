@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -88,17 +89,10 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	codeInterpreterParameter := parameters.NewBooleanParameter("code_interpreter", "Optional. Enables Code Interpreter for this Agent.", parameters.WithBooleanDefault(false))
 	allParameters := parameters.Parameters{agentIdParameter, nameParameter, descriptionParameter, instructionsParameter, sourcesParameter, codeInterpreterParameter}
 
-	annotations := &tools.ToolAnnotations{}
-	if cfg.Annotations != nil {
-		*annotations = *cfg.Annotations
-	}
-	readOnlyHint := false
-	annotations.ReadOnlyHint = &readOnlyHint
-
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			annotations,
+			lookercommon.DestructiveAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: allParameters.Manifest(), AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),

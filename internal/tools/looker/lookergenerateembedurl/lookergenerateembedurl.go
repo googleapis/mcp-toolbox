@@ -26,6 +26,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -74,8 +75,8 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
 	}
 
-	typeParameter := parameters.NewStringParameter("type", "Type of Looker content to embed (ie. dashboards, looks, query-visualization)", parameters.WithStringDefault(""))
-	idParameter := parameters.NewStringParameter("id", "The ID of the content to embed.", parameters.WithStringDefault(""))
+	typeParameter := parameters.NewStringParameter("type", "Type of Looker content to embed (e.g. dashboards, looks, query-visualizations, or explores).")
+	idParameter := parameters.NewStringParameter("id", "The ID of the content to embed.")
 	params := parameters.Parameters{
 		typeParameter,
 		idParameter,
@@ -85,7 +86,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewReadOnlyAnnotations),
+			lookercommon.ReadOnlyAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: params.Manifest(), AuthRequired: cfg.AuthRequired},
 			params,
 		),
@@ -126,14 +127,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	paramsMap := params.AsMap()
 	embedType := paramsMap["type"].(string)
-	embedType_ptr := &embedType
-	if *embedType_ptr == "" {
-		embedType_ptr = nil
+	if embedType == "" {
+		return nil, util.NewAgentError("parameter 'type' cannot be empty", nil)
 	}
 	contentId := paramsMap["id"].(string)
-	contentId_ptr := &contentId
-	if *contentId_ptr == "" {
-		contentId_ptr = nil
+	if contentId == "" {
+		return nil, util.NewAgentError("parameter 'id' cannot be empty", nil)
 	}
 
 	sdk, err := source.GetLookerSDK(ctx, string(accessToken))
@@ -149,7 +148,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	forceLogoutLogin := true
 	sessionLength := source.LookerSessionLength()
 	req := v4.EmbedParams{
-		TargetUrl:        fmt.Sprintf("%s/embed/%s/%s", hostURL, *embedType_ptr, *contentId_ptr),
+		TargetUrl:        fmt.Sprintf("%s/embed/%s/%s", hostURL, embedType, contentId),
 		SessionLength:    &sessionLength,
 		ForceLogoutLogin: &forceLogoutLogin,
 	}
