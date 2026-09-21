@@ -305,6 +305,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboardlayoutcomponent"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdateprojectfile"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookervalidateproject"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/memory/creatememory"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mindsdb/mindsdbexecutesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mindsdb/mindsdbsql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbaggregate"
