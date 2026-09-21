@@ -2,107 +2,116 @@
 name: docsite-link-sweep
 description: >-
   Sweep the googleapis/mcp-toolbox docs for broken and non-canonical links, report each
-  finding with the reason it breaks, and apply the safe class of internal link fixes. Use
-  when a maintainer asks for a link sweep or docs health check, triages the weekly "Link
-  Checker Report" issue, or after a docs reorg, page rename, or directory move, e.g. "check
-  the docs for broken links", "link sweep", "fix the dead links in docs/". Edits the working
-  tree and leaves a commit; never pushes, never opens a PR, and never rewrites external links
-  or ambiguous targets.
+  finding with its cause, and apply the safe class of internal link fixes. Use when a
+  maintainer asks for a link sweep or a docs health check, triages the weekly "Link Checker
+  Report" issue, or after a docs reorg, page rename, or directory move. Example requests:
+  "check the docs for broken links", "link sweep", "fix the dead links in docs/". The skill
+  edits the working tree and makes one commit. It never pushes, never opens a PR, and never
+  rewrites external links or ambiguous targets.
 ---
 
 # Docsite Link Sweep (mcp-toolbox)
 
-Sweeps documentation for broken, dead, and non-canonical links. **Lychee** checks links as filesystem paths or network URLs; **Hugo** resolves `.md` links to pretty URLs and renders shortcodes.
+Two link checkers run on this repo, and each one misses what the other catches:
 
-This skill applies safe, mechanical internal link fixes (converting to canonical file-relative `.md` links) and reports external or ambiguous failures for maintainer review.
+- **Lychee** resolves a link as a filesystem path or a network URL. It knows nothing about Hugo.
+- **Hugo** resolves a `.md` link to a pretty URL and generates links from shortcodes. It never checks an external URL.
+
+This skill covers the gap. It applies safe mechanical fixes to internal links. It reports external and ambiguous failures for a maintainer to decide.
 
 ## Prerequisites
 
-- **Clean git working tree**: Ensure no uncommitted docs changes before starting.
-- **Tools**:
-  - `lychee` (`brew install lychee` or `docker run --rm -v "$PWD:/input" lycheeverse/lychee`). If unavailable, run grep and build passes only.
-  - `hugo` (Extended v0.146.0+) for shortcode and build verification.
-- **Default scope**: `README.md` and `docs/en/` (or changed markdown files for a PR).
+- **Clean git working tree.** Commit or stash docs changes before you start.
+- **`lychee`.** Install with `brew install lychee`, or run `docker run --rm -v "$PWD:/input" lycheeverse/lychee`. If lychee is absent, run the grep and build passes only.
+- **`hugo`**, Extended v0.146.0 or later, for shortcode and build verification.
 
-## Workflow
+Default scope is `README.md` and `docs/en/`. For a PR, use the changed markdown files instead.
 
-### 1. References
-- [`DEVELOPER.md`](references/DEVELOPER.md): Canonical link rules.
-- [`.lycheeignore`](https://github.com/googleapis/mcp-toolbox/blob/main/.lycheeignore): Excluded domains and URLs (every entry must have a comment).
-- Workflows: [`link_checker.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker.yaml) (PR checks) and [`link_checker_report.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker_report.yaml) (weekly report).
-- [`references/link-forms.md`](references/link-forms.md): URL mapping, version leaks, and Hugo traps.
+## References
 
-### 2. Detection
+- [`DEVELOPER.md`](references/DEVELOPER.md): canonical link rules.
+- [`references/link-forms.md`](references/link-forms.md): path-to-URL mapping, version leaks, and Hugo traps.
+- [`.lycheeignore`](https://github.com/googleapis/mcp-toolbox/blob/main/.lycheeignore): excluded domains and URLs. Every entry must carry a comment.
+- [`link_checker.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker.yaml): the PR check. [`link_checker_report.yaml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/workflows/link_checker_report.yaml): the weekly report.
 
-**Lychee check:**
+## 1. Detect
+
+Run lychee. The two `--exclude` patterns match the PR workflow:
+
 ```bash
-# Repo-wide (adjust scope as needed)
 lychee --quiet --no-progress --exclude '^neo4j\+.*' --exclude '^bolt://.*' README.md docs/
 
-# PR-scoped check (changed files only)
+# For a PR, limit the scope to changed files:
 git diff --name-only --diff-filter=ACMRT origin/main...HEAD -- '*.md'
 ```
 
-**Find links Lychee misses (structural & format issues):**
+Then grep for the structural problems lychee cannot see:
+
 ```bash
-# Directory-style links (Hugo resolves, Lychee fails):
+# Directory-style links. Hugo resolves these, lychee fails them.
 grep -rnE "\]\(\.\.?/[^)]*\)" docs/en --include=*.md | grep -vE "\.md(#[^)]*)?\)"
 
-# Site-absolute links (leak across versioned deploys):
+# Site-absolute links. These leak across versioned deploys.
 grep -rnE "\]\(/[^)]*\)" docs/en --include=*.md
 
-# Hardcoded domain URLs:
+# Hardcoded domain URLs.
 grep -rn "https://mcp-toolbox.dev/" docs/en --include=*.md
 
-# Section indexes missing `type: docs` (renders with no child links):
-find docs/en -name _index.md -exec grep -L "^type: docs" {} +
+# Section indexes with no `type: docs`. Docsy then renders no child links.
+find docs/en -name _index.md \
+  -not -path '*/tools/*' -not -path '*/samples/*' -not -path '*/prebuilt-configs/*' \
+  -exec grep -L "^type: docs" {} +
 ```
 
-**Verify shortcode-rendered links (deep sweep):**
+The three excluded paths hold frontmatter-only wrapper files. `CLAUDE.md` requires them to stay minimal, so they are expected hits and not findings. Without the exclusions this check returns about 58 files instead of 1.
+
+For a deep sweep, build the site and crawl the rendered HTML. This is the only pass that sees shortcode-generated links:
+
 ```bash
 cd .hugo && hugo --minify --config hugo.cloudflare.toml
 lychee --offline --base-url public public
 ```
 
-### 3. Classification & Action
+## 2. Classify
 
 Fix only safe, unambiguous internal links. Report everything else.
 
 | Category | Action | Criteria |
 |---|---|---|
-| **Safe to fix** | Rewrite in-place to file-relative `.md` | • Directory link → file-relative `.md`<br>• Site-absolute `](/path/)` → file-relative `.md`<br>• Hardcoded domain `https://mcp-toolbox.dev/...` → file-relative `.md`<br>• Moved file with exactly one obvious git successor<br>• Renamed heading anchor drift |
-| **Needs decision** | Report with recommendation; do not apply | • Target missing or deleted<br>• Multiple candidate targets after a split/reorg<br>• Links pointing to `ignoreFiles` paths (see `hugo.toml`)<br>• Missing `type: docs` on `_index.md` |
-| **External** | Report `file:line`, URL, status | • 404 / 403 / 500 external URLs |
-| **Ignore-worthy** | Propose commented `.lycheeignore` regex | • Auth-walled, rate-limited, or flakey endpoints |
+| **Safe to fix** | Rewrite in place to a file-relative `.md` link | • Directory link<br>• Site-absolute `](/path/)`<br>• Hardcoded `https://mcp-toolbox.dev/...`<br>• Moved file with exactly one obvious git successor<br>• Renamed heading anchor |
+| **Needs decision** | Report with a recommendation. Do not apply. | • Target is missing or deleted<br>• Several candidate targets after a split or reorg<br>• Link points into an `ignoreFiles` path (see `hugo.toml`)<br>• `_index.md` has no `type: docs` |
+| **External** | Report `file:line`, URL, and status | • External URL returns 404, 403, or 500 |
+| **Ignore-worthy** | Propose a commented `.lycheeignore` regex | • Endpoint is auth-walled, rate-limited, or flaky |
 
-**Canonical Link Rule:** Always link using file-relative paths ending in `.md` (e.g. `[Example](../folder/file.md)`). Never use site-absolute `/...` or directory `/.../` paths.
+**Canonical link rule:** use a file-relative path that ends in `.md`, for example `[Example](../folder/file.md)`. Never use a site-absolute `/...` path or a directory `/.../` path.
 
-### 4. Verification
+## 3. Verify
 
-Verify all modified files against both checkers:
+Check every modified file against both checkers:
+
 ```bash
-# 1. Verify filesystem paths resolve
 lychee --quiet --no-progress --offline <modified-files>
-
-# 2. Verify Hugo builds without ref errors
 cd .hugo && hugo --environment development
 ```
 
-### 5. Commit and Report
+## 4. Commit and report
 
-- Create a scoped branch: `git checkout -b docs/fix-docsite-links`
-- Commit verified fixes: `git commit -am "docs: fix broken docsite links"`
-- Never `git push` or run `gh pr create`. Output the report and prompt the maintainer with push/PR commands.
+```bash
+git checkout -b docs/fix-docsite-links
+git commit -am "docs: fix broken docsite links"
+```
+
+Stop there. Print the report, then give the maintainer the push and PR commands to run.
 
 ## Rules
 
-- **Verify both ways**: Every fix must pass offline `lychee` and `hugo --environment development`.
-- **Never guess external URLs**: If an external link is dead, report it rather than substituting a guess.
-- **Never invent missing targets**: Missing internal pages belong in "Needs your decision".
-- **Canonical format only**: File-relative `.md`. Never add internal links to `.lycheeignore`.
-- **Propose-only**: Never push branches or open PRs automatically.
+- **Verify both ways.** Every fix must pass offline `lychee` and `hugo --environment development`.
+- **Never guess an external URL.** If an external link is dead, report it. Do not substitute a replacement.
+- **Never invent a missing target.** A missing internal page belongs in "Needs your decision".
+- **Canonical format only.** Use file-relative `.md`. Never add an internal link to `.lycheeignore`.
+- **Propose only.** Never push a branch and never open a PR.
 
-## Output Format
+## Output format
 
 ```text
 ## Docsite link sweep: <scope>, <X> findings
@@ -121,7 +130,7 @@ Checked: lychee (<status>) | Hugo build (<status>) | <N> files changed
 | pattern | reason |
 
 **Structural** (<count>)
-- <file>: <issue description>
+- <file>: <issue>
 
 **Apply:**
 git push -u origin docs/fix-docsite-links
