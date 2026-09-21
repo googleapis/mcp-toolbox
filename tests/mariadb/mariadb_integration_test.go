@@ -15,6 +15,7 @@
 package mariadb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -79,17 +80,58 @@ func initMariaDB(host, port, user, pass, dbname string) (*sql.DB, error) {
 	return pool, nil
 }
 
+type mariaDBTestFixture struct {
+	ctx                                  context.Context
+	pool                                 *sql.DB
+	paramTable, authTable, templateTable string
+}
+
 func TestMySQLToolEndpoints(t *testing.T) {
+	fixture := setupMariaDBTest(t, "--enable-api")
+	tests.RunToolGetTest(t)
+
+	// Get configs for tests
+	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := GetMariaDBWants()
+
+	t.Run("invoke", func(t *testing.T) {
+		tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("execute_sql", func(t *testing.T) {
+		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, fixture.templateTable)
+	})
+	t.Run("list_tables", func(t *testing.T) {
+		RunMariDBListTablesTest(t, MariaDBDatabase, fixture.paramTable, fixture.authTable)
+	})
+	t.Run("list_active_queries", func(t *testing.T) {
+		tests.RunMySQLListActiveQueriesTest(t, fixture.ctx, fixture.pool)
+	})
+	t.Run("list_tables_missing_unique_indexes", func(t *testing.T) {
+		tests.RunMySQLListTablesMissingUniqueIndexes(t, fixture.ctx, fixture.pool, MariaDBDatabase)
+	})
+	t.Run("list_table_fragmentation", func(t *testing.T) {
+		tests.RunMySQLListTableFragmentationTest(t, MariaDBDatabase, fixture.paramTable, fixture.authTable)
+	})
+}
+
+func setupMariaDBTest(t *testing.T, args ...string) mariaDBTestFixture {
+	t.Helper()
+
 	sourceConfig := getMariaDBVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	pool, err := initMariaDB(MariaDBHost, MariaDBPort, MariaDBUser, MariaDBPass, MariaDBDatabase)
 	if err != nil {
 		t.Fatalf("unable to create MySQL connection pool: %s", err)
 	}
 
-	defer pool.Close()
+	t.Cleanup(func() { pool.Close() })
 
 	// cleanup test environment
 	tests.CleanupMySQLTables(t, ctx, pool)
@@ -102,12 +144,12 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMySQLParamToolInfo(tableNameParam)
 	teardownTable1 := tests.SetupMySQLTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	t.Cleanup(func() { teardownTable1(t) })
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := tests.GetMySQLAuthToolInfo(tableNameAuth)
 	teardownTable2 := tests.SetupMySQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	t.Cleanup(func() { teardownTable2(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, MariaDBToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -117,11 +159,20 @@ func TestMySQLToolEndpoints(t *testing.T) {
 
 	toolsFile = tests.AddMySQLPrebuiltToolConfig(t, toolsFile)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -131,42 +182,15 @@ func TestMySQLToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
-	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := GetMariaDBWants()
-
-	// Keep credential-dependent helpers separate so local runs can select the
-	// discovery, template and prebuilt cases without weakening auth coverage.
-	t.Run("list_tools", func(t *testing.T) {
-		tests.RunMCPToolsListMethod(t, getMariaDBMCPExpectedTools())
-	})
-	t.Run("invoke", func(t *testing.T) {
-		tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest(), tests.WithMCP())
-	})
-	t.Run("mcp_call", func(t *testing.T) {
-		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	})
-	t.Run("execute_sql", func(t *testing.T) {
-		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, tests.WithMCPSql())
-	})
-	t.Run("template_parameters", func(t *testing.T) {
-		tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam, tests.WithMCPTemplate())
-	})
-	t.Run("list_tables", func(t *testing.T) {
-		RunMariDBListTablesTest(t, MariaDBDatabase, tableNameParam, tableNameAuth)
-	})
-	t.Run("list_active_queries", func(t *testing.T) {
-		tests.RunMySQLListActiveQueriesTest(t, ctx, pool, tests.WithMCPExec())
-	})
-	t.Run("list_tables_missing_unique_indexes", func(t *testing.T) {
-		tests.RunMySQLListTablesMissingUniqueIndexes(t, ctx, pool, MariaDBDatabase, tests.WithMCPExec())
-	})
-	t.Run("list_table_fragmentation", func(t *testing.T) {
-		tests.RunMySQLListTableFragmentationTest(t, MariaDBDatabase, tableNameParam, tableNameAuth, tests.WithMCPExec())
-	})
+	return mariaDBTestFixture{ctx, pool, tableNameParam, tableNameAuth, tableNameTemplateParam}
 }
 
 // RunMariDBListTablesTest run tests against the mysql-list-tables tool
-func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNameAuth string) {
+func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNameAuth string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
 	type tableInfo struct {
 		ObjectName    string `json:"object_name"`
 		SchemaName    string `json:"schema_name"`
@@ -270,29 +294,54 @@ func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNa
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			status, response, err := tests.InvokeMCPTool(t, "list_tables", tc.arguments, nil)
-			if err != nil {
-				t.Fatalf("list_tables request failed: %v", err)
-			}
-			if status != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d", status, tc.wantStatusCode)
-			}
-			if response.Error != nil || response.Result.IsError {
-				t.Fatalf("list_tables returned an error: %+v", response)
-			}
-			if response.Result.Content == nil {
-				t.Fatal("list_tables response is missing the content array")
-			}
-			tables := make([]tableInfo, 0, len(response.Result.Content))
-			for _, content := range response.Result.Content {
-				if content.Type != "text" {
-					t.Fatalf("unexpected content type: %q", content.Type)
+			var tables []tableInfo
+			if config.IsMCP() {
+				status, response, err := tests.InvokeMCPTool(t, "list_tables", tc.arguments, nil)
+				if err != nil {
+					t.Fatalf("list_tables request failed: %v", err)
 				}
-				var table tableInfo
-				if err := json.Unmarshal([]byte(content.Text), &table); err != nil {
-					t.Fatalf("failed to decode table content: %v", err)
+				if status != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d", status, tc.wantStatusCode)
 				}
-				tables = append(tables, table)
+				if response.Error != nil || response.Result.IsError {
+					t.Fatalf("list_tables returned an error: %+v", response)
+				}
+				if response.Result.Content == nil {
+					t.Fatal("list_tables response is missing the content array")
+				}
+				tables = make([]tableInfo, 0, len(response.Result.Content))
+				for _, content := range response.Result.Content {
+					if content.Type != "text" {
+						t.Fatalf("unexpected content type: %q", content.Type)
+					}
+					var table tableInfo
+					if err := json.Unmarshal([]byte(content.Text), &table); err != nil {
+						t.Fatalf("failed to decode table content: %v", err)
+					}
+					tables = append(tables, table)
+				}
+			} else {
+				args, err := json.Marshal(tc.arguments)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, body := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/list_tables/invoke", bytes.NewReader(args), nil)
+				if response.StatusCode != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d; body: %s", response.StatusCode, tc.wantStatusCode, body)
+				}
+				var wrapper struct {
+					Result json.RawMessage `json:"result"`
+				}
+				if err := json.Unmarshal(body, &wrapper); err != nil {
+					t.Fatal(err)
+				}
+				var result string
+				if err := json.Unmarshal(wrapper.Result, &result); err != nil {
+					result = string(wrapper.Result)
+				}
+				if err := json.Unmarshal([]byte(result), &tables); err != nil {
+					t.Fatalf("failed to decode tables: %v", err)
+				}
 			}
 
 			var got any
@@ -351,118 +400,4 @@ func GetMariaDBWants() (string, string, string, string) {
 	createTableStatement := `"CREATE TABLE t (id INT AUTO_INCREMENT PRIMARY KEY, name TEXT)"`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"1\":1}"}]}}`
 	return select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want
-}
-
-// MariaDB exposes the same tool schemas as the shared MySQL fixtures.
-func getMariaDBMCPExpectedTools() []tests.MCPToolManifest {
-	expectedTools := tests.GetBaseMCPExpectedTools()
-	expectedTools = append(expectedTools, tests.GetExecuteSQLMCPExpectedTools()...)
-	expectedTools = append(expectedTools, tests.GetTemplateParamMCPExpectedTools()...)
-	expectedTools = append(expectedTools, []tests.MCPToolManifest{
-		{
-			Name:        "list_tables",
-			Description: "Lists tables in the database.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"output_format": map[string]any{"default": "detailed", "description": "Optional: Use 'simple' for names only or 'detailed' for full info.", "type": "string"},
-					"table_names":   map[string]any{"default": "", "description": "Optional: A comma-separated list of table names. If empty, details for all tables will be listed.", "type": "string"},
-				},
-				"required": []any{},
-			},
-		},
-		{
-			Name:        "list_active_queries",
-			Description: "Lists active queries in the database.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"limit":             map[string]any{"default": float64(100), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
-					"min_duration_secs": map[string]any{"default": float64(0), "description": "Optional: Only show queries running for at least this long in seconds", "type": "integer"},
-				},
-				"required": []any{},
-			},
-		},
-		{
-			Name:        "list_tables_missing_unique_indexes",
-			Description: "Lists tables that do not have primary or unique indexes in the database.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"limit":        map[string]any{"default": float64(50), "description": "(Optional) Max rows to return, default is 50", "type": "integer"},
-					"table_schema": map[string]any{"default": "", "description": "(Optional) The database where the check is to be performed. Check all tables visible to the current user if not specified", "type": "string"},
-				},
-				"required": []any{},
-			},
-		},
-		{
-			Name:        "list_table_fragmentation",
-			Description: "Lists table fragmentation in the database.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"data_free_threshold_bytes": map[string]any{"default": float64(1), "description": "(Optional) Only show tables with at least this much free space in bytes. Default is 1", "type": "integer"},
-					"limit":                     map[string]any{"default": float64(10), "description": "(Optional) Max rows to return, default is 10", "type": "integer"},
-					"table_name":                map[string]any{"default": "", "description": "(Optional) Name of the table to be checked. Check all tables visible to the current user if not specified.", "type": "string"},
-					"table_schema":              map[string]any{"default": "", "description": "(Optional) The database where fragmentation check is to be executed. Check all tables visible to the current user if not specified", "type": "string"},
-				},
-				"required": []any{},
-			},
-		},
-		{
-			Name:        "list_table_stats",
-			Description: "Lists table stats in the database.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"connected_schema": map[string]any{"description": "(Optional) The connected db", "type": "string"},
-					"limit":            map[string]any{"default": float64(10), "description": "(Optional) Max rows to return, default is 10", "type": "integer"},
-					"sort_by":          map[string]any{"default": "", "description": "(Optional) The column to sort by", "type": "string"},
-					"table_name":       map[string]any{"default": "", "description": "(Optional) Name of the table to be checked. Check all tables visible to the current user if not specified.", "type": "string"},
-					"table_schema":     map[string]any{"default": "", "description": "(Optional) The database where statistics  is to be executed. Check all tables visible to the current user if not specified", "type": "string"},
-				},
-				"required": []any{},
-			},
-		},
-		{
-			Name:        "get_query_plan",
-			Description: "Gets the query plan for a SQL statement.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"sql_statement": map[string]any{"type": "string", "description": "The sql statement to explain."},
-				},
-				"required": []any{"sql_statement"},
-			},
-		},
-		{
-			Name:        "show_query_stats",
-			Description: "Lists query statistics in the database.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"connected_schema": map[string]any{"description": "(Optional) The database user is connected to, the value is set from env variable CLOUD_SQL_MYSQL_DATABASE or MYSQL_DATABASE", "type": "string"},
-					"limit":            map[string]any{"default": float64(10), "description": "(Optional) Max rows to return, default is 10", "type": "integer"},
-					"table_schema":     map[string]any{"default": "", "description": "(Optional) The database where query statistics is to be executed. Check all queries visible to the current user if not specified", "type": "string"},
-				},
-				"required": []any{},
-			},
-		},
-		{
-			Name:        "list_all_locks",
-			Description: "Lists all table, row locks in the database.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"connected_schema": map[string]any{"description": "(Optional) The database user is connected to, the value is set from env variable CLOUD_SQL_MYSQL_DATABASE or MYSQL_DATABASE", "type": "string"},
-					"limit":            map[string]any{"default": float64(10), "description": "(Optional) Max rows to return, default is 10", "type": "integer"},
-					"table_name":       map[string]any{"default": "", "description": "(Optional) Name of the table to be checked. Check all tables visible to the current user if not specified.", "type": "string"},
-					"table_schema":     map[string]any{"default": "", "description": "(Optional) The database where locked object is detected. Check all databases if not specified.", "type": "string"},
-				},
-				"required": []any{},
-			},
-		},
-	}...)
-
-	return expectedTools
 }

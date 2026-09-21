@@ -3317,10 +3317,13 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
 			var wg sync.WaitGroup
-			defer wg.Wait()
 
 			queryCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
+			// Let the queries finish before cancelling their connections. MariaDB
+			// can keep running a query after the client disconnects, which leaks
+			// active queries into the next API or MCP test.
+			defer wg.Wait()
 
 			if tc.clientSleepSecs > 0 {
 				numClients := tc.numClients
