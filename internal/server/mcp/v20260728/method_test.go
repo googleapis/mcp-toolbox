@@ -26,6 +26,7 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/log"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -418,6 +419,9 @@ func TestServerDiscoverHandler(t *testing.T) {
 						if _, ok := discoverRes.Capabilities.Extensions["com.google.cloud/toolbox.v1"]; !ok {
 							t.Errorf("expected com.google.cloud/toolbox.v1 in discover capabilities extensions, got %v", discoverRes.Capabilities.Extensions)
 						}
+						if _, ok := discoverRes.Capabilities.Extensions["io.modelcontextprotocol/ui"]; !ok {
+							t.Errorf("expected io.modelcontextprotocol/ui in discover capabilities extensions, got %v", discoverRes.Capabilities.Extensions)
+						}
 					}
 				}
 				res, ok := got.(jsonrpc.JSONRPCResponse)
@@ -431,6 +435,9 @@ func TestServerDiscoverHandler(t *testing.T) {
 				if discoverResult.Capabilities.Extensions == nil || discoverResult.Capabilities.Extensions["com.google.cloud/toolbox.v1"] == nil {
 					t.Errorf("expected %s in Extensions capabilities, got %v", "com.google.cloud/toolbox.v1", discoverResult.Capabilities.Extensions)
 				}
+				if discoverResult.Capabilities.Extensions == nil || discoverResult.Capabilities.Extensions["io.modelcontextprotocol/ui"] == nil {
+					t.Errorf("expected %s in Extensions capabilities, got %v", "io.modelcontextprotocol/ui", discoverResult.Capabilities.Extensions)
+				}
 			}
 		})
 	}
@@ -442,8 +449,8 @@ func TestToolsListHandler(t *testing.T) {
 	ctx = util.WithToolboxVersionKey(ctx, "v0.0.0")
 	// Initialize tools using provided testutils mock instances
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 
 	tests := []struct {
 		name        string
@@ -587,8 +594,8 @@ func TestToolsCallHandler(t *testing.T) {
 		testutils.MockTool4,
 		testutils.MockTool5,
 	}
-	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 
 	tests := []struct {
 		name            string
@@ -862,10 +869,10 @@ func TestPromptsListHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
-	// Initialize prompts
+	// Initialize primitives
 	mockPrompts := []testutils.MockPrompt{testutils.MockPrompt1, testutils.MockPrompt2}
-	toolsMap, promptsMap, groups := testutils.SetUpResources(t, nil, mockPrompts)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, mockPrompts, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 	tests := []struct {
 		name        string
 		body        ListPromptsRequest
@@ -947,10 +954,10 @@ func TestPromptsGetHandler(t *testing.T) {
 		t.Fatalf("unable to initialize logger: %s", err)
 	}
 	ctx = util.WithLogger(ctx, testLogger)
-	// Initialize prompts
+	// Initialize primitives
 	mockPrompts := []testutils.MockPrompt{testutils.MockPrompt1, testutils.MockPrompt2}
-	toolsMap, promptsMap, groups := testutils.SetUpResources(t, nil, mockPrompts)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, groups)
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, mockPrompts, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 	tests := []struct {
 		name        string
 		body        GetPromptRequest
@@ -1083,8 +1090,8 @@ func TestGroupsListHandler(t *testing.T) {
 	ctx = util.WithToolboxVersionKey(ctx, fakeVersionString)
 	Initialize(nil)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, groups)
+	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
@@ -1207,8 +1214,8 @@ func TestGroupsGetHandler(t *testing.T) {
 	ctx = util.WithToolboxVersionKey(ctx, fakeVersionString)
 	Initialize(nil)
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, promptsMap, groups := testutils.SetUpResources(t, mockTools, nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, groups)
+	toolsMap, promptsMap, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, nil, nil, groups)
 
 	validMeta := &RequestMetaObject{
 		ProtocolVersion: PROTOCOL_VERSION,
@@ -1450,7 +1457,6 @@ func TestGetResultMetadata(t *testing.T) {
 		})
 	}
 }
-
 func TestToolsCallHandlerWithSecureParams(t *testing.T) {
 	origExts := ServerExtensions
 	t.Cleanup(func() {
@@ -1499,7 +1505,7 @@ func TestToolsCallHandlerWithSecureParams(t *testing.T) {
 		"":             g,
 		"test-toolset": g,
 	}
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, groups)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, groups)
 
 	tests := []struct {
 		desc            string
@@ -1597,7 +1603,6 @@ func TestToolsCallHandlerWithSecureParams(t *testing.T) {
 			wantErr:     true,
 			errContains: "parameter \"query\" is not secure and must not be passed in secureArguments",
 		},
-
 		{
 			desc: "Missing required secure parameter",
 			body: `{
@@ -1733,4 +1738,544 @@ func TestToolsCallHandlerWithSecureParams(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResourcesListHandler(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = util.WithToolboxVersionKey(ctx, "v0.0.0")
+	testLogger, err := log.NewStdLogger(os.Stdout, os.Stderr, "info")
+	if err != nil {
+		t.Fatalf("unable to initialize logger: %s", err)
+	}
+	ctx = util.WithLogger(ctx, testLogger)
+
+	sizeVal := int64(2048)
+	mockResources := []testutils.MockResource{
+		testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
+		testutils.NewMockResource("res2", "file:///res2", "Title 2", "", "application/json", &sizeVal, &resources.ResourceAnnotations{LastModified: "2024-01-01T00:00:00Z"}),
+		testutils.NewMockUIResource("uiRes", "ui://test", "UI Title", "", "text/html", nil, nil, nil, nil, "", nil),
+	}
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, nil, mockResources, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
+
+	tests := []struct {
+		name        string
+		body        ListResourcesRequest
+		rawBody     []byte
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "invalid json request",
+			rawBody:     []byte(`{invalid json}`),
+			wantErr:     true,
+			errContains: "invalid mcp resources list request",
+		},
+		{
+			name: "success",
+			body: ListResourcesRequest{
+				PaginatedRequest: PaginatedRequest{
+					Request: jsonrpc.Request{Method: "resources/list"},
+					Params: PaginatedRequestParams{
+						RequestParams: RequestParams{
+							Meta: &RequestMetaObject{
+								ProtocolVersion: PROTOCOL_VERSION,
+								ClientInfo: Implementation{
+									BaseMetadata: BaseMetadata{Name: "TestClient"},
+									Version:      "1.0",
+								},
+								MetaClientCapabilities: &ClientCapabilities{},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := tt.rawBody
+			if body == nil {
+				var err error
+				body, err = json.Marshal(tt.body)
+				if err != nil {
+					t.Fatalf("failed to marshal request body: %s", err)
+				}
+			}
+
+			got, err := resourcesListHandler(ctx, dummyID, primitiveMgr, mustGroup(t, primitiveMgr), body, nil)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error = %v, want string containing %q", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got == nil {
+					t.Errorf("expected valid response, got nil")
+				} else {
+					resp := got.(jsonrpc.JSONRPCResponse).Result.(ListResourcesResult)
+					if len(resp.Resources) != 2 {
+						t.Errorf("expected 2 resources, got %d", len(resp.Resources))
+					} else {
+						// res2 should have LastModified set
+						// uiRes should be omitted from resources/list
+						for _, r := range resp.Resources {
+							if r.Name == "uiRes" {
+								t.Errorf("expected uiRes to be omitted from resources/list")
+							}
+							if r.Name == "res2" {
+								if r.Annotations == nil || r.Annotations.LastModified != "2024-01-01T00:00:00Z" {
+									t.Errorf("expected LastModified=2024-01-01T00:00:00Z, got %+v", r.Annotations)
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestResourceTemplatesListHandler(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = util.WithToolboxVersionKey(ctx, "v0.0.0")
+	testLogger, err := log.NewStdLogger(os.Stdout, os.Stderr, "info")
+	if err != nil {
+		t.Fatalf("unable to initialize logger: %s", err)
+	}
+	ctx = util.WithLogger(ctx, testLogger)
+
+	mockTemplates := []testutils.MockResourceTemplate{
+		testutils.NewMockResourceTemplate("tmpl1", "file:///{tmpl}", "", "", "", nil),
+		testutils.NewMockResourceTemplate("rt2", "file:///rt2/{path}", "Title RT", "", "text/plain", &resources.ResourceAnnotations{LastModified: "2024-01-01T00:00:00Z"}),
+		testutils.NewMockUIResourceTemplate("uiTmpl", "ui://test/{path}", "UI Template Title", "", "text/html", nil, nil, nil, "", nil),
+	}
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, nil, nil, mockTemplates)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
+
+	tests := []struct {
+		name        string
+		body        ListResourceTemplatesRequest
+		rawBody     []byte
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "invalid json request",
+			rawBody:     []byte(`{invalid json}`),
+			wantErr:     true,
+			errContains: "invalid mcp resource templates list request",
+		},
+		{
+			name: "success",
+			body: ListResourceTemplatesRequest{
+				PaginatedRequest: PaginatedRequest{
+					Request: jsonrpc.Request{Method: "resources/templates/list"},
+					Params: PaginatedRequestParams{
+						RequestParams: RequestParams{
+							Meta: &RequestMetaObject{
+								ProtocolVersion: PROTOCOL_VERSION,
+								ClientInfo: Implementation{
+									BaseMetadata: BaseMetadata{Name: "TestClient"},
+									Version:      "1.0",
+								},
+								MetaClientCapabilities: &ClientCapabilities{},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := tt.rawBody
+			if body == nil {
+				var err error
+				body, err = json.Marshal(tt.body)
+				if err != nil {
+					t.Fatalf("failed to marshal request body: %s", err)
+				}
+			}
+
+			got, err := resourceTemplatesListHandler(ctx, dummyID, primitiveMgr, mustGroup(t, primitiveMgr), body, nil)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error = %v, want string containing %q", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got == nil {
+					t.Errorf("expected valid response, got nil")
+				} else {
+					resp := got.(jsonrpc.JSONRPCResponse).Result.(ListResourceTemplatesResult)
+					if len(resp.ResourceTemplates) != 2 {
+						t.Errorf("expected 2 templates, got %d", len(resp.ResourceTemplates))
+					} else {
+						// rt2 should have LastModified set
+						// uiTmpl should be omitted from resources/templates/list
+						for _, rt := range resp.ResourceTemplates {
+							if rt.Name == "uiTmpl" {
+								t.Errorf("expected uiTmpl to be omitted from resources/templates/list")
+							}
+							if rt.Name == "rt2" {
+								if rt.Annotations == nil || rt.Annotations.LastModified != "2024-01-01T00:00:00Z" {
+									t.Errorf("expected LastModified=2024-01-01T00:00:00Z, got %+v", rt.Annotations)
+								}
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestResourcesReadHandler(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = util.WithToolboxVersionKey(ctx, "v0.0.0")
+	testLogger, err := log.NewStdLogger(os.Stdout, os.Stderr, "info")
+	if err != nil {
+		t.Fatalf("unable to initialize logger: %s", err)
+	}
+	ctx = util.WithLogger(ctx, testLogger)
+
+	prefersBorder := true
+	mockResources := []testutils.MockResource{
+		testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
+		testutils.NewMockUIResource("ui_res", "ui://test/dashboard", "Dashboard", "UI Dashboard", "text/html;profile=mcp-app", nil, nil, &resources.CSPConfig{
+			ConnectDomains: []string{"https://api.example.com"},
+		}, nil, "custom-domain", &prefersBorder),
+	}
+	toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, nil, nil, mockResources, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
+
+	tests := []struct {
+		name        string
+		header      http.Header
+		body        ReadResourceRequest
+		rawBody     []byte
+		wantErr     bool
+		errContains string
+		verifyFunc  func(t *testing.T, resp any)
+	}{
+		{
+			name:        "invalid json request",
+			rawBody:     []byte(`{invalid json}`),
+			wantErr:     true,
+			errContains: "invalid mcp resources read request",
+		},
+		{
+			name: "success without headers (stdio transport)",
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///res1",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "success with valid Mcp-Name and Mcp-Method headers",
+			header: http.Header{
+				"Mcp-Method": []string{RESOURCES_READ},
+				"Mcp-Name":   []string{"file:///res1"},
+			},
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///res1",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "success UI resource includes _meta.ui",
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "ui://test/dashboard",
+				},
+			},
+			wantErr: false,
+			verifyFunc: func(t *testing.T, resp any) {
+				jsonResp, ok := resp.(jsonrpc.JSONRPCResponse)
+				if !ok {
+					t.Fatalf("expected JSONRPCResponse, got %T", resp)
+				}
+				readRes, ok := jsonResp.Result.(*ReadResourceResult)
+				if !ok {
+					t.Fatalf("expected *ReadResourceResult, got %T", jsonResp.Result)
+				}
+				if len(readRes.Contents) != 1 {
+					t.Fatalf("expected 1 content item, got %d", len(readRes.Contents))
+				}
+				metaUI, ok := readRes.Contents[0].Metadata["ui"]
+				if !ok || metaUI == nil {
+					t.Fatalf("expected Contents[0].Metadata to have 'ui', got %v", readRes.Contents[0].Metadata)
+				}
+			},
+		},
+		{
+			name: "mismatched Mcp-Name header",
+			header: http.Header{
+				"Mcp-Method": []string{RESOURCES_READ},
+				"Mcp-Name":   []string{"file:///wrong"},
+			},
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///res1",
+				},
+			},
+			wantErr:     true,
+			errContains: "Mcp-Name header value 'file:///wrong' does not match body value 'file:///res1'",
+		},
+		{
+			name: "mismatched Mcp-Method header",
+			header: http.Header{
+				"Mcp-Method": []string{"wrong-method"},
+				"Mcp-Name":   []string{"file:///res1"},
+			},
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///res1",
+				},
+			},
+			wantErr:     true,
+			errContains: "Mcp-Method header value 'wrong-method' does not match body value 'resources/read'",
+		},
+		{
+			name: "not found",
+			body: ReadResourceRequest{
+				Request: jsonrpc.Request{Method: "resources/read"},
+				Params: ReadResourceRequestParams{
+					RequestParams: RequestParams{
+						Meta: &RequestMetaObject{
+							ProtocolVersion: PROTOCOL_VERSION,
+							ClientInfo: Implementation{
+								BaseMetadata: BaseMetadata{Name: "TestClient"},
+								Version:      "1.0",
+							},
+							MetaClientCapabilities: &ClientCapabilities{},
+						},
+					},
+					Uri: "file:///notfound",
+				},
+			},
+			wantErr:     true,
+			errContains: "resource lookup failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := tt.rawBody
+			if body == nil {
+				var err error
+				body, err = json.Marshal(tt.body)
+				if err != nil {
+					t.Fatalf("failed to marshal request body: %s", err)
+				}
+			}
+
+			got, err := resourcesReadHandler(ctx, dummyID, primitiveMgr, mustGroup(t, primitiveMgr), body, tt.header)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error = %v, want string containing %q", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got == nil {
+					t.Errorf("expected valid response, got nil")
+				}
+				if tt.verifyFunc != nil {
+					tt.verifyFunc(t, got)
+				}
+			}
+		})
+	}
+}
+
+func TestGetResourceOrTemplateByURI(t *testing.T) {
+	resourcesMap := map[string]resources.Resource{
+		"res1":  testutils.NewMockResource("res1", "file:///res1", "", "", "", nil, nil),
+		"res2":  testutils.NewMockResource("res2", "file:///res2", "", "", "", nil, nil),
+		"uiRes": testutils.NewMockUIResource("uiRes", "ui://test-ui", "", "", "", nil, nil, nil, nil, "", nil),
+	}
+	templatesMap := map[string]resources.ResourceTemplate{
+		"tmpl1":  testutils.NewMockResourceTemplate("tmpl1", "file:///tmpl/{path}", "", "", "", nil),
+		"tmpl2":  testutils.NewMockResourceTemplate("tmpl2", "file:///other/{path}", "", "", "", nil),
+		"uiTmpl": testutils.NewMockUIResourceTemplate("uiTmpl", "ui://tmpl/{path}", "", "", "", nil, nil, nil, "", nil),
+	}
+
+	// Create a group that only contains res1 and tmpl1
+	g, err := group.GroupConfig{
+		Name:                  "test_group",
+		ResourceNames:         []string{"res1"},
+		ResourceTemplateNames: []string{"tmpl1"},
+	}.Initialize(nil, nil, resourcesMap, templatesMap)
+	if err != nil {
+		t.Fatalf("failed to init group: %v", err)
+	}
+
+	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, templatesMap, map[string]group.Group{"test_group": g})
+
+	t.Run("Exact Match Resource", func(t *testing.T) {
+		res, tmpl, params, err := getResourceOrTemplateByURI("file:///res1", g, primMgr)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res == nil || res.GetName() != "res1" {
+			t.Errorf("expected res1, got %v", res)
+		}
+		if tmpl != nil {
+			t.Errorf("expected nil template, got %v", tmpl)
+		}
+		if params != nil {
+			t.Errorf("expected nil params, got %v", params)
+		}
+	})
+
+	t.Run("Excluded Resource (Not in Group)", func(t *testing.T) {
+		_, _, _, err := getResourceOrTemplateByURI("file:///res2", g, primMgr)
+		if err == nil {
+			t.Fatal("expected error for resource not in group")
+		}
+	})
+
+	t.Run("UI Resource (Not in Group, Globally Accessible)", func(t *testing.T) {
+		res, tmpl, params, err := getResourceOrTemplateByURI("ui://test-ui", g, primMgr)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res == nil || res.GetName() != "uiRes" {
+			t.Errorf("expected uiRes, got %v", res)
+		}
+		if tmpl != nil {
+			t.Errorf("expected nil template, got %v", tmpl)
+		}
+		if params != nil {
+			t.Errorf("expected nil params, got %v", params)
+		}
+	})
+
+	t.Run("Template Match", func(t *testing.T) {
+		res, tmpl, params, err := getResourceOrTemplateByURI("file:///tmpl/foo/bar.txt", g, primMgr)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res != nil {
+			t.Errorf("expected nil resource, got %v", res)
+		}
+		if tmpl == nil || tmpl.GetName() != "tmpl1" {
+			t.Errorf("expected tmpl1, got %v", tmpl)
+		}
+		if params["path"] != "foo/bar.txt" {
+			t.Errorf("expected path param 'foo/bar.txt', got %v", params["path"])
+		}
+	})
+
+	t.Run("Excluded Template (Not in Group)", func(t *testing.T) {
+		_, _, _, err := getResourceOrTemplateByURI("file:///other/baz.txt", g, primMgr)
+		if err == nil {
+			t.Fatal("expected error for template not in group")
+		}
+	})
+
+	t.Run("UI Template (Not in Group, Globally Accessible)", func(t *testing.T) {
+		res, tmpl, params, err := getResourceOrTemplateByURI("ui://tmpl/dashboard.html", g, primMgr)
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if res != nil {
+			t.Errorf("expected nil resource, got %v", res)
+		}
+		if tmpl == nil || tmpl.GetName() != "uiTmpl" {
+			t.Errorf("expected uiTmpl, got %v", tmpl)
+		}
+		if params["path"] != "dashboard.html" {
+			t.Errorf("expected path param 'dashboard.html', got %v", params["path"])
+		}
+	})
+
+	t.Run("Not Found", func(t *testing.T) {
+		_, _, _, err := getResourceOrTemplateByURI("file:///unknown", g, primMgr)
+		if err == nil {
+			t.Fatal("expected error for unknown URI")
+		}
+	})
 }

@@ -15,14 +15,21 @@
 package lookergetlooks_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources/looker"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	lkr "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetlooks"
+	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
 func TestParseFromYamlLookerGetLooks(t *testing.T) {
@@ -60,7 +67,7 @@ func TestParseFromYamlLookerGetLooks(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -98,7 +105,7 @@ func TestFailParseFromYamlLookerGetLooks(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}
@@ -109,4 +116,124 @@ func TestFailParseFromYamlLookerGetLooks(t *testing.T) {
 		})
 	}
 
+}
+
+func TestInvokeLookerGetLooks(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithUserAgent(ctx, "test-agent")
+
+	var requestedFields string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/api/4.0/looks/search") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		requestedFields = r.URL.Query().Get("fields")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[
+			{
+				"id": "201",
+				"title": "Monthly Active Users",
+				"description": "Certified MAU look",
+				"model": {"id": "growth_model"},
+				"certification_metadata": {
+					"certification_status": "certified",
+					"user_name": "Alex Smith",
+					"notes": "Approved by Analytics Engineering",
+					"updated_at": "2026-09-15T10:00:00Z"
+				}
+			},
+			{
+				"id": "202",
+				"title": "Test Look",
+				"description": "Unverified look",
+				"model": {"id": "growth_model"}
+			}
+		]`))
+	}))
+	defer ts.Close()
+
+	srcCfg := looker.Config{
+		Name:            "test-looker",
+		Type:            "looker",
+		BaseURL:         ts.URL,
+		UseClientOAuth:  "true",
+		Timeout:         "5s",
+		SslVerification: false,
+	}
+	src, err := srcCfg.Initialize(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to initialize source: %v", err)
+	}
+
+	toolCfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "get_looks",
+			Description: "test description",
+		},
+		Type:   "looker-get-looks",
+		Source: "test-looker",
+	}
+	tool, err := toolCfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	params := parameters.ParamValues{
+		{Name: "title", Value: "%"},
+		{Name: "desc", Value: ""},
+		{Name: "limit", Value: 100},
+		{Name: "offset", Value: 0},
+	}
+
+	got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+	if toolboxErr != nil {
+		t.Fatalf("unexpected invoke error: %v", toolboxErr)
+	}
+
+	if requestedFields != "id,title,description,model,certification_metadata" {
+		t.Errorf("expected fields query param 'id,title,description,model,certification_metadata', got %q", requestedFields)
+	}
+
+	gotList, ok := got.([]any)
+	if !ok || len(gotList) != 2 {
+		t.Fatalf("expected 2 results, got %#v", got)
+	}
+
+	first, ok := gotList[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map for first result, got %T", gotList[0])
+	}
+	if first["id"] != "201" || first["model_id"] != "growth_model" {
+		t.Errorf("unexpected first look fields: %v", first)
+	}
+	cert, ok := first["certification_metadata"].(*v4.Certification)
+	if !ok || cert == nil {
+		t.Fatalf("expected certification_metadata in first result, got %#v", first["certification_metadata"])
+	}
+	if cert.CertificationStatus == nil || *cert.CertificationStatus != v4.CertificationStatus_Certified {
+		t.Errorf("expected certification_status 'certified', got %v", cert.CertificationStatus)
+	}
+	if cert.UserName == nil || *cert.UserName != "Alex Smith" {
+		t.Errorf("expected user_name 'Alex Smith', got %v", cert.UserName)
+	}
+	if cert.Notes == nil || *cert.Notes != "Approved by Analytics Engineering" {
+		t.Errorf("expected notes 'Approved by Analytics Engineering', got %v", cert.Notes)
+	}
+	wantTime, _ := time.Parse(time.RFC3339, "2026-09-15T10:00:00Z")
+	if cert.UpdatedAt == nil || !cert.UpdatedAt.Equal(wantTime) {
+		t.Errorf("expected updated_at %v, got %v", wantTime, cert.UpdatedAt)
+	}
+
+	second, ok := gotList[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map for second result, got %T", gotList[1])
+	}
+	if _, exists := second["certification_metadata"]; exists {
+		t.Errorf("expected certification_metadata to be omitted when nil, got %v", second["certification_metadata"])
+	}
 }
