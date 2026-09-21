@@ -478,4 +478,4 @@ substitutions:
 artifacts:
   oci:
     - file: '/workspace/image.tar'
-      registry_path: '${_DOCKER_URI}'
+      registryPath: '${_DOCKER_URI}'
