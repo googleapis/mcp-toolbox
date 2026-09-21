@@ -140,6 +140,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		"title",
 		"description",
 		"view_count",
+		"certification_metadata",
 		"dashboard_filters(id,name,title,type,default_value,model,explore,dimension,row,listens_to_filters,required)",
 		"dashboard_layouts(id,label,active,type,dashboard_layout_components(id,dashboard_element_id,row,column,width,height,granular_row,granular_column,granular_width,granular_height))",
 		"dashboard_elements(id,title,type,query,result_maker,look_id,body_text,subtitle_text,title_text)",
