@@ -102,7 +102,7 @@ func TestInitializeParameters(t *testing.T) {
 			gotParamNames = append(gotParamNames, p.Name)
 		}
 
-		wantParamNames := []string{"content", "category", "is_global", "is_pinned", "user_id"}
+		wantParamNames := []string{"content", "category", "is_global", "is_pinned"}
 		if diff := cmp.Diff(wantParamNames, gotParamNames); diff != "" {
 			t.Errorf("parameters diff: %s", diff)
 		}
@@ -121,6 +121,11 @@ func TestInitializeParameters(t *testing.T) {
 				}
 				if _, err := sp.Parse("user_preference"); err != nil {
 					t.Errorf("unexpected error parsing valid category: %v", err)
+				}
+			}
+			if bp, ok := p.(*parameters.BooleanParameter); ok && bp.GetName() == "is_global" {
+				if bp.GetDefault() != false {
+					t.Errorf("expected is_global default to be false, got %v", bp.GetDefault())
 				}
 			}
 		}

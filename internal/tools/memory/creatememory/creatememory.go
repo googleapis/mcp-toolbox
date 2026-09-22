@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
@@ -74,7 +73,7 @@ func (cfg Config) ToolConfigType() string {
 }
 
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
-	resolved, err := cfg.Config.Resolve()
+	resolved, err := cfg.Resolve()
 	if err != nil {
 		return nil, err
 	}
@@ -95,20 +94,19 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 			parameters.WithStringRequired(true),
 			parameters.WithStringAllowedValues(DefaultCategories),
 		),
-		parameters.NewStringParameter(
+		parameters.NewBooleanParameter(
 			"is_global",
-			"Visibility: PRIVATE (only visible to current user) or GLOBAL (visible to all users).",
-			parameters.WithStringDefault(memory.VisibilityPrivate),
-			parameters.WithStringAllowedValues([]any{memory.VisibilityPrivate, memory.VisibilityGlobal}),
+			"Set to true to make this memory visible to all users. Defaults to false (private to current user).",
+			parameters.WithBooleanDefault(false),
 		),
 		parameters.NewBooleanParameter(
 			"is_pinned",
 			"Set to true to prioritize this memory permanently.",
 			parameters.WithBooleanDefault(false),
 		),
-		// UserIDParameter binds the user identity: either auto-injected from an ID token (auth mode)
-		// or defaulting to "default" (unauthenticated mode).
-		cfg.UserIDParameter(),
+	}
+	if userParam := cfg.UserIDParameter(); userParam != nil {
+		allParameters = append(allParameters, userParam)
 	}
 
 	return Tool{
@@ -155,13 +153,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if category == "" {
 		return nil, util.NewAgentError("category must not be empty", nil)
 	}
-	isGlobal, err := strconv.ParseBool(asString(p["is_global"]))
+	isGlobal, _ := p["is_global"].(bool)
+	userID, err := t.Cfg.ResolveUserID(params)
 	if err != nil {
-		return nil, util.NewAgentError("is_global must be a boolean", nil)
-	}
-	userID := asString(p["user_id"])
-	if userID == "" {
-		err := fmt.Errorf("user_id could not be resolved for tool %q", t.Cfg.Name)
 		if logger != nil {
 			logger.ErrorContext(ctx, err.Error())
 		}
