@@ -12,9 +12,43 @@
 # limitations under the License.
 
 steps:
+  - id: "install-dependencies"
+    name: golang:1
+    waitFor: ["-"]
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      go get -d ./...
+
+  - id: "run-tests"
+    name: golang:1
+    waitFor:
+      - "install-dependencies"
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+
+      echo "Installing go-junit-report..."
+      go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+
+      echo "Running unit tests and generating JUnit XML report..."
+      go test -race -v ./cmd/... ./internal/... 2>&1 | tee /dev/stderr | $(go env GOPATH)/bin/go-junit-report -set-exit-code > in-progress-junit-report.xml
+
+      # If the previous command failed, this will never be renamed and thus not uploaded
+      mv in-progress-junit-report.xml junit-report.xml
+
   - id: "build-docker"
     name: "gcr.io/cloud-builders/docker"
-    waitFor: ["-"]
+    waitFor:
+      - "run-tests"
     script: |
       #!/usr/bin/env bash
       set -e
@@ -34,17 +68,6 @@ steps:
         $TAGS \
         --provenance=false \
         --output=type=oci,dest=/workspace/image.tar .
-
-  - id: "install-dependencies"
-    name: golang:1
-    waitFor: ["-"]
-    env:
-      - "GOPATH=/gopath"
-    volumes:
-      - name: "go"
-        path: "/gopath"
-    script: |
-      go get -d ./...
 
   - id: "install-zig"
     name: golang:1
@@ -79,7 +102,7 @@ steps:
   - id: "build-linux-amd64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -109,7 +132,7 @@ steps:
   - id: "build-linux-amd64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -139,7 +162,7 @@ steps:
   - id: "build-darwin-arm64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -176,7 +199,7 @@ steps:
   - id: "build-darwin-arm64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -213,7 +236,7 @@ steps:
   - id: "build-darwin-amd64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -250,7 +273,7 @@ steps:
   - id: "build-darwin-amd64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -287,7 +310,7 @@ steps:
   - id: "build-windows-amd64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -317,7 +340,7 @@ steps:
   - id: "build-windows-amd64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -347,7 +370,7 @@ steps:
   - id: "build-windows-arm64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -377,7 +400,7 @@ steps:
   - id: "build-windows-arm64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -476,6 +499,11 @@ substitutions:
   _PUSH_TO_EXIT_GATES: "false"
 
 artifacts:
+  testResults:
+    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${BUILD_ID}"
+    paths:
+      - "junit-report.xml"
+    format: JUNIT
   oci:
     - file: '/workspace/image.tar'
       registryPath: '${_DOCKER_URI}'
