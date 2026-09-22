@@ -271,10 +271,8 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
-	for key, r := range resourcesMap {
-		if doc, ok := docs[r.GetURI()]; ok {
-			resourcesMap[key] = doc
-		}
+	for key, doc := range docs {
+		resourcesMap[key] = doc
 	}
 
 	// initialize and validate the resource templates from configs

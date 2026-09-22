@@ -37,8 +37,9 @@ func (s skillDoc) GetName() string        { return s.name }
 func (s skillDoc) GetDescription() string { return s.description }
 func (s skillDoc) GetMimeType() string    { return docMimeType }
 
-// WithDocMetadata returns a replacement SKILL.md per each entry, keyed
-// by URI. Omits any resource that is not a skill's SKILL.md.
+// WithDocMetadata returns a replacement SKILL.md per each entry, under the same
+// key resourcesMap holds it by. Omits any resource that is not a skill's
+// SKILL.md.
 func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource) (map[string]resources.Resource, error) {
 	if len(entries) == 0 {
 		return nil, nil
@@ -50,7 +51,7 @@ func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource
 	}
 
 	docs := make(map[string]resources.Resource, len(entries))
-	for _, res := range resourcesMap {
+	for key, res := range resourcesMap {
 		e, ok := byURI[res.GetURI()]
 		if !ok {
 			continue
@@ -63,7 +64,7 @@ func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource
 		if err != nil {
 			return nil, fmt.Errorf("invalid skill entry %q: %w", truncate(e.URI), err)
 		}
-		docs[res.GetURI()] = skillDoc{Resource: res, name: name, description: desc}
+		docs[key] = skillDoc{Resource: res, name: name, description: desc}
 	}
 	return docs, nil
 }

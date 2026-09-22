@@ -59,7 +59,7 @@ func TestWithDocMetadata(t *testing.T) {
 		t.Fatalf("got %d doc resources, want 1: %v", len(docs), docs)
 	}
 
-	doc, ok := docs[skillURI]
+	doc, ok := docs["guide"]
 	if !ok {
 		t.Fatalf("no replacement for %q", skillURI)
 	}
@@ -74,10 +74,10 @@ func TestWithDocMetadata(t *testing.T) {
 	}
 
 	// A supporting file and an unrelated resource keep their own identity.
-	if _, ok := docs[refURI]; ok {
+	if _, ok := docs["queries"]; ok {
 		t.Error("a supporting file was rewritten, want only SKILL.md")
 	}
-	if _, ok := docs[plainURI]; ok {
+	if _, ok := docs["docs"]; ok {
 		t.Error("a non-skill resource was rewritten")
 	}
 }
@@ -110,23 +110,23 @@ func TestWithDocMetadataMultipleSkills(t *testing.T) {
 		t.Fatalf("WithDocMetadata() = %v, want nil", err)
 	}
 	want := map[string]struct{ name, description string }{
-		alphaURI: {"alpha-guide", "Query the warehouse"},
-		betaURI:  {"beta-guide", "Summarize the warehouse"},
+		"alpha": {"alpha-guide", "Query the warehouse"},
+		"beta":  {"beta-guide", "Summarize the warehouse"},
 	}
 	if len(docs) != len(want) {
 		t.Fatalf("got %d doc resources, want %d: %v", len(docs), len(want), docs)
 	}
-	for uri, w := range want {
-		doc, ok := docs[uri]
+	for key, w := range want {
+		doc, ok := docs[key]
 		if !ok {
-			t.Errorf("no replacement for %q", uri)
+			t.Errorf("no replacement for %q", key)
 			continue
 		}
 		if got := doc.GetName(); got != w.name {
-			t.Errorf("%s GetName() = %q, want %q", uri, got, w.name)
+			t.Errorf("%s GetName() = %q, want %q", key, got, w.name)
 		}
 		if got := doc.GetDescription(); got != w.description {
-			t.Errorf("%s GetDescription() = %q, want %q", uri, got, w.description)
+			t.Errorf("%s GetDescription() = %q, want %q", key, got, w.description)
 		}
 	}
 }
@@ -150,7 +150,7 @@ func TestWithDocMetadataForwards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithDocMetadata() = %v, want nil", err)
 	}
-	doc := docs[skillURI]
+	doc := docs["guide"]
 	if doc == nil {
 		t.Fatal("no replacement for SKILL.md")
 	}
