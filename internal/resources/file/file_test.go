@@ -1084,8 +1084,8 @@ dynamic: true
 			if err != nil {
 				t.Fatalf("Initialize() = %v, want nil", err)
 			}
-			// The flag must survive onto the resource: discovery reads it there,
-			// not off the config.
+			// Discover reads the flag from the resource, not from the config,
+			// so Initialize must copy it.
 			if !res.IsDynamic() {
 				t.Error("IsDynamic() = false, want true")
 			}

@@ -40,7 +40,7 @@ const BaseDirKey contextKey = "baseDir"
 // as skill://<skill-name>/<path>, whichever resource type backs it.
 const SkillScheme = "skill"
 
-// SkillFile is the document every Agent Skill is rooted at.
+// SkillFile is the document at the root of every Agent Skill.
 const SkillFile = "SKILL.md"
 
 // IsSkillDoc reports whether uri addresses a skill's SKILL.md. A bare
@@ -179,8 +179,8 @@ func (c ResourceConfigBase) GetURI() string {
 	return c.URI
 }
 
-// IsDynamic reports whether the skill this SKILL.md roots publishes its files
-// as a manifest of digests, or as the "dynamic" marker.
+// IsDynamic reports whether the skill at this SKILL.md publishes the "dynamic"
+// marker in place of a manifest of digests.
 func (c ResourceConfigBase) IsDynamic() bool {
 	return c.Dynamic
 }
@@ -314,7 +314,8 @@ func (c *ResourceConfigBase) Validate() error {
 	parsed.Host = strings.ToLower(parsed.Host)
 	c.URI = parsed.String()
 
-	// Tested after normalization, so a URI differing only in case still matches.
+	// The check runs after normalization, so a URI that differs only in case
+	// still matches.
 	if c.Dynamic && !IsSkillDoc(c.URI) {
 		return fmt.Errorf("dynamic cannot be configured for resource %q: it applies only to a skill's %s, addressed as %s://<skill-path>/%s", c.Name, SkillFile, SkillScheme, SkillFile)
 	}

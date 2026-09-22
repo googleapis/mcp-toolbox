@@ -40,9 +40,9 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 	for _, skillURI := range reg.URIs() {
 		var e Entry
 		var err error
-		// A dynamic skill publishes no digests, so its supporting files are
-		// never read. Only its SKILL.md is, for the frontmatter every entry
-		// carries.
+		// A dynamic skill publishes no digests, so Discover does not read its
+		// supporting files. It reads only the SKILL.md, for the frontmatter
+		// every entry carries.
 		if doc, ok := reg.Doc(skillURI); ok && doc.IsDynamic() {
 			e, err = buildDynamicEntry(ctx, skillURI, doc)
 		} else {
@@ -64,8 +64,8 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 // "dynamic" marker in place of a file list.
 //
 // The per-skill limits do not apply: SEP-2640 counts them over the entries of a
-// manifest, and a dynamic skill has none. A host that loads one applies its own
-// ceiling to whatever it retrieves.
+// manifest, and a dynamic skill has none. A host that loads one applies the
+// total-size limit to what it retrieves.
 func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
 	content, err := readString(ctx, doc)
 	if err != nil {

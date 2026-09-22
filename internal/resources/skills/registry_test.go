@@ -159,8 +159,8 @@ func TestNilRegistry(t *testing.T) {
 	}
 }
 
-// TestRegistryDoc pins the SKILL.md lookup. Discover reads the dynamic flag off
-// this resource, so it must resolve without walking the member list.
+// TestRegistryDoc pins the SKILL.md lookup. Discover reads the dynamic flag
+// from this resource, so it must resolve without a scan of the member list.
 func TestRegistryDoc(t *testing.T) {
 	ctx := mustLoggerCtx(t)
 
