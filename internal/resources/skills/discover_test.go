@@ -610,3 +610,38 @@ func TestDiscoverRejectsOversizeFileBeforeReading(t *testing.T) {
 		t.Errorf("Discover() = %v, want a total-size error", err)
 	}
 }
+
+// TestDiscoverRejectsOversizeTextSkill checks the total-size limit on real text
+// resources. The two tests above use fakes, so neither covers the size hint
+// that a text resource reports.
+func TestDiscoverRejectsOversizeTextSkill(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const chunk = 4 << 20 // 4 MiB per file. Four files exceed the 16 MiB limit.
+	// Every file shares one string, so the four files use 4 MiB of memory.
+	chunkContent := strings.Repeat("x", chunk)
+	resourcesMap := map[string]resources.Resource{
+		"guide/SKILL.md": textResource(t, ctx, "guide/SKILL.md",
+			"skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query and summarize the warehouse")),
+	}
+	for i := range 4 {
+		name := string(rune('a' + i))
+		resourcesMap[name] = textResource(t, ctx, name,
+			"skill://analytics-guide/refs/"+name+".md", chunkContent)
+	}
+
+	_, err = skills.Discover(ctx, resourcesMap)
+	if err == nil {
+		t.Fatal("Discover() = nil, want a total-size error")
+	}
+	if !strings.Contains(err.Error(), "total size exceeds the limit") {
+		t.Errorf("Discover() = %v, want a total-size error", err)
+	}
+	if !strings.Contains(err.Error(), "skill://analytics-guide/SKILL.md") {
+		t.Errorf("Discover() = %v, want the error to name the skill", err)
+	}
+}
