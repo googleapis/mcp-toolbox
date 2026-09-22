@@ -459,6 +459,11 @@ name: improve_query_recall
 type: vector-assist-improve-query-recall
 source: cloudsql-pg-source
 ---
+kind: tool
+name: create_memory
+type: cloud-sql-create-memory
+source: cloud-sql-pg-source
+---
 kind: group
 name: admin
 description: Use these skills when you need to provision new Cloud SQL instances, create databases and users, clone existing environments, and monitor the progress of long-running operations.
@@ -558,3 +563,8 @@ tools:
 - list_specs
 - get_spec
 - delete_spec
+---
+kind: group
+name: memory
+tools:
+- create_memory
