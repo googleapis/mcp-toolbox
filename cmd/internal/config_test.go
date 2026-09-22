@@ -38,6 +38,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/http"
+	"github.com/googleapis/mcp-toolbox/internal/tools/memory/creatememory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
@@ -3113,4 +3114,119 @@ resourceTemplates:
 	if tmplContent != "anchored content" {
 		t.Fatalf("expected 'anchored content', got %v", tmplContent)
 	}
+}
+
+func TestPrebuiltMemoryAuthEnvVars(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	prebuilts := []string{"postgres", "alloydb-postgres", "cloud-sql-postgres"}
+
+	setRequiredSourceEnv := func(t *testing.T) {
+		t.Helper()
+		t.Setenv("POSTGRES_DATABASE", "testdb")
+		t.Setenv("POSTGRES_USER", "user")
+		t.Setenv("POSTGRES_PASSWORD", "pass")
+		t.Setenv("ALLOYDB_POSTGRES_PROJECT", "proj")
+		t.Setenv("ALLOYDB_POSTGRES_REGION", "region")
+		t.Setenv("ALLOYDB_POSTGRES_CLUSTER", "cluster")
+		t.Setenv("ALLOYDB_POSTGRES_INSTANCE", "inst")
+		t.Setenv("ALLOYDB_POSTGRES_DATABASE", "db")
+		t.Setenv("ALLOYDB_POSTGRES_USER", "user")
+		t.Setenv("ALLOYDB_POSTGRES_PASSWORD", "pass")
+		t.Setenv("CLOUD_SQL_POSTGRES_PROJECT", "proj")
+		t.Setenv("CLOUD_SQL_POSTGRES_REGION", "region")
+		t.Setenv("CLOUD_SQL_POSTGRES_INSTANCE", "inst")
+		t.Setenv("CLOUD_SQL_POSTGRES_DATABASE", "db")
+		t.Setenv("CLOUD_SQL_POSTGRES_USER", "user")
+		t.Setenv("CLOUD_SQL_POSTGRES_PASSWORD", "pass")
+	}
+
+	t.Run("default when env vars are unset", func(t *testing.T) {
+		setRequiredSourceEnv(t)
+
+		for _, name := range prebuilts {
+			buf, err := prebuiltconfigs.Get(name)
+			if err != nil {
+				t.Fatalf("unable to get prebuilt %s: %v", name, err)
+			}
+			p := &ConfigParser{}
+			parsed, err := p.ParseConfig(ctx, buf)
+			if err != nil {
+				t.Fatalf("unable to parse prebuilt %s: %v", name, err)
+			}
+			toolCfg, ok := parsed.Tools["create_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing create_memory tool", name)
+			}
+			memCfg, ok := toolCfg.(creatememory.Config)
+			if !ok {
+				t.Fatalf("expected creatememory.Config, got %T", toolCfg)
+			}
+			if memCfg.AuthService != "" {
+				t.Errorf("[%s] expected empty AuthService, got %q", name, memCfg.AuthService)
+			}
+			if memCfg.UserIDField != "sub" {
+				t.Errorf("[%s] expected default UserIDField 'sub', got %q", name, memCfg.UserIDField)
+			}
+		}
+	})
+
+	t.Run("configured with auth service and custom user id field", func(t *testing.T) {
+		setRequiredSourceEnv(t)
+		t.Setenv("TOOLBOX_MEMORY_AUTH_SERVICE", "my-google-auth")
+		t.Setenv("TOOLBOX_MEMORY_USER_ID_FIELD", "custom_id")
+
+		for _, name := range prebuilts {
+			buf, err := prebuiltconfigs.Get(name)
+			if err != nil {
+				t.Fatalf("unable to get prebuilt %s: %v", name, err)
+			}
+			p := &ConfigParser{}
+			parsed, err := p.ParseConfig(ctx, buf)
+			if err != nil {
+				t.Fatalf("unable to parse prebuilt %s: %v", name, err)
+			}
+			toolCfg, ok := parsed.Tools["create_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing create_memory tool", name)
+			}
+			memCfg, ok := toolCfg.(creatememory.Config)
+			if !ok {
+				t.Fatalf("expected creatememory.Config, got %T", toolCfg)
+			}
+			if memCfg.AuthService != "my-google-auth" {
+				t.Errorf("[%s] expected AuthService 'my-google-auth', got %q", name, memCfg.AuthService)
+			}
+			if memCfg.UserIDField != "custom_id" {
+				t.Errorf("[%s] expected UserIDField 'custom_id', got %q", name, memCfg.UserIDField)
+			}
+
+			// Verify initialized tool parameter has auth services configured
+			tool, err := memCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize failed: %v", name, err)
+			}
+			params, err := tool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] GetParameters failed: %v", name, err)
+			}
+			var userParam *parameters.StringParameter
+			for _, param := range params {
+				if sp, ok := param.(*parameters.StringParameter); ok && sp.GetName() == "user_id" {
+					userParam = sp
+					break
+				}
+			}
+			if userParam == nil {
+				t.Fatalf("[%s] user_id parameter not found", name)
+			}
+			wantAuth := []parameters.ParamAuthService{{Name: "my-google-auth", Field: "custom_id"}}
+			if diff := cmp.Diff(wantAuth, userParam.GetAuthServices()); diff != "" {
+				t.Errorf("[%s] user_id auth services diff: %s", name, diff)
+			}
+		}
+	})
 }

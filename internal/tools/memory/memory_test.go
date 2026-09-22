@@ -18,7 +18,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
 func TestSchemaDefaultTable(t *testing.T) {
@@ -111,4 +113,120 @@ func TestIsValidSQLIdentifier(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConfigResolve(t *testing.T) {
+	t.Run("applies defaults and trims whitespace", func(t *testing.T) {
+		cfg := memory.Config{
+			AuthService:   "  my-auth  ",
+			UserIDField:   "  email  ",
+			DefaultUserID: "  alice  ",
+			TableName:     "  my_memories  ",
+		}
+		resolved, err := cfg.Resolve()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resolved.AuthService != "my-auth" {
+			t.Errorf("expected AuthService 'my-auth', got %q", resolved.AuthService)
+		}
+		if resolved.UserIDField != "email" {
+			t.Errorf("expected UserIDField 'email', got %q", resolved.UserIDField)
+		}
+		if resolved.DefaultUserID != "alice" {
+			t.Errorf("expected DefaultUserID 'alice', got %q", resolved.DefaultUserID)
+		}
+		if resolved.TableName != "my_memories" {
+			t.Errorf("expected TableName 'my_memories', got %q", resolved.TableName)
+		}
+	})
+
+	t.Run("empty fields fall back to package defaults", func(t *testing.T) {
+		cfg := memory.Config{}
+		resolved, err := cfg.Resolve()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resolved.AuthService != "" {
+			t.Errorf("expected empty AuthService, got %q", resolved.AuthService)
+		}
+		if resolved.UserIDField != memory.DefaultUserIDField {
+			t.Errorf("expected UserIDField %q, got %q", memory.DefaultUserIDField, resolved.UserIDField)
+		}
+		if resolved.DefaultUserID != memory.DefaultUserID {
+			t.Errorf("expected DefaultUserID %q, got %q", memory.DefaultUserID, resolved.DefaultUserID)
+		}
+		if resolved.TableName != memory.DefaultTableName {
+			t.Errorf("expected TableName %q, got %q", memory.DefaultTableName, resolved.TableName)
+		}
+	})
+}
+
+func TestUserIDParameter(t *testing.T) {
+	t.Run("unauthenticated mode without authService", func(t *testing.T) {
+		cfg := memory.Config{
+			DefaultUserID: "default_user",
+		}
+		resolved, err := cfg.Resolve()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		param := resolved.UserIDParameter()
+		sp, ok := param.(*parameters.StringParameter)
+		if !ok {
+			t.Fatalf("expected *parameters.StringParameter, got %T", param)
+		}
+		if sp.GetName() != "user_id" {
+			t.Errorf("expected name 'user_id', got %q", sp.GetName())
+		}
+		if sp.GetDefault() != "default_user" {
+			t.Errorf("expected default 'default_user', got %v", sp.GetDefault())
+		}
+		if len(sp.GetAuthServices()) != 0 {
+			t.Errorf("expected no auth services, got %v", sp.GetAuthServices())
+		}
+	})
+
+	t.Run("authenticated mode with authService and default userIdField", func(t *testing.T) {
+		cfg := memory.Config{
+			AuthService: "google-auth",
+		}
+		resolved, err := cfg.Resolve()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		param := resolved.UserIDParameter()
+		sp, ok := param.(*parameters.StringParameter)
+		if !ok {
+			t.Fatalf("expected *parameters.StringParameter, got %T", param)
+		}
+		wantAuth := []parameters.ParamAuthService{
+			{Name: "google-auth", Field: "sub"},
+		}
+		if diff := cmp.Diff(wantAuth, sp.GetAuthServices()); diff != "" {
+			t.Errorf("auth services diff: %s", diff)
+		}
+	})
+
+	t.Run("authenticated mode with custom userIdField", func(t *testing.T) {
+		cfg := memory.Config{
+			AuthService: "generic-auth",
+			UserIDField: "email",
+		}
+		resolved, err := cfg.Resolve()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		param := resolved.UserIDParameter()
+		sp, ok := param.(*parameters.StringParameter)
+		if !ok {
+			t.Fatalf("expected *parameters.StringParameter, got %T", param)
+		}
+		wantAuth := []parameters.ParamAuthService{
+			{Name: "generic-auth", Field: "email"},
+		}
+		if diff := cmp.Diff(wantAuth, sp.GetAuthServices()); diff != "" {
+			t.Errorf("auth services diff: %s", diff)
+		}
+	})
 }

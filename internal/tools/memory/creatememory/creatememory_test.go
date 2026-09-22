@@ -131,6 +131,55 @@ func TestInitializeParameters(t *testing.T) {
 		}
 	})
 
+	t.Run("with authService configured", func(t *testing.T) {
+		cfg := creatememory.Config{
+			Config: memory.Config{
+				ConfigBase:  tools.ConfigBase{Name: "create_memory"},
+				Type:        "create-memory",
+				Source:      "pg",
+				AuthService: "my-auth-service",
+				UserIDField: "email",
+			},
+		}
+		tool, err := cfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		manifest, err := tool.Manifest(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		var gotUserParam *parameters.ParameterManifest
+		for i, p := range manifest.Parameters {
+			if p.Name == "user_id" {
+				gotUserParam = &manifest.Parameters[i]
+				break
+			}
+		}
+		if gotUserParam == nil {
+			t.Fatalf("expected user_id parameter in manifest, but not found")
+		}
+		wantAuthServices := []string{"my-auth-service"}
+		if diff := cmp.Diff(wantAuthServices, gotUserParam.AuthServices); diff != "" {
+			t.Errorf("manifest user_id AuthServices diff: %s", diff)
+		}
+
+		params, err := tool.GetParameters(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		for _, p := range params {
+			if sp, ok := p.(*parameters.StringParameter); ok && sp.GetName() == "user_id" {
+				wantParamAuth := []parameters.ParamAuthService{
+					{Name: "my-auth-service", Field: "email"},
+				}
+				if diff := cmp.Diff(wantParamAuth, sp.GetAuthServices()); diff != "" {
+					t.Errorf("parameter auth services diff: %s", diff)
+				}
+			}
+		}
+	})
+
 	t.Run("invalid table name errors", func(t *testing.T) {
 		cfg := creatememory.Config{
 			Config: memory.Config{

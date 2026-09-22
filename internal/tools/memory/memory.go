@@ -71,6 +71,10 @@ type Config struct {
 
 // Resolve fills defaults and validates the shared config.
 func (c Config) Resolve() (Config, error) {
+	c.AuthService = strings.TrimSpace(c.AuthService)
+	c.UserIDField = strings.TrimSpace(c.UserIDField)
+	c.DefaultUserID = strings.TrimSpace(c.DefaultUserID)
+	c.TableName = strings.TrimSpace(c.TableName)
 	if c.DefaultUserID == "" {
 		c.DefaultUserID = DefaultUserID
 	}

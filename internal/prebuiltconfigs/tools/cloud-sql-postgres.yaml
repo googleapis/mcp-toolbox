@@ -463,6 +463,8 @@ kind: tool
 name: create_memory
 type: create-memory
 source: cloudsql-pg-source
+authService: ${TOOLBOX_MEMORY_AUTH_SERVICE:}
+userIdField: ${TOOLBOX_MEMORY_USER_ID_FIELD:sub}
 ---
 kind: group
 name: admin
