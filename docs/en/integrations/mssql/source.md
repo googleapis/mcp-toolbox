@@ -88,6 +88,7 @@ instead of hardcoding your secrets into the configuration file.
 | encrypt         |  string  |    false     | Encryption level for data transmitted between the client and server (e.g., "strict"). If not specified, defaults to the [github.com/microsoft/go-mssqldb](https://github.com/microsoft/go-mssqldb?tab=readme-ov-file#common-parameters) package's default encrypt value. |
 | azureAuth       |  object  |    false     | Authenticate to Azure SQL with a Microsoft Entra ID identity instead of a SQL login. Omit for standard authentication.                                                                                                                                                    |
 | useClientOAuth  |  string  |    false     | Authenticate as the caller rather than as a configured identity. "true" reads the token from the `Authorization` header; any other non-empty value names the header to read instead. See [Authenticating as the caller](#authenticating-as-the-caller).                 |
+| azureOnBehalfOf |  object  |    false     | Exchanges the caller's token for one Azure SQL will accept. Fields `clientId`, `clientSecret` and `tenantId`, all required. Only used with `useClientOAuth`.                                                                                                              |
 
 ### azureAuth
 
@@ -117,10 +118,20 @@ database user (or Entra group) for each person who will query it.
 [azure-sql-entra]:
     https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-overview
 
-The client's token is passed to the database as it arrived, so it must have been
-issued for the database (audience `https://database.windows.net/`). A token issued
-for Toolbox itself is refused by the server.
+Which token the database is given depends on who the client's token was issued
+for:
 
+- **The client already holds a token for the database.** Omit `azureOnBehalfOf`
+  and the token is passed on as it arrived.
+- **The client authenticated against Toolbox** — the usual case, since an MCP
+  client requests a token for the server it is talking to. Configure
+  `azureOnBehalfOf` and the driver exchanges that token for a database-scoped one
+  using the [on-behalf-of flow][obo-flow]. The application it names must hold the
+  delegated permission `user_impersonation` on Azure SQL Database, with consent
+  granted, and the client's token must have been issued for that application.
+
+[obo-flow]:
+    https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow
 
 ```yaml
 kind: source
@@ -131,6 +142,10 @@ port: 1433
 database: my_db
 # No user or password: the identity comes from whoever called the tool.
 useClientOAuth: "true"
+azureOnBehalfOf:
+    clientId: ${AZURE_CLIENT_ID}
+    clientSecret: ${AZURE_CLIENT_SECRET}
+    tenantId: ${AZURE_TENANT_ID}
 ```
 
 {{< notice note >}}

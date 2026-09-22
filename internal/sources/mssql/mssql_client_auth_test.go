@@ -140,6 +140,19 @@ func TestDBForClientRequiresABearerToken(t *testing.T) {
 	}
 }
 
+// With an on-behalf-of block the pool is opened through the azuread driver, which
+// parses and validates the DSN at open time. A pool coming back therefore means
+// the parameters are the ones the driver's on-behalf-of workflow expects.
+func TestDBForClientWithOnBehalfOf(t *testing.T) {
+	source := initClientAuthSource(t, mssql.Config{
+		UseClientOAuth:  "true",
+		AzureOnBehalfOf: &mssql.AzureOnBehalfOfConfig{ClientID: "my-client-id", ClientSecret: "my-client-secret", TenantID: "my-tenant-id"},
+	})
+	if _, err := source.DBForClient(context.Background(), "Bearer token-for-alice"); err != nil {
+		t.Fatalf("unable to open an on-behalf-of pool: %v", err)
+	}
+}
+
 func TestDBForClientPoolsPerCaller(t *testing.T) {
 	source := initClientAuthSource(t, mssql.Config{UseClientOAuth: "true"})
 	ctx := context.Background()

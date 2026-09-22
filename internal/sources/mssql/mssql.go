@@ -83,6 +83,21 @@ type AzureAuthConfig struct {
 	TenantID string `yaml:"tenantId"`
 }
 
+// AzureOnBehalfOfConfig names the confidential client that exchanges the caller's
+// token for one Azure SQL will accept, using the OAuth 2.0 on-behalf-of flow. It
+// is needed whenever the token the client sent was issued for this server rather
+// than for the database — the usual case, since an MCP client authenticates
+// against Toolbox, so its token's audience is Toolbox. Omit the block to send the
+// caller's token to the database as it arrived.
+//
+// The driver performs the exchange itself, and the server tells it which resource
+// to request the token for, so there is no scope to configure here.
+type AzureOnBehalfOfConfig struct {
+	ClientID     string `yaml:"clientId" validate:"required"`
+	ClientSecret string `yaml:"clientSecret" validate:"required"`
+	TenantID     string `yaml:"tenantId" validate:"required"`
+}
+
 type Config struct {
 	// Cloud SQL MSSQL configs
 	Name string `yaml:"name" validate:"required"`
@@ -106,6 +121,9 @@ type Config struct {
 	// and row-level security. Set it to "true" to take the token from the standard
 	// Authorization header, or to a header name to take it from elsewhere.
 	UseClientOAuth string `yaml:"useClientOAuth"`
+	// AzureOnBehalfOf turns the caller's token into one the database will accept.
+	// Only meaningful together with useClientOAuth.
+	AzureOnBehalfOf *AzureOnBehalfOfConfig `yaml:"azureOnBehalfOf"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -122,6 +140,9 @@ func (r Config) useClientOAuth() bool {
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	if r.useClientOAuth() {
 		return r.initializeForClients()
+	}
+	if r.AzureOnBehalfOf != nil {
+		return nil, fmt.Errorf("azureOnBehalfOf exchanges the caller's token, so it needs useClientOAuth")
 	}
 	if r.AzureAuth != nil {
 		// The driver reads a service principal's client secret from 'password';
@@ -299,13 +320,29 @@ func (s *Source) DBForClient(ctx context.Context, accessToken tools.AccessToken)
 // openForClient builds a pool whose connections authenticate with a token belonging
 // to the caller rather than with credentials from the configuration.
 func (s *Source) openForClient(ctx context.Context, assertion string) (*sql.DB, error) {
-	// The caller's token is presented to the database as it arrived, so it must
-	// have been issued for the database. Nothing here can confirm its audience is
-	// right; the server refuses it if it is not.
-	connector, err := mssql.NewConnectorWithAccessTokenProvider(
-		buildDSN(ctx, s.Host, s.Port, s.Database, s.Encrypt, nil, url.Values{}),
-		func(context.Context) (string, error) { return assertion, nil },
-	)
+	var connector *mssql.Connector
+	var err error
+	if obo := s.AzureOnBehalfOf; obo != nil {
+		// The driver runs the on-behalf-of exchange itself: the confidential client
+		// goes in 'user id' and 'password', and the caller's token is the user
+		// assertion. It requests the resource the server names, so no scope is set.
+		// NewConnector parses the DSN now, so a mistake in it is reported here
+		// rather than on the first query.
+		query := url.Values{}
+		query.Add("fedauth", azuread.ActiveDirectoryOnBehalfOf)
+		query.Add("user id", fmt.Sprintf("%s@%s", obo.ClientID, obo.TenantID))
+		query.Add("password", obo.ClientSecret)
+		query.Add("userassertion", assertion)
+		connector, err = azuread.NewConnector(buildDSN(ctx, s.Host, s.Port, s.Database, s.Encrypt, nil, query))
+	} else {
+		// The caller already holds a token for the database, so it is presented as
+		// it arrived. Nothing here can confirm its audience is right; the server
+		// refuses it if it is not.
+		connector, err = mssql.NewConnectorWithAccessTokenProvider(
+			buildDSN(ctx, s.Host, s.Port, s.Database, s.Encrypt, nil, url.Values{}),
+			func(context.Context) (string, error) { return assertion, nil },
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to create connector for the caller: %w", err)
 	}
