@@ -137,6 +137,28 @@ func TestParseFromYamlMssql(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "authenticating as the caller",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			useClientOAuth: "true"
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mssql-instance": mssql.Config{
+					Name:           "my-mssql-instance",
+					Type:           mssql.SourceType,
+					Host:           "my-server.database.windows.net",
+					Port:           "1433",
+					Database:       "my_db",
+					UseClientOAuth: "true",
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -183,7 +205,7 @@ func TestFailParseFromYaml(t *testing.T) {
 			database: my_db
 			user: my_user
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required_without' tag",
+			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required_without_all' tag",
 		},
 		{
 			desc: "entra id tenant without a client id",

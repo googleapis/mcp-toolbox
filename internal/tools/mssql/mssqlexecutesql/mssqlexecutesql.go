@@ -23,6 +23,7 @@ import (
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
@@ -88,8 +89,7 @@ type Tool struct {
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
-	source, ok := s.(compatibleSource)
-	if !ok {
+	if _, ok := s.(compatibleSource); !ok {
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
 	}
 	paramsMap := params.AsMap()
@@ -104,7 +104,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
 	}
 	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, sqlStr))
-	resp, err := source.RunSQL(ctx, sqlStr, nil)
+	resp, err := mssqlcommon.RunSQL(ctx, s, accessToken, sqlStr, nil)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
@@ -125,4 +125,12 @@ func (t Tool) ValidateSource(source sources.Source) error {
 		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
 	return nil
+}
+
+func (t Tool) RequiresClientAuthorization(s sources.Source) (bool, error) {
+	return mssqlcommon.RequiresClientAuthorization(s)
+}
+
+func (t Tool) GetAuthTokenHeaderName(s sources.Source) (string, error) {
+	return mssqlcommon.GetAuthTokenHeaderName(s)
 }

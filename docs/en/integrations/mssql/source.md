@@ -33,6 +33,9 @@ For an Azure SQL server with SQL authentication disabled, set `azureAuth` instea
 omit `user` and `password`. The identity you authenticate as still needs a database
 user, created [from the external provider][mssql-entra-users].
 
+To have each request run under the identity of the person who made it instead of
+a shared one, see [Authenticating as the caller](#authenticating-as-the-caller).
+
 [mssql-users]:
     https://learn.microsoft.com/en-us/sql/relational-databases/security/authentication-access/create-a-database-user?view=sql-server-ver16
 [mssql-entra-users]:
@@ -74,16 +77,17 @@ instead of hardcoding your secrets into the configuration file.
 
 ## Reference
 
-| **field** | **type** | **required** | **description**                                                                                                                                                                                                                                                          |
-|-----------|:--------:|:------------:|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| type      |  string  |     true     | Must be "mssql".                                                                                                                                                                                                                                                         |
-| host      |  string  |     true     | IP address to connect to (e.g. "127.0.0.1").                                                                                                                                                                                                                             |
-| port      |  string  |     true     | Port to connect to (e.g. "1433").                                                                                                                                                                                                                                        |
-| database  |  string  |     true     | Name of the SQL Server database to connect to (e.g. "my_db").                                                                                                                                                                                                            |
-| user      |  string  |    true\*    | Name of the SQL Server user to connect as (e.g. "my-user"). Must be omitted when `azureAuth` is set.                                                                                                                                                                          |
-| password  |  string  |    true\*    | Password of the SQL Server user (e.g. "my-password"). Not required when `azureAuth` is set; in `service-principal` mode it carries the client secret.                                                                                                                      |
-| encrypt   |  string  |    false     | Encryption level for data transmitted between the client and server (e.g., "strict"). If not specified, defaults to the [github.com/microsoft/go-mssqldb](https://github.com/microsoft/go-mssqldb?tab=readme-ov-file#common-parameters) package's default encrypt value. |
-| azureAuth |  object  |    false     | Authenticate to Azure SQL with a Microsoft Entra ID identity instead of a SQL login. Omit for standard authentication.                                                                                                                                                    |
+| **field**       | **type** | **required** | **description**                                                                                                                                                                                                                                                          |
+|-----------------|:--------:|:------------:|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| type            |  string  |     true     | Must be "mssql".                                                                                                                                                                                                                                                         |
+| host            |  string  |     true     | IP address to connect to (e.g. "127.0.0.1").                                                                                                                                                                                                                             |
+| port            |  string  |     true     | Port to connect to (e.g. "1433").                                                                                                                                                                                                                                        |
+| database        |  string  |     true     | Name of the SQL Server database to connect to (e.g. "my_db").                                                                                                                                                                                                            |
+| user            |  string  |    true\*    | Name of the SQL Server user to connect as (e.g. "my-user"). Must be omitted when `azureAuth` or `useClientOAuth` is set.                                                                                                                                                 |
+| password        |  string  |    true\*    | Password of the SQL Server user (e.g. "my-password"). Must be omitted when `useClientOAuth` is set. Not required when `azureAuth` is set; in `service-principal` mode it carries the client secret.                                                                     |
+| encrypt         |  string  |    false     | Encryption level for data transmitted between the client and server (e.g., "strict"). If not specified, defaults to the [github.com/microsoft/go-mssqldb](https://github.com/microsoft/go-mssqldb?tab=readme-ov-file#common-parameters) package's default encrypt value. |
+| azureAuth       |  object  |    false     | Authenticate to Azure SQL with a Microsoft Entra ID identity instead of a SQL login. Omit for standard authentication.                                                                                                                                                    |
+| useClientOAuth  |  string  |    false     | Authenticate as the caller rather than as a configured identity. "true" reads the token from the `Authorization` header; any other non-empty value names the header to read instead. See [Authenticating as the caller](#authenticating-as-the-caller).                 |
 
 ### azureAuth
 
@@ -94,3 +98,44 @@ instead of hardcoding your secrets into the configuration file.
 | tenantId                   |  string  |    false     | Tenant ID, where it cannot be inferred from the server.                                                                                            |
 
 [azuread-pkg]: https://pkg.go.dev/github.com/microsoft/go-mssqldb/azuread
+
+## Advanced Usage
+
+### Authenticating as the caller
+
+By default every tool call reaches the database over one connection pool, under
+the identity in the configuration. Setting `useClientOAuth` changes that: Toolbox
+takes the access token the client sent, connects as that person, and keeps a
+separate pool per caller. The database then applies their own permissions and
+row-level security, and refuses what they may not read — enforcement that does
+not depend on the tool, the prompt or the model.
+
+This requires a SQL Server that accepts Microsoft Entra ID authentication, such
+as [Azure SQL Database or Azure SQL Managed Instance][azure-sql-entra], and a
+database user (or Entra group) for each person who will query it.
+
+[azure-sql-entra]:
+    https://learn.microsoft.com/en-us/azure/azure-sql/database/authentication-aad-overview
+
+The client's token is passed to the database as it arrived, so it must have been
+issued for the database (audience `https://database.windows.net/`). A token issued
+for Toolbox itself is refused by the server.
+
+
+```yaml
+kind: source
+name: my-mssql-source
+type: mssql
+host: my-server.database.windows.net
+port: 1433
+database: my_db
+# No user or password: the identity comes from whoever called the tool.
+useClientOAuth: "true"
+```
+
+{{< notice note >}}
+A request that arrives without a token is refused rather than falling back to a
+shared identity. Because there is no identity of its own to connect with, this
+source does not verify the connection at startup: the first request carrying a
+token is what proves the database is reachable.
+{{< /notice >}}
