@@ -58,11 +58,11 @@ func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource
 		}
 		name, err := requiredString(e.Frontmatter, "name")
 		if err != nil {
-			return nil, fmt.Errorf("invalid skill entry %q: %w", truncate(e.URI), err)
+			return nil, fmt.Errorf("invalid skill entry %q: %w", e.URI, err)
 		}
 		desc, err := requiredString(e.Frontmatter, "description")
 		if err != nil {
-			return nil, fmt.Errorf("invalid skill entry %q: %w", truncate(e.URI), err)
+			return nil, fmt.Errorf("invalid skill entry %q: %w", e.URI, err)
 		}
 		docs[key] = skillDoc{Resource: res, name: name, description: desc}
 	}
