@@ -79,7 +79,7 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("invalid skill manifest: %w", err)
 		}
 		if marker != DynamicMarker {
-			return fmt.Errorf("invalid skill manifest %q: the only permitted string is %q", truncate(marker), DynamicMarker)
+			return fmt.Errorf("invalid skill manifest %q: the only permitted string is %q", marker, DynamicMarker)
 		}
 		m.Dynamic, m.Refs = true, nil
 		return nil
@@ -123,15 +123,15 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("invalid skill manifest: ref %d has no uri", i)
 		}
 		if _, dup := seen[r.URI]; dup {
-			return fmt.Errorf("invalid skill manifest: %q is listed more than once", truncate(r.URI))
+			return fmt.Errorf("invalid skill manifest: %q is listed more than once", r.URI)
 		}
 		seen[r.URI] = struct{}{}
 
 		if !validDigest(r.Digest) {
-			return fmt.Errorf("invalid skill manifest: %q has digest %q, want sha256: followed by 64 lowercase hex characters", truncate(r.URI), truncate(r.Digest))
+			return fmt.Errorf("invalid skill manifest: %q has digest %q, want sha256: followed by 64 lowercase hex characters", r.URI, r.Digest)
 		}
 		if r.Size < 0 {
-			return fmt.Errorf("invalid skill manifest: %q has size %d, want a byte length", truncate(r.URI), r.Size)
+			return fmt.Errorf("invalid skill manifest: %q has size %d, want a byte length", r.URI, r.Size)
 		}
 		// Subtraction, not addition: a size near math.MaxInt64 would wrap a
 		// running total negative and pass.
@@ -163,7 +163,7 @@ func (e *Entry) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("invalid skill entry: %w", err)
 	}
 	if fields.Resources == nil {
-		return fmt.Errorf("invalid skill entry %q: resources is required", truncate(fields.URI))
+		return fmt.Errorf("invalid skill entry %q: resources is required", fields.URI)
 	}
 	if err := e.Resources.UnmarshalJSON(fields.Resources); err != nil {
 		return err
@@ -176,17 +176,17 @@ func (e *Entry) UnmarshalJSON(data []byte) error {
 func (e Entry) Validate() error {
 	scheme, segs, err := uriSegments(e.URI)
 	if err != nil {
-		return fmt.Errorf("invalid skill entry %q: uri %w", truncate(e.URI), err)
+		return fmt.Errorf("invalid skill entry %q: uri %w", e.URI, err)
 	}
 	if len(segs) < 2 || segs[len(segs)-1] != "SKILL.md" {
-		return fmt.Errorf("invalid skill entry %q: uri must address the skill's SKILL.md", truncate(e.URI))
+		return fmt.Errorf("invalid skill entry %q: uri must address the skill's SKILL.md", e.URI)
 	}
 	root := segs[:len(segs)-1]
 	if err := e.validateFrontmatter(root[len(root)-1]); err != nil {
 		return err
 	}
 	if err := e.Resources.Validate(); err != nil {
-		return fmt.Errorf("skill %q: %w", truncate(e.URI), err)
+		return fmt.Errorf("skill %q: %w", e.URI, err)
 	}
 	if e.Resources.Dynamic {
 		return nil
@@ -200,21 +200,21 @@ func (e Entry) validateFrontmatter(name string) error {
 	// Check the frontmatter
 	fmName, err := requiredString(e.Frontmatter, "name")
 	if err != nil {
-		return fmt.Errorf("invalid skill entry %q: %w", truncate(e.URI), err)
+		return fmt.Errorf("invalid skill entry %q: %w", e.URI, err)
 	}
 	// Check the uri segment
 	if err := validSkillName(fmName); err != nil {
-		return fmt.Errorf("invalid skill entry %q: frontmatter name %w", truncate(e.URI), err)
+		return fmt.Errorf("invalid skill entry %q: frontmatter name %w", e.URI, err)
 	}
 	desc, err := requiredString(e.Frontmatter, "description")
 	if err != nil {
-		return fmt.Errorf("invalid skill entry %q: %w", truncate(e.URI), err)
+		return fmt.Errorf("invalid skill entry %q: %w", e.URI, err)
 	}
 	if n := utf8.RuneCountInString(desc); n > maxDescriptionLen {
-		return fmt.Errorf("invalid skill entry %q: frontmatter description is %d characters, want at most %d", truncate(e.URI), n, maxDescriptionLen)
+		return fmt.Errorf("invalid skill entry %q: frontmatter description is %d characters, want at most %d", e.URI, n, maxDescriptionLen)
 	}
 	if fmName != name {
-		return fmt.Errorf("invalid skill entry %q: frontmatter name %q does not match the uri's final skill-path segment %q", truncate(e.URI), truncate(fmName), truncate(name))
+		return fmt.Errorf("invalid skill entry %q: frontmatter name %q does not match the uri's final skill-path segment %q", e.URI, fmName, name)
 	}
 	return nil
 }
@@ -225,14 +225,14 @@ func (e Entry) validateRefs(scheme string, root []string) error {
 	var listsItself bool
 	for _, r := range e.Resources.Refs {
 		if !underSkill(r.URI, scheme, root) {
-			return fmt.Errorf("invalid skill entry %q: %q is not a file within the skill", truncate(e.URI), truncate(r.URI))
+			return fmt.Errorf("invalid skill entry %q: %q is not a file within the skill", e.URI, r.URI)
 		}
 		if r.URI == e.URI {
 			listsItself = true
 		}
 	}
 	if !listsItself {
-		return fmt.Errorf("invalid skill entry %q: resources must list the skill's own SKILL.md", truncate(e.URI))
+		return fmt.Errorf("invalid skill entry %q: resources must list the skill's own SKILL.md", e.URI)
 	}
 	return nil
 }
@@ -272,17 +272,17 @@ func underSkill(ref, scheme string, root []string) bool {
 func validSkillName(s string) error {
 	for _, c := range s {
 		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
-			return fmt.Errorf("%q may only contain lowercase letters, digits, and hyphens", truncate(s))
+			return fmt.Errorf("%q may only contain lowercase letters, digits, and hyphens", s)
 		}
 	}
 	if s == "" || len(s) > maxNameLen {
 		return fmt.Errorf("is %d characters, want 1 to %d", len(s), maxNameLen)
 	}
 	if strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") {
-		return fmt.Errorf("%q starts or ends with a hyphen", truncate(s))
+		return fmt.Errorf("%q starts or ends with a hyphen", s)
 	}
 	if strings.Contains(s, "--") {
-		return fmt.Errorf("%q contains consecutive hyphens", truncate(s))
+		return fmt.Errorf("%q contains consecutive hyphens", s)
 	}
 	return nil
 }
@@ -316,17 +316,4 @@ func requiredString(fm map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("frontmatter %s is empty", key)
 	}
 	return s, nil
-}
-
-// truncate bounds a value from the wire before it reaches an error message.
-func truncate(s string) string {
-	const max = 64
-	if len(s) <= max {
-		return s
-	}
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max]) + "…"
 }

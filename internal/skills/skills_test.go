@@ -158,37 +158,6 @@ func TestManifestUnmarshalJSON(t *testing.T) {
 	}
 }
 
-// TestManifestUnmarshalBoundsTheOffendingString keeps an error message from
-// carrying a whole wire value into the logs.
-func TestManifestUnmarshalBoundsTheOffendingString(t *testing.T) {
-	var m skills.Manifest
-	err := json.Unmarshal([]byte(`"`+strings.Repeat("a", 4000)+`"`), &m)
-	if err == nil {
-		t.Fatal("Unmarshal() = nil, want an error")
-	}
-	if got := len(err.Error()); got > 200 {
-		t.Errorf("len(error) = %d, want the offending string truncated", got)
-	}
-	if !strings.Contains(err.Error(), "…") {
-		t.Errorf("error = %v, want it to show truncation", err)
-	}
-}
-
-// TestManifestUnmarshalKeepsShortMultibyteStrings pins that truncation counts
-// characters, not bytes: this string is over the byte guard but under the
-// limit, so it must survive intact.
-func TestManifestUnmarshalKeepsShortMultibyteStrings(t *testing.T) {
-	marker := strings.Repeat("é", 40) // 80 bytes, 40 runes
-	var m skills.Manifest
-	err := json.Unmarshal([]byte(`"`+marker+`"`), &m)
-	if err == nil {
-		t.Fatal("Unmarshal() = nil, want an error")
-	}
-	if !strings.Contains(err.Error(), marker) {
-		t.Errorf("Unmarshal() = %v, want the marker reported in full", err)
-	}
-}
-
 // TestManifestUnmarshalEmptyInput covers the first-byte dispatch guard, which
 // only a direct call can reach — but the method is exported.
 func TestManifestUnmarshalEmptyInput(t *testing.T) {
