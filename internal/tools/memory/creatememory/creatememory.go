@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
@@ -95,11 +94,10 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 			parameters.WithStringRequired(true),
 			parameters.WithStringAllowedValues(DefaultCategories),
 		),
-		parameters.NewStringParameter(
+		parameters.NewBooleanParameter(
 			"is_global",
-			"Visibility: PRIVATE (only visible to current user) or GLOBAL (visible to all users).",
-			parameters.WithStringDefault(memory.VisibilityPrivate),
-			parameters.WithStringAllowedValues([]any{memory.VisibilityPrivate, memory.VisibilityGlobal}),
+			"Set to true to make this memory visible to all users. Defaults to false (private to current user).",
+			parameters.WithBooleanDefault(false),
 		),
 		parameters.NewBooleanParameter(
 			"is_pinned",
@@ -155,10 +153,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if category == "" {
 		return nil, util.NewAgentError("category must not be empty", nil)
 	}
-	isGlobal, err := strconv.ParseBool(asString(p["is_global"]))
-	if err != nil {
-		return nil, util.NewAgentError("is_global must be a boolean", nil)
-	}
+	isGlobal, _ := p["is_global"].(bool)
 	userID := asString(p["user_id"])
 	if userID == "" {
 		err := fmt.Errorf("user_id could not be resolved for tool %q", t.Cfg.Name)

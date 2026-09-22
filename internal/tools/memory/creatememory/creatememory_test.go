@@ -123,6 +123,11 @@ func TestInitializeParameters(t *testing.T) {
 					t.Errorf("unexpected error parsing valid category: %v", err)
 				}
 			}
+			if bp, ok := p.(*parameters.BooleanParameter); ok && bp.GetName() == "is_global" {
+				if bp.GetDefault() != false {
+					t.Errorf("expected is_global default to be false, got %v", bp.GetDefault())
+				}
+			}
 		}
 	})
 

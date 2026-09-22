@@ -2157,6 +2157,10 @@ func TestPrebuiltTools(t *testing.T) {
 					Description: "Use these skills when you need to monitor replication health, manage sync states between nodes, and ensure the high availability and data distribution of your AlloyDB cluster.",
 					ToolNames:   []string{"replication_stats", "list_replication_slots", "list_publication_tables", "list_instances", "get_instance", "database_overview"},
 				},
+				"memory": group.GroupConfig{
+					Name:      "memory",
+					ToolNames: []string{"create_memory"},
+				},
 			},
 		},
 		{
@@ -2249,6 +2253,10 @@ func TestPrebuiltTools(t *testing.T) {
 					Name:        "vectorassist",
 					Description: "Use these skills to set up and optimize production-ready vector workloads by simply expressing your intent and performance requirements.",
 					ToolNames:   []string{"execute_sql", "define_spec", "modify_spec", "apply_spec", "generate_query", "improve_query_recall", "list_specs", "get_spec", "delete_spec"},
+				},
+				"memory": group.GroupConfig{
+					Name:      "memory",
+					ToolNames: []string{"create_memory"},
 				},
 			},
 		},
@@ -2437,6 +2445,10 @@ func TestPrebuiltTools(t *testing.T) {
 				"replication": group.GroupConfig{
 					Name:      "replication",
 					ToolNames: []string{"replication_stats", "list_replication_slots", "list_publication_tables", "list_roles", "list_pg_settings", "database_overview"},
+				},
+				"memory": group.GroupConfig{
+					Name:      "memory",
+					ToolNames: []string{"create_memory"},
 				},
 			},
 		},

@@ -40,9 +40,6 @@ const (
 
 	// DefaultUserID is used as user_id when no authService is configured.
 	DefaultUserID = "default"
-
-	VisibilityPrivate = "PRIVATE"
-	VisibilityGlobal  = "GLOBAL"
 )
 
 // validTableIdentifierRegex matches a standard or schema-qualified PostgreSQL identifier.
@@ -117,7 +114,7 @@ func (c Config) UserIDParameter() parameters.Parameter {
 type Memory struct {
 	MemoryID       string    `json:"memory_id"`
 	UserID         string    `json:"user_id"`
-	Visibility     string    `json:"visibility"`
+	IsGlobal       bool      `json:"is_global"`
 	Category       string    `json:"category"`
 	Content        string    `json:"content"`
 	IsPinned       bool      `json:"is_pinned"`
@@ -129,7 +126,7 @@ type Memory struct {
 }
 
 // Columns is the SELECT list matching ScanMemory (excluding score).
-const Columns = `memory_id::text, user_id, visibility, category, content, is_pinned, created_at, updated_at, last_accessed_at, access_count`
+const Columns = `memory_id::text, user_id, is_global, category, content, is_pinned, created_at, updated_at, last_accessed_at, access_count`
 
 // Schema returns the DDL statements that bootstrap the memory table and full-text search index.
 func Schema(table string) (string, error) {
@@ -196,7 +193,7 @@ func ScanMemory(rows pgx.Rows) (Memory, error) {
 	var m Memory
 	var isPinned *bool
 	var accessCount *int32
-	dest := []any{&m.MemoryID, &m.UserID, &m.Visibility, &m.Category, &m.Content, &isPinned, &m.CreatedAt, &m.UpdatedAt, &m.LastAccessedAt, &accessCount}
+	dest := []any{&m.MemoryID, &m.UserID, &m.IsGlobal, &m.Category, &m.Content, &isPinned, &m.CreatedAt, &m.UpdatedAt, &m.LastAccessedAt, &accessCount}
 	if err := rows.Scan(dest...); err != nil {
 		return m, err
 	}
@@ -247,5 +244,5 @@ func Touch(ctx context.Context, pool *pgxpool.Pool, table, memoryID string) (Mem
 // ScopeClause returns the SQL predicate restricting rows to those visible to
 // the given user, where userParam is the positional placeholder (e.g. "$1").
 func ScopeClause(userParam string) string {
-	return fmt.Sprintf("(user_id = %s OR visibility = '%s')", userParam, VisibilityGlobal)
+	return fmt.Sprintf("(user_id = %s OR is_global = TRUE)", userParam)
 }
