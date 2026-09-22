@@ -257,6 +257,11 @@ name: list_stored_procedure
 type: postgres-list-stored-procedure
 source: postgresql-source
 ---
+kind: tool
+name: create_memory
+type: create-memory
+source: postgresql-source
+---
 kind: toolset
 name: data
 tools:
@@ -309,3 +314,8 @@ tools:
 - list_roles
 - list_pg_settings
 - database_overview
+---
+kind: group
+name: memory
+tools:
+- create_memory
