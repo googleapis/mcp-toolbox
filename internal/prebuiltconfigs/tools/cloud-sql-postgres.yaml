@@ -461,8 +461,8 @@ source: cloudsql-pg-source
 ---
 kind: tool
 name: create_memory
-type: cloud-sql-create-memory
-source: cloud-sql-pg-source
+type: create-memory
+source: cloudsql-pg-source
 ---
 kind: group
 name: admin

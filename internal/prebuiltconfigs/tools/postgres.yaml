@@ -315,7 +315,7 @@ tools:
 - list_pg_settings
 - database_overview
 ---
-kind: group
+kind: toolset
 name: memory
 tools:
 - create_memory

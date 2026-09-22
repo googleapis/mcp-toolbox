@@ -425,7 +425,7 @@ source: alloydb-admin-source
 ---
 kind: tool
 name: create_memory
-type: alloydb-create-memory
+type: create-memory
 source: alloydb-pg-source
 ---
 kind: group
