@@ -40,6 +40,20 @@ const BaseDirKey contextKey = "baseDir"
 // as skill://<skill-name>/<path>, whichever resource type backs it.
 const SkillScheme = "skill"
 
+// SkillFile is the document every Agent Skill is rooted at.
+const SkillFile = "SKILL.md"
+
+// IsSkillDoc reports whether uri addresses a skill's SKILL.md. A bare
+// skill://SKILL.md is not one: the host names the skill, so a document needs a
+// path segment beyond it.
+func IsSkillDoc(uri string) bool {
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Scheme != SkillScheme || parsed.Host == "" {
+		return false
+	}
+	return parsed.Path[strings.LastIndex(parsed.Path, "/")+1:] == SkillFile
+}
+
 // ValidateScheme checks uri against the schemes a resource may be addressed by:
 // nativeScheme, which is the resource's own type (eg. file), or SkillScheme. The
 // returned error names the accepted set, so callers need only prefix it with the
@@ -85,6 +99,7 @@ type Resource interface {
 	ToConfig() ResourceConfig
 	GetResourceUIMetadata() any
 	IsUI() bool
+	IsDynamic() bool
 }
 
 type ResourceAnnotations struct {
@@ -156,11 +171,18 @@ func (c ConfigBase) GetResourceUIMetadata() any {
 type ResourceConfigBase struct {
 	ConfigBase `yaml:",inline"`
 	URI        string `yaml:"uri,omitempty" validate:"omitempty,uri"`
+	Dynamic    bool   `yaml:"dynamic,omitempty"`
 }
 
 // GetURI returns the URI of the resource configuration.
 func (c ResourceConfigBase) GetURI() string {
 	return c.URI
+}
+
+// IsDynamic reports whether the skill this SKILL.md roots publishes its files
+// as a manifest of digests, or as the "dynamic" marker.
+func (c ResourceConfigBase) IsDynamic() bool {
+	return c.Dynamic
 }
 
 type AudienceRole string
@@ -291,6 +313,11 @@ func (c *ResourceConfigBase) Validate() error {
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	parsed.Host = strings.ToLower(parsed.Host)
 	c.URI = parsed.String()
+
+	// Tested after normalization, so a URI differing only in case still matches.
+	if c.Dynamic && !IsSkillDoc(c.URI) {
+		return fmt.Errorf("dynamic cannot be configured for resource %q: it applies only to a skill's %s, addressed as %s://<skill-path>/%s", c.Name, SkillFile, SkillScheme, SkillFile)
+	}
 
 	return nil
 }

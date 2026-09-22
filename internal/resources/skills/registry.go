@@ -35,6 +35,7 @@ import (
 // loads needs no nil check.
 type Registry struct {
 	members map[string][]resources.Resource
+	docs    map[string]resources.Resource
 	uris    []string
 }
 
@@ -49,6 +50,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	prefix := resources.SkillScheme + "://"
 
 	isRoot := make(map[string]bool)
+	docs := make(map[string]resources.Resource)
 	for _, res := range resourcesMap {
 		uri := res.GetURI()
 		if !strings.HasPrefix(uri, prefix) {
@@ -56,6 +58,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		}
 		if root, ok := strings.CutSuffix(uri, "/"+skillFile); ok {
 			isRoot[root] = true
+			docs[uri] = res
 		}
 	}
 
@@ -104,7 +107,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
 
-	return &Registry{members: members, uris: uris}
+	return &Registry{members: members, docs: docs, uris: uris}
 }
 
 // URIs returns a copy of every skill's SKILL.md URI, sorted.
@@ -123,6 +126,16 @@ func (r *Registry) Members(skillURI string) ([]resources.Resource, bool) {
 	}
 	m, ok := r.members[skillURI]
 	return slices.Clone(m), ok
+}
+
+// Doc returns one skill's SKILL.md resource. The second result reports whether
+// the skill is registered.
+func (r *Registry) Doc(skillURI string) (resources.Resource, bool) {
+	if r == nil {
+		return nil, false
+	}
+	d, ok := r.docs[skillURI]
+	return d, ok
 }
 
 // Len reports how many skills are registered.
