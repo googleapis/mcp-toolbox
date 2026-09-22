@@ -715,6 +715,13 @@ func TestEntryValidate(t *testing.T) {
 			wantErr: "is not a file within the skill",
 		},
 		{
+			// Manifest.Validate accepts any non-empty uri, so a malformed ref is
+			// caught here rather than there.
+			desc:    "a ref with an empty path segment",
+			mutate:  func(e *skills.Entry) { addRef(e, "skill://acme/billing/refunds//examples/email.md") },
+			wantErr: "is not a file within the skill",
+		},
+		{
 			desc:    "a ref naming a directory",
 			mutate:  func(e *skills.Entry) { addRef(e, "skill://acme/billing/refunds/examples/") },
 			wantErr: "is not a file within the skill",

@@ -123,15 +123,15 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("invalid skill manifest: ref %d has no uri", i)
 		}
 		if _, dup := seen[r.URI]; dup {
-			return fmt.Errorf("invalid skill manifest: %q is listed more than once", r.URI)
+			return fmt.Errorf("invalid skill manifest: %q is listed more than once", truncate(r.URI))
 		}
 		seen[r.URI] = struct{}{}
 
 		if !validDigest(r.Digest) {
-			return fmt.Errorf("invalid skill manifest: %q has digest %q, want sha256: followed by 64 lowercase hex characters", r.URI, r.Digest)
+			return fmt.Errorf("invalid skill manifest: %q has digest %q, want sha256: followed by 64 lowercase hex characters", truncate(r.URI), truncate(r.Digest))
 		}
 		if r.Size < 0 {
-			return fmt.Errorf("invalid skill manifest: %q has size %d, want a byte length", r.URI, r.Size)
+			return fmt.Errorf("invalid skill manifest: %q has size %d, want a byte length", truncate(r.URI), r.Size)
 		}
 		// Subtraction, not addition: a size near math.MaxInt64 would wrap a
 		// running total negative and pass.
