@@ -27,7 +27,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
-const skillFile = "SKILL.md"
+// One string governs both this package and the config validation in resources.
+const skillFile = resources.SkillFile
 
 // Discover builds one Entry per skill. A skill can have 1 or more supporting files.
 func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
@@ -37,8 +38,17 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 
 	entries := make([]Entry, 0, reg.Len())
 	for _, skillURI := range reg.URIs() {
-		members, _ := reg.Members(skillURI)
-		e, err := buildEntry(ctx, skillURI, members)
+		var e Entry
+		var err error
+		// A dynamic skill publishes no digests, so its supporting files are
+		// never read. Only its SKILL.md is, for the frontmatter every entry
+		// carries.
+		if doc, ok := reg.Doc(skillURI); ok && doc.IsDynamic() {
+			e, err = buildDynamicEntry(ctx, skillURI, doc)
+		} else {
+			members, _ := reg.Members(skillURI)
+			e, err = buildEntry(ctx, skillURI, members)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -48,6 +58,24 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// buildDynamicEntry assembles the entry for a skill that publishes the
+// "dynamic" marker in place of a file list.
+//
+// The per-skill limits do not apply: SEP-2640 counts them over the entries of a
+// manifest, and a dynamic skill has none. A host that loads one applies its own
+// ceiling to whatever it retrieves.
+func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
+	content, err := readString(ctx, doc)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	frontmatter, err := parseFrontmatter(content)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Dynamic: true}}, nil
 }
 
 // buildEntry hashes every file of one skill and assembles its entry.

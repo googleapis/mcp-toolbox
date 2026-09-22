@@ -321,6 +321,7 @@ func (m MockResource) GetName() string {
 
 func (m MockResource) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
 func (m MockResource) IsUI() bool                 { return m.config.IsUI() }
+func (m MockResource) IsDynamic() bool            { return m.config.IsDynamic() }
 
 // MockResourceTemplateConfig is a mock implementation of resources.ResourceTemplateConfig
 type MockResourceTemplateConfig struct {

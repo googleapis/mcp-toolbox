@@ -1034,3 +1034,81 @@ path: %s
 		}
 	})
 }
+
+// TestFileResource_Dynamic checks the dynamic flag through the YAML path a
+// config author uses. Strict decoding must accept the key, and Validate must
+// reject it anywhere but a skill's SKILL.md.
+func TestFileResource_Dynamic(t *testing.T) {
+	tmpDir := t.TempDir()
+	mdPath := filepath.Join(tmpDir, "SKILL.md")
+	if err := os.WriteFile(mdPath, []byte("---\nname: guide\ndescription: A skill\n---\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tcs := []struct {
+		desc    string
+		uri     string
+		wantErr string
+	}{
+		{desc: "skill doc", uri: "skill://guide/SKILL.md"},
+		{desc: "supporting file", uri: "skill://guide/notes.md", wantErr: "dynamic cannot be configured"},
+		{desc: "plain file resource", uri: "file://notes.md", wantErr: "dynamic cannot be configured"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			yamlStr := fmt.Sprintf(`
+kind: resource
+name: my-skill-doc
+type: file
+uri: %s
+path: %s
+dynamic: true
+`, tc.uri, filepath.ToSlash(mdPath))
+
+			_, _, _, _, _, configs, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("UnmarshalPrimitiveConfig() = nil, want an error containing %q", tc.wantErr)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error = %q, want it to contain %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("UnmarshalPrimitiveConfig() = %v, want nil", err)
+			}
+
+			res, err := configs["my-skill-doc"].Initialize(context.Background())
+			if err != nil {
+				t.Fatalf("Initialize() = %v, want nil", err)
+			}
+			// The flag must survive onto the resource: discovery reads it there,
+			// not off the config.
+			if !res.IsDynamic() {
+				t.Error("IsDynamic() = false, want true")
+			}
+		})
+	}
+}
+
+// TestFileResourceTemplate_RejectsDynamic pins dynamic as a resource-only field.
+// ResourceTemplateConfigBase does not carry it, so strict decoding rejects the key.
+func TestFileResourceTemplate_RejectsDynamic(t *testing.T) {
+	yamlStr := `
+kind: resourceTemplate
+name: my-template
+type: file
+uriTemplate: file://docs/{path}
+pathTemplate: ./docs/{path}
+dynamic: true
+`
+	_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+	if err == nil {
+		t.Fatal("UnmarshalPrimitiveConfig() = nil, want an unknown-field error")
+	}
+	if !strings.Contains(err.Error(), "dynamic") {
+		t.Errorf("error = %q, want it to name the unknown 'dynamic' field", err)
+	}
+}

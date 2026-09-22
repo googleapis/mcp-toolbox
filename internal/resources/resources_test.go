@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -162,6 +163,86 @@ func TestValidateScheme(t *testing.T) {
 			}
 			if err.Error() != tc.wantErr {
 				t.Errorf("ValidateScheme(%q, %q): got %q, want %q", tc.uri, tc.nativeScheme, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsSkillDoc(t *testing.T) {
+	tcs := []struct {
+		desc string
+		uri  string
+		want bool
+	}{
+		{desc: "top-level skill doc", uri: "skill://analytics-guide/SKILL.md", want: true},
+		{desc: "nested skill doc", uri: "skill://outer/inner/SKILL.md", want: true},
+		{desc: "supporting file", uri: "skill://analytics-guide/references/queries.md"},
+		{desc: "skill root", uri: "skill://analytics-guide"},
+		// The host names the skill, so a doc needs a path segment beyond it.
+		// NewRegistry's CutSuffix on "/SKILL.md" rejects this one too.
+		{desc: "no owning skill path", uri: "skill://SKILL.md"},
+		{desc: "another scheme", uri: "file://analytics-guide/SKILL.md"},
+		{desc: "no scheme", uri: "analytics-guide/SKILL.md"},
+		{desc: "case differs", uri: "skill://analytics-guide/skill.md"},
+		{desc: "unparseable uri", uri: "skill://\x7f/SKILL.md"},
+		{desc: "empty", uri: ""},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			if got := resources.IsSkillDoc(tc.uri); got != tc.want {
+				t.Errorf("IsSkillDoc(%q) = %t, want %t", tc.uri, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResourceConfigBaseValidateDynamic checks that dynamic is accepted only on
+// a skill's SKILL.md, the way csp and permissions are accepted only on a UI
+// resource.
+func TestResourceConfigBaseValidateDynamic(t *testing.T) {
+	const wantErr = "dynamic cannot be configured for resource"
+
+	tcs := []struct {
+		desc    string
+		uri     string
+		dynamic bool
+		wantErr bool
+	}{
+		{desc: "skill doc", uri: "skill://analytics-guide/SKILL.md", dynamic: true},
+		{desc: "nested skill doc", uri: "skill://outer/inner/SKILL.md", dynamic: true},
+		// Normalization runs first, so a URI differing only in host case matches.
+		{desc: "uppercase host", uri: "skill://Analytics-Guide/SKILL.md", dynamic: true},
+		{desc: "supporting file", uri: "skill://analytics-guide/queries.md", dynamic: true, wantErr: true},
+		{desc: "non-skill scheme", uri: "file://notes.md", dynamic: true, wantErr: true},
+		{desc: "no owning skill path", uri: "skill://SKILL.md", dynamic: true, wantErr: true},
+		// An omitted uri defaults to <type>://<name>, which is never a skill doc.
+		{desc: "omitted uri", dynamic: true, wantErr: true},
+		{desc: "dynamic omitted on a plain resource", uri: "file://notes.md"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := resources.ResourceConfigBase{
+				ConfigBase: resources.ConfigBase{Name: "res", Type: "file"},
+				URI:        tc.uri,
+				Dynamic:    tc.dynamic,
+			}
+			err := cfg.Validate()
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				if cfg.IsDynamic() != tc.dynamic {
+					t.Errorf("IsDynamic() = %t, want %t", cfg.IsDynamic(), tc.dynamic)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() = nil, want an error containing %q", wantErr)
+			}
+			if !strings.Contains(err.Error(), wantErr) {
+				t.Errorf("Validate() = %v, want an error containing %q", err, wantErr)
 			}
 		})
 	}
