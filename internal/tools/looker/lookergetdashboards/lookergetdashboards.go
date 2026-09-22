@@ -49,7 +49,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
@@ -144,6 +144,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
+
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
 	fields := "id,title,description,certification_metadata"
 	req := v4.RequestSearchDashboards{
 		Title:       title_ptr,
@@ -153,7 +158,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		Fields:      &fields,
 	}
 	logger.DebugContext(ctx, "Making request %v", req)
-	resp, err := sdk.SearchDashboards(req, source.LookerApiSettings())
+	resp, err := sdk.SearchDashboards(req, apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)

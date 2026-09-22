@@ -50,7 +50,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
@@ -136,7 +136,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
 
-	look, err := sdk.Look(look_id, "", source.LookerApiSettings())
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+
+	look, err := sdk.Look(look_id, "", apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -155,7 +160,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		Limit:         &limitStr,
 	}
 
-	resp, err := lookercommon.RunInlineQuery(ctx, sdk, &wq, "json", source.LookerApiSettings())
+	resp, err := lookercommon.RunInlineQuery(ctx, sdk, &wq, "json", apiSettings)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

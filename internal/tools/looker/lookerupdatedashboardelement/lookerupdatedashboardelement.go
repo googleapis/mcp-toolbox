@@ -49,7 +49,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
@@ -178,11 +178,16 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
-	if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, source.LookerApiSettings()); escErr != nil {
+
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+	if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, apiSettings); escErr != nil {
 		logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
 	}
 
-	qresp, err := sdk.CreateQuery(*wq, "id", source.LookerApiSettings())
+	qresp, err := sdk.CreateQuery(*wq, "id", apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -251,7 +256,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		wde.Type = &visType
 	}
 
-	resp, err := sdk.UpdateDashboardElement(dashboardElementId, wde, "", source.LookerApiSettings())
+	resp, err := sdk.UpdateDashboardElement(dashboardElementId, wde, "", apiSettings)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

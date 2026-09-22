@@ -51,7 +51,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 	GetHostURL(context.Context, *v4.LookerSDK) (string, error)
 }
@@ -134,13 +134,18 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
 
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+
 	paramsMap := params.AsMap()
 	title := paramsMap["title"].(string)
 	description := paramsMap["description"].(string)
 	folder := paramsMap["folder"].(string)
 
 	mrespFields := "id,personal_folder_id"
-	mresp, err := sdk.Me(mrespFields, source.LookerApiSettings())
+	mresp, err := sdk.Me(mrespFields, apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -155,7 +160,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		folder = *mresp.PersonalFolderId
 	}
 
-	dashs, err := sdk.FolderDashboards(folder, "title", source.LookerApiSettings())
+	dashs, err := sdk.FolderDashboards(folder, "title", apiSettings)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
@@ -174,7 +179,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		Description: &description,
 		FolderId:    &folder,
 	}
-	resp, err := sdk.CreateDashboard(wd, source.LookerApiSettings())
+	resp, err := sdk.CreateDashboard(wd, apiSettings)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

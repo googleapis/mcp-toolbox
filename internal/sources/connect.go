@@ -104,10 +104,11 @@ func (c *ConnectOnce[T]) OnClose(fn func(context.Context, T) error) *ConnectOnce
 	return c
 }
 
-// Get returns the connection if one has already been made. It never blocks and
-// never fails, so a source's context-free accessors — the ones tools type
-// assert on — can report a handle without being able to build one.
-func (c *ConnectOnce[T]) Get() (T, bool) {
+// get reports the connection if one has already been made, without blocking
+// and without being able to build one. It backs Do's fast path; a source
+// reaches its handle through Do so that a first caller connects rather than
+// seeing a zero value.
+func (c *ConnectOnce[T]) get() (T, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.value, c.ready
@@ -165,7 +166,7 @@ func (c *ConnectOnce[T]) Close(ctx context.Context) error {
 // not once per process.
 func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (T, error)) (T, error) {
 	var zero T
-	if value, ok := c.Get(); ok {
+	if value, ok := c.get(); ok {
 		return value, nil
 	}
 	if c.isClosed() {
@@ -175,7 +176,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 	ch := c.initGroup.DoChan("", func() (any, error) {
 		// singleflight only shares an attempt that is still in flight, so a
 		// caller queued behind a finished winner would start a second connect.
-		if value, ok := c.Get(); ok {
+		if value, ok := c.get(); ok {
 			return value, nil
 		}
 		if c.isClosed() {
