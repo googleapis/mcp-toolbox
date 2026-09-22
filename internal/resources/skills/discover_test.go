@@ -720,7 +720,7 @@ func dynamicSkillDoc(t *testing.T, ctx context.Context, name, uri, content strin
 	return res
 }
 
-// neverReadResource fails the test if discovery reads it.
+// neverReadResource fails the test if Discover reads it.
 type neverReadResource struct {
 	badResource
 	t *testing.T
@@ -763,8 +763,8 @@ func TestDiscoverDynamicSkill(t *testing.T) {
 	if len(got.Resources.Refs) != 0 {
 		t.Errorf("got %d refs, want none on a dynamic skill", len(got.Resources.Refs))
 	}
-	// The frontmatter is still required: it is what Entry.Validate ties to the
-	// URI, and what a host builds its registry from.
+	// Entry.Validate still requires the frontmatter: it ties the frontmatter
+	// name to the URI, and a host builds its registry from these fields.
 	if name := got.Frontmatter["name"]; name != "live-report" {
 		t.Errorf("frontmatter name = %v, want live-report", name)
 	}
@@ -878,7 +878,7 @@ func TestDiscoverDynamicNestedInStatic(t *testing.T) {
 	}
 
 	// From the enclosing skill's perspective the nested files are ordinary
-	// supporting content, so they are listed and hashed.
+	// supporting content, so Discover lists and hashes them.
 	outer := byURI["skill://outer/SKILL.md"]
 	if outer.Resources.Dynamic {
 		t.Fatal("enclosing skill Dynamic = true, want a static manifest")

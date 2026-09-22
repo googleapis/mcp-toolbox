@@ -197,8 +197,8 @@ func TestIsSkillDoc(t *testing.T) {
 	}
 }
 
-// TestResourceConfigBaseValidateDynamic checks that dynamic is accepted only on
-// a skill's SKILL.md, the way csp and permissions are accepted only on a UI
+// TestResourceConfigBaseValidateDynamic checks that Validate accepts dynamic
+// only on a skill's SKILL.md, as it accepts csp and permissions only on a UI
 // resource.
 func TestResourceConfigBaseValidateDynamic(t *testing.T) {
 	const wantErr = "dynamic cannot be configured for resource"
@@ -211,7 +211,7 @@ func TestResourceConfigBaseValidateDynamic(t *testing.T) {
 	}{
 		{desc: "skill doc", uri: "skill://analytics-guide/SKILL.md", dynamic: true},
 		{desc: "nested skill doc", uri: "skill://outer/inner/SKILL.md", dynamic: true},
-		// Normalization runs first, so a URI differing only in host case matches.
+		// Normalization runs first, so a URI that differs only in host case matches.
 		{desc: "uppercase host", uri: "skill://Analytics-Guide/SKILL.md", dynamic: true},
 		{desc: "supporting file", uri: "skill://analytics-guide/queries.md", dynamic: true, wantErr: true},
 		{desc: "non-skill scheme", uri: "file://notes.md", dynamic: true, wantErr: true},

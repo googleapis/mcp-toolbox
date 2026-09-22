@@ -2588,8 +2588,8 @@ func dynamicSkillTextResource(t *testing.T, ctx context.Context, name, uri, cont
 }
 
 // TestSkillsMethodsDynamicSkill pins the wire shape of a dynamic skill. The
-// marker is a JSON string where a static skill carries an array, and a host
-// tells the two apart by that type alone.
+// marker is a JSON string where a static skill carries an array. A host
+// distinguishes the two by that type alone.
 func TestSkillsMethodsDynamicSkill(t *testing.T) {
 	ctx := skillsTestContext(t)
 	Initialize(nil)
@@ -2609,8 +2609,8 @@ func TestSkillsMethodsDynamicSkill(t *testing.T) {
 			"rows": skillTextResource(t, ctx, "rows", "skill://live-report/rows.csv", "a,b\n1,2\n"),
 		}, nil, nil)
 
-	// resourcesOf marshals one entry the way the server would and hands back the
-	// resources field, so the assertion sees the JSON type a client sees.
+	// resourcesOf marshals one entry the way the server does and returns the
+	// resources field. The assertion then sees the JSON type a client sees.
 	resourcesOf := func(t *testing.T, e skills.Entry) any {
 		t.Helper()
 		raw, err := json.Marshal(e)
@@ -2652,8 +2652,8 @@ func TestSkillsMethodsDynamicSkill(t *testing.T) {
 		if got := resourcesOf(t, byURI[dynamicURI]); got != "dynamic" {
 			t.Errorf("dynamic skill resources = %#v, want the string \"dynamic\"", got)
 		}
-		// The dynamic skill's supporting file is never hashed, so the static
-		// skill beside it must still publish its own array.
+		// Discover never hashes the dynamic skill's supporting file, so the
+		// static skill beside it must still publish its own array.
 		got, ok := resourcesOf(t, byURI[staticURI]).([]any)
 		if !ok {
 			t.Fatalf("static skill resources = %#v, want an array", resourcesOf(t, byURI[staticURI]))
