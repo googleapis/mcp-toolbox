@@ -161,8 +161,24 @@ Unlike standard tools, prompts, or resources that are scoped to specific [Groups
      - All tools continue to return standard structured text output in their `content` array regardless of UI mode.
 
 - **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**:
-  - Because earlier protocol versions do not define standard extension capability exchange, Toolbox always preserves and populates `_meta.ui` on tools in `tools/list` whenever a UI resource is linked.
-  - Hosts speaking older protocol versions that support embedded web applications can inspect `tool._meta.ui` directly and read the backing resource via `resources/read`.
+  - Toolbox backports client capability advertisement and negotiation to all legacy protocols to support modern clients running on older endpoints:
+    1. **Initialization**: Clients advertise UI capabilities during `initialize` via `capabilities.extensions["io.modelcontextprotocol/ui"]` (with `mimeTypes: ["text/html;profile=mcp-app"]`). When present, Toolbox advertises server UI capability in `InitializeResult.capabilities.extensions["io.modelcontextprotocol/ui"]: {}`. If omitted by the client, server `extensions` is omitted.
+    2. **Per-Request Negotiation**: Clients can also advertise UI support in request metadata (`_meta` or `params.capabilities`) on `tools/list`:
+       ```json
+       {
+         "_meta": {
+           "io.modelcontextprotocol/clientCapabilities": {
+             "extensions": {
+               "io.modelcontextprotocol/ui": {
+                 "mimeTypes": ["text/html;profile=mcp-app"]
+               }
+             }
+           }
+         }
+       }
+       ```
+    3. **Graceful Degradation**: When UI capabilities are advertised, Toolbox includes `_meta.ui` on tools in `tools/list`. If the client does not advertise UI support, Toolbox gracefully degrades by omitting `_meta.ui` from tool definitions, ensuring full backward compatibility with standard text-only clients.
+    4. **Resource Retrieval**: UI documents and security policies remain available via `resources/read` for clients that support rendering MCP Apps.
 
 ## Reading UI Resources
 
