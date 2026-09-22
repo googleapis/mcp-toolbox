@@ -463,6 +463,7 @@ kind: tool
 name: create_memory
 type: create-memory
 source: cloudsql-pg-source
+defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
 ---
 kind: group
 name: admin
