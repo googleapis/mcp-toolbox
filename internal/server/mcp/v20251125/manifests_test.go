@@ -268,7 +268,7 @@ func TestGenerateListToolsResult(t *testing.T) {
 	})
 
 	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
-	got, err := GenerateListToolsResult(pMgr, g, nil)
+	got, err := GenerateListToolsResult(pMgr, g, nil, true)
 	if err != nil {
 		t.Fatalf("unable to generate list tools result: %s", err)
 	}
@@ -312,6 +312,50 @@ func TestGenerateListToolsResult(t *testing.T) {
 	if diff := cmp.Diff(got, want); diff != "" {
 		t.Fatalf("unexpected list tools result (-want +got):\n%s", diff)
 	}
+
+	t.Run("ui metadata success", func(t *testing.T) {
+		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
+		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
+		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
+		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		uiMeta, ok := res.Tools[0].Metadata["ui"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected metadata to have ui map, got %v", res.Tools[0].Metadata["ui"])
+		}
+		if uiMeta["resourceUri"] != "file:///test/path" {
+			t.Errorf("expected resourceUri=file:///test/path, got %v", uiMeta["resourceUri"])
+		}
+	})
+
+	t.Run("ui metadata graceful degradation when client does not support ui", func(t *testing.T) {
+		resMock := testutils.NewMockResource("valid-res", "file:///test/path", "", "", "", nil, nil)
+		toolValid := testutils.NewMockToolWithUI("tool-valid", "", "", nil, false, false, "valid-res")
+		toolsMap := map[string]tools.Tool{"tool-valid": toolValid}
+		resourcesMap := map[string]resources.Resource{"valid-res": resMock}
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, resourcesMap, nil, nil)
+		g := group.NewGroup(group.GroupConfig{ToolNames: []string{"tool-valid"}})
+
+		res, err := GenerateListToolsResult(pMgr, g, nil, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(res.Tools) != 1 {
+			t.Fatalf("expected 1 tool, got %d", len(res.Tools))
+		}
+		if res.Tools[0].Metadata != nil && res.Tools[0].Metadata["ui"] != nil {
+			t.Fatalf("expected tool to not have ui metadata when client does not support UI, got %v", res.Tools[0].Metadata["ui"])
+		}
+	})
 }
 
 func TestGeneratePromptManifest(t *testing.T) {
@@ -437,7 +481,7 @@ func TestGenerateListToolsResultWithSecureParams(t *testing.T) {
 	})
 	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, nil)
 
-	got, err := GenerateListToolsResult(pMgr, g, nil)
+	got, err := GenerateListToolsResult(pMgr, g, nil, true)
 	if err != nil {
 		t.Fatalf("failed GenerateListToolsResult: %s", err)
 	}
