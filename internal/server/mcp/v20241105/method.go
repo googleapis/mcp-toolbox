@@ -86,9 +86,18 @@ func initializeHandler(ctx context.Context, id jsonrpc.RequestId, body []byte) (
 
 	toolsListChanged := false
 	promptsListChanged := false
+
+	var serverExts map[string]any
+	if mcputil.CheckUISupport(req.Params.Capabilities.Extensions) {
+		serverExts = map[string]any{
+			mcputil.UIExtensionURI: map[string]any{},
+		}
+	}
+
 	result := InitializeResult{
 		ProtocolVersion: PROTOCOL_VERSION,
 		Capabilities: ServerCapabilities{
+			Extensions: serverExts,
 			Tools: &ListChanged{
 				ListChanged: &toolsListChanged,
 			},
@@ -130,7 +139,8 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams)
+	supportsUI := mcputil.CheckUISupportFromRequest(req.Params.Meta, req.Params.Capabilities, body)
+	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err

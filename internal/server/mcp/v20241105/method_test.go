@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
+	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -55,9 +56,10 @@ func TestInitializeHandler(t *testing.T) {
 		name        string
 		body        InitializeRequest
 		rawBody     []byte
-		context     context.Context
-		wantErr     bool
-		errContains string
+		context         context.Context
+		wantErr         bool
+		wantUIExtension bool
+		errContains     string
 	}{
 		{
 			name: "missing version in context",
@@ -90,8 +92,30 @@ func TestInitializeHandler(t *testing.T) {
 					ProtocolVersion: PROTOCOL_VERSION,
 				},
 			},
-			context: ctxVersion,
-			wantErr: false,
+			context:         ctxVersion,
+			wantErr:         false,
+			wantUIExtension: false,
+		},
+		{
+			name: "success with UI client capabilities",
+			body: InitializeRequest{
+				Request: jsonrpc.Request{
+					Method: "initialize",
+				},
+				Params: InitializeParams{
+					ProtocolVersion: PROTOCOL_VERSION,
+					Capabilities: ClientCapabilities{
+						Extensions: map[string]any{
+							mcputil.UIExtensionURI: map[string]any{
+								"mimeTypes": []string{"text/html;profile=mcp-app"},
+							},
+						},
+					},
+				},
+			},
+			context:         ctxVersion,
+			wantErr:         false,
+			wantUIExtension: true,
 		},
 	}
 
@@ -140,6 +164,10 @@ func TestInitializeHandler(t *testing.T) {
 				}
 				if initResult.ServerInfo.Version != fakeVersionString {
 					t.Errorf("expected version %q, got %q", fakeVersionString, initResult.ServerInfo.Version)
+				}
+				hasUIExt := initResult.Capabilities.Extensions != nil && initResult.Capabilities.Extensions[mcputil.UIExtensionURI] != nil
+				if hasUIExt != tt.wantUIExtension {
+					t.Errorf("expected server capabilities UI extension presence = %v, got %v", tt.wantUIExtension, hasUIExt)
 				}
 			}
 		})
@@ -214,6 +242,33 @@ func TestToolsListHandler(t *testing.T) {
 				PaginatedRequest: PaginatedRequest{
 					Request: jsonrpc.Request{
 						Method: "tools/list",
+					},
+				},
+			},
+			g:       mustGroup(t, primitiveMgr),
+			wantErr: false,
+		},
+		{
+			name: "success - with UI capability advertised",
+			body: ListToolsRequest{
+				PaginatedRequest: PaginatedRequest{
+					Request: jsonrpc.Request{
+						Method: "tools/list",
+					},
+					Params: struct {
+						Cursor       Cursor              `json:"cursor,omitempty"`
+						Meta         *RequestMeta        `json:"_meta,omitempty"`
+						Capabilities *ClientCapabilities `json:"capabilities,omitempty"`
+					}{
+						Meta: &RequestMeta{
+							MetaClientCapabilities: &ClientCapabilities{
+								Extensions: map[string]any{
+									mcputil.UIExtensionURI: map[string]any{
+										"mimeTypes": []string{"text/html;profile=mcp-app"},
+									},
+								},
+							},
+						},
 					},
 				},
 			},

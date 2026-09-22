@@ -92,6 +92,8 @@ type ListChanged struct {
 type ClientCapabilities struct {
 	// Experimental, non-standard capabilities that the client supports.
 	Experimental map[string]interface{} `json:"experimental,omitempty"`
+	// Standard extensions that the client supports.
+	Extensions map[string]any `json:"extensions,omitempty"`
 	// Present if the client supports listing roots.
 	Roots *ListChanged `json:"roots,omitempty"`
 	// Present if the client supports sampling from an LLM.
@@ -108,9 +110,10 @@ type ResourceCapabilities struct {
 // capabilities are defined here, in this schema, but this is not a closed set: any
 // server can define its own, additional capabilities.
 type ServerCapabilities struct {
-	Tools     *ListChanged          `json:"tools,omitempty"`
-	Prompts   *ListChanged          `json:"prompts,omitempty"`
-	Resources *ResourceCapabilities `json:"resources,omitempty"`
+	Extensions map[string]any        `json:"extensions,omitempty"`
+	Tools      *ListChanged          `json:"tools,omitempty"`
+	Prompts    *ListChanged          `json:"prompts,omitempty"`
+	Resources  *ResourceCapabilities `json:"resources,omitempty"`
 }
 
 // Base interface for metadata with name (identifier) and title (display name) properties.
@@ -143,12 +146,23 @@ type EmptyResult jsonrpc.Result
 // Cursor is an opaque token used to represent a cursor for pagination.
 type Cursor string
 
+// RequestMeta represents metadata that can be passed with requests.
+type RequestMeta struct {
+	ProtocolVersion        string              `json:"io.modelcontextprotocol/protocolVersion,omitempty"`
+	ClientInfo             *Implementation     `json:"io.modelcontextprotocol/clientInfo,omitempty"`
+	MetaClientCapabilities *ClientCapabilities `json:"io.modelcontextprotocol/clientCapabilities,omitempty"`
+	ClientCapabilities     *ClientCapabilities `json:"clientCapabilities,omitempty"`
+	Extensions             map[string]any      `json:"extensions,omitempty"`
+}
+
 type PaginatedRequest struct {
 	jsonrpc.Request
 	Params struct {
 		// An opaque token representing the current pagination position.
 		// If provided, the server should return results starting after this cursor.
-		Cursor Cursor `json:"cursor,omitempty"`
+		Cursor       Cursor              `json:"cursor,omitempty"`
+		Meta         *RequestMeta        `json:"_meta,omitempty"`
+		Capabilities *ClientCapabilities `json:"capabilities,omitempty"`
 	} `json:"params,omitempty"`
 }
 
