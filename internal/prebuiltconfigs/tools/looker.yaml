@@ -665,7 +665,7 @@ type: looker-get-looks
 source: looker-source
 description: |
   This tool searches for saved Looks (pre-defined queries and visualizations)
-  in a Looker instance. It returns a list of JSON objects, each representing a Look.
+  in a Looker instance. It returns a list of JSON objects, each representing a Look, including its id, title, description, model_id, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by Look title (supports wildcards).
@@ -729,7 +729,7 @@ name: get_dashboards
 type: looker-get-dashboards
 source: looker-source
 description: |
-  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard.
+  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard, including its id, title, description, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by dashboard title (supports wildcards).
@@ -852,7 +852,8 @@ description: |
   - type (required): The type of content to embed. Common values include:
     - `dashboards`
     - `looks`
-    - `explore`
+    - `query-visualizations`
+    - `explores`
   - id (required): The unique identifier for the content.
     - For dashboards and looks, use the numeric ID (e.g., "123").
     - For explores, use the format "model_name/explore_name".
@@ -863,7 +864,7 @@ type: looker-get-dashboard
 source: looker-source
 description: |
   This tool retrieves the JSON design of a Looker dashboard by its ID.
-  The output is trimmed to essential fields, excluding alerts and scheduled plans,
+  The output is trimmed to essential fields (including certification_metadata), excluding alerts and scheduled plans,
   making it suitable for replicating or analyzing the dashboard structure.
 
   Parameters:

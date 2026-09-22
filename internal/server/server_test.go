@@ -24,6 +24,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -34,6 +35,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,7 +54,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
-	"github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
+	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/postgres"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/sqlite"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
@@ -62,6 +64,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools/mysql/mysqlexecutesql"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresexecutesql"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Helper function to create temporary self-signed certs for the test
@@ -415,10 +418,10 @@ func TestUpdateServer(t *testing.T) {
 	}
 
 	newSources := map[string]sources.Source{
-		"example-source": &alloydbpg.Source{
-			Config: alloydbpg.Config{
-				Name: "example-alloydb-source",
-				Type: "alloydb-postgres",
+		"example-source": testutils.MockSource{
+			MockSourceConfig: testutils.MockSourceConfig{
+				Name: "example-source",
+				Type: "mock-source",
 			},
 		},
 	}
@@ -1512,7 +1515,7 @@ func TestInitializeConfigs(t *testing.T) {
 	ctx = util.WithInstrumentation(ctx, instrumentation)
 	t.Run("valid initialization", func(t *testing.T) {
 		sourceConfig1 := testutils.MockSourceConfig{Name: "my-source", Type: "mock-source"}
-		source1, _ := sourceConfig1.Initialize(ctx, nil)
+		source1, _ := sourceConfig1.Initialize(ctx, nil, false)
 		tools1 := testutils.NewMockTool("my-tool", "mock tool for offline config", "my-source", nil, false, false)
 		validCfg := server.ServerConfig{
 			Version: "0.0.0",
@@ -2115,6 +2118,323 @@ func TestInitializeGroups(t *testing.T) {
 		wantTools := []string{"tool_1", "tool_2"}
 		if diff := cmp.Diff(wantTools, grp.ToolNames); diff != "" {
 			t.Errorf("group ToolNames mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestOpenAIAppsChallenge(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testLogger, err := log.NewLogger("standard", "DEBUG", os.Stdout, os.Stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithLogger(ctx, testLogger)
+
+	instrumentation, err := telemetry.CreateTelemetryInstrumentation("0.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithInstrumentation(ctx, instrumentation)
+
+	tests := []struct {
+		name                string
+		setupTokenFile      func(t *testing.T) string
+		method              string
+		expectedStatus      int
+		expectedBody        string
+		expectedContentType string
+	}{
+		{
+			name: "serves token with OpenAIAppsChallengeFile",
+			setupTokenFile: func(t *testing.T) string {
+				tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+				if err != nil {
+					t.Fatalf("failed to create temp file: %v", err)
+				}
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString("challenge-token-abc123xyz\n"); err != nil {
+					t.Fatalf("failed to write token: %v", err)
+				}
+				return tmpFile.Name()
+			},
+			method:              http.MethodGet,
+			expectedStatus:      http.StatusOK,
+			expectedBody:        "challenge-token-abc123xyz", // Verifies trailing newline is trimmed
+			expectedContentType: "text/plain; charset=utf-8",
+		},
+		{
+			name:           "returns 404 when flag is not set",
+			setupTokenFile: nil, // OpenAIAppsChallengeFile left empty
+			method:         http.MethodGet,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name: "returns 405 Method Not Allowed for non-GET requests",
+			setupTokenFile: func(t *testing.T) string {
+				tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+				if err != nil {
+					t.Fatalf("failed to create temp file: %v", err)
+				}
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString("challenge-token-test"); err != nil {
+					t.Fatalf("failed to write token: %v", err)
+				}
+				return tmpFile.Name()
+			},
+			method:         http.MethodPost,
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tokenPath := ""
+			if tc.setupTokenFile != nil {
+				tokenPath = tc.setupTokenFile(t)
+			}
+
+			cfg := server.ServerConfig{
+				Version:                 "0.0.0",
+				Address:                 "127.0.0.1",
+				Port:                    0,
+				OpenAIAppsChallengeFile: tokenPath,
+				AllowedHosts:            []string{"*"},
+			}
+
+			s, err := server.NewServer(ctx, cfg)
+			if err != nil {
+				t.Fatalf("unable to initialize server: %v", err)
+			}
+
+			if err := s.Listen(ctx, "", ""); err != nil {
+				t.Fatalf("unable to start listener: %v", err)
+			}
+
+			go func() {
+				_ = s.Serve(ctx)
+			}()
+			defer func() {
+				_ = s.Shutdown(ctx)
+			}()
+
+			reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
+			var bodyReader io.Reader
+			if tc.method == http.MethodPost {
+				bodyReader = strings.NewReader("bad")
+			}
+
+			req, err := http.NewRequestWithContext(ctx, tc.method, reqURL, bodyReader)
+			if err != nil {
+				t.Fatalf("failed to construct request: %v", err)
+			}
+			if tc.method == http.MethodPost {
+				req.Header.Set("Content-Type", "text/plain")
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("error when sending request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.expectedStatus {
+				t.Errorf("expected status %d, got %d", tc.expectedStatus, resp.StatusCode)
+			}
+
+			if tc.expectedContentType != "" {
+				if ct := resp.Header.Get("Content-Type"); ct != tc.expectedContentType {
+					t.Errorf("expected Content-Type %q, got %q", tc.expectedContentType, ct)
+				}
+			}
+
+			if tc.expectedBody != "" {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatalf("error reading body: %v", err)
+				}
+				if string(body) != tc.expectedBody {
+					t.Errorf("expected body %q, got %q", tc.expectedBody, string(body))
+				}
+			}
+		})
+	}
+
+	t.Run("returns error when token file does not exist", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			Version:                 "0.0.0",
+			Address:                 "127.0.0.1",
+			Port:                    0,
+			OpenAIAppsChallengeFile: "nonexistent-token-file.txt",
+			AllowedHosts:            []string{"*"},
+		}
+
+		_, err := server.NewServer(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected error when token file does not exist, got nil")
+		}
+
+		expectedSubstr := "failed to read openai token file at startup"
+		if !strings.Contains(err.Error(), expectedSubstr) {
+			t.Errorf("expected error containing %q, got %q", expectedSubstr, err.Error())
+		}
+	})
+}
+
+var errSourceUnreachable = errors.New("source is unreachable")
+
+// countingSourceConfig mirrors the shape every real source implements: it
+// returns its Source without connecting when deferConnect is set, and resolves
+// the handle through sources.ConnectOnce on first use.
+type countingSourceConfig struct {
+	name       string
+	connectErr error
+	connects   *atomic.Int32
+}
+
+func (c countingSourceConfig) SourceConfigType() string { return "counting-source" }
+
+func (c countingSourceConfig) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	s := &countingSource{
+		cfg:  c,
+		conn: sources.NewConnectOnce[*int](ctx, c.name, "counting-source", tracer),
+	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.handle(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+type countingSource struct {
+	cfg  countingSourceConfig
+	conn *sources.ConnectOnce[*int]
+}
+
+func (s *countingSource) handle(ctx context.Context) (*int, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*int, error) {
+		s.cfg.connects.Add(1)
+		if s.cfg.connectErr != nil {
+			return nil, s.cfg.connectErr
+		}
+		return new(int), nil
+	})
+}
+
+func (s *countingSource) SourceType() string             { return "counting-source" }
+func (s *countingSource) ToConfig() sources.SourceConfig { return s.cfg }
+func (s *countingSource) IsReadOnly() bool               { return false }
+
+func TestInitializeConfigsDeferSourceConnect(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("error setting up logger: %s", err)
+	}
+	instrumentation, err := telemetry.CreateTelemetryInstrumentation("0.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithInstrumentation(ctx, instrumentation)
+
+	newCfg := func(deferConnect bool, connects *atomic.Int32, connectErr error) server.ServerConfig {
+		return server.ServerConfig{
+			Version: "0.0.0",
+			SourceConfigs: server.SourceConfigs{
+				"my-source": countingSourceConfig{name: "my-source", connectErr: connectErr, connects: connects},
+			},
+			DeferSourceConnect:   deferConnect,
+			SkipSourceValidation: true,
+		}
+	}
+
+	tcs := []struct {
+		desc         string
+		deferConnect bool
+		connectErr   error
+		wantErr      bool
+		wantConnects int32
+	}{
+		{
+			desc:         "flag off connects at startup",
+			deferConnect: false,
+			wantConnects: 1,
+		},
+		{
+			desc:         "flag off fails startup when the source is unreachable",
+			deferConnect: false,
+			connectErr:   errSourceUnreachable,
+			wantErr:      true,
+			wantConnects: 1,
+		},
+		{
+			desc:         "flag on skips connecting at startup",
+			deferConnect: true,
+			wantConnects: 0,
+		},
+		{
+			desc:         "flag on starts up even when the source is unreachable",
+			deferConnect: true,
+			connectErr:   errSourceUnreachable,
+			wantConnects: 0,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			var connects atomic.Int32
+			sourcesMap, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, newCfg(tc.deferConnect, &connects, tc.connectErr))
+			switch {
+			case tc.wantErr && err == nil:
+				t.Fatalf("expected an error but got nil")
+			case tc.wantErr && !errors.Is(err, tc.connectErr):
+				t.Fatalf("expected the connect failure to surface, got %q", err)
+			case !tc.wantErr && err != nil:
+				t.Fatalf("unexpected error: %s", err)
+			}
+			if got := connects.Load(); got != tc.wantConnects {
+				t.Fatalf("connect attempts during startup: got %d, want %d", got, tc.wantConnects)
+			}
+			if tc.wantErr {
+				return
+			}
+			// A deferred source is still listed, so its tools stay invocable.
+			if _, ok := sourcesMap["my-source"]; !ok {
+				t.Fatalf("expected %q in the sources map, got %v", "my-source", sourcesMap)
+			}
+		})
+	}
+
+	t.Run("flag on connects once on first use", func(t *testing.T) {
+		var connects atomic.Int32
+		sourcesMap, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, newCfg(true, &connects, nil))
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		s := sourcesMap["my-source"].(*countingSource)
+		for i := range 3 {
+			if _, err := s.handle(ctx); err != nil {
+				t.Fatalf("use %d failed: %s", i, err)
+			}
+		}
+		if got := connects.Load(); got != 1 {
+			t.Fatalf("connect attempts across three uses: got %d, want 1", got)
+		}
+	})
+
+	t.Run("flag on surfaces the connect failure at first use", func(t *testing.T) {
+		var connects atomic.Int32
+		sourcesMap, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, newCfg(true, &connects, errSourceUnreachable))
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		s := sourcesMap["my-source"].(*countingSource)
+		if _, err := s.handle(ctx); !errors.Is(err, errSourceUnreachable) {
+			t.Fatalf("expected the connect failure at first use, got %q", err)
+		}
+		if got := connects.Load(); got != 1 {
+			t.Fatalf("connect attempts: got %d, want 1", got)
 		}
 	})
 }
