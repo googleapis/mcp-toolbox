@@ -316,135 +316,6 @@ func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.C
 	}
 }
 
-func setupDataAgent(t *testing.T, ctx context.Context, projectID, datasetID, tableID, dataAgentDisplayName string) (string, func(*testing.T)) {
-	t.Logf("Setting up data agent with ProjectID: %q, DatasetID: %q, TableID: %q, DisplayName: %q", projectID, datasetID, tableID, dataAgentDisplayName)
-
-	accessToken, err := sources.GetIAMAccessToken(ctx)
-	if err != nil {
-		t.Fatalf("failed to get access token: %v", err)
-	}
-
-	dataAgentId := "test" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	parent := fmt.Sprintf("projects/%s/locations/global", projectID)
-	url := fmt.Sprintf("%s/v1/%s/dataAgents?dataAgentId=%s", util.GetGDAEndpoint(), parent, dataAgentId)
-
-	requestBody := map[string]any{
-		"displayName": dataAgentDisplayName,
-		"dataAnalyticsAgent": map[string]any{
-			"publishedContext": map[string]any{
-				"datasourceReferences": map[string]any{
-					"bq": map[string]any{
-						"tableReferences": []map[string]string{
-							{
-								"projectId": projectID,
-								"datasetId": datasetID,
-								"tableId":   tableID,
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	bodyBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		t.Fatalf("failed to marshal create data agent request: %v", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		t.Fatalf("failed to create request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: accessToken})
-	client, err := util.NewGDAClient(ctx, option.WithTokenSource(tokenSource))
-	if err != nil {
-		t.Fatalf("failed to create GDA client: %v", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("failed to create data agent: %v", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read response body: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("failed to create data agent, status: %d, body: %s", resp.StatusCode, string(respBody))
-	}
-
-	var op map[string]any
-	if err := json.Unmarshal(respBody, &op); err != nil {
-		t.Fatalf("failed to unmarshal operation: %v", err)
-	}
-
-	opName, ok := op["name"].(string)
-	if !ok {
-		t.Fatalf("operation response missing name: %s", string(respBody))
-	}
-
-	// Poll for operation completion
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	timeout := time.After(60 * time.Second)
-
-	done := false
-	for !done {
-		select {
-		case <-ctx.Done():
-			t.Fatalf("context cancelled while waiting for data agent creation")
-		case <-timeout:
-			t.Fatalf("timed out waiting for data agent creation")
-		case <-ticker.C:
-			opUrl := fmt.Sprintf("%s/v1/%s", util.GetGDAEndpoint(), opName)
-			opReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, opUrl, nil)
-			opResp, err := client.Do(opReq)
-			if err != nil {
-				t.Logf("failed to poll operation: %v", err)
-				continue
-			}
-			opRespBody, _ := io.ReadAll(opResp.Body)
-			opResp.Body.Close()
-
-			var pollOp map[string]any
-			if err := json.Unmarshal(opRespBody, &pollOp); err != nil {
-				t.Logf("failed to unmarshal polling response: %v", err)
-				continue
-			}
-
-			if d, ok := pollOp["done"].(bool); ok && d {
-				if errVal, ok := pollOp["error"]; ok && errVal != nil {
-					t.Fatalf("data agent creation failed: %v", errVal)
-				}
-				done = true
-			}
-		}
-	}
-
-	teardown := func(t *testing.T) {
-		agentName := fmt.Sprintf("%s/dataAgents/%s", parent, dataAgentId)
-		deleteUrl := fmt.Sprintf("%s/v1/%s", util.GetGDAEndpoint(), agentName)
-		delReq, _ := http.NewRequest(http.MethodDelete, deleteUrl, nil)
-		delResp, err := client.Do(delReq)
-		if err != nil {
-			t.Errorf("failed to delete data agent %s: %v", agentName, err)
-			return
-		}
-		defer delResp.Body.Close()
-		if delResp.StatusCode != http.StatusOK {
-			t.Errorf("failed to delete data agent %s, status: %d", agentName, delResp.StatusCode)
-		}
-	}
-
-	return dataAgentId, teardown
-}
-
 func TestCloudGDAConservationalAnalyticsTools(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -464,11 +335,7 @@ func TestCloudGDAConservationalAnalyticsTools(t *testing.T) {
 	teardownTable := setupBigQueryTable(t, ctx, client, createTableStmt, "", datasetName, tableNameParam)
 	defer teardownTable(t)
 
-	// Create Data Agent
-	dataAgentDisplayName := fmt.Sprintf("test-agent-%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
-	dataAgentID, teardownDataAgent := setupDataAgent(t, ctx, projectID, datasetName, tableName, dataAgentDisplayName)
-	defer teardownDataAgent(t)
-
+	// The tool server needs to be started before we can use the create tool
 	// Configure tools with cloud-gemini-data-analytics source
 	toolsFile := map[string]any{
 		"sources": map[string]any{
@@ -537,6 +404,22 @@ func TestCloudGDAConservationalAnalyticsTools(t *testing.T) {
 				"source":      "my-client-auth-source",
 				"description": "Tool to ask data agent with client auth.",
 			},
+			"my-create-data-agent-tool": map[string]any{
+				"type":        "conversational-analytics-create-data-agent",
+				"source":      "my-instance",
+				"description": "Tool to create data agent.",
+			},
+			"my-auth-create-data-agent-tool": map[string]any{
+				"type":         "conversational-analytics-create-data-agent",
+				"source":       "my-instance",
+				"description":  "Tool to create data agent with auth.",
+				"authRequired": []string{"my-google-auth"},
+			},
+			"my-client-auth-create-data-agent-tool": map[string]any{
+				"type":        "conversational-analytics-create-data-agent",
+				"source":      "my-client-auth-source",
+				"description": "Tool to create data agent with client auth.",
+			},
 		},
 	}
 
@@ -547,13 +430,17 @@ func TestCloudGDAConservationalAnalyticsTools(t *testing.T) {
 	}
 	defer cleanup()
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	waitCtx, cancelCmd := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelCmd()
 	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
+
+	// Create Data Agent using the tool
+	dataAgentID, dataAgentDisplayName, teardownDataAgent := runCreateDataAgentInvokeTest(t, projectID, datasetName, tableName)
+	defer teardownDataAgent(t)
 
 	runListAccessibleDataAgentsInvokeTest(t, dataAgentDisplayName)
 	runGetDataAgentInfoInvokeTest(t, dataAgentID, dataAgentDisplayName)
@@ -904,4 +791,109 @@ func runAskDataAgentInvokeTest(t *testing.T, dataAgentID string) {
 			}
 		})
 	}
+}
+
+func runCreateDataAgentInvokeTest(t *testing.T, projectID, datasetID, tableID string) (string, string, func(*testing.T)) {
+	t.Logf("Creating data agent with ProjectID: %q, DatasetID: %q, TableID: %q", projectID, datasetID, tableID)
+
+	accessToken, err := sources.GetIAMAccessToken(t.Context())
+	if err != nil {
+		t.Fatalf("error getting access token from ADC: %s", err)
+	}
+
+	dataAgentId := "test" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	dataAgentDisplayName := "test-agent-" + strings.ReplaceAll(uuid.New().String(), "-", "")
+
+	requestBodyMap := map[string]any{
+		"displayName": dataAgentDisplayName,
+		"dataAnalyticsAgent": map[string]any{
+			"publishedContext": map[string]any{
+				"datasourceReferences": map[string]any{
+					"bq": map[string]any{
+						"tableReferences": []map[string]string{
+							{
+								"projectId": projectID,
+								"datasetId": datasetID,
+								"tableId":   tableID,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	agentConfigBytes, _ := json.Marshal(requestBodyMap)
+
+	api := "http://127.0.0.1:5000/api/tool/my-client-auth-create-data-agent-tool/invoke"
+	requestBody := bytes.NewBuffer([]byte(fmt.Sprintf(`{"data_agent_id": "%s", "agent_config": %s}`, dataAgentId, string(agentConfigBytes))))
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, api, requestBody)
+	if err != nil {
+		t.Fatalf("unable to create request: %s", err)
+	}
+	req.Header.Add("Content-type", "application/json")
+	req.Header.Add("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("unable to send request: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("error parsing response body")
+	}
+
+	got, ok := body["result"].(string)
+	if !ok {
+		t.Fatalf("unable to find result in response body")
+	}
+
+	var createdAgent map[string]any
+	if err := json.Unmarshal([]byte(got), &createdAgent); err != nil {
+		t.Fatalf("failed to unmarshal created agent string: %v", err)
+	}
+
+	nameVal, ok := createdAgent["name"].(string)
+	if !ok {
+		t.Fatalf("created agent missing name: %s", got)
+	}
+	if !strings.HasSuffix(nameVal, dataAgentId) {
+		t.Fatalf("expected created agent name to end with %s, got: %s", dataAgentId, nameVal)
+	}
+
+	if displayName, ok := createdAgent["displayName"].(string); !ok || displayName != requestBodyMap["displayName"].(string) {
+		t.Fatalf("expected displayName %s, got: %s", requestBodyMap["displayName"], displayName)
+	}
+
+	// Setup client for teardown
+	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: accessToken})
+	client, err := util.NewGDAClient(t.Context(), option.WithTokenSource(tokenSource))
+	if err != nil {
+		t.Fatalf("failed to create GDA client: %v", err)
+	}
+
+	teardown := func(t *testing.T) {
+		parent := fmt.Sprintf("projects/%s/locations/global", projectID)
+		agentName := fmt.Sprintf("%s/dataAgents/%s", parent, dataAgentId)
+		deleteUrl := fmt.Sprintf("%s/v1/%s", util.GetGDAEndpoint(), agentName)
+		delReq, _ := http.NewRequestWithContext(t.Context(), http.MethodDelete, deleteUrl, nil)
+		delResp, err := client.Do(delReq)
+		if err != nil {
+			t.Errorf("failed to delete data agent %s: %v", agentName, err)
+			return
+		}
+		defer delResp.Body.Close()
+		if delResp.StatusCode != http.StatusOK {
+			t.Errorf("failed to delete data agent %s, status: %d", agentName, delResp.StatusCode)
+		}
+	}
+
+	return dataAgentId, dataAgentDisplayName, teardown
 }
