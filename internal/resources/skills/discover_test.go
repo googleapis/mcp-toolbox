@@ -651,7 +651,7 @@ func TestDiscoverRejectsOversizeTextSkill(t *testing.T) {
 			"skill://analytics-guide/refs/"+name+".md", chunkContent)
 	}
 
-	_, err = skills.Discover(ctx, resourcesMap)
+	_, err = skills.Discover(ctx, skills.NewRegistry(resourcesMap))
 	if err == nil {
 		t.Fatal("Discover() = nil, want a total-size error")
 	}
