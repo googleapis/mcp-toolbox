@@ -249,15 +249,3 @@ func Touch(ctx context.Context, pool *pgxpool.Pool, table, memoryID string) (Mem
 func ScopeClause(userParam string) string {
 	return fmt.Sprintf("(user_id = %s OR visibility = '%s')", userParam, VisibilityGlobal)
 }
-
-// NormalizeVisibility validates and upper-cases a visibility value.
-func NormalizeVisibility(v string) (string, error) {
-	switch strings.ToUpper(strings.TrimSpace(v)) {
-	case "", VisibilityPrivate:
-		return VisibilityPrivate, nil
-	case VisibilityGlobal:
-		return VisibilityGlobal, nil
-	default:
-		return "", fmt.Errorf("visibility must be %q or %q, got %q", VisibilityPrivate, VisibilityGlobal, v)
-	}
-}
