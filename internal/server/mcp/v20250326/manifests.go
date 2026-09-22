@@ -103,7 +103,7 @@ func generateParamManifest(ps parameters.Parameters, urlParams map[string]string
 }
 
 // GenerateListToolsResult generates tools/list method result according to mcp schema
-func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string) (ListToolsResult, error) {
+func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsUI bool) (ListToolsResult, error) {
 	mcpManifest := make([]Tool, 0, len(g.ToolNames))
 	for _, toolName := range g.ToolNames {
 		tool, ok := pMgr.GetTool(toolName)
@@ -126,9 +126,13 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 		if err != nil {
 			return ListToolsResult{}, fmt.Errorf("error getting parameters for tool %q: %w", toolName, err)
 		}
-		uiMeta, err := mcputil.ResolveToolUIMetadata(pMgr, tool)
-		if err != nil {
-			return ListToolsResult{}, err
+		var uiMeta map[string]any
+		if supportsUI {
+			var err error
+			uiMeta, err = mcputil.ResolveToolUIMetadata(pMgr, tool)
+			if err != nil {
+				return ListToolsResult{}, err
+			}
 		}
 		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams, uiMeta)
 		mcpManifest = append(mcpManifest, toolManifest)
