@@ -11,9 +11,9 @@ A Group is a single named collection that scopes MCP primitives together — inc
 Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
 
 {{< notice note >}}
-**Agent Skills are not scoped by group.** The `io.modelcontextprotocol/skills` extension defines a single server-wide catalogue, so `skills/list` and `skills/get` describe every skill on the server (no matter whatever endpoint the request arrives on). They return each skill's `SKILL.md` frontmatter, along with the URI, digest, and size of every file in it.
+**Agent Skills are not scoped by group.** The `io.modelcontextprotocol/skills` extension defines one server-wide catalogue. `skills/list` and `skills/get` describe every skill on the server. The endpoint of the request does not change the result. The two methods return metadata only: each skill's `SKILL.md` frontmatter, and the URI, digest, and size of each file in the skill. The two methods do not return file content. `resources/list` and `resources/read` return the file content, and the group scopes both of these methods.
 
-Treat a skill's frontmatter as visible to every client of the server, and do not rely on groups to separate one set of skills from another. The only way to withhold the catalogue is to turn both methods off everywhere with `--disable-ext io.modelcontextprotocol/skills`. See [Disabling MCP Extensions](../../../reference/cli.md#disabling-mcp-extensions).
+Treat a skill's frontmatter as visible to every client of the server. Do not use groups to separate one set of skills from another. The server can show a skill in the catalogue to a group client, and refuse the files of that skill in the same group. To hide the catalogue, disable the extension with `--disable-ext io.modelcontextprotocol/skills`. This also stops `skills/list` and `skills/get` on every endpoint. See [Disabling MCP Extensions](../../../reference/cli.md#disabling-mcp-extensions).
 {{< /notice >}}
 
 ## Defining Groups
