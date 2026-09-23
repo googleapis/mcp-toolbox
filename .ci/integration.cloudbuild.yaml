@@ -35,7 +35,7 @@ steps:
 
 
   - id: "install-dependencies"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["-"]
     env:
       - "GOPATH=/gopath"
@@ -46,7 +46,7 @@ steps:
       go get -d ./...
 
   - id: "compile-test-binary"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["install-dependencies"]
     env:
       - "GOPATH=/gopath"
@@ -60,7 +60,7 @@ steps:
       chmod +x .ci/test_with_coverage.sh
 
   - id: "compile-prompt-test-binary"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["install-dependencies"]
     env:
       - "GOPATH=/gopath"
@@ -83,7 +83,7 @@ steps:
       chmod +x .ci/test_prompts_with_coverage.sh
 
   - id: "prompts-custom"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-prompt-test-binary"]
     entrypoint: /bin/bash
     env:
@@ -97,7 +97,7 @@ steps:
         .ci/test_prompts_with_coverage.sh "custom"
 
   - id: "cloud-sql-pg"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -135,7 +135,7 @@ steps:
         fi
 
   - id: "alloydb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -165,7 +165,7 @@ steps:
         fi
 
   - id: "alloydb-pg"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -204,7 +204,7 @@ steps:
         fi
 
   - id: "alloydb-ai-nl"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -236,7 +236,7 @@ steps:
         fi
 
   - id: "alloydb-omni"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -261,7 +261,7 @@ steps:
         fi
 
   - id: "bigtable"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -298,7 +298,7 @@ steps:
         fi
 
   - id: "bigquery"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -326,7 +326,7 @@ steps:
         fi
 
   - id: "cloud-gda"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -354,7 +354,7 @@ steps:
         fi
 
   - id: "dataplex"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -382,7 +382,7 @@ steps:
         fi
 
   - id: "datalineage"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -410,7 +410,7 @@ steps:
         fi
 
   - id: "dataform"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -427,7 +427,7 @@ steps:
         if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
           echo "Changes detected. Running Dataform tests..."
           apt-get update && apt-get install -y npm && \
-          npm install -g @dataform/cli && \
+          npm install --registry=https://us-central1-npm.pkg.dev/${PROJECT_ID}/npm-remote/ -g @dataform/cli@3.0.70 && \
           .ci/test_with_coverage.sh \
             "Dataform" \
             dataform \
@@ -438,7 +438,7 @@ steps:
         fi
 
   - id: "cloud-healthcare"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -468,7 +468,7 @@ steps:
         fi
 
   - id: "cloud-logging-admin"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -495,7 +495,7 @@ steps:
         fi
 
   - id: "cloud-storage"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -523,7 +523,7 @@ steps:
         fi
 
   - id: "postgres"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -554,7 +554,7 @@ steps:
         fi
 
   - id: "cockroachdb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -584,7 +584,7 @@ steps:
         fi
 
   - id: "spanner"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -614,7 +614,7 @@ steps:
         fi
 
   - id: "neo4j"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -642,7 +642,7 @@ steps:
         fi
 
   - id: "falkordb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -668,7 +668,7 @@ steps:
         fi
 
   - id: "cloud-sql-mssql"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -700,7 +700,7 @@ steps:
         fi
 
   - id: "cloud-sql-mysql"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -731,7 +731,7 @@ steps:
         fi
 
   - id: "mysql"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -761,7 +761,7 @@ steps:
         fi
 
   - id: "mssql"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -791,7 +791,7 @@ steps:
         fi
 
   # - id: "dgraph"
-  #   name: golang:1
+  #   name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
   #   waitFor: ["compile-test-binary", "detect-changes"]
   #   entrypoint: /bin/bash
   #   env:
@@ -809,7 +809,7 @@ steps:
   #         dgraph
 
   - id: "http"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -835,7 +835,7 @@ steps:
         fi
 
   - id: "sqlite"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -862,7 +862,7 @@ steps:
         fi
 
   - id: "couchbase"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -889,7 +889,7 @@ steps:
         fi
 
   - id: "redis"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -916,7 +916,7 @@ steps:
         fi
 
   - id: "valkey"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -944,7 +944,7 @@ steps:
         fi
 
   - id: "oceanbase"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -974,7 +974,7 @@ steps:
         fi
 
   - id: "firestore"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1002,7 +1002,7 @@ steps:
         fi
 
   - id: "firestore-mongodb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1031,7 +1031,7 @@ steps:
         fi
 
   - id: "mongodb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1058,7 +1058,7 @@ steps:
         fi
 
   - id: "looker"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1095,7 +1095,7 @@ steps:
         fi
 
   - id: "mindsdb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1124,7 +1124,7 @@ steps:
         fi
 
   - id: "cloud-sql"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1150,7 +1150,7 @@ steps:
         fi
 
   - id: "tidb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1180,7 +1180,7 @@ steps:
         fi
 
   - id: "firebird"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1210,7 +1210,7 @@ steps:
         fi
 
   - id: "clickhouse"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1240,7 +1240,7 @@ steps:
         fi
 
   - id: "trino"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1271,7 +1271,7 @@ steps:
         fi
 
   - id: "yugabytedb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1299,7 +1299,7 @@ steps:
         fi
 
   - id: "elasticsearch"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1326,7 +1326,7 @@ steps:
         fi
 
   - id: "snowflake"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1356,7 +1356,7 @@ steps:
         fi
 
   - id: "cassandra"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1384,7 +1384,7 @@ steps:
         fi
 
   - id: "scylladb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1434,7 +1434,8 @@ steps:
           # Install the C compiler and Oracle SDK headers needed for cgo
           dnf install -y gcc oracle-instantclient-devel
           # Install Go
-          curl -L -o go.tar.gz "https://go.dev/dl/go1.25.1.linux-amd64.tar.gz"
+          curl -L -o go.tar.gz "https://storage.googleapis.com/toolbox-build-assets/compile-dependencies/go1.25.1.linux-amd64.tar.gz"
+          echo "7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e  go.tar.gz" | sha256sum -c -
           tar -C /usr/local -xzf go.tar.gz
           export PATH="/usr/local/go/bin:$$PATH"
 
@@ -1456,7 +1457,7 @@ steps:
         fi
 
   - id: "serverless-spark"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1485,7 +1486,7 @@ steps:
         fi
 
   - id: "dataproc"
-    name: "golang:1"
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1513,7 +1514,7 @@ steps:
         fi
 
   - id: "singlestore"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1545,7 +1546,7 @@ steps:
         fi
 
   - id: "arcadedb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1572,7 +1573,7 @@ steps:
         fi
 
   - id: "mariadb"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1599,7 +1600,7 @@ steps:
         fi
 
   - id: "auth"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1623,7 +1624,7 @@ steps:
         fi
 
   - id: "databaseinsights"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1840,3 +1841,4 @@ substitutions:
   _SNOWFLAKE_SCHEMA: "PUBLIC"
   _DATAPROC_CLUSTER: "dataproc-testing-cluster"
   _FIRESTORE_MONGODB_DATABASE: "mcp-toolbox-db-native-schema"
+  _AR_REPO_NAME: toolbox

@@ -43,7 +43,7 @@ steps:
       gcloud storage cp "${BUCKET}/windows/arm64/toolbox.exe" toolbox.windows.arm64
 
   - id: "publish-pypi-to-ar"
-    name: python:3.12
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/python:3.12@sha256:4d1caded1f729ae443eb803f26ffde7b61e696aeaef62f099abb6dd6b14257c7
     waitFor:
       - "fetch-binaries"
     script: |
@@ -74,3 +74,4 @@ substitutions:
   _EXIT_GATE_PROJECT: "mcp-toolbox"
   _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
   _PUSH_TO_EXIT_GATES: "false"
+  _AR_REPO_NAME: toolbox
