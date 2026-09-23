@@ -423,12 +423,6 @@ name: list_instances
 type: alloydb-list-instances
 source: alloydb-admin-source
 ---
-kind: tool
-name: create_memory
-type: create-memory
-source: alloydb-pg-source
-defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
----
 kind: group
 name: admin
 description: Use these skills when you need to provision new AlloyDB clusters and instances, monitor their creation status, and retrieve high-level configuration or health data for the environment.
@@ -513,8 +507,3 @@ tools:
 - list_instances
 - get_instance
 - database_overview
----
-kind: group
-name: memory
-tools:
-- create_memory

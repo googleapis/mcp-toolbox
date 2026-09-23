@@ -91,7 +91,7 @@ func TestLoadConfig(t *testing.T) {
 		{
 			desc:            "toolset not found in prebuilt config",
 			prebuiltConfigs: []string{"postgres/invalid-toolset"},
-			wantErr:         "toolset 'invalid-toolset' not found in prebuilt configuration 'postgres'. Available toolsets: data, health, memory, monitor, replication, view-config",
+			wantErr:         "toolset 'invalid-toolset' not found in prebuilt configuration 'postgres'. Available toolsets: data, health, monitor, replication, view-config",
 		},
 		{
 			desc:            "invalid separator - dot",

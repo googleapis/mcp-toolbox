@@ -39,6 +39,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/http"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
+	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressearchmemory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
@@ -2161,10 +2162,6 @@ func TestPrebuiltTools(t *testing.T) {
 					Description: "Use these skills when you need to monitor replication health, manage sync states between nodes, and ensure the high availability and data distribution of your AlloyDB cluster.",
 					ToolNames:   []string{"replication_stats", "list_replication_slots", "list_publication_tables", "list_instances", "get_instance", "database_overview"},
 				},
-				"memory": group.GroupConfig{
-					Name:      "memory",
-					ToolNames: []string{"create_memory"},
-				},
 			},
 		},
 		{
@@ -2257,10 +2254,6 @@ func TestPrebuiltTools(t *testing.T) {
 					Name:        "vectorassist",
 					Description: "Use these skills to set up and optimize production-ready vector workloads by simply expressing your intent and performance requirements.",
 					ToolNames:   []string{"execute_sql", "define_spec", "modify_spec", "apply_spec", "generate_query", "improve_query_recall", "list_specs", "get_spec", "delete_spec"},
-				},
-				"memory": group.GroupConfig{
-					Name:      "memory",
-					ToolNames: []string{"create_memory"},
 				},
 			},
 		},
@@ -2449,10 +2442,6 @@ func TestPrebuiltTools(t *testing.T) {
 				"replication": group.GroupConfig{
 					Name:      "replication",
 					ToolNames: []string{"replication_stats", "list_replication_slots", "list_publication_tables", "list_roles", "list_pg_settings", "database_overview"},
-				},
-				"memory": group.GroupConfig{
-					Name:      "memory",
-					ToolNames: []string{"create_memory"},
 				},
 			},
 		},
@@ -2665,7 +2654,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory"},
+					ToolNames:   []string{"create_memory", "search_memory"},
 				},
 			},
 		},
@@ -2676,7 +2665,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory"},
+					ToolNames:   []string{"create_memory", "search_memory"},
 				},
 			},
 		},
@@ -2687,7 +2676,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory"},
+					ToolNames:   []string{"create_memory", "search_memory"},
 				},
 			},
 		},
@@ -3218,6 +3207,32 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 					t.Fatalf("[%s] user_id should not be exposed to agent when unauthenticated", name)
 				}
 			}
+
+			searchToolCfg, ok := parsed.Tools["search_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing search_memory tool", name)
+			}
+			searchMemCfg, ok := searchToolCfg.(postgressearchmemory.Config)
+			if !ok {
+				t.Fatalf("expected postgressearchmemory.Config, got %T", searchToolCfg)
+			}
+			if searchMemCfg.DefaultUserID != "default" {
+				t.Errorf("[%s] expected search_memory DefaultUserID 'default', got %q", name, searchMemCfg.DefaultUserID)
+			}
+
+			searchTool, err := searchMemCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize search_memory failed: %v", name, err)
+			}
+			searchParams, err := searchTool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] search_memory GetParameters failed: %v", name, err)
+			}
+			for _, param := range searchParams {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] search_memory user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
 		}
 	})
 
@@ -3258,6 +3273,32 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 			for _, param := range params {
 				if param.GetName() == "user_id" {
 					t.Fatalf("[%s] user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
+
+			searchToolCfg, ok := parsed.Tools["search_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing search_memory tool", name)
+			}
+			searchMemCfg, ok := searchToolCfg.(postgressearchmemory.Config)
+			if !ok {
+				t.Fatalf("expected postgressearchmemory.Config, got %T", searchToolCfg)
+			}
+			if searchMemCfg.DefaultUserID != "alextalreja" {
+				t.Errorf("[%s] expected search_memory DefaultUserID 'alextalreja', got %q", name, searchMemCfg.DefaultUserID)
+			}
+
+			searchTool, err := searchMemCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize search_memory failed: %v", name, err)
+			}
+			searchParams, err := searchTool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] search_memory GetParameters failed: %v", name, err)
+			}
+			for _, param := range searchParams {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] search_memory user_id should not be exposed to agent when unauthenticated", name)
 				}
 			}
 		}
