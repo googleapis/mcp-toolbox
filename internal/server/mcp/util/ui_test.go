@@ -93,10 +93,37 @@ func TestCheckUISupport(t *testing.T) {
 			supportsUI: false,
 		},
 		{
-			name: "valid ui extension",
+			name: "valid ui extension ([]string)",
 			exts: map[string]any{
 				UIExtensionURI: map[string]any{
 					"mimeTypes": []string{"text/html;profile=mcp-app"},
+				},
+			},
+			supportsUI: true,
+		},
+		{
+			name: "valid ui extension ([]any from json.Unmarshal)",
+			exts: map[string]any{
+				UIExtensionURI: map[string]any{
+					"mimeTypes": []any{"text/html;profile=mcp-app"},
+				},
+			},
+			supportsUI: true,
+		},
+		{
+			name: "valid ui extension (McpUiClientCapabilities struct)",
+			exts: map[string]any{
+				UIExtensionURI: McpUiClientCapabilities{
+					MimeTypes: []string{"text/html;profile=mcp-app"},
+				},
+			},
+			supportsUI: true,
+		},
+		{
+			name: "valid ui extension (*McpUiClientCapabilities pointer)",
+			exts: map[string]any{
+				UIExtensionURI: &McpUiClientCapabilities{
+					MimeTypes: []string{"text/html;profile=mcp-app"},
 				},
 			},
 			supportsUI: true,
@@ -123,65 +150,39 @@ func TestCheckUISupport(t *testing.T) {
 }
 
 func TestCheckUISupportFromRequest(t *testing.T) {
-	validCaps := map[string]any{
-		"extensions": map[string]any{
-			UIExtensionURI: map[string]any{
-				"mimeTypes": []string{"text/html;profile=mcp-app"},
-			},
-		},
-	}
-
 	tests := []struct {
 		name       string
-		meta       any
-		caps       any
 		body       []byte
 		supportsUI bool
 	}{
 		{
 			name:       "all nil/empty",
-			meta:       nil,
-			caps:       nil,
 			body:       nil,
 			supportsUI: false,
 		},
 		{
-			name: "meta with io.modelcontextprotocol/clientCapabilities",
-			meta: map[string]any{
-				"io.modelcontextprotocol/clientCapabilities": validCaps,
-			},
+			name:       "meta with io.modelcontextprotocol/clientCapabilities",
+			body:       []byte(`{"params": {"_meta": {"io.modelcontextprotocol/clientCapabilities": {"extensions": {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}}}}`),
 			supportsUI: true,
 		},
 		{
-			name: "meta with clientCapabilities",
-			meta: map[string]any{
-				"clientCapabilities": validCaps,
-			},
+			name:       "meta with clientCapabilities",
+			body:       []byte(`{"params": {"_meta": {"clientCapabilities": {"extensions": {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}}}}`),
 			supportsUI: true,
 		},
 		{
-			name: "meta with direct extensions",
-			meta: map[string]any{
-				"extensions": map[string]any{
-					UIExtensionURI: map[string]any{
-						"mimeTypes": []string{"text/html;profile=mcp-app"},
-					},
-				},
-			},
+			name:       "meta with direct extensions",
+			body:       []byte(`{"params": {"_meta": {"extensions": {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}}}`),
 			supportsUI: true,
 		},
 		{
-			name: "meta with direct extension uri key",
-			meta: map[string]any{
-				UIExtensionURI: map[string]any{
-					"mimeTypes": []string{"text/html;profile=mcp-app"},
-				},
-			},
+			name:       "meta with direct extension uri key",
+			body:       []byte(`{"params": {"_meta": {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}}`),
 			supportsUI: true,
 		},
 		{
-			name: "capabilities struct with extensions",
-			caps: validCaps,
+			name:       "capabilities struct with extensions",
+			body:       []byte(`{"params": {"capabilities": {"extensions": {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}}}`),
 			supportsUI: true,
 		},
 		{
@@ -254,7 +255,7 @@ func TestCheckUISupportFromRequest(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := CheckUISupportFromRequest(tc.meta, tc.caps, tc.body)
+			got := CheckUISupportFromRequest(tc.body)
 			if got != tc.supportsUI {
 				t.Errorf("CheckUISupportFromRequest() = %v, want %v", got, tc.supportsUI)
 			}
