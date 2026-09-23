@@ -44,7 +44,8 @@ install_system_packages() {
 
 start_cloud_sql_proxy() {
   echo "Starting Cloud SQL Proxy..."
-  wget -q "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.10.0/cloud-sql-proxy.linux.amd64" -O /usr/local/bin/cloud-sql-proxy
+  wget -q "https://storage.googleapis.com/toolbox-build-assets/compile-dependencies/cloud-sql-proxy.linux.amd64" -O /usr/local/bin/cloud-sql-proxy
+  echo "1cb8f9087943b116f0be92a7291b2cd05d5fef515f8f1f0c045251bad464b022  /usr/local/bin/cloud-sql-proxy" | sha256sum -c -
   chmod +x /usr/local/bin/cloud-sql-proxy
   cloud-sql-proxy "${CLOUD_SQL_INSTANCE}" > "$PROXY_LOG" 2>&1 &
   PROXY_PID=$!
@@ -98,7 +99,7 @@ run_python_test() {
     cd "$dir"
     python3 -m venv .venv
     source .venv/bin/activate
-    pip install -q -r requirements.txt pytest
+    pip install --index-url https://us-central1-python.pkg.dev/${PROJECT_ID}/pypi-remote/simple/ -q -r requirements.txt pytest==9.1.1
     
     cd ..
     local test_file=$(find . -maxdepth 1 -name "*test.py" | head -n 1)
@@ -122,7 +123,7 @@ run_js_test() {
   echo "--- Running JS Test: $name ---"
   (
     cd "$dir"
-    if [ -f "package-lock.json" ]; then npm ci -q; else npm install -q; fi
+    if [ -f "package-lock.json" ]; then npm ci --registry=https://us-central1-npm.pkg.dev/${PROJECT_ID}/npm-remote/ -q; else npm install --registry=https://us-central1-npm.pkg.dev/${PROJECT_ID}/npm-remote/ -q; fi
     
     cd ..
     # Looking for a JS test file in the parent directory

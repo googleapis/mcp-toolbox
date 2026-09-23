@@ -1,3 +1,4 @@
+ARG _AR_REPO_NAME=toolbox
 # Copyright 2024 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,17 +12,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-FROM --platform=$BUILDPLATFORM golang:1 AS build
+FROM --platform=$BUILDPLATFORM us-central1-docker.pkg.dev/mcp-toolbox/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244 AS build
 
-# Install Zig for CGO cross-compilation
+# Install prerequisites
 RUN apt-get update && apt-get install -y xz-utils
-RUN curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz && \
-    mkdir -p /zig && \
-    tar -xf zig.tar.xz -C /zig --strip-components=1 && \
-    rm zig.tar.xz
 
 WORKDIR /go/src/mcp-toolbox
 COPY . .
+
+# Install Zig for CGO cross-compilation
+RUN mkdir -p /zig && \
+    tar -xf zig.tar.xz -C /zig --strip-components=1 && \
+    rm -f zig.tar.xz
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -44,7 +46,7 @@ RUN export ZIG_TARGET="" && \
     -o mcp-toolbox .
 
 # Final Stage
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM  us-central1-docker.pkg.dev/mcp-toolbox/${_AR_REPO_NAME}/gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 
 WORKDIR /app
 COPY --from=build --chown=nonroot /go/src/mcp-toolbox/mcp-toolbox /toolbox

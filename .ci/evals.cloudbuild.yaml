@@ -47,7 +47,7 @@ steps:
         cat /workspace/changed_files.txt
 
   - id: "build-toolbox"
-    name: golang:1
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244
     waitFor: ["detect-changes"]
     env:
       - "CGO_ENABLED=1"  # godror does not build without cgo
@@ -246,3 +246,4 @@ substitutions:
   _GEMINI_MODEL: "gemini-3.7-flash"
   _CLAUDE_MODEL: "claude-opus-4-8"
   _EVALBENCH_IMAGE: "us-central1-docker.pkg.dev/cloud-db-nl2sql/evalbench/eval_server:latest"
+  _AR_REPO_NAME: toolbox

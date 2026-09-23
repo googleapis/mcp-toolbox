@@ -29,7 +29,7 @@
 
 steps:
   - id: "publish-npm-to-ar"
-    name: node:20
+    name: us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_npm_to_ar.sh
@@ -58,3 +58,4 @@ substitutions:
   _EXIT_GATE_PROJECT: "mcp-toolbox"
   _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
   _PUSH_TO_EXIT_GATES: "false"
+  _AR_REPO_NAME: toolbox
