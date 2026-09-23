@@ -61,47 +61,59 @@ func CheckUISupport(extensions map[string]any) bool {
 	if !ok || extVal == nil {
 		return false
 	}
-	data, err := json.Marshal(extVal)
-	if err != nil {
-		return false
+	switch v := extVal.(type) {
+	case McpUiClientCapabilities:
+		return ValidateUISupport(v)
+	case *McpUiClientCapabilities:
+		if v != nil {
+			return ValidateUISupport(*v)
+		}
+	case map[string]any:
+		if mtVal, ok := v["mimeTypes"]; ok {
+			if slice, ok := mtVal.([]any); ok {
+				var mimeTypes []string
+				for _, item := range slice {
+					if s, ok := item.(string); ok {
+						mimeTypes = append(mimeTypes, s)
+					}
+				}
+				return ValidateUISupport(McpUiClientCapabilities{MimeTypes: mimeTypes})
+			} else if slice, ok := mtVal.([]string); ok {
+				return ValidateUISupport(McpUiClientCapabilities{MimeTypes: slice})
+			}
+		}
+	default:
+		data, err := json.Marshal(extVal)
+		if err != nil {
+			return false
+		}
+		var uiCaps McpUiClientCapabilities
+		if err := json.Unmarshal(data, &uiCaps); err != nil {
+			return false
+		}
+		return ValidateUISupport(uiCaps)
 	}
-	var uiCaps McpUiClientCapabilities
-	if err := json.Unmarshal(data, &uiCaps); err != nil {
-		return false
-	}
-	return ValidateUISupport(uiCaps)
+	return false
 }
 
-func checkMetaForUI(meta any) bool {
+func checkMetaMapForUI(meta map[string]any) bool {
 	if meta == nil {
 		return false
 	}
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return false
-	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		return false
-	}
-	// Check "io.modelcontextprotocol/clientCapabilities".extensions
-	if clientCaps, ok := m["io.modelcontextprotocol/clientCapabilities"].(map[string]any); ok {
+	if clientCaps, ok := meta["io.modelcontextprotocol/clientCapabilities"].(map[string]any); ok {
 		if exts, ok := clientCaps["extensions"].(map[string]any); ok && CheckUISupport(exts) {
 			return true
 		}
 	}
-	// Check "clientCapabilities".extensions
-	if clientCaps, ok := m["clientCapabilities"].(map[string]any); ok {
+	if clientCaps, ok := meta["clientCapabilities"].(map[string]any); ok {
 		if exts, ok := clientCaps["extensions"].(map[string]any); ok && CheckUISupport(exts) {
 			return true
 		}
 	}
-	// Check "extensions"
-	if exts, ok := m["extensions"].(map[string]any); ok && CheckUISupport(exts) {
+	if exts, ok := meta["extensions"].(map[string]any); ok && CheckUISupport(exts) {
 		return true
 	}
-	// Check direct UIExtensionURI key in meta
-	if extVal, ok := m[UIExtensionURI].(map[string]any); ok {
+	if extVal, ok := meta[UIExtensionURI].(map[string]any); ok {
 		if CheckUISupport(map[string]any{UIExtensionURI: extVal}) {
 			return true
 		}
@@ -109,53 +121,35 @@ func checkMetaForUI(meta any) bool {
 	return false
 }
 
-func checkCapsForUI(caps any) bool {
+func checkCapsMapForUI(caps map[string]any) bool {
 	if caps == nil {
 		return false
 	}
-	data, err := json.Marshal(caps)
-	if err != nil {
-		return false
-	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		return false
-	}
-	if exts, ok := m["extensions"].(map[string]any); ok && CheckUISupport(exts) {
+	if exts, ok := caps["extensions"].(map[string]any); ok && CheckUISupport(exts) {
 		return true
 	}
 	return false
 }
 
-func checkBodyForUI(body []byte) bool {
+// CheckUISupportFromRequest checks whether the raw JSON-RPC request body indicates support for MCP Apps UI.
+func CheckUISupportFromRequest(body []byte) bool {
+	if len(body) == 0 || !bytes.Contains(body, []byte(UIExtensionURI)) {
+		return false
+	}
 	var raw struct {
-		Params map[string]any `json:"params"`
+		Params struct {
+			Meta         map[string]any `json:"_meta"`
+			Capabilities map[string]any `json:"capabilities"`
+		} `json:"params"`
 	}
-	if err := json.Unmarshal(body, &raw); err != nil || raw.Params == nil {
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return false
 	}
-	if meta, ok := raw.Params["_meta"]; ok && checkMetaForUI(meta) {
+	if checkMetaMapForUI(raw.Params.Meta) {
 		return true
 	}
-	if caps, ok := raw.Params["capabilities"]; ok && checkCapsForUI(caps) {
+	if checkCapsMapForUI(raw.Params.Capabilities) {
 		return true
-	}
-	return false
-}
-
-// CheckUISupportFromRequest checks whether the request indicates support for MCP Apps UI.
-// It inspects meta, capabilities, and falls back to raw body inspection if needed.
-func CheckUISupportFromRequest(meta any, capabilities any, body []byte) bool {
-	if checkMetaForUI(meta) {
-		return true
-	}
-	if checkCapsForUI(capabilities) {
-		return true
-	}
-	if len(body) > 0 && bytes.Contains(body, []byte(UIExtensionURI)) {
-		if checkBodyForUI(body) {
-			return true
-		}
 	}
 	return false
 }
