@@ -710,11 +710,7 @@ func TestListAccessibleDataAgentsDrainStopsAtTimeBudget(t *testing.T) {
 		defer server.Close()
 		defer close(released)
 
-		original := maxAutoDuration
-		maxAutoDuration = 500 * time.Millisecond
-		defer func() { maxAutoDuration = original }()
-
-		_, err := listAccessibleDataAgents(context.Background(), server.Client(), server.URL, "my-project", "global", nil, "")
+		_, err := listAllAccessibleDataAgents(context.Background(), server.Client(), server.URL, "my-project", "global", 500*time.Millisecond)
 		if err == nil {
 			t.Fatal("expected an error once the first page runs out of time, got nil")
 		}
@@ -740,11 +736,7 @@ func TestListAccessibleDataAgentsDrainStopsAtTimeBudget(t *testing.T) {
 		defer server.Close()
 		defer close(released)
 
-		original := maxAutoDuration
-		maxAutoDuration = 500 * time.Millisecond
-		defer func() { maxAutoDuration = original }()
-
-		_, err := listAccessibleDataAgents(context.Background(), server.Client(), server.URL, "my-project", "global", nil, "")
+		_, err := listAllAccessibleDataAgents(context.Background(), server.Client(), server.URL, "my-project", "global", 500*time.Millisecond)
 		if err == nil {
 			t.Fatal("expected an error when a later page times out, got nil")
 		}

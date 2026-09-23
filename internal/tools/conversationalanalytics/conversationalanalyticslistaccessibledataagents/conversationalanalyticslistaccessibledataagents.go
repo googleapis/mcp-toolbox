@@ -41,9 +41,9 @@ const (
 	minPageSize       = 1
 	maxAutoDataAgents = 1000
 	maxAutoPages      = 100
+	// maxAutoDuration bounds the total time an automatic drain may spend.
+	maxAutoDuration = 5 * time.Minute
 )
-
-var maxAutoDuration = 5 * time.Minute
 
 func init() {
 	if !tools.Register(resourceType, newConfig) {
@@ -226,7 +226,7 @@ func listAccessibleDataAgents(ctx context.Context, client *http.Client, endpoint
 		}
 		return result, nil
 	}
-	return listAllAccessibleDataAgents(ctx, client, endpoint, projectID, location)
+	return listAllAccessibleDataAgents(ctx, client, endpoint, projectID, location, maxAutoDuration)
 }
 
 // parseDataAgentsPage splits a page into its data agents, its page token, and
@@ -308,8 +308,9 @@ func drainResult(extras map[string]json.RawMessage, dataAgents []json.RawMessage
 }
 
 // listAllAccessibleDataAgents fetches pages until completion or safety limits.
-func listAllAccessibleDataAgents(ctx context.Context, client *http.Client, endpoint, projectID, location string) (any, util.ToolboxError) {
-	drainCtx, cancel := context.WithTimeout(ctx, maxAutoDuration)
+// budget caps the total time spent draining pages; callers pass maxAutoDuration.
+func listAllAccessibleDataAgents(ctx context.Context, client *http.Client, endpoint, projectID, location string, budget time.Duration) (any, util.ToolboxError) {
+	drainCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
 	dataAgents := []json.RawMessage{}
