@@ -1,0 +1,228 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: bigtable-source
+type: bigtable
+project: ${BIGTABLE_PROJECT}
+instance: ${BIGTABLE_INSTANCE}
+---
+kind: tool
+name: execute_sql
+type: bigtable-sql
+source: bigtable-source
+description: Use this tool to execute a GoogleSQL query on Bigtable.
+statement: "{{.sql}}"
+templateParameters:
+- name: sql
+  type: string
+  description: The GoogleSQL query to execute.
+---
+kind: tool
+name: list_schemas
+type: bigtable-list-schemas
+source: bigtable-source
+description: List all Bigtable schemas, including tables with column family definitions, logical views, and materialized views.
+---
+kind: tool
+name: list_tables
+type: bigtable-list-tables
+source: bigtable-source
+description: List all Bigtable tables in the instance.
+---
+kind: tool
+name: get_table
+type: bigtable-get-table
+source: bigtable-source
+description: Get details of a Bigtable table.
+---
+kind: tool
+name: create_table
+type: bigtable-create-table
+source: bigtable-source
+description: Create a new Bigtable table.
+---
+kind: tool
+name: update_table
+type: bigtable-update-table
+source: bigtable-source
+description: Update an existing Bigtable table's configuration.
+---
+kind: tool
+name: delete_table
+type: bigtable-delete-table
+source: bigtable-source
+description: Delete a Bigtable table.
+---
+kind: tool
+name: list_instances
+type: bigtable-list-instances
+source: bigtable-source
+description: List all Bigtable instances in the project.
+---
+kind: tool
+name: get_instance
+type: bigtable-get-instance
+source: bigtable-source
+description: Get details of a Bigtable instance.
+---
+kind: tool
+name: create_instance
+type: bigtable-create-instance
+source: bigtable-source
+description: Create a new Bigtable instance.
+---
+kind: tool
+name: update_instance
+type: bigtable-update-instance
+source: bigtable-source
+description: Update an existing Bigtable instance.
+---
+kind: tool
+name: delete_instance
+type: bigtable-delete-instance
+source: bigtable-source
+description: Delete a Bigtable instance.
+---
+kind: tool
+name: list_clusters
+type: bigtable-list-clusters
+source: bigtable-source
+description: List all Bigtable clusters in the instance.
+---
+kind: tool
+name: get_cluster
+type: bigtable-get-cluster
+source: bigtable-source
+description: Get details of a Bigtable cluster.
+---
+kind: tool
+name: create_cluster
+type: bigtable-create-cluster
+source: bigtable-source
+description: Create a new Bigtable cluster in an instance.
+---
+kind: tool
+name: update_cluster
+type: bigtable-update-cluster
+source: bigtable-source
+description: Update the number of nodes in a Bigtable cluster.
+---
+kind: tool
+name: delete_cluster
+type: bigtable-delete-cluster
+source: bigtable-source
+description: Delete a Bigtable cluster.
+---
+kind: tool
+name: list_logical_views
+type: bigtable-list-logical-views
+source: bigtable-source
+description: List all Bigtable logical views in the instance.
+---
+kind: tool
+name: get_logical_view
+type: bigtable-get-logical-view
+source: bigtable-source
+description: Get details of a Bigtable logical view.
+---
+kind: tool
+name: create_logical_view
+type: bigtable-create-logical-view
+source: bigtable-source
+description: Create a new Bigtable logical view.
+---
+kind: tool
+name: update_logical_view
+type: bigtable-update-logical-view
+source: bigtable-source
+description: Update an existing Bigtable logical view.
+---
+kind: tool
+name: delete_logical_view
+type: bigtable-delete-logical-view
+source: bigtable-source
+description: Delete a Bigtable logical view.
+---
+kind: tool
+name: list_materialized_views
+type: bigtable-list-materialized-views
+source: bigtable-source
+description: List all existing Bigtable materialized views.
+---
+kind: tool
+name: get_materialized_view
+type: bigtable-get-materialized-view
+source: bigtable-source
+description: Get information about an existing Bigtable materialized view.
+---
+kind: tool
+name: create_materialized_view
+type: bigtable-create-materialized-view
+source: bigtable-source
+description: Create a new Bigtable materialized view.
+---
+kind: tool
+name: update_materialized_view
+type: bigtable-update-materialized-view
+source: bigtable-source
+description: Update an existing Bigtable materialized view.
+---
+kind: tool
+name: delete_materialized_view
+type: bigtable-delete-materialized-view
+source: bigtable-source
+description: Delete an existing Bigtable materialized view.
+---
+kind: group
+name: admin
+description: Use these tools when you need to create, get, list, update, or delete Bigtable instances and clusters.
+tools:
+- create_instance
+- get_instance
+- list_instances
+- update_instance
+- delete_instance
+- create_cluster
+- get_cluster
+- list_clusters
+- update_cluster
+- delete_cluster
+---
+kind: group
+name: data
+description: Use these tools when you need to list Bigtable schemas, create, get, list, update, or delete tables, and execute GoogleSQL queries.
+tools:
+- execute_sql
+- list_schemas
+- list_tables
+- get_table
+- create_table
+- update_table
+- delete_table
+---
+kind: group
+name: views
+description: Use these tools when you need to create, get, list, update, or delete Bigtable logical views and materialized views.
+tools:
+- create_logical_view
+- get_logical_view
+- list_logical_views
+- update_logical_view
+- delete_logical_view
+- create_materialized_view
+- get_materialized_view
+- list_materialized_views
+- update_materialized_view
+- delete_materialized_view
