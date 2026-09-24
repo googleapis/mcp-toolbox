@@ -86,7 +86,9 @@ func (m *mockClient) NewRangeReader(ctx context.Context, bucket, object string, 
 func TestParseFromYamlGCS(t *testing.T) {
 	defaultPriority := 1.0
 	customPriority := 0.95
+	defaultMaxSize := int64(resources.DefaultMaxFileSize)
 	customMaxSize := int64(10485760)
+	csvMimeType := resources.InferMimeType("data_dictionary.csv")
 	trueVal := true
 
 	tcs := []struct {
@@ -108,10 +110,12 @@ func TestParseFromYamlGCS(t *testing.T) {
 						ConfigBase: resources.ConfigBase{
 							Name:        "enterprise_data_dictionary",
 							Type:        "gcs",
+							MimeType:    csvMimeType,
 							Annotations: &resources.ResourceAnnotations{Priority: &defaultPriority},
 						},
 						URI: "gs://corp-knowledge-base/catalogs/data_dictionary.csv",
 					},
+					MaxSize: &defaultMaxSize,
 				},
 			},
 		},
@@ -139,6 +143,7 @@ func TestParseFromYamlGCS(t *testing.T) {
 							Type:        "gcs",
 							Title:       "Enterprise Data Dictionary",
 							Description: "Master definitions for database tables and business entities.",
+							MimeType:    csvMimeType,
 							Annotations: &resources.ResourceAnnotations{
 								Priority: &customPriority,
 								Audience: []resources.AudienceRole{resources.RoleAssistant, resources.RoleUser},
@@ -182,6 +187,7 @@ func TestParseFromYamlGCS(t *testing.T) {
 						},
 						URI: "ui://ui-bucket/views/dashboard.html",
 					},
+					MaxSize: &defaultMaxSize,
 				},
 			},
 		},
@@ -748,4 +754,3 @@ func TestGCSResource_InitializeAndRead(t *testing.T) {
 		})
 	}
 }
-

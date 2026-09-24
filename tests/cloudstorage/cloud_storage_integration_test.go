@@ -2555,4 +2555,3 @@ func TestCloudStorageResources(t *testing.T) {
 		})
 	}
 }
-

@@ -133,6 +133,22 @@ func (c *Config) ResourceConfigType() string {
 	return ResourceType
 }
 
+// SetDefaults applies system defaults for unspecified optional fields.
+func (c *Config) SetDefaults() {
+	c.ResourceConfigBase.SetDefaults()
+	if c.MaxSize == nil {
+		limit := int64(DefaultMaxFileSize)
+		c.MaxSize = &limit
+	}
+	if c.MimeType == "" {
+		if parsed, err := url.Parse(c.URI); err == nil && parsed.Path != "" {
+			c.MimeType = resources.InferMimeType(parsed.Path)
+		} else {
+			c.MimeType = "text/plain"
+		}
+	}
+}
+
 // parseGCSURI parses and validates a gs://bucket/path/to/file (or ui://bucket/path/to/file when ui is true) URI.
 func parseGCSURI(rawURI, name string, isUI bool) (bucket, objectPath string, err error) {
 	parsed, err := url.Parse(rawURI)
@@ -192,11 +208,6 @@ func (c *Config) Validate() error {
 
 // Initialize validates the configuration, fetches GCS object attributes, and initializes the GCSResource.
 func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
-	if c.MaxSize == nil {
-		limit := int64(DefaultMaxFileSize)
-		c.MaxSize = &limit
-	}
-
 	bucket, objectPath, err := parseGCSURI(c.URI, c.Name, c.UI)
 	if err != nil {
 		return nil, err
@@ -217,10 +228,6 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 	}
 	if c.Annotations.LastModified == "" && !attrs.Updated.IsZero() {
 		c.Annotations.LastModified = attrs.Updated.UTC().Format(time.RFC3339)
-	}
-
-	if c.MimeType == "" {
-		c.MimeType = resources.InferMimeType(objectPath)
 	}
 
 	size := attrs.Size
