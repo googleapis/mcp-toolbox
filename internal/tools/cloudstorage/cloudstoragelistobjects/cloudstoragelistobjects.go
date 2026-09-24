@@ -61,12 +61,11 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
-	Bucket           *string                `yaml:"bucket,omitempty"`
-	Prefix           *string                `yaml:"prefix,omitempty"`
-	Delimiter        *string                `yaml:"delimiter,omitempty"`
+	Type             string  `yaml:"type" validate:"required"`
+	Source           string  `yaml:"source" validate:"required"`
+	Bucket           *string `yaml:"bucket,omitempty"`
+	Prefix           *string `yaml:"prefix,omitempty"`
+	Delimiter        *string `yaml:"delimiter,omitempty"`
 }
 
 // validate interface

@@ -190,7 +190,7 @@ const (
 	VisibilityApp   ToolVisibility = "app"
 )
 
-// ToolUIMetadata defines the UI-specific metadata for a tool with UI Resource
+// ToolUIMetadata defines the UI-specific metadata for a tool with UI Resource.
 type ToolUIMetadata struct {
 	Resource   string           `yaml:"resource" validate:"required"`
 	Visibility []ToolVisibility `yaml:"visibility,omitempty" validate:"omitempty,dive,oneof=model app"`
@@ -202,11 +202,12 @@ type ToolUIMetadata struct {
 // configs omit description: and rely on a canned per-tool string), so
 // post-Initialize ConfigBase.Description holds the resolved value.
 type ConfigBase struct {
-	Name           string          `yaml:"name"           validate:"required"`
-	Description    string          `yaml:"description"`
-	AuthRequired   []string        `yaml:"authRequired"`
-	ScopesRequired []string        `yaml:"scopesRequired"`
-	UI             *ToolUIMetadata `yaml:"ui,omitempty"`
+	Name           string           `yaml:"name"           validate:"required"`
+	Description    string           `yaml:"description"`
+	AuthRequired   []string         `yaml:"authRequired"`
+	ScopesRequired []string         `yaml:"scopesRequired"`
+	Annotations    *ToolAnnotations `yaml:"annotations,omitempty"`
+	UI             *ToolUIMetadata  `yaml:"ui,omitempty"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
