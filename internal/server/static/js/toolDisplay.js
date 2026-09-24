@@ -15,6 +15,23 @@
 import { handleRunTool, displayResults } from './runTool.js';
 import { createGoogleAuthMethodItem } from './auth.js'
 import { escapeHtml } from './sanitize.js'
+import { createMcpHeaders, createMcpRequestBody, MCP_PROTOCOL_VERSION } from './mcpClient.js';
+
+let activeTool = null;
+const toolHeadersMap = new Map();
+let activeHeaders = {
+    "Content-Type": "application/json"
+};
+
+// Bounds applied to the height an MCP App may request via
+// `ui/notifications/size-changed`. The app is untrusted input, so the requested
+// value is clamped to keep the playground layout usable.
+const MIN_APP_IFRAME_HEIGHT = 480;
+const MAX_APP_IFRAME_HEIGHT = 10000;
+
+// Display modes the playground host is able to render. Anything else requested
+// by an app falls back to 'inline'.
+const SUPPORTED_DISPLAY_MODES = new Set(['inline', 'fullscreen']);
 
 /**
  * Helper function to create form inputs for parameters.
@@ -332,6 +349,7 @@ function createAuthTokenInfoDropdown() {
  * Renders the tool display area.
  */
 export function renderToolInterface(tool, containerElement) {
+    activeTool = tool;
     const TOOL_ID = tool.id;
     containerElement.innerHTML = '';
 
@@ -339,6 +357,8 @@ export function renderToolInterface(tool, containerElement) {
     let currentHeaders = {
         "Content-Type": "application/json"
     };
+    activeHeaders = currentHeaders;
+    toolHeadersMap.set(TOOL_ID, currentHeaders);
 
     // function to update lastResults so we can toggle json
     const updateLastResults = (newResults) => {
@@ -346,6 +366,8 @@ export function renderToolInterface(tool, containerElement) {
     };
     const updateCurrentHeaders = (newHeaders) => {
         currentHeaders = newHeaders;
+        activeHeaders = newHeaders;
+        toolHeadersMap.set(TOOL_ID, newHeaders);
         const newModal = createHeaderEditorModal(TOOL_ID, currentHeaders, tool.parameters, tool.authRequired, updateCurrentHeaders);
         containerElement.appendChild(newModal);
     };
@@ -357,8 +379,9 @@ export function renderToolInterface(tool, containerElement) {
     const nameBox = document.createElement('div');
     const descBox = document.createElement('div');
 
+    const isAppTool = Boolean(tool.ui && tool.ui.resourceUri);
     nameBox.className = 'tool-box tool-name';
-    nameBox.innerHTML = `<h5>Name:</h5><p>${escapeHtml(tool.name)}</p>`;
+    nameBox.innerHTML = `<h5>Name:</h5><div class="tool-name-container"><p>${escapeHtml(tool.name)}</p>${isAppTool ? `<span class="mcp-app-badge" title="MCP App (${escapeHtml(tool.ui.resourceUri)})">MCP App (UI)</span>` : ''}</div>`;
     descBox.className = 'tool-box tool-description';
     descBox.innerHTML = `<h5>Description:</h5><p>${escapeHtml(tool.description)}</p>`;
 
@@ -418,6 +441,117 @@ export function renderToolInterface(tool, containerElement) {
     responseHeader.textContent = 'Response:';
     responseHeaderControls.appendChild(responseHeader);
 
+    // Tab switcher for MCP Apps
+    let appContainer = null;
+    let iframeElement = null;
+    let appStatusElement = null;
+
+    if (isAppTool) {
+        const viewTabs = document.createElement('div');
+        viewTabs.className = 'response-view-tabs';
+
+        const tabApp = document.createElement('button');
+        tabApp.className = 'response-view-tab active';
+        tabApp.textContent = 'Visual App';
+
+        const tabJson = document.createElement('button');
+        tabJson.className = 'response-view-tab';
+        tabJson.textContent = 'Raw JSON';
+
+        viewTabs.appendChild(tabApp);
+        viewTabs.appendChild(tabJson);
+        responseHeaderControls.appendChild(viewTabs);
+
+        appContainer = document.createElement('div');
+        appContainer.className = 'mcp-app-container';
+        appContainer.id = `mcp-app-container-${TOOL_ID}`;
+
+        const appTopBar = document.createElement('div');
+        appTopBar.className = 'mcp-app-topbar';
+
+        const uriInfo = document.createElement('div');
+        uriInfo.className = 'mcp-app-uri';
+        uriInfo.innerHTML = `<span>Resource:</span> <code>${escapeHtml(tool.ui.resourceUri)}</code>`;
+
+        appStatusElement = document.createElement('div');
+        appStatusElement.className = 'mcp-app-status';
+        appStatusElement.textContent = 'App Ready';
+
+        const reloadBtn = document.createElement('button');
+        reloadBtn.className = 'mcp-app-reload-btn';
+        reloadBtn.innerHTML = '↻ Reload';
+        reloadBtn.style.marginLeft = 'auto';
+        reloadBtn.style.padding = '4px 10px';
+        reloadBtn.style.fontSize = '12px';
+        reloadBtn.style.cursor = 'pointer';
+        reloadBtn.style.background = '#f1f3f4';
+        reloadBtn.style.color = '#5f6368';
+        reloadBtn.style.border = '1px solid #dadce0';
+        reloadBtn.style.borderRadius = '4px';
+        reloadBtn.style.fontWeight = '500';
+        reloadBtn.addEventListener('click', () => {
+            loadAppResource(tool.ui.resourceUri, iframeElement, appStatusElement, currentHeaders);
+        });
+
+        const exitFullscreenBtn = document.createElement('button');
+        exitFullscreenBtn.className = 'mcp-app-exit-fullscreen-btn';
+        exitFullscreenBtn.innerHTML = '⤓ Exit Fullscreen';
+        exitFullscreenBtn.style.display = 'none';
+        exitFullscreenBtn.style.marginLeft = '10px';
+        exitFullscreenBtn.style.padding = '4px 10px';
+        exitFullscreenBtn.style.fontSize = '12px';
+        exitFullscreenBtn.style.cursor = 'pointer';
+        exitFullscreenBtn.style.background = '#e8f0fe';
+        exitFullscreenBtn.style.color = '#1a73e8';
+        exitFullscreenBtn.style.border = '1px solid #1a73e8';
+        exitFullscreenBtn.style.borderRadius = '4px';
+        exitFullscreenBtn.style.fontWeight = '500';
+        exitFullscreenBtn.addEventListener('click', () => {
+            setAppDisplayMode(appContainer, iframeElement, 'inline');
+            if (iframeElement && iframeElement.contentWindow) {
+                iframeElement.contentWindow.postMessage({
+                    jsonrpc: '2.0',
+                    method: 'ui/notifications/host-context-changed',
+                    params: { displayMode: 'inline' }
+                }, '*');
+            }
+        });
+
+        appTopBar.appendChild(uriInfo);
+        appTopBar.appendChild(appStatusElement);
+        appTopBar.appendChild(reloadBtn);
+        appTopBar.appendChild(exitFullscreenBtn);
+        appContainer.appendChild(appTopBar);
+
+        iframeElement = document.createElement('iframe');
+        iframeElement.id = `mcp-app-iframe-${TOOL_ID}`;
+        iframeElement.className = 'mcp-app-iframe';
+        iframeElement.title = `MCP App - ${tool.name}`;
+        iframeElement.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation');
+        iframeElement.setAttribute('allow', 'fullscreen; clipboard-read; clipboard-write');
+        appContainer.appendChild(iframeElement);
+
+        tabApp.addEventListener('click', (e) => {
+            e.preventDefault();
+            tabApp.classList.add('active');
+            tabJson.classList.remove('active');
+            appContainer.style.display = 'flex';
+            appContainer.style.flexDirection = 'column';
+            responseArea.style.display = 'none';
+        });
+
+        tabJson.addEventListener('click', (e) => {
+            e.preventDefault();
+            tabJson.classList.add('active');
+            tabApp.classList.remove('active');
+            appContainer.style.display = 'none';
+            responseArea.style.display = 'block';
+        });
+
+        // Pre-fetch the resource HTML
+        loadAppResource(tool.ui.resourceUri, iframeElement, appStatusElement, currentHeaders);
+    }
+
     // prettify box
     const PRETTIFY_ID = `prettify-${TOOL_ID}`;
     const prettifyDiv = document.createElement('div');
@@ -440,11 +574,18 @@ export function renderToolInterface(tool, containerElement) {
     responseHeaderControls.appendChild(prettifyDiv);
     responseContainer.appendChild(responseHeaderControls);
 
+    if (appContainer) {
+        responseContainer.appendChild(appContainer);
+    }
+
     responseArea.id = RESPONSE_AREA_ID;
     responseArea.readOnly = true;
     responseArea.placeholder = 'Results will appear here...';
     responseArea.className = 'tool-response-area';
     responseArea.rows = 10;
+    if (isAppTool) {
+        responseArea.style.display = 'none'; // Default to visual app view for App tools
+    }
     responseContainer.appendChild(responseArea);
 
     containerElement.appendChild(responseContainer);
@@ -461,9 +602,480 @@ export function renderToolInterface(tool, containerElement) {
 
     runButton.addEventListener('click', (event) => {
         event.preventDefault();
-        handleRunTool(TOOL_ID, form, responseArea, tool.parameters, prettifyCheckbox, updateLastResults, currentHeaders);
+        handleRunTool(TOOL_ID, form, responseArea, tool.parameters, prettifyCheckbox, updateLastResults, currentHeaders, tool.ui);
     });
 }
+
+/**
+ * Helper function to transition MCP App container between inline and fullscreen.
+ */
+function setAppDisplayMode(mcpContainer, iframeElement, mode) {
+    const container = mcpContainer || iframeElement?.closest('.mcp-app-container') || document.querySelector('.mcp-app-container');
+    const iframe = iframeElement || container?.querySelector('.mcp-app-iframe') || document.querySelector('.mcp-app-iframe');
+    const exitBtn = container?.querySelector('.mcp-app-exit-fullscreen-btn');
+
+    if (mode === 'fullscreen') {
+        if (container) {
+            container.classList.add('mcp-app-fullscreen');
+            container.style.cssText = 'position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; width: 100vw !important; height: 100vh !important; max-width: 100vw !important; max-height: 100vh !important; z-index: 2147483647 !important; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 0 !important; display: flex !important; flex-direction: column !important; background-color: #ffffff !important; box-sizing: border-box !important;';
+        }
+        if (iframe) {
+            iframe.style.cssText = 'width: 100% !important; height: 100% !important; flex: 1 1 100% !important; min-height: 0 !important; border: none !important; box-sizing: border-box !important;';
+        }
+        if (exitBtn) {
+            exitBtn.style.display = 'inline-block';
+        }
+        document.body.classList.add('mcp-app-fullscreen-active');
+    } else {
+        if (container) {
+            container.classList.remove('mcp-app-fullscreen');
+            container.removeAttribute('style');
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+        }
+        if (iframe) {
+            iframe.removeAttribute('style');
+        }
+        if (exitBtn) {
+            exitBtn.style.display = 'none';
+        }
+        document.body.classList.remove('mcp-app-fullscreen-active');
+    }
+
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({
+            jsonrpc: '2.0',
+            method: 'ui/notifications/host-context-changed',
+            params: { displayMode: mode }
+        }, '*');
+        iframe.contentWindow.postMessage({
+            type: 'ui/host_context_changed',
+            displayMode: mode
+        }, '*');
+    }
+}
+
+/**
+ * Constructs a standard Content Security Policy string according to SEP-1865.
+ */
+function constructCsp(csp) {
+    const connectList = new Set(csp?.connectDomains || []);
+    const resourceList = new Set(csp?.resourceDomains || []);
+
+    // In local development or testing environments, ensure localhost and host ports are allowed
+    const isLocal = window.location.hostname === 'localhost' || 
+                    window.location.hostname === '127.0.0.1' || 
+                    window.location.hostname.endsWith('.googlers.com');
+    if (isLocal) {
+        ['http://localhost:9998', 'http://localhost:9999', 'http://localhost:19999', 'http://localhost:3035',
+         'http://127.0.0.1:9998', 'http://127.0.0.1:9999', 'http://127.0.0.1:19999', 'http://127.0.0.1:3035'].forEach(d => {
+            resourceList.add(d);
+            connectList.add(d);
+        });
+        connectList.add('ws://localhost:*');
+        connectList.add('ws://127.0.0.1:*');
+        connectList.add('wss://localhost:*');
+        connectList.add('wss://127.0.0.1:*');
+    }
+
+    const connect = Array.from(connectList).join(' ');
+    const resource = Array.from(resourceList).join(' ');
+    const frame = (csp?.frameDomains && csp.frameDomains.length > 0) ? csp.frameDomains.join(' ') : "'none'";
+    const baseUri = (csp?.baseUriDomains && csp.baseUriDomains.length > 0) ? csp.baseUriDomains.join(' ') : "'self'";
+
+    return `default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${resource}; style-src 'self' 'unsafe-inline' ${resource}; connect-src 'self' ${connect}; img-src 'self' data: ${resource}; font-src 'self' data: ${resource}; media-src 'self' data: ${resource}; frame-src ${frame}; object-src 'none'; base-uri ${baseUri};`.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Injects a Content-Security-Policy meta tag into the raw HTML.
+ */
+function injectCspIntoHtml(html, cspHeader) {
+    // Only escape & and " so that single-quoted CSP keywords ('self', 'unsafe-inline') are preserved literally
+    const safeCspHeader = cspHeader.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const metaTag = `<meta http-equiv="Content-Security-Policy" content="${safeCspHeader}">`;
+    
+    const headMatch = html.match(/<head[^>]*>/i);
+    if (headMatch) {
+        const index = headMatch.index + headMatch[0].length;
+        return html.slice(0, index) + '\n  ' + metaTag + html.slice(index);
+    }
+    const htmlMatch = html.match(/<html[^>]*>/i);
+    if (htmlMatch) {
+        const index = htmlMatch.index + htmlMatch[0].length;
+        return html.slice(0, index) + '\n<head>' + metaTag + '</head>' + html.slice(index);
+    }
+    return '<head>' + metaTag + '</head>\n' + html;
+}
+
+/**
+ * Loads the HTML content for an MCP App resource into an iframe.
+ */
+async function loadAppResource(uri, iframeElement, statusElement, headers) {
+    if (!uri || !iframeElement) return;
+    try {
+        if (statusElement) statusElement.textContent = 'Loading resource...';
+        const response = await fetch('/mcp', {
+            method: 'POST',
+            headers: createMcpHeaders('resources/read', uri, headers),
+            body: JSON.stringify(createMcpRequestBody('resources/read', { uri: uri }, 'read-resource'))
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error.message || 'Unknown MCP error');
+        }
+        if (data.result && data.result.contents && data.result.contents.length > 0) {
+            const resContent = data.result.contents[0];
+            if (resContent.text) {
+                const csp = resContent._meta?.ui?.csp || data.result?._meta?.ui?.csp;
+                const cspHeader = constructCsp(csp);
+                const finalHtml = injectCspIntoHtml(resContent.text, cspHeader);
+
+                iframeElement.srcdoc = finalHtml;
+                if (statusElement) {
+                    const domains = (csp?.resourceDomains || []).concat(csp?.connectDomains || []);
+                    if (domains.length > 0) {
+                        statusElement.title = `Enforced CSP: ${domains.join(', ')}`;
+                        statusElement.textContent = 'App Ready (CSP Enforced)';
+                    } else {
+                        statusElement.textContent = 'App Ready (Restricted CSP)';
+                    }
+                }
+            } else {
+                throw new Error('Resource content text is empty');
+            }
+        } else {
+            throw new Error('No resource contents returned');
+        }
+    } catch (e) {
+        console.error('Error fetching UI resource:', e);
+        if (statusElement) statusElement.textContent = `Error loading resource: ${e.message}`;
+    }
+}
+
+// MCP Apps Host Protocol Handshake handler
+window.addEventListener('message', (event) => {
+    const data = event.data;
+    const sender = event.source;
+    const senderOrigin = (event.origin && event.origin !== 'null') ? event.origin : '*';
+
+    // Verify that the sender is one of our managed iframes to prevent unauthorized cross-document message attacks
+    let matchingIframe = null;
+    try {
+        const iframes = Array.from(document.querySelectorAll('.mcp-app-iframe'));
+        matchingIframe = iframes.find(f => f.contentWindow === sender);
+    } catch (e) {
+        // Ignore cross-origin access errors
+    }
+
+    if (!matchingIframe) {
+        return;
+    }
+
+    if (data && typeof data === 'object') {
+        const hasId = data.id !== undefined && data.id !== null;
+        console.debug('[MCP Host Received Message]', data);
+        if (data.method === 'ui/initialize' && hasId) {
+            console.debug('Handling MCP Apps initialize request:', data);
+            sender?.postMessage({
+                jsonrpc: '2.0',
+                id: data.id,
+                result: {
+                    protocolVersion: data.params?.protocolVersion || MCP_PROTOCOL_VERSION,
+                    hostInfo: { name: 'MCP Toolbox Playground', version: '1.0.0' },
+                    hostCapabilities: {
+                        openLinks: {},
+                        serverTools: {},
+                        serverResources: {}
+                    },
+                    hostContext: {
+                        theme: 'light',
+                        displayMode: 'inline',
+                        platform: 'web',
+                        deviceCapabilities: {
+                            touch: false,
+                            hover: true
+                        }
+                    }
+                }
+            }, senderOrigin);
+        } else if (data.method === 'ui/request-display-mode' || data.method === 'requestDisplayMode' || data.type === 'ui/requestDisplayMode' || data.type === 'ui/set_display_mode') {
+            console.debug('Handling MCP Apps request-display-mode:', data);
+            const requestedMode = data.params?.mode || data.params?.displayMode || data.mode || data.displayMode;
+            // The mode is untrusted app input; fall back to 'inline' for anything
+            // that is not a supported display mode.
+            const mode = SUPPORTED_DISPLAY_MODES.has(requestedMode) ? requestedMode : 'inline';
+            // matchingIframe is already resolved at the top of the message handler
+            const mcpContainer = matchingIframe?.closest('.mcp-app-container') || document.querySelector('.mcp-app-container');
+
+            setAppDisplayMode(mcpContainer, matchingIframe, mode);
+
+            if (hasId && sender) {
+                sender.postMessage({
+                    jsonrpc: '2.0',
+                    id: data.id,
+                    result: { mode: mode }
+                }, senderOrigin);
+            }
+            sender?.postMessage({
+                jsonrpc: '2.0',
+                method: 'ui/notifications/host-context-changed',
+                params: { displayMode: mode }
+            }, senderOrigin);
+        } else if (data.method === 'ui/open-link' || data.method === 'open-link' || data.type === 'ui/openUrl' || data.type === 'open_link' || data.action === 'open_link') {
+            const targetUrl = data.params?.url || data.payload?.url || data.url;
+            if (!targetUrl || typeof targetUrl !== 'string') {
+                if (hasId && sender) {
+                    sender.postMessage({
+                        jsonrpc: '2.0',
+                        id: data.id,
+                        error: {
+                            code: -32602,
+                            message: 'URL is required and must be a string'
+                        }
+                    }, senderOrigin);
+                }
+            } else {
+                try {
+                    const parsed = new URL(targetUrl, window.location.href);
+                    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                        console.debug('Opening external link requested by MCP App:', parsed.href);
+                        const opened = window.open(parsed.href, '_blank', 'noopener,noreferrer');
+                        if (!opened) {
+                            console.warn('Browser popup blocker prevented opening link:', parsed.href);
+                            if (hasId && sender) {
+                                sender.postMessage({
+                                    jsonrpc: '2.0',
+                                    id: data.id,
+                                    error: {
+                                        code: -32000,
+                                        message: 'Browser popup blocker blocked opening external link.'
+                                    }
+                                }, senderOrigin);
+                            }
+                        } else if (hasId && sender) {
+                            sender.postMessage({
+                                jsonrpc: '2.0',
+                                id: data.id,
+                                result: { success: true }
+                            }, senderOrigin);
+                        }
+                    } else {
+                        console.warn('Blocked opening non-http/https URL from MCP App:', targetUrl);
+                        if (hasId && sender) {
+                            sender.postMessage({
+                                jsonrpc: '2.0',
+                                id: data.id,
+                                error: {
+                                    code: -32602,
+                                    message: 'Only http and https URLs are allowed'
+                                }
+                            }, senderOrigin);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Invalid URL requested by MCP App:', targetUrl, e);
+                    if (hasId && sender) {
+                        sender.postMessage({
+                            jsonrpc: '2.0',
+                            id: data.id,
+                            error: {
+                                code: -32602,
+                                message: `Invalid URL: ${e.message}`
+                            }
+                        }, senderOrigin);
+                    }
+                }
+            }
+        } else if (data.method === 'tools/call' || data.method === 'callTool') {
+            console.debug('Handling MCP Apps tools/call request:', data);
+            const toolCallParams = data.params || {};
+            const toolName = toolCallParams.name;
+            const toolArgs = toolCallParams.arguments || {};
+
+            if (!toolName || typeof toolName !== 'string') {
+                if (hasId && sender) {
+                    sender.postMessage({
+                        jsonrpc: '2.0',
+                        id: data.id,
+                        error: {
+                            code: -32602,
+                            message: 'Tool name is required and must be a string'
+                        }
+                    }, senderOrigin);
+                }
+                return;
+            }
+
+            const toolId = matchingIframe ? matchingIframe.id.replace('mcp-app-iframe-', '') : '';
+            const toolHeaders = toolHeadersMap.get(toolId) || activeHeaders;
+
+            fetch('/mcp', {
+                method: 'POST',
+                headers: createMcpHeaders('tools/call', toolName, toolHeaders),
+                body: JSON.stringify(createMcpRequestBody('tools/call', {
+                    name: toolName,
+                    arguments: toolArgs
+                }, hasId ? data.id : 'tool-call'))
+            })
+            .then(async res => {
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(`HTTP error ${res.status}: ${errorText || res.statusText}`);
+                }
+                return res.json();
+            })
+            .then(toolResult => {
+                console.debug('Tool call response from server:', toolResult);
+                let parsedData = null;
+                try {
+                    if (toolResult.result && Array.isArray(toolResult.result.content)) {
+                        // SQL-backed tools return one text item per row, so collect them all
+                        // rather than truncating the result to the first row.
+                        const textItems = toolResult.result.content.filter(c => c.type === 'text');
+                        if (textItems.length === 1) {
+                            parsedData = JSON.parse(textItems[0].text);
+                        } else if (textItems.length > 1) {
+                            try {
+                                parsedData = textItems.map(c => JSON.parse(c.text));
+                            } catch {
+                                parsedData = textItems.map(c => c.text);
+                            }
+                        }
+                    } else if (toolResult.result) {
+                        parsedData = toolResult.result;
+                    }
+                } catch (e) {
+                    parsedData = toolResult.result;
+                }
+
+                // A tool can fail either at the JSON-RPC transport level (toolResult.error)
+                // or at the tool level (result.isError with the reason in content).
+                const isError = !!toolResult.error || toolResult.result?.isError === true;
+
+                let structuredContent;
+                if (isError) {
+                    // Don't hand back error text as if it were renderable data.
+                    structuredContent = undefined;
+                } else if (Array.isArray(parsedData)) {
+                    structuredContent = {
+                        data: parsedData,
+                        queryData: parsedData
+                    };
+                } else if (parsedData && typeof parsedData === 'object') {
+                    const rawData = parsedData.visualizationData?.queryResult?.data || parsedData.data || [];
+                    structuredContent = {
+                        ...parsedData,
+                        queryData: rawData,
+                        visualizationData: parsedData.visualizationData
+                    };
+                } else {
+                    structuredContent = parsedData;
+                }
+
+                const resultContent = toolResult.result?.content || [
+                    { type: 'text', text: toolResult.error ? (toolResult.error.message || JSON.stringify(toolResult.error)) : (typeof toolResult.result === 'string' ? toolResult.result : JSON.stringify(toolResult.result || {})) }
+                ];
+
+                // 1. Reply to the app's callServerTool request
+                if (hasId && sender) {
+                    sender.postMessage({
+                        jsonrpc: '2.0',
+                        id: data.id,
+                        result: {
+                            content: resultContent,
+                            structuredContent: structuredContent,
+                            isError: isError
+                        }
+                    }, senderOrigin);
+                }
+
+                // 2. Only send tool-result notification and update response area if this was the root tool
+                if (activeTool && activeTool.name === toolName) {
+                    const toolResultNotification = {
+                        jsonrpc: '2.0',
+                        method: 'ui/notifications/tool-result',
+                        params: {
+                            content: resultContent,
+                            isError: isError,
+                            structuredContent: structuredContent
+                        }
+                    };
+                    sender?.postMessage(toolResultNotification, senderOrigin);
+
+                    // 3. Update the playground UI response area
+                    const responseArea = document.querySelector('.tool-response-area');
+                    const prettifyCheckbox = document.querySelector('.prettify-checkbox');
+                    if (responseArea) {
+                        responseArea.value = prettifyCheckbox && prettifyCheckbox.checked ? JSON.stringify(toolResult, null, 2) : JSON.stringify(toolResult);
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Error executing tool call from app:', err);
+                if (hasId && sender) {
+                    sender.postMessage({
+                        jsonrpc: '2.0',
+                        id: data.id,
+                        error: {
+                            code: -32603,
+                            message: err.message
+                        }
+                    }, senderOrigin);
+                }
+            });
+        } else if (data.method === 'ui/notifications/size-changed' || data.method === 'ui/size-changed' || data.type === 'ui/size_changed' || data.type === 'size_changed') {
+            const height = data.params?.height ?? data.height;
+            // matchingIframe is already resolved at the top of the message handler.
+            // The height comes from an untrusted app, so reject anything that is not a
+            // finite positive number (e.g. NaN, Infinity, strings, negatives) and clamp
+            // the accepted value so an app cannot blow up the playground layout.
+            if (matchingIframe && typeof height === 'number' && Number.isFinite(height) && height > 0) {
+                const container = matchingIframe.closest('.mcp-app-container');
+                if (!container || (!container.classList.contains('mcp-app-fullscreen') && container.style.position !== 'fixed')) {
+                    const clampedHeight = Math.min(MAX_APP_IFRAME_HEIGHT, Math.max(MIN_APP_IFRAME_HEIGHT, Math.ceil(height)));
+                    matchingIframe.style.height = `${clampedHeight}px`;
+                }
+            }
+        } else if (data.method === 'ping' || data.method === 'ui/ping') {
+            if (hasId && event.source) {
+                event.source.postMessage({
+                    jsonrpc: '2.0',
+                    id: data.id,
+                    result: {}
+                }, '*');
+            }
+        } else if (hasId && event.source) {
+            // General fallback response for any unanswered request to avoid timeout
+            console.debug('Acknowledging unhandled MCP Apps request to prevent timeout:', data.method || data.type, data.id);
+            event.source.postMessage({
+                jsonrpc: '2.0',
+                id: data.id,
+                result: {}
+            }, '*');
+        }
+    }
+});
+
+// Support exiting fullscreen with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const fullscreenContainer = document.querySelector('.mcp-app-container.mcp-app-fullscreen') || document.querySelector('.mcp-app-container');
+        if (fullscreenContainer && (fullscreenContainer.classList.contains('mcp-app-fullscreen') || fullscreenContainer.style.position === 'fixed')) {
+            const iframe = fullscreenContainer.querySelector('.mcp-app-iframe');
+            setAppDisplayMode(fullscreenContainer, iframe, 'inline');
+            if (iframe && iframe.contentWindow) {
+                iframe.contentWindow.postMessage({
+                    jsonrpc: '2.0',
+                    method: 'ui/notifications/host-context-changed',
+                    params: { displayMode: 'inline' }
+                }, '*');
+            }
+        }
+    }
+});
 
 /**
  * Checks if a specific parameter is marked as included for a given tool.
