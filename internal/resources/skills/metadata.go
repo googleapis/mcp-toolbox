@@ -17,7 +17,6 @@ package skills
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -76,7 +75,7 @@ func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource
 // from the frontmatter name. resources/list publishes the config key, so a key
 // that differs hides the skill's name from a client that reads the catalogue.
 // Call it one time, at startup.
-func WarnOnDocNameMismatch(ctx context.Context, entries []Entry, resourcesMap map[string]resources.Resource) error {
+func WarnOnDocNameMismatch(ctx context.Context, entries []Entry, reg *Registry) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -85,18 +84,8 @@ func WarnOnDocNameMismatch(ctx context.Context, entries []Entry, resourcesMap ma
 		return fmt.Errorf("checking the names of the skill documents: %w", err)
 	}
 
-	byURI := make(map[string]Entry, len(entries))
 	for _, e := range entries {
-		byURI[e.URI] = e
-	}
-	keys := make([]string, 0, len(resourcesMap))
-	for key := range resourcesMap {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		e, ok := byURI[resourcesMap[key].GetURI()]
+		key, ok := reg.Key(e.URI)
 		if !ok {
 			continue
 		}
