@@ -66,8 +66,15 @@ func initCouchbaseCluster(connectionString, username, password string) (*gocb.Cl
 }
 
 func TestCouchbaseToolEndpoints(t *testing.T) {
+	collectionName := setupCouchbaseTest(t, "--enable-api")
+	t.Run("discovery", tests.RunToolGetTest)
+	runCouchbaseCallTests(t, collectionName, nil, nil)
+}
+
+func setupCouchbaseTest(t *testing.T, args ...string) string {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	// Start Couchbase Container
 	cbContainer, err := tccouchbase.Run(ctx, "couchbase/server:7.2.0",
@@ -88,12 +95,16 @@ func TestCouchbaseToolEndpoints(t *testing.T) {
 		t.Fatalf("failed to get connection string: %s", err)
 	}
 
-	// Set up Clouchbase cluster
+	// Set up Couchbase cluster
 	cluster, err := initCouchbaseCluster(connectionString, defaultUser, defaultPass)
 	if err != nil {
 		t.Fatalf("unable to create Couchbase connection: %s", err)
 	}
-	defer cluster.Close(nil)
+	t.Cleanup(func() {
+		if err := cluster.Close(nil); err != nil {
+			t.Errorf("failed to close Couchbase cluster: %v", err)
+		}
+	})
 
 	sourceConfig := getCouchbaseVars(connectionString)
 	scopeName := "_default"
@@ -105,26 +116,34 @@ func TestCouchbaseToolEndpoints(t *testing.T) {
 
 	paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getCouchbaseParamToolInfo(collectionNameParam)
 	teardown1 := setupCouchbaseCollection(t, ctx, cluster, defaultBucketName, scopeName, collectionNameParam, paramTestParams)
-	defer teardown1(t)
+	t.Cleanup(func() { teardown1(t) })
 
 	authToolStmt, authTestParams := getCouchbaseAuthToolInfo(collectionNameAuth)
 	teardown2 := setupCouchbaseCollection(t, ctx, cluster, defaultBucketName, scopeName, collectionNameAuth, authTestParams)
-	defer teardown2(t)
+	t.Cleanup(func() { teardown2(t) })
 
 	tmplSelectCombined, tmplSelectFilterCombined, tmplSelectAll, params3 := getCouchbaseTemplateParamToolInfo()
 	teardown3 := setupCouchbaseCollection(t, ctx, cluster, defaultBucketName, scopeName, collectionNameTemplateParam, params3)
-	defer teardown3(t)
+	t.Cleanup(func() { teardown3(t) })
 
 	// Configure Toolbox
 	toolsFile := tests.GetToolsConfig(sourceConfig, couchbaseToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, couchbaseToolType, tmplSelectCombined, tmplSelectFilterCombined, tmplSelectAll)
 
-	args := []string{"--enable-api"}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization failed: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	// Wait for server
 	waitCtx, waitCancel := context.WithTimeout(ctx, 20*time.Second)
@@ -133,26 +152,31 @@ func TestCouchbaseToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start: %s", err)
 	}
 
-	// Assertions
+	return collectionNameTemplateParam
+}
+
+func runCouchbaseCallTests(t *testing.T, collectionName string, invokeOptions []tests.InvokeTestOption, templateOptions []tests.TemplateParamOption) {
+	t.Helper()
 	select1Want := "[{\"$1\":1}]"
 	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: parsing failure | {\"statement\":\"SELEC 1;\"`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"$1\":1}"}]}}`
 	tmplSelectId1Want := "[{\"age\":21,\"id\":1,\"name\":\"Alex\"}]"
 	selectAllWant := "[{\"age\":21,\"id\":1,\"name\":\"Alex\"},{\"age\":100,\"id\":2,\"name\":\"Alice\"}]"
 
-	t.Run("GeneralTests", func(t *testing.T) {
-		tests.RunToolGetTest(t)
-		tests.RunToolInvokeTest(t, select1Want)
+	t.Run("invoke", func(t *testing.T) {
+		tests.RunToolInvokeTest(t, select1Want, invokeOptions...)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
 		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	})
-
-	t.Run("TemplateTests", func(t *testing.T) {
-		tests.RunToolInvokeWithTemplateParameters(t, collectionNameTemplateParam,
+	t.Run("template_parameters", func(t *testing.T) {
+		opts := []tests.TemplateParamOption{
 			tests.WithTmplSelectId1Want(tmplSelectId1Want),
 			tests.WithSelectAllWant(selectAllWant),
 			tests.DisableDdlTest(),
 			tests.DisableInsertTest(),
-		)
+		}
+		tests.RunToolInvokeWithTemplateParameters(t, collectionName, append(opts, templateOptions...)...)
 	})
 }
 
