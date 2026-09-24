@@ -255,9 +255,9 @@ func TestWithDocMetadataRejectsBadFrontmatter(t *testing.T) {
 	}
 }
 
-// TestWarnOnDocNameMismatch pins the signal an operator needs. resources/list
-// publishes the config key, so a key that differs from the frontmatter name
-// hides the skill from a client that reads the catalogue.
+// TestWarnOnDocNameMismatch pins the signal an operator needs. A group lists its
+// resources by config key, so a key that differs from the frontmatter name is
+// hard to maintain.
 func TestWarnOnDocNameMismatch(t *testing.T) {
 	var stderr bytes.Buffer
 	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")

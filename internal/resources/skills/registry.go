@@ -156,9 +156,9 @@ func (r *Registry) Doc(skillURI string) (resources.Resource, bool) {
 	return d, ok
 }
 
-// Key returns the config key that holds one skill's SKILL.md. resources/list
-// publishes this key, not the frontmatter name. The second result reports
-// whether the skill is registered.
+// Key returns the config key that holds one skill's SKILL.md. A group lists its
+// resources by this key. The second result reports whether the skill is
+// registered.
 func (r *Registry) Key(skillURI string) (string, bool) {
 	if r == nil {
 		return "", false
