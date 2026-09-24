@@ -320,8 +320,8 @@ func (c *ResourceConfigBase) Validate() error {
 	parsed.Host = strings.ToLower(parsed.Host)
 	c.URI = parsed.String()
 
-	// The check runs after normalization, so a URI that differs only in case
-	// still matches.
+	// The check runs after normalization, which lowercases the scheme and the
+	// host. The SKILL.md suffix still matches exact case.
 	if _, isSkillDoc := SkillRoot(c.URI); c.Dynamic && !isSkillDoc {
 		return fmt.Errorf("dynamic cannot be configured for resource %q: it applies only to a skill's %s, addressed as %s://<skill-path>/%s", c.Name, SkillFile, SkillScheme, SkillFile)
 	}

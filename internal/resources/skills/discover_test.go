@@ -928,4 +928,12 @@ func TestDiscoverDynamicPropagatesUpward(t *testing.T) {
 	if !maps.Equal(got, want) {
 		t.Errorf("dynamic by skill = %v, want %v", got, want)
 	}
+
+	// The marker replaces the digests. An ancestor that kept them would publish
+	// a partial file set, because it no longer covers the nested skill.
+	for _, e := range entries {
+		if e.Resources.Dynamic && len(e.Resources.Refs) != 0 {
+			t.Errorf("skill %q is dynamic with %d refs, want 0", e.URI, len(e.Resources.Refs))
+		}
+	}
 }
