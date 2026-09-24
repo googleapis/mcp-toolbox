@@ -773,10 +773,10 @@ func TestDiscoverDynamicSkill(t *testing.T) {
 	}
 }
 
-// TestDiscoverDynamicSkillIsExemptFromLimits checks that the per-skill limits do
-// not apply to a dynamic skill. SEP-2640 counts them over a manifest's entries,
-// and a dynamic skill publishes none.
-func TestDiscoverDynamicSkillIsExemptFromLimits(t *testing.T) {
+// TestDiscoverDynamicSkillIsExemptFromTheFileCount checks that the file count
+// does not apply to a dynamic skill. SEP-2640 counts it over a manifest's
+// entries, and a dynamic skill publishes none.
+func TestDiscoverDynamicSkillIsExemptFromTheFileCount(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
 	if err != nil {
 		t.Fatal(err)
@@ -801,6 +801,55 @@ func TestDiscoverDynamicSkillIsExemptFromLimits(t *testing.T) {
 	if len(entries) != 1 || !entries[0].Resources.Dynamic {
 		t.Fatalf("got %+v, want one dynamic entry", entries)
 	}
+}
+
+// TestDiscoverRejectsOversizeDynamicDoc checks the size limit on the one file a
+// dynamic skill reads. Discover runs on every request, so an unbounded read
+// repeats on every request.
+func TestDiscoverRejectsOversizeDynamicDoc(t *testing.T) {
+	const uri = "skill://live-report/SKILL.md"
+
+	t.Run("size hint", func(t *testing.T) {
+		ctx := mustLoggerCtx(t)
+		resourcesMap := map[string]resources.Resource{
+			"doc": hugeResource{
+				badResource: badResource{uri: uri, dynamic: true},
+				t:           t,
+			},
+		}
+
+		_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+		if err == nil {
+			t.Fatal("Discover() = nil, want a size error")
+		}
+		if !strings.Contains(err.Error(), "exceeds the limit") {
+			t.Errorf("Discover() = %v, want a size error", err)
+		}
+	})
+
+	t.Run("bytes read", func(t *testing.T) {
+		ctx := mustLoggerCtx(t)
+		// The resource reports no size, so this exercises the check on the
+		// bytes that Discover reads.
+		resourcesMap := map[string]resources.Resource{
+			"doc": badResource{
+				uri:     uri,
+				dynamic: true,
+				content: strings.Repeat("x", skills.MaxTotalSize+1),
+			},
+		}
+
+		_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+		if err == nil {
+			t.Fatal("Discover() = nil, want a size error")
+		}
+		if !strings.Contains(err.Error(), "exceeds the limit") {
+			t.Errorf("Discover() = %v, want a size error", err)
+		}
+		if !strings.Contains(err.Error(), uri) {
+			t.Errorf("Discover() = %v, want the error to name the skill", err)
+		}
+	})
 }
 
 // TestDiscoverDynamicSkillStillValidatesItsDoc checks that dynamic exempts a

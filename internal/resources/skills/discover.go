@@ -63,13 +63,20 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 // buildDynamicEntry assembles the entry for a skill that publishes the
 // "dynamic" marker in place of a file list.
 //
-// The per-skill limits do not apply: SEP-2640 counts them over the entries of a
-// manifest, and a dynamic skill has none. A host that loads one applies the
-// total-size limit to what it retrieves.
+// The file count does not apply: SEP-2640 counts it over the entries of a
+// manifest, and a dynamic skill has none. The size limit still bounds the one
+// file this reads, because Discover runs on every request.
 func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
+	if sz := doc.GetSize(); sz != nil && *sz > MaxTotalSize {
+		return Entry{}, fmt.Errorf("skill %q: %s exceeds the limit of %d bytes", skillURI, skillFile, MaxTotalSize)
+	}
 	content, err := readString(ctx, doc)
 	if err != nil {
 		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	// GetSize above is only a hint; this is authoritative.
+	if int64(len(content)) > MaxTotalSize {
+		return Entry{}, fmt.Errorf("skill %q: %s exceeds the limit of %d bytes", skillURI, skillFile, MaxTotalSize)
 	}
 	frontmatter, err := parseFrontmatter(content)
 	if err != nil {
