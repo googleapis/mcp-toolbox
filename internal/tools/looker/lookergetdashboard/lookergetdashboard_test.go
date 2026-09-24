@@ -159,12 +159,12 @@ func TestAnnotations(t *testing.T) {
 		ConfigBase: tools.ConfigBase{
 			Name:        "test_tool",
 			Description: "test description",
+			Annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: &readOnlyTrue,
+			},
 		},
 		Type:   "looker-get-dashboard",
 		Source: "my-instance",
-		Annotations: &tools.ToolAnnotations{
-			ReadOnlyHint: &readOnlyTrue,
-		},
 	}
 
 	tool, err := cfg.Initialize(context.Background())
@@ -235,7 +235,7 @@ func TestInvokeLookerGetDashboard(t *testing.T) {
 		Timeout:         "5s",
 		SslVerification: false,
 	}
-	src, err := srcCfg.Initialize(ctx, nil)
+	src, err := srcCfg.Initialize(ctx, nil, false)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}
