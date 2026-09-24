@@ -157,10 +157,14 @@ func TestNilRegistry(t *testing.T) {
 	if doc, ok := reg.Doc("skill://analytics-guide/SKILL.md"); ok {
 		t.Errorf("Doc() = %v, true, want false", doc)
 	}
+	if reg.IsDynamic("skill://analytics-guide/SKILL.md") {
+		t.Error("IsDynamic() = true, want false")
+	}
 }
 
-// TestRegistryDoc pins the SKILL.md lookup. Discover reads the dynamic flag
-// from this resource, so it must resolve without a scan of the member list.
+// TestRegistryDoc pins the SKILL.md lookup. buildDynamicEntry reads this
+// resource for the frontmatter, so it must resolve without a scan of the
+// member list.
 func TestRegistryDoc(t *testing.T) {
 	ctx := mustLoggerCtx(t)
 
