@@ -53,6 +53,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
+	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/postgres"
@@ -1774,6 +1775,36 @@ func TestInitializeConfigs(t *testing.T) {
 		// A supporting file keeps the identity the operator gave it.
 		if got := resourcesMap["queries"].GetName(); got != "queries" {
 			t.Errorf("supporting file GetName() = %q, want queries", got)
+		}
+
+		// The wrapper is only worth anything if resources/list carries it, so
+		// assert on the manifest a client actually receives.
+		g := group.NewGroup(group.GroupConfig{ResourceNames: []string{"guide", "queries"}})
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil,
+			map[string]group.Group{g.Name: g})
+		listed, err := v20260728.GenerateListResourcesResult(pMgr, g)
+		if err != nil {
+			t.Fatalf("GenerateListResourcesResult() = %v, want nil", err)
+		}
+		byURI := make(map[string]v20260728.Resource, len(listed.Resources))
+		for _, r := range listed.Resources {
+			byURI[r.Uri] = r
+		}
+		got, ok := byURI["skill://analytics-guide/SKILL.md"]
+		if !ok {
+			t.Fatalf("resources/list = %+v, want the SKILL.md listed", listed.Resources)
+		}
+		if got.Name != "analytics-guide" {
+			t.Errorf("listed name = %q, want the frontmatter name", got.Name)
+		}
+		if got.Description != "Query the warehouse" {
+			t.Errorf("listed description = %q, want the frontmatter description", got.Description)
+		}
+		if got.MimeType != "text/markdown" {
+			t.Errorf("listed mimeType = %q, want text/markdown", got.MimeType)
+		}
+		if other := byURI["skill://analytics-guide/references/queries.md"]; other.Name != "queries" {
+			t.Errorf("listed supporting file name = %q, want queries", other.Name)
 		}
 	})
 }

@@ -196,7 +196,9 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if !ok {
 			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
 		}
-		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
+		// The resource names itself; a skill's SKILL.md reports the name its
+		// frontmatter declares, not the config key it is registered under.
+		mcpManifest = append(mcpManifest, generateResourceManifest(res.GetName(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
 	}
 	return ListResourcesResult{Resources: mcpManifest}, nil
 }
