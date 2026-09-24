@@ -20,6 +20,7 @@ import (
 
 	// Import resource packages for side effect of registration
 	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/gcs"
 	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
 
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbadmin"
