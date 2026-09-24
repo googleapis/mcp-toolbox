@@ -79,4 +79,5 @@ func ServeFlags(flags *pflag.FlagSet, opts *ToolboxOptions) {
 	flags.BoolVar(&opts.Cfg.EnableDraftSpecs, "enable-draft-specs", false, "Opt-in and test upcoming draft MCP specifications.")
 	flags.StringSliceVar(&opts.Cfg.DisableExt, "disable-ext", []string{}, "Specifies MCP extension URIs disabled on this server.")
 	flags.StringVar(&opts.Cfg.OpenAIAppsChallengeFile, "openai-apps-challenge-file", "", "Path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.")
+	flags.BoolVar(&opts.Cfg.DeferSourceConnect, "defer-source-connect", false, "Connect to each source on first use instead of at startup. Tools can be listed without any source being reachable.")
 }

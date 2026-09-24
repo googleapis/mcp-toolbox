@@ -25,7 +25,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
 	"github.com/goccy/go-yaml"
-	es "github.com/googleapis/mcp-toolbox/internal/sources/elasticsearch"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 )
 
@@ -38,19 +37,17 @@ func init() {
 }
 
 type compatibleSource interface {
-	ElasticsearchClient() es.EsClient
 	RunSQL(ctx context.Context, format, query string, params []map[string]any) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Query            string                 `yaml:"query" validate:"required"`
-	Format           string                 `yaml:"format"`
-	Timeout          int                    `yaml:"timeout"`
-	Parameters       parameters.Parameters  `yaml:"parameters"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string                `yaml:"type" validate:"required"`
+	Source           string                `yaml:"source" validate:"required"`
+	Query            string                `yaml:"query" validate:"required"`
+	Format           string                `yaml:"format"`
+	Timeout          int                   `yaml:"timeout"`
+	Parameters       parameters.Parameters `yaml:"parameters"`
 }
 
 var _ tools.ToolConfig = Config{}

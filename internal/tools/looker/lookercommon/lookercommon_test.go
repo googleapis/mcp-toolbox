@@ -54,6 +54,8 @@ func TestExtractLookerFieldProperties(t *testing.T) {
 					SuggestExplore:   stringPtr("explore"),
 					SuggestDimension: stringPtr("dimension"),
 					Suggestions:      stringArrayPtr([]string{"foo", "bar", "baz"}),
+					ValueFormat:      stringPtr("$#,##0.00"),
+					ValueFormatName:  stringPtr("usd"),
 				},
 			},
 			want: []any{
@@ -67,6 +69,64 @@ func TestExtractLookerFieldProperties(t *testing.T) {
 					"suggest_explore":   "explore",
 					"suggest_dimension": "dimension",
 					"suggestions":       []string{"foo", "bar", "baz"},
+					"value_format":      "$#,##0.00",
+					"value_format_name": "usd",
+				},
+			},
+		},
+		{
+			desc: "field with only value_format set",
+			fields: []v4.LookmlModelExploreField{
+				{
+					Name:        stringPtr("measure_name"),
+					Type:        stringPtr("number"),
+					ValueFormat: stringPtr("0.00%"),
+					// ValueFormatName is nil
+				},
+			},
+			want: []any{
+				map[string]any{
+					"name":         "measure_name",
+					"type":         "number",
+					"value_format": "0.00%",
+					// value_format_name should not be present in the map
+				},
+			},
+		},
+		{
+			desc: "field with empty value formats",
+			fields: []v4.LookmlModelExploreField{
+				{
+					Name:            stringPtr("measure_name"),
+					Type:            stringPtr("number"),
+					ValueFormat:     stringPtr(""),
+					ValueFormatName: stringPtr(""),
+				},
+			},
+			want: []any{
+				map[string]any{
+					"name": "measure_name",
+					"type": "number",
+					// neither value_format nor value_format_name should be present in the map
+				},
+			},
+		},
+		{
+			desc: "field with only value_format_name set",
+			fields: []v4.LookmlModelExploreField{
+				{
+					Name:            stringPtr("measure_name"),
+					Type:            stringPtr("number"),
+					ValueFormatName: stringPtr("percent_2"),
+					// ValueFormat is nil
+				},
+			},
+			want: []any{
+				map[string]any{
+					"name":              "measure_name",
+					"type":              "number",
+					"value_format_name": "percent_2",
+					// value_format should not be present in the map
 				},
 			},
 		},
