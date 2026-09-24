@@ -272,11 +272,12 @@ func TestWarnOnDocNameMismatch(t *testing.T) {
 		"queries": textResource(t, ctx, "queries", "skill://analytics-guide/references/queries.md", "# Common queries\n"),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	reg := skills.NewRegistry(resourcesMap)
+	entries, err := skills.Discover(ctx, reg)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
-	if err := skills.WarnOnDocNameMismatch(ctx, entries, resourcesMap); err != nil {
+	if err := skills.WarnOnDocNameMismatch(ctx, entries, reg); err != nil {
 		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
 	}
 
@@ -308,11 +309,12 @@ func TestNoDocNameMismatchWarning(t *testing.T) {
 		"analytics-guide": textResource(t, ctx, "analytics-guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	reg := skills.NewRegistry(resourcesMap)
+	entries, err := skills.Discover(ctx, reg)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
-	if err := skills.WarnOnDocNameMismatch(ctx, entries, resourcesMap); err != nil {
+	if err := skills.WarnOnDocNameMismatch(ctx, entries, reg); err != nil {
 		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
 	}
 	if got := stderr.String(); strings.Contains(got, "Rename the resource") {

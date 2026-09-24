@@ -261,7 +261,8 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 
 	// Validate every skill the config declares. This runs after the log above
 	// because every resource did initialize: the check is across resources.
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	skillReg := skills.NewRegistry(resourcesMap)
+	entries, err := skills.Discover(ctx, skillReg)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
@@ -269,7 +270,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	if err := skills.WarnOnDuplicateNames(ctx, entries); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
-	if err := skills.WarnOnDocNameMismatch(ctx, entries, resourcesMap); err != nil {
+	if err := skills.WarnOnDocNameMismatch(ctx, entries, skillReg); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 	// A SKILL.md is published under the name and description its frontmatter

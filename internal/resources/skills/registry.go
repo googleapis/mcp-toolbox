@@ -36,6 +36,7 @@ import (
 type Registry struct {
 	members map[string][]resources.Resource
 	docs    map[string]resources.Resource
+	keys    map[string]string
 	dynamic map[string]bool
 	uris    []string
 }
@@ -52,11 +53,17 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 
 	isRoot := make(map[string]bool)
 	docs := make(map[string]resources.Resource)
-	for _, res := range resourcesMap {
+	keys := make(map[string]string)
+	for key, res := range resourcesMap {
 		uri := res.GetURI()
 		if root, ok := resources.SkillRoot(uri); ok {
 			isRoot[root] = true
 			docs[uri] = res
+			// Two config keys can address one URI. Keep the lowest, so the
+			// registry does not depend on map order.
+			if prev, seen := keys[uri]; !seen || key < prev {
+				keys[uri] = key
+			}
 		}
 	}
 
@@ -118,7 +125,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
 
-	return &Registry{members: members, docs: docs, dynamic: dynamic, uris: uris}
+	return &Registry{members: members, docs: docs, keys: keys, dynamic: dynamic, uris: uris}
 }
 
 // URIs returns a copy of every skill's SKILL.md URI, sorted.
@@ -147,6 +154,17 @@ func (r *Registry) Doc(skillURI string) (resources.Resource, bool) {
 	}
 	d, ok := r.docs[skillURI]
 	return d, ok
+}
+
+// Key returns the config key that holds one skill's SKILL.md. resources/list
+// publishes this key, not the frontmatter name. The second result reports
+// whether the skill is registered.
+func (r *Registry) Key(skillURI string) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	k, ok := r.keys[skillURI]
+	return k, ok
 }
 
 // IsDynamic reports whether a skill publishes the dynamic marker in place of a
