@@ -431,7 +431,7 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/arm64/toolbox.exe
 
   - id: "publish-npm-to-ar"
-    name: node:20
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5"
     waitFor:
       - "build-linux-amd64"
       - "build-darwin-arm64"
