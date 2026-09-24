@@ -118,7 +118,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 	iter := session.Query(statement, sliceParams...).IterContext(ctx)
 
 	// Create a slice to store the out
-	var out []map[string]interface{}
+	out := []map[string]interface{}{}
 
 	// Scan results into a map and append to the slice
 	for {
