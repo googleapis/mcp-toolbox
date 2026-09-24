@@ -187,16 +187,20 @@ Three rules apply to the marker:
 
 ## Resource names
 
-`resources/list` publishes the config `name` of the `SKILL.md` resource, not the
-frontmatter name. Name the resource after the skill, so the two agree. Toolbox
-logs a warning at startup for each `SKILL.md` whose config name differs from its
-frontmatter name.
+`resources/list` publishes the frontmatter `name` and `description` of a
+`SKILL.md`, not the config `name` and `description`. Toolbox also reports the
+`mimeType` of a `SKILL.md` as `text/markdown`. The `title` and the annotations
+come from the config.
 
-Toolbox also logs a warning at startup when two skills share a frontmatter
+Toolbox logs a warning at startup for each `SKILL.md` whose config name differs
+from its frontmatter name. The catalogue is correct either way. Name the resource
+after the skill, because a group lists its resources by config name.
+
+Toolbox logs a second warning at startup when two skills share a frontmatter
 `name`. The warning names both URIs, because a host must distinguish them.
 
-This affects the catalogue only. A host reaches a skill through `skills/list` and
-the URI, and no code path routes on the resource name.
+A host reaches a skill through `skills/list` and the URI. No code path routes on
+the resource name.
 
 ## Groups
 
