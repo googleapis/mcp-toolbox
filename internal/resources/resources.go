@@ -43,9 +43,7 @@ const SkillScheme = "skill"
 // SkillFile is the document at the root of every Agent Skill.
 const SkillFile = "SKILL.md"
 
-// IsSkillDoc reports whether uri addresses a skill's SKILL.md. A bare
-// skill://SKILL.md is not one: the host names the skill, so a document needs a
-// path segment beyond it.
+// IsSkillDoc reports whether uri addresses a skill's SKILL.md.
 func IsSkillDoc(uri string) bool {
 	parsed, err := url.Parse(uri)
 	if err != nil || parsed.Scheme != SkillScheme || parsed.Host == "" {
