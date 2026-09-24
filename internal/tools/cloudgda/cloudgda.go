@@ -110,12 +110,11 @@ func (g *GenerationOptions) UnmarshalYAML(b []byte) error {
 
 type Config struct {
 	tools.ConfigBase  `yaml:",inline"`
-	Type              string                 `yaml:"type" validate:"required"`
-	Source            string                 `yaml:"source" validate:"required"`
-	Location          string                 `yaml:"location" validate:"required"`
-	Context           *QueryDataContext      `yaml:"context" validate:"required"`
-	GenerationOptions *GenerationOptions     `yaml:"generationOptions,omitempty"`
-	Annotations       *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type              string             `yaml:"type" validate:"required"`
+	Source            string             `yaml:"source" validate:"required"`
+	Location          string             `yaml:"location" validate:"required"`
+	Context           *QueryDataContext  `yaml:"context" validate:"required"`
+	GenerationOptions *GenerationOptions `yaml:"generationOptions,omitempty"`
 }
 
 // validate interface

@@ -56,11 +56,10 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase  `yaml:",inline"`
-	Type              string                 `yaml:"type" validate:"required"`
-	Source            string                 `yaml:"source" validate:"required"`
-	Annotations       *tools.ToolAnnotations `yaml:"annotations,omitempty"`
-	SourceBucket      *string                `yaml:"source_bucket,omitempty"`
-	DestinationBucket *string                `yaml:"destination_bucket,omitempty"`
+	Type              string  `yaml:"type" validate:"required"`
+	Source            string  `yaml:"source" validate:"required"`
+	SourceBucket      *string `yaml:"source_bucket,omitempty"`
+	DestinationBucket *string `yaml:"destination_bucket,omitempty"`
 }
 
 var _ tools.ToolConfig = Config{}
