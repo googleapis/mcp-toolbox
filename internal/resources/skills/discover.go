@@ -71,16 +71,9 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 // manifest, and a dynamic skill has none. The size limit still bounds the one
 // file this reads, because Discover runs on every request.
 func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
-	if sz := doc.GetSize(); sz != nil && *sz > MaxTotalSize {
-		return Entry{}, fmt.Errorf("skill %q: %s exceeds the limit of %d bytes", skillURI, skillFile, MaxTotalSize)
-	}
-	content, err := readString(ctx, doc)
+	content, err := readBounded(ctx, doc, MaxTotalSize)
 	if err != nil {
 		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
-	}
-	// GetSize above is only a hint. This check is authoritative.
-	if int64(len(content)) > MaxTotalSize {
-		return Entry{}, fmt.Errorf("skill %q: %s exceeds the limit of %d bytes", skillURI, skillFile, MaxTotalSize)
 	}
 	frontmatter, err := parseFrontmatter(content)
 	if err != nil {
@@ -101,19 +94,11 @@ func buildEntry(ctx context.Context, skillURI string, members []resources.Resour
 	// memory. We sum as we read: this bounds what each skill loads.
 	var total int64
 	for _, res := range members {
-		// Subtraction, not addition: a huge hint would wrap the total negative.
-		if sz := res.GetSize(); sz != nil && *sz > MaxTotalSize-total {
-			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
-		}
-		content, err := readString(ctx, res)
+		content, err := readBounded(ctx, res, MaxTotalSize-total)
 		if err != nil {
 			return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
 		}
-		// GetSize above is only a hint. This check is authoritative.
 		size := int64(len(content))
-		if size > MaxTotalSize-total {
-			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
-		}
 		total += size
 		sum := sha256.Sum256([]byte(content))
 		refs = append(refs, ResourceRef{
@@ -130,6 +115,24 @@ func buildEntry(ctx context.Context, skillURI string, members []resources.Resour
 	}
 
 	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}, nil
+}
+
+// readBounded reads one resource, and rejects content larger than remaining
+// bytes. Callers pass the budget they have left, not the limit, so a huge size
+// hint cannot wrap a running total negative.
+func readBounded(ctx context.Context, res resources.Resource, remaining int64) (string, error) {
+	if sz := res.GetSize(); sz != nil && *sz > remaining {
+		return "", fmt.Errorf("total size exceeds the limit of %d bytes", MaxTotalSize)
+	}
+	content, err := readString(ctx, res)
+	if err != nil {
+		return "", err
+	}
+	// GetSize above is only a hint. This check is authoritative.
+	if int64(len(content)) > remaining {
+		return "", fmt.Errorf("total size exceeds the limit of %d bytes", MaxTotalSize)
+	}
+	return content, nil
 }
 
 func readString(ctx context.Context, res resources.Resource) (string, error) {
