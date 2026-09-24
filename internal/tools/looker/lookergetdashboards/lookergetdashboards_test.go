@@ -163,7 +163,7 @@ func TestInvokeLookerGetDashboards(t *testing.T) {
 		Timeout:         "5s",
 		SslVerification: false,
 	}
-	src, err := srcCfg.Initialize(ctx, nil)
+	src, err := srcCfg.Initialize(ctx, nil, false)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}

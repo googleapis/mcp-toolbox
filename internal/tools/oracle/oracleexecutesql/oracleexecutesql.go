@@ -4,7 +4,6 @@ package oracleexecutesql
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 
@@ -32,16 +31,14 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	OracleDB() *sql.DB
 	RunSQL(context.Context, string, []any, bool) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	ReadOnly         *bool                  `yaml:"readOnly"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
+	ReadOnly         *bool  `yaml:"readOnly"`
 }
 
 // validate interface

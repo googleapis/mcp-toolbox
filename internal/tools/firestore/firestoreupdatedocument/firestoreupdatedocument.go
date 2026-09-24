@@ -50,15 +50,14 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	FirestoreClient() *firestoreapi.Client
+	FirestoreClientContext(context.Context) (*firestoreapi.Client, error)
 	UpdateDocument(context.Context, string, []firestoreapi.Update, any, bool) (map[string]any, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -189,11 +188,14 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	// Use selective field update with update mask
 	updates := make([]firestoreapi.Update, 0, len(updatePaths))
 	var documentData any
-	var err error
+	client, err := source.FirestoreClientContext(ctx)
+	if err != nil {
+		return nil, util.ProcessGcpError(err)
+	}
 	if len(updatePaths) > 0 {
 
 		// Convert document data without delete markers
-		dataMap, err := fsUtil.JSONToFirestoreValue(documentDataRaw, source.FirestoreClient())
+		dataMap, err := fsUtil.JSONToFirestoreValue(documentDataRaw, client)
 		if err != nil {
 			return nil, util.NewAgentError(fmt.Sprintf("failed to convert document data: %v", err), err)
 		}
@@ -219,7 +221,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	} else {
 		// Update all fields in the document data (merge)
-		documentData, err = fsUtil.JSONToFirestoreValue(documentDataRaw, source.FirestoreClient())
+		documentData, err = fsUtil.JSONToFirestoreValue(documentDataRaw, client)
 		if err != nil {
 			return nil, util.NewAgentError(fmt.Sprintf("failed to convert document data: %v", err), err)
 		}

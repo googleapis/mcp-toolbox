@@ -73,8 +73,31 @@ func withDefaults(c server.ServerConfig) server.ServerConfig {
 	return c
 }
 
+type threadSafeBuffer struct {
+	b bytes.Buffer
+	m sync.Mutex
+}
+
+func (b *threadSafeBuffer) Read(p []byte) (n int, err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.Read(p)
+}
+
+func (b *threadSafeBuffer) Write(p []byte) (n int, err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *threadSafeBuffer) String() string {
+	b.m.Lock()
+	defer b.m.Unlock()
+	return b.b.String()
+}
+
 func invokeCommand(args []string) (*cobra.Command, *internal.ToolboxOptions, string, error) {
-	buf := new(bytes.Buffer)
+	buf := new(threadSafeBuffer)
 	opts := internal.NewToolboxOptions(internal.WithIOStreams(buf, buf))
 	c := NewCommand(opts)
 
@@ -97,61 +120,9 @@ func invokeCommand(args []string) (*cobra.Command, *internal.ToolboxOptions, str
 	return c, opts, buf.String(), err
 }
 
-// commandOutput captures both log streams and allows snapshots while background
-// work, such as the version check, is still writing.
-type commandOutput struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *commandOutput) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *commandOutput) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
-func TestCommandOutputConcurrentLogging(t *testing.T) {
-	buf := new(commandOutput)
-	logger, err := log.NewStdLogger(buf, buf, "INFO")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	const count = 100
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for _, write := range []func(){
-		func() { logger.InfoContext(context.Background(), "version check") },
-		func() { logger.WarnContext(context.Background(), "shutdown") },
-		func() { _ = buf.String() },
-	} {
-		wg.Go(func() {
-			<-start
-			for range count {
-				write()
-			}
-		})
-	}
-	close(start)
-	wg.Wait()
-
-	output := buf.String()
-	for _, message := range []string{"version check", "shutdown"} {
-		if got := strings.Count(output, message); got != count {
-			t.Errorf("got %d %q messages, want %d", got, message, count)
-		}
-	}
-}
-
 // invokeCommandWithContext executes the command with a context and returns the captured output.
 func invokeCommandWithContext(ctx context.Context, args []string) (*cobra.Command, *internal.ToolboxOptions, string, error) {
-	buf := new(commandOutput)
+	buf := new(threadSafeBuffer)
 	opts := internal.NewToolboxOptions(internal.WithIOStreams(buf, buf))
 	c := NewCommand(opts)
 
@@ -331,6 +302,13 @@ func TestServerConfigFlags(t *testing.T) {
 			args: []string{"--openai-apps-challenge-file", "openai-token.txt"},
 			want: withDefaults(server.ServerConfig{
 				OpenAIAppsChallengeFile: "openai-token.txt",
+			}),
+		},
+		{
+			desc: "defer source connect",
+			args: []string{"--defer-source-connect"},
+			want: withDefaults(server.ServerConfig{
+				DeferSourceConnect: true,
 			}),
 		},
 	}

@@ -131,10 +131,9 @@ func TestGetAnnotations(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			cfg := postgresexecutesql.Config{
-				ConfigBase:  tools.ConfigBase{Name: "postgres-execute-sql", Description: "execute sql query"},
-				Type:        "postgres-execute-sql",
-				Source:      "my-instance",
-				Annotations: tc.annotations,
+				ConfigBase: tools.ConfigBase{Name: "postgres-execute-sql", Description: "execute sql query", Annotations: tc.annotations},
+				Type:       "postgres-execute-sql",
+				Source:     "my-instance",
 			}
 			tool, err := cfg.Initialize(ctx)
 			if err != nil {
