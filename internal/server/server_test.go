@@ -1732,6 +1732,10 @@ func TestInitializeConfigs(t *testing.T) {
 	// A SKILL.md configured as "guide" must reach a client as the skill it
 	// declares, so a listing names the skill rather than the file backing it.
 	t.Run("publishes a skill under its frontmatter identity", func(t *testing.T) {
+		const (
+			skillMD   = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
+			queriesMD = "# Common queries\n"
+		)
 		cfg := server.ServerConfig{
 			ResourceConfigs: map[string]resources.ResourceConfig{
 				"guide": &text.Config{
@@ -1739,14 +1743,14 @@ func TestInitializeConfigs(t *testing.T) {
 						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/plain"},
 						URI:        "skill://analytics-guide/SKILL.md",
 					},
-					Text: "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n",
+					Text: skillMD,
 				},
 				"queries": &text.Config{
 					ResourceConfigBase: resources.ResourceConfigBase{
 						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
 						URI:        "skill://analytics-guide/references/queries.md",
 					},
-					Text: "# Common queries\n",
+					Text: queriesMD,
 				},
 			},
 			SkipSourceValidation: true,
@@ -1786,25 +1790,24 @@ func TestInitializeConfigs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GenerateListResourcesResult() = %v, want nil", err)
 		}
-		byURI := make(map[string]v20260728.Resource, len(listed.Resources))
-		for _, r := range listed.Resources {
-			byURI[r.Uri] = r
+		skillSize, queriesSize := int64(len(skillMD)), int64(len(queriesMD))
+		want := []v20260728.Resource{
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "analytics-guide"},
+				Uri:          "skill://analytics-guide/SKILL.md",
+				Description:  "Query the warehouse",
+				MimeType:     "text/markdown",
+				Size:         &skillSize,
+			},
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "queries"},
+				Uri:          "skill://analytics-guide/references/queries.md",
+				MimeType:     "text/markdown",
+				Size:         &queriesSize,
+			},
 		}
-		got, ok := byURI["skill://analytics-guide/SKILL.md"]
-		if !ok {
-			t.Fatalf("resources/list = %+v, want the SKILL.md listed", listed.Resources)
-		}
-		if got.Name != "analytics-guide" {
-			t.Errorf("listed name = %q, want the frontmatter name", got.Name)
-		}
-		if got.Description != "Query the warehouse" {
-			t.Errorf("listed description = %q, want the frontmatter description", got.Description)
-		}
-		if got.MimeType != "text/markdown" {
-			t.Errorf("listed mimeType = %q, want text/markdown", got.MimeType)
-		}
-		if other := byURI["skill://analytics-guide/references/queries.md"]; other.Name != "queries" {
-			t.Errorf("listed supporting file name = %q, want queries", other.Name)
+		if diff := cmp.Diff(want, listed.Resources); diff != "" {
+			t.Errorf("resources/list mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
