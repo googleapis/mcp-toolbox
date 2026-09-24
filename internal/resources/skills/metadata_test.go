@@ -15,12 +15,17 @@
 package skills_test
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // TestWithDocMetadata is the point of the change: a SKILL.md is published as the
@@ -247,5 +252,70 @@ func TestWithDocMetadataRejectsBadFrontmatter(t *testing.T) {
 				t.Errorf("WithDocMetadata() = %q, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestWarnOnDocNameMismatch pins the signal an operator needs. resources/list
+// publishes the config key, so a key that differs from the frontmatter name
+// hides the skill from a client that reads the catalogue.
+func TestWarnOnDocNameMismatch(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"guide":   textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+		"other":   textResource(t, ctx, "other", "skill://other/SKILL.md", skillMD("other", "A skill named for its key")),
+		"queries": textResource(t, ctx, "queries", "skill://analytics-guide/references/queries.md", "# Common queries\n"),
+	}
+
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, entries, resourcesMap); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+
+	got := stderr.String()
+	for _, want := range []string{`resource \"guide\"`, `skill \"analytics-guide\"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warning %q does not mention %q", got, want)
+		}
+	}
+	// A key that matches, and a supporting file, are not mismatches.
+	for _, unwanted := range []string{`resource \"other\"`, `resource \"queries\"`} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("warning %q reports %q", got, unwanted)
+		}
+	}
+}
+
+// TestNoDocNameMismatchWarning guards the other direction: a key that matches
+// must not warn, or the warning is noise an operator learns to ignore.
+func TestNoDocNameMismatchWarning(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"analytics-guide": textResource(t, ctx, "analytics-guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+	}
+
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, entries, resourcesMap); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+	if got := stderr.String(); strings.Contains(got, "Rename the resource") {
+		t.Errorf("unexpected name-mismatch warning: %q", got)
 	}
 }
