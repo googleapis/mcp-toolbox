@@ -118,50 +118,24 @@ A `type: file` resource is the usual choice, because it serves a file from disk.
 
 ## Requirements
 
-Toolbox validates every skill at startup. A skill that breaks one of these rules
-fails the load, and the error names the skill and the file:
+Toolbox validates every skill at startup. A skill that breaks a rule fails the
+load, and the error names the skill and the file.
 
-- The `SKILL.md` opens with `---` on the first line, and closes the frontmatter
-  with `---` on a line of its own.
-- The frontmatter parses as YAML.
-- The frontmatter defines `name` and `description`.
-- `name` equals the last segment of the skill path.
-- `name` holds 1 to 64 characters, and uses only lowercase letters, digits, and
-  hyphens. It does not start or end with a hyphen, and holds no two hyphens
-  together.
-- `description` holds at most 1024 characters.
-- The skill holds at most 512 files.
-- The files of the skill total at most 16 MiB.
-- No two resources declare the same `skill://` URI.
+The `SKILL.md` must follow the [Agent Skills
+specification](https://agentskills.io/specification), and the skill must follow
+[SEP-2640](https://modelcontextprotocol.io/seps/2640-skills-extension),
+the MCP extension that defines how a server serves a skill. Toolbox adds one rule
+of its own: no two resources declare the same `skill://` URI.
 
-A `file` resource serves only these extensions: `.txt`, `.md`, `.csv`, `.json`,
-`.yaml`, `.yml`, `.xml`, `.sql`, `.html`, `.htm`, `.js`, `.css`, `.svg`. A
-resource with any other extension fails the load, and `dynamic: true` does not
-change this.
-
-A skill can therefore hold files on disk that Toolbox cannot serve. Declare the
-files it can serve, and set [`dynamic: true`](#dynamic-skills) on the `SKILL.md`,
-so the entry publishes no incomplete file list.
-
-A large file does not fail the load. It truncates. The
-[`maxSize`](../resources/file/) of a `file` resource defaults to 5 MB. Toolbox
-reads `maxSize` bytes, appends a truncation notice to the content, and computes
-the digest over those bytes. The catalogue reports no truncation, so raise
-`maxSize` when a file of the skill is larger.
 
 ## Freshness
 
-Toolbox computes the digests for each request. Edit a file, and the next
-`skills/list` publishes the new digest. The specification treats a changed digest
-as a normal condition. The host requests a fresh entry, and the user approves the
-new content.
+Toolbox computes the digests for each request. Editing a file requires a new
+`skills/list` request to publish the new digest.
 
 If you add or remove a file of the skill, you change the configuration. Reload
 the server.
 
-A client can still hold an older catalogue. Both results carry `ttlMs: 300000`
-and `cacheScope: public`, so a client can reuse the catalogue for 5 minutes.
-`public` also lets a shared proxy serve that catalogue to a different client.
 
 ## Nested skills
 
@@ -185,8 +159,7 @@ impossible.
 
 Three rules apply to the marker:
 
-- `dynamic` is valid only on a `SKILL.md` resource. Any other resource fails the
-  load.
+- `dynamic` must be mentioned only on the `SKILL.md` resource of a skill. Validation fails here for any other resource.
 - The 512-file limit does not apply, because a dynamic skill publishes no file
   list. The 16 MiB limit still bounds the read of the `SKILL.md`.
 - A nested dynamic skill makes every enclosing skill dynamic. The outer skill
@@ -196,15 +169,8 @@ Three rules apply to the marker:
 
 `resources/list` publishes the frontmatter `name` and `description` of a
 `SKILL.md`, not the config `name` and `description`. Toolbox also reports the
-`mimeType` of a `SKILL.md` as `text/markdown`. The `title` and the annotations
-come from the config.
+`mimeType` of a `SKILL.md` as `text/markdown`.
 
-Toolbox logs a warning at startup for each `SKILL.md` whose config name differs
-from its frontmatter name. The catalogue is correct either way. Name the resource
-after the skill, because a group lists its resources by config name.
-
-Toolbox logs a second warning at startup when two skills share a frontmatter
-`name`. The warning names both URIs, because a host must distinguish them.
 
 ## Groups
 
@@ -213,7 +179,7 @@ The skills catalogue is server-wide. [Groups](../groups/) do not scope
 result. Groups do scope `resources/list` and `resources/read`, which return the
 file content.
 
-Treat the frontmatter of a skill as visible to every client of the server.
+Treat the content of a skill as visible to every client of the server.
 
 ## Disabling the extension
 
