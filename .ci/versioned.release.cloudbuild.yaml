@@ -12,9 +12,43 @@
 # limitations under the License.
 
 steps:
+  - id: "install-dependencies"
+    name: golang:1
+    waitFor: ["-"]
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      go get -d ./...
+
+  - id: "run-tests"
+    name: golang:1
+    waitFor:
+      - "install-dependencies"
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+
+      echo "Installing go-junit-report..."
+      go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+
+      echo "Running unit tests and generating JUnit XML report..."
+      go test -race -v ./cmd/... ./internal/... 2>&1 | tee /dev/stderr | $(go env GOPATH)/bin/go-junit-report -set-exit-code > in-progress-junit-report.xml
+
+      # If the previous command failed, this will never be renamed and thus not uploaded
+      mv in-progress-junit-report.xml junit-report.xml
+
   - id: "build-docker"
     name: "gcr.io/cloud-builders/docker"
-    waitFor: ["-"]
+    waitFor:
+      - "run-tests"
     script: |
       #!/usr/bin/env bash
       set -e
@@ -37,17 +71,6 @@ steps:
       # Pull the image to ensure it's available for provenance generation.
       docker pull ${_DOCKER_URI}:${VERSION}
       docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
-
-  - id: "install-dependencies"
-    name: golang:1
-    waitFor: ["-"]
-    env:
-      - "GOPATH=/gopath"
-    volumes:
-      - name: "go"
-        path: "/gopath"
-    script: |
-      go get -d ./...
 
   - id: "install-zig"
     name: golang:1
@@ -82,7 +105,7 @@ steps:
   - id: "build-linux-amd64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -112,7 +135,7 @@ steps:
   - id: "build-linux-amd64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -142,7 +165,7 @@ steps:
   - id: "build-darwin-arm64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -179,7 +202,7 @@ steps:
   - id: "build-darwin-arm64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -216,7 +239,7 @@ steps:
   - id: "build-darwin-amd64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -253,7 +276,7 @@ steps:
   - id: "build-darwin-amd64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
       - "install-macos-sdk"
     env:
@@ -290,7 +313,7 @@ steps:
   - id: "build-windows-amd64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -320,7 +343,7 @@ steps:
   - id: "build-windows-amd64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -350,7 +373,7 @@ steps:
   - id: "build-windows-arm64"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -380,7 +403,7 @@ steps:
   - id: "build-windows-arm64-geminicli"
     name: golang:1
     waitFor:
-      - "install-dependencies"
+      - "run-tests"
       - "install-zig"
     env:
       - "GOPATH=/gopath"
@@ -457,8 +480,14 @@ steps:
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh pypi
 
-images:
-  - "${_DOCKER_URI}:latest"
+artifacts:
+  images:
+    - "${_DOCKER_URI}:latest"
+  testResults:
+    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${BUILD_ID}"
+    paths:
+      - "junit-report.xml"
+    format: JUNIT
 
 options:
   requestedVerifyOption: VERIFIED # This ensures provenance is generated

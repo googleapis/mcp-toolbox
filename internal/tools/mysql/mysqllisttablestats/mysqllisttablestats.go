@@ -16,7 +16,6 @@ package mysqllisttablestats
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 
@@ -82,16 +81,14 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MySQLPool() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
 	MySQLDatabase() string
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface

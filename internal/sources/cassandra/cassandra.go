@@ -56,14 +56,16 @@ type Config struct {
 }
 
 // Initialize implements sources.SourceConfig.
-func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	session, err := initCassandraSession(ctx, tracer, c)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create session: %v", err)
-	}
+func (c Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
-		Config:  c,
-		Session: session,
+		Config: c,
+		conn:   sources.NewConnectOnce[*gocql.Session](ctx, c.Name, SourceType, tracer),
+	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.CassandraSessionContext(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -77,12 +79,20 @@ var _ sources.SourceConfig = Config{}
 
 type Source struct {
 	Config
-	Session *gocql.Session
+	conn *sources.ConnectOnce[*gocql.Session]
 }
 
-// CassandraSession implements cassandra.compatibleSource.
-func (s *Source) CassandraSession() *gocql.Session {
-	return s.Session
+// CassandraSessionContext returns the session, connecting on first use. It is the
+// discriminator the cassandra tools assert on.
+func (s *Source) CassandraSessionContext(ctx context.Context) (*gocql.Session, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*gocql.Session, error) {
+		r := s.Config
+		session, err := initCassandraSession(ctx, r)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create session: %v", err)
+		}
+		return session, nil
+	})
 }
 
 func (s *Source) ToConfig() sources.SourceConfig {
@@ -99,8 +109,13 @@ func (s *Source) SourceType() string {
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params parameters.ParamValues) (any, error) {
+	session, err := s.CassandraSessionContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	sliceParams := params.AsSlice()
-	iter := s.CassandraSession().Query(statement, sliceParams...).IterContext(ctx)
+	iter := session.Query(statement, sliceParams...).IterContext(ctx)
 
 	// Create a slice to store the out
 	var out []map[string]interface{}
@@ -122,11 +137,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 
 var _ sources.Source = &Source{}
 
-func initCassandraSession(ctx context.Context, tracer trace.Tracer, c Config) (*gocql.Session, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, c.Name)
-	defer span.End()
-
+func initCassandraSession(ctx context.Context, c Config) (*gocql.Session, error) {
 	// Validate authentication configuration
 	if c.Password != "" && c.Username == "" {
 		return nil, fmt.Errorf("invalid Cassandra configuration: password provided without a username")

@@ -70,6 +70,11 @@ description: |
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
   - If a dimension includes `"suggestable": true`, you can retrieve its valid value suggestions by calling the 'get_field_value_suggestions' tool, passing the dimension's 'name' as the 'field' parameter, alongside the explore and model names.
+  - If a dimension includes a `value_format` (an Excel style format string) or a
+    `value_format_name` (a named format such as `usd` or `percent_2`), it defines
+    how that dimension's values should be displayed. Format any values you report
+    for that dimension accordingly rather than showing the raw number, and use the
+    format to reason about the field's units.
 ---
 kind: tool
 name: get_measures
@@ -89,6 +94,11 @@ description: |
     that can be used directly as filters for that measure.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a measure includes a `value_format` (an Excel style format string) or a
+    `value_format_name` (a named format such as `usd` or `percent_2`), it defines
+    how that measure's values should be displayed. Format any values you report
+    for that measure accordingly rather than showing the raw number, and use the
+    format to reason about the measure's units when comparing or combining metrics.
 ---
 kind: tool
 name: get_filters

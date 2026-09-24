@@ -45,19 +45,18 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	SingleStorePool() *sql.DB
+	SingleStorePoolContext(context.Context) (*sql.DB, error)
 	RunSQL(context.Context, string, []any) (any, error)
 }
 
 // Config defines the configuration for a SingleStore SQL tool.
 type Config struct {
 	tools.ConfigBase   `yaml:",inline"`
-	Type               string                 `yaml:"type" validate:"required"`
-	Source             string                 `yaml:"source" validate:"required"`
-	Statement          string                 `yaml:"statement" validate:"required"`
-	Parameters         parameters.Parameters  `yaml:"parameters"`
-	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type               string                `yaml:"type" validate:"required"`
+	Source             string                `yaml:"source" validate:"required"`
+	Statement          string                `yaml:"statement" validate:"required"`
+	Parameters         parameters.Parameters `yaml:"parameters"`
+	TemplateParameters parameters.Parameters `yaml:"templateParameters"`
 }
 
 // validate interface
