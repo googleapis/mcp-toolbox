@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -892,51 +893,39 @@ func TestDiscoverDynamicSkillStillValidatesItsDoc(t *testing.T) {
 	}
 }
 
-// TestDiscoverDynamicNestedInStatic checks that dynamic binds to one skill. An
-// enclosing static skill still hashes everything it contains, including the
-// nested skill's SKILL.md.
-func TestDiscoverDynamicNestedInStatic(t *testing.T) {
+// TestDiscoverDynamicPropagatesUpward checks that a nested dynamic skill makes
+// its enclosing skill dynamic. The SEP's completeness rule puts the nested
+// files in the enclosing skill's set, so no digest over that set stays stable.
+func TestDiscoverDynamicPropagatesUpward(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	outerDoc := skillMD("outer", "The enclosing skill")
-	innerDoc := skillMD("inner", "The nested skill")
 	resourcesMap := map[string]resources.Resource{
-		"outer": textResource(t, ctx, "outer", "skill://outer/SKILL.md", outerDoc),
-		"inner": dynamicSkillDoc(t, ctx, "inner", "skill://outer/inner/SKILL.md", innerDoc),
+		"outer":  textResource(t, ctx, "outer", "skill://outer/SKILL.md", skillMD("outer", "The enclosing skill")),
+		"middle": textResource(t, ctx, "middle", "skill://outer/middle/SKILL.md", skillMD("middle", "The skill between")),
+		"inner":  dynamicSkillDoc(t, ctx, "inner", "skill://outer/middle/inner/SKILL.md", skillMD("inner", "The nested skill")),
+		"other":  textResource(t, ctx, "other", "skill://other/SKILL.md", skillMD("other", "An unrelated skill")),
 	}
 
 	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("got %d entries, want 2", len(entries))
-	}
 
-	byURI := map[string]skills.Entry{}
+	got := map[string]bool{}
 	for _, e := range entries {
-		byURI[e.URI] = e
+		got[e.URI] = e.Resources.Dynamic
 	}
-
-	inner := byURI["skill://outer/inner/SKILL.md"]
-	if !inner.Resources.Dynamic {
-		t.Error("nested skill Dynamic = false, want true")
+	// The marker reaches every ancestor, and no sibling.
+	want := map[string]bool{
+		"skill://outer/SKILL.md":              true,
+		"skill://outer/middle/SKILL.md":       true,
+		"skill://outer/middle/inner/SKILL.md": true,
+		"skill://other/SKILL.md":              false,
 	}
-
-	// From the enclosing skill's perspective the nested files are ordinary
-	// supporting content, so Discover lists and hashes them.
-	outer := byURI["skill://outer/SKILL.md"]
-	if outer.Resources.Dynamic {
-		t.Fatal("enclosing skill Dynamic = true, want a static manifest")
-	}
-	want := []skills.ResourceRef{
-		{URI: "skill://outer/SKILL.md", Digest: digestOf(outerDoc), Size: int64(len(outerDoc))},
-		{URI: "skill://outer/inner/SKILL.md", Digest: digestOf(innerDoc), Size: int64(len(innerDoc))},
-	}
-	if !slices.Equal(outer.Resources.Refs, want) {
-		t.Errorf("enclosing refs = %+v, want %+v", outer.Resources.Refs, want)
+	if !maps.Equal(got, want) {
+		t.Errorf("dynamic by skill = %v, want %v", got, want)
 	}
 }

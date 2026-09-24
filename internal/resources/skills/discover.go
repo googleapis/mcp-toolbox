@@ -43,7 +43,10 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 		// A dynamic skill publishes no digests, so Discover does not read its
 		// supporting files. It reads only the SKILL.md, for the frontmatter
 		// every entry carries.
-		if doc, ok := reg.Doc(skillURI); ok && doc.IsDynamic() {
+		//
+		// Every URI from reg.URIs() has a doc: both derive from one SkillRoot.
+		doc, _ := reg.Doc(skillURI)
+		if reg.IsDynamic(skillURI) {
 			e, err = buildDynamicEntry(ctx, skillURI, doc)
 		} else {
 			members, _ := reg.Members(skillURI)

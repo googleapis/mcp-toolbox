@@ -36,6 +36,7 @@ import (
 type Registry struct {
 	members map[string][]resources.Resource
 	docs    map[string]resources.Resource
+	dynamic map[string]bool
 	uris    []string
 }
 
@@ -68,6 +69,16 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		}
 	}
 
+	// A skill is dynamic if its own SKILL.md carries the flag, or if it contains
+	// a nested skill that does. The enclosing skill's file set includes the
+	// nested skill's files, so its digests cannot be stable either.
+	dynamic := make(map[string]bool, len(isRoot))
+	for uri, doc := range docs {
+		if doc.IsDynamic() {
+			dynamic[uri] = true
+		}
+	}
+
 	members := make(map[string][]resources.Resource, len(isRoot))
 	for _, res := range resourcesMap {
 		uri := res.GetURI()
@@ -84,6 +95,9 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 			if segs, ok := rootSegs[root]; ok && underSkill(uri, resources.SkillScheme, segs) {
 				skillURI := root + "/" + skillFile
 				members[skillURI] = append(members[skillURI], res)
+				if res.IsDynamic() {
+					dynamic[skillURI] = true
+				}
 			}
 		}
 	}
@@ -104,7 +118,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
 
-	return &Registry{members: members, docs: docs, uris: uris}
+	return &Registry{members: members, docs: docs, dynamic: dynamic, uris: uris}
 }
 
 // URIs returns a copy of every skill's SKILL.md URI, sorted.
@@ -133,6 +147,16 @@ func (r *Registry) Doc(skillURI string) (resources.Resource, bool) {
 	}
 	d, ok := r.docs[skillURI]
 	return d, ok
+}
+
+// IsDynamic reports whether a skill publishes the dynamic marker in place of a
+// manifest of digests. A nested dynamic skill makes every enclosing skill
+// dynamic, because the enclosing skill's file set contains the nested files.
+func (r *Registry) IsDynamic(skillURI string) bool {
+	if r == nil {
+		return false
+	}
+	return r.dynamic[skillURI]
 }
 
 // Len reports how many skills are registered.
