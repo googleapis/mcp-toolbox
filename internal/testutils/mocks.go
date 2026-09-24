@@ -43,7 +43,7 @@ func (m MockSourceConfig) SourceConfigType() string {
 	return "mock-source"
 }
 
-func (m MockSourceConfig) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (m MockSourceConfig) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	return MockSource{MockSourceConfig: m}, nil
 }
 
@@ -70,10 +70,9 @@ func (s MockSource) ToConfig() sources.SourceConfig {
 // MockToolConfig is used to mock tool config in tests
 type MockToolConfig struct {
 	tools.ConfigBase `yaml:",inline"`
-	Source           string                 `yaml:"source"`
-	Parameters       parameters.Parameters  `yaml:"parameters"`
-	Type             string                 `yaml:"type"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Source           string                `yaml:"source"`
+	Parameters       parameters.Parameters `yaml:"parameters"`
+	Type             string                `yaml:"type"`
 }
 
 func (m MockToolConfig) ToolConfigType() string {

@@ -114,6 +114,8 @@ type ServerConfig struct {
 	DisableVersionCheck bool
 	// OpenAIAppsChallengeFile specifies the path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.
 	OpenAIAppsChallengeFile string
+	// DeferSourceConnect connects each source on first use instead of at startup.
+	DeferSourceConnect bool
 }
 
 type logFormat string

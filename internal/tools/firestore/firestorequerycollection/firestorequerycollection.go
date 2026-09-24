@@ -89,7 +89,6 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 // compatibleSource defines the interface for sources that can provide a Firestore client
 type compatibleSource interface {
-	FirestoreClient() *firestoreapi.Client
 	BuildQuery(string, firestoreapi.EntityFilter, []string, string, firestoreapi.Direction, int, bool) (*firestoreapi.Query, error)
 	ExecuteQuery(context.Context, *firestoreapi.Query, bool) (any, error)
 }
@@ -97,9 +96,8 @@ type compatibleSource interface {
 // Config represents the configuration for the Firestore query collection tool
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface

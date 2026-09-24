@@ -24,7 +24,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -48,22 +47,20 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MongoClient() *mongo.Client
 	FindOne(context.Context, string, string, string, *options.FindOneOptionsBuilder) ([]any, error)
 }
 
 type Config struct {
 	tools.ConfigBase        `yaml:",inline"`
-	Type                    string                 `yaml:"type" validate:"required"`
-	Source                  string                 `yaml:"source" validate:"required"`
-	Database                string                 `yaml:"database" validate:"required"`
-	Collection              string                 `yaml:"collection"`
-	CollectionAllowedValues []string               `yaml:"collectionAllowedValues"`
-	FilterPayload           string                 `yaml:"filterPayload" validate:"required"`
-	FilterParams            parameters.Parameters  `yaml:"filterParams"`
-	ProjectPayload          string                 `yaml:"projectPayload"`
-	ProjectParams           parameters.Parameters  `yaml:"projectParams"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	FilterPayload           string                `yaml:"filterPayload" validate:"required"`
+	FilterParams            parameters.Parameters `yaml:"filterParams"`
+	ProjectPayload          string                `yaml:"projectPayload"`
+	ProjectParams           parameters.Parameters `yaml:"projectParams"`
 }
 
 // validate interface

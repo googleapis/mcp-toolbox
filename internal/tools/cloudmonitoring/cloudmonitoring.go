@@ -43,15 +43,13 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	Client() *http.Client
-	RunQuery(projectID, query string) (any, error)
+	RunQuery(ctx context.Context, projectID, query string) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -119,7 +117,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if !ok {
 		return nil, util.NewAgentError("query parameter not found or not a string", nil)
 	}
-	resp, err := source.RunQuery(projectID, query)
+	resp, err := source.RunQuery(ctx, projectID, query)
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
 	}

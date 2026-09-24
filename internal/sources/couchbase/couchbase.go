@@ -70,30 +70,46 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-
-	opts, err := r.createCouchbaseOptions()
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+	// Building the cluster options needs no network, so a bad cert path or profile fails at startup.
+	clusterOpts, err := r.createCouchbaseOptions()
 	if err != nil {
 		return nil, err
 	}
-	cluster, err := gocb.Connect(r.ConnectionString, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	scope := cluster.Bucket(r.Bucket).Scope(r.Scope)
 	s := &Source{
-		Config: r,
-		Scope:  scope,
+		Config:      r,
+		clusterOpts: clusterOpts,
+		conn:        sources.NewConnectOnce[*gocb.Scope](ctx, r.Name, SourceType, tracer),
+	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.CouchbaseScopeContext(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
 
 var _ sources.Source = &Source{}
 
+// Source has no tracer field: the connect takes none, so ConnectOnce owns the span.
 type Source struct {
 	Config
-	Scope *gocb.Scope
+	clusterOpts gocb.ClusterOptions
+	conn        *sources.ConnectOnce[*gocb.Scope]
+}
+
+// CouchbaseScopeContext returns the scope, connecting on first use. It is the
+// discriminator the couchbase tools assert on.
+func (s *Source) CouchbaseScopeContext(ctx context.Context) (*gocb.Scope, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*gocb.Scope, error) {
+		r := s.Config
+		cluster, err := gocb.Connect(r.ConnectionString, s.clusterOpts)
+		if err != nil {
+			return nil, err
+		}
+		return cluster.Bucket(r.Bucket).Scope(r.Scope), nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -108,16 +124,18 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) CouchbaseScope() *gocb.Scope {
-	return s.Scope
-}
-
 func (s *Source) CouchbaseQueryScanConsistency() uint {
 	return s.QueryScanConsistency
 }
 
-func (s *Source) RunSQL(statement string, params parameters.ParamValues) (any, error) {
-	results, err := s.CouchbaseScope().Query(statement, &gocb.QueryOptions{
+func (s *Source) RunSQL(ctx context.Context, statement string, params parameters.ParamValues) (any, error) {
+	scope, err := s.CouchbaseScopeContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := scope.Query(statement, &gocb.QueryOptions{
+		Context:         ctx,
 		ScanConsistency: gocb.QueryScanConsistency(s.CouchbaseQueryScanConsistency()),
 		NamedParameters: params.AsMap(),
 	})

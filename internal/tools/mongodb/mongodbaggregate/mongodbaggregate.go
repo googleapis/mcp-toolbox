@@ -23,7 +23,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
@@ -46,22 +45,20 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MongoClient() *mongo.Client
 	Aggregate(context.Context, string, bool, bool, string, string) ([]any, error)
 }
 
 type Config struct {
 	tools.ConfigBase        `yaml:",inline"`
-	Type                    string                 `yaml:"type" validate:"required"`
-	Source                  string                 `yaml:"source" validate:"required"`
-	Database                string                 `yaml:"database" validate:"required"`
-	Collection              string                 `yaml:"collection"`
-	CollectionAllowedValues []string               `yaml:"collectionAllowedValues"`
-	PipelinePayload         string                 `yaml:"pipelinePayload" validate:"required"`
-	PipelineParams          parameters.Parameters  `yaml:"pipelineParams" validate:"required"`
-	Canonical               bool                   `yaml:"canonical"`
-	ReadOnly                bool                   `yaml:"readOnly"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	PipelinePayload         string                `yaml:"pipelinePayload" validate:"required"`
+	PipelineParams          parameters.Parameters `yaml:"pipelineParams" validate:"required"`
+	Canonical               bool                  `yaml:"canonical"`
+	ReadOnly                bool                  `yaml:"readOnly"`
 }
 
 // validate interface
