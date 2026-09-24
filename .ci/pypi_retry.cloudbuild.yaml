@@ -71,6 +71,7 @@ options:
     name: projects/$PROJECT_ID/locations/us-central1/workerPools/run-release
 
 substitutions:
+  _AR_REPO_NAME: toolbox
   _EXIT_GATE_PROJECT: "mcp-toolbox"
   _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
   _PUSH_TO_EXIT_GATES: "false"
