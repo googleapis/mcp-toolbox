@@ -96,7 +96,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 			// which fails startup for the whole config.
 			root := uri[:i]
 			if segs, ok := rootSegs[root]; ok && underSkill(uri, resources.SkillScheme, segs) {
-				skillURI := root + "/" + skillFile
+				skillURI := root + "/" + resources.SkillFile
 				members[skillURI] = append(members[skillURI], res)
 				if res.IsDynamic() {
 					dynamic[skillURI] = true
@@ -105,7 +105,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 			}
 		}
 		// Skip SKILL.md files: each one defines a skill rather than belonging to one.
-		if !matched && !strings.HasSuffix(uri, "/"+skillFile) {
+		if !matched && !strings.HasSuffix(uri, "/"+resources.SkillFile) {
 			orphans = append(orphans, uri)
 		}
 	}
@@ -121,7 +121,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 
 	uris := make([]string, 0, len(roots))
 	for _, root := range roots {
-		uris = append(uris, root+"/"+skillFile)
+		uris = append(uris, root+"/"+resources.SkillFile)
 	}
 	for _, m := range members {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })

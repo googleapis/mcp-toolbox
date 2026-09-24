@@ -104,7 +104,7 @@ func WarnOnDocNameMismatch(ctx context.Context, entries []Entry, resourcesMap ma
 		if !ok || name == key {
 			continue
 		}
-		logger.WarnContext(ctx, fmt.Sprintf("resource %q is the %s of skill %q. Rename the resource to %q, so that resources/list publishes the skill's name", key, skillFile, name, name))
+		logger.WarnContext(ctx, fmt.Sprintf("resource %q is the %s of skill %q. Rename the resource to %q, so that resources/list publishes the skill's name", key, resources.SkillFile, name, name))
 	}
 	return nil
 }
