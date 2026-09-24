@@ -1101,7 +1101,7 @@ kind: resourceTemplate
 name: my-template
 type: file
 uriTemplate: file://docs/{path}
-pathTemplate: ./docs/{path}
+allowedPaths: ["./docs"]
 dynamic: true
 `
 	_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
