@@ -43,13 +43,21 @@ const SkillScheme = "skill"
 // SkillFile is the document at the root of every Agent Skill.
 const SkillFile = "SKILL.md"
 
-// IsSkillDoc reports whether uri addresses a skill's SKILL.md.
-func IsSkillDoc(uri string) bool {
-	parsed, err := url.Parse(uri)
-	if err != nil || parsed.Scheme != SkillScheme || parsed.Host == "" {
-		return false
+// SkillRoot returns the skill path of a SKILL.md, and reports whether uri
+// addresses one.
+//
+// The test reads the raw uri, not the decoded path, so one rule serves both the
+// config validation and the skill registry.
+func SkillRoot(uri string) (string, bool) {
+	root, ok := strings.CutSuffix(uri, "/"+SkillFile)
+	if !ok {
+		return "", false
 	}
-	return parsed.Path[strings.LastIndex(parsed.Path, "/")+1:] == SkillFile
+	parsed, err := url.Parse(root)
+	if err != nil || parsed.Scheme != SkillScheme || parsed.Host == "" {
+		return "", false
+	}
+	return root, true
 }
 
 // ValidateScheme checks uri against the schemes a resource may be addressed by:
@@ -314,7 +322,7 @@ func (c *ResourceConfigBase) Validate() error {
 
 	// The check runs after normalization, so a URI that differs only in case
 	// still matches.
-	if c.Dynamic && !IsSkillDoc(c.URI) {
+	if _, isSkillDoc := SkillRoot(c.URI); c.Dynamic && !isSkillDoc {
 		return fmt.Errorf("dynamic cannot be configured for resource %q: it applies only to a skill's %s, addressed as %s://<skill-path>/%s", c.Name, SkillFile, SkillScheme, SkillFile)
 	}
 

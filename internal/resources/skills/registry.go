@@ -53,10 +53,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	docs := make(map[string]resources.Resource)
 	for _, res := range resourcesMap {
 		uri := res.GetURI()
-		if !strings.HasPrefix(uri, prefix) {
-			continue
-		}
-		if root, ok := strings.CutSuffix(uri, "/"+skillFile); ok {
+		if root, ok := resources.SkillRoot(uri); ok {
 			isRoot[root] = true
 			docs[uri] = res
 		}

@@ -168,30 +168,39 @@ func TestValidateScheme(t *testing.T) {
 	}
 }
 
-func TestIsSkillDoc(t *testing.T) {
+func TestSkillRoot(t *testing.T) {
 	tcs := []struct {
-		desc string
-		uri  string
-		want bool
+		desc     string
+		uri      string
+		wantRoot string
+		want     bool
 	}{
-		{desc: "top-level skill doc", uri: "skill://analytics-guide/SKILL.md", want: true},
-		{desc: "nested skill doc", uri: "skill://outer/inner/SKILL.md", want: true},
+		{desc: "top-level skill doc", uri: "skill://analytics-guide/SKILL.md", wantRoot: "skill://analytics-guide", want: true},
+		{desc: "nested skill doc", uri: "skill://outer/inner/SKILL.md", wantRoot: "skill://outer/inner", want: true},
 		{desc: "supporting file", uri: "skill://analytics-guide/references/queries.md"},
 		{desc: "skill root", uri: "skill://analytics-guide"},
-		// The host names the skill, so a doc needs a path segment beyond it.
-		// NewRegistry's CutSuffix on "/SKILL.md" rejects this one too.
+		// The cut leaves "skill:/", which has no host and names no skill.
 		{desc: "no owning skill path", uri: "skill://SKILL.md"},
 		{desc: "another scheme", uri: "file://analytics-guide/SKILL.md"},
 		{desc: "no scheme", uri: "analytics-guide/SKILL.md"},
 		{desc: "case differs", uri: "skill://analytics-guide/skill.md"},
 		{desc: "unparseable uri", uri: "skill://\x7f/SKILL.md"},
 		{desc: "empty", uri: ""},
+		// Each decoded path ends with SKILL.md, but the raw uri does not.
+		// NewRegistry rejects these too.
+		{desc: "query", uri: "skill://analytics-guide/SKILL.md?v=2"},
+		{desc: "fragment", uri: "skill://analytics-guide/SKILL.md#intro"},
+		{desc: "percent-encoded dot", uri: "skill://analytics-guide/SKILL%2Emd"},
+		{desc: "percent-encoded separator", uri: "skill://analytics-guide/sub%2FSKILL.md"},
+		// The first segment is empty, so the uri names no skill.
+		{desc: "empty host", uri: "skill:///analytics-guide/SKILL.md"},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := resources.IsSkillDoc(tc.uri); got != tc.want {
-				t.Errorf("IsSkillDoc(%q) = %t, want %t", tc.uri, got, tc.want)
+			root, got := resources.SkillRoot(tc.uri)
+			if got != tc.want || root != tc.wantRoot {
+				t.Errorf("SkillRoot(%q) = %q, %t, want %q, %t", tc.uri, root, got, tc.wantRoot, tc.want)
 			}
 		})
 	}
