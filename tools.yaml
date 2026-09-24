@@ -1,0 +1,17 @@
+kind: source
+name: pokemon-api
+type: http
+baseUrl: https://pokeapi.co/
+---
+# 2. Define the GET Tool
+kind: tool
+name: get_pokemon
+type: http
+source: pokemon-api
+method: GET
+path: /api/v2/pokemon/{{.name}} 
+description: Get data about a specific Pokemon by name or ID.
+pathParams:
+  - name: name
+    description: The name of the pokemon (e.g. as "charmander", "pidgey").
+    type: string
