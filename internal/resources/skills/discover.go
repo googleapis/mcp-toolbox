@@ -27,9 +27,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
-// One string governs both this package and the config validation in resources.
-const skillFile = resources.SkillFile
-
 // Discover builds one Entry per skill. A skill can have 1 or more supporting files.
 func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 	if reg.Len() == 0 {
@@ -46,7 +43,7 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 			// every entry carries.
 			doc, ok := reg.Doc(skillURI)
 			if !ok {
-				return nil, fmt.Errorf("skill %q: no %s resource is registered", skillURI, skillFile)
+				return nil, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
 			}
 			e, err = buildDynamicEntry(ctx, skillURI, doc)
 		} else {
@@ -155,16 +152,16 @@ func parseFrontmatter(content string) (map[string]any, error) {
 
 	opening, rest, ok := strings.Cut(content, "\n")
 	if !ok || strings.TrimRight(opening, " \t") != "---" {
-		return nil, fmt.Errorf("%s must open with YAML frontmatter delimited by ---", skillFile)
+		return nil, fmt.Errorf("%s must open with YAML frontmatter delimited by ---", resources.SkillFile)
 	}
 	body, ok := cutAtDelimiter(rest)
 	if !ok {
-		return nil, fmt.Errorf("%s frontmatter is not closed by --- on a line of its own", skillFile)
+		return nil, fmt.Errorf("%s frontmatter is not closed by --- on a line of its own", resources.SkillFile)
 	}
 
 	fm := map[string]any{}
 	if err := yaml.Unmarshal([]byte(body), &fm); err != nil {
-		return nil, fmt.Errorf("unable to parse %s frontmatter: %w", skillFile, err)
+		return nil, fmt.Errorf("unable to parse %s frontmatter: %w", resources.SkillFile, err)
 	}
 	return fm, nil
 }
