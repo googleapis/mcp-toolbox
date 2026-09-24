@@ -97,18 +97,20 @@ func (c *Config) ResourceConfigType() string {
 	return resourceType
 }
 
-var allowedExts = map[string]bool{
-	".txt": true, ".md": true, ".csv": true, ".json": true,
-	".yaml": true, ".yml": true, ".xml": true, ".sql": true,
-	".html": true, ".htm": true, ".js": true, ".css": true, ".svg": true,
+var allowedExts = []string{
+	".txt", ".md", ".csv", ".json", 
+	".yaml", ".yml", ".xml", ".sql",
+	".html", ".htm", ".js", ".css", 
+	".svg", ".py",
 }
 
 // validateExtension checks if a file extension is allowed.
 func validateExtension(path string) error {
 	ext := strings.ToLower(filepath.Ext(path))
-	if !allowedExts[ext] {
+	if !slices.Contains(allowedExts, ext) {
 		return fmt.Errorf("file extension %q is not allowed", ext)
 	}
+
 	return nil
 }
 
