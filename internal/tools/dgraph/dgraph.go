@@ -48,13 +48,12 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Statement        string                 `yaml:"statement" validate:"required"`
-	IsQuery          bool                   `yaml:"isQuery"`
-	Timeout          string                 `yaml:"timeout"`
-	Parameters       parameters.Parameters  `yaml:"parameters"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string                `yaml:"type" validate:"required"`
+	Source           string                `yaml:"source" validate:"required"`
+	Statement        string                `yaml:"statement" validate:"required"`
+	IsQuery          bool                  `yaml:"isQuery"`
+	Timeout          string                `yaml:"timeout"`
+	Parameters       parameters.Parameters `yaml:"parameters"`
 }
 
 // validate interface

@@ -25,6 +25,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,97 @@ var (
 	BigtableProject    = os.Getenv("BIGTABLE_PROJECT")
 	BigtableInstance   = os.Getenv("BIGTABLE_INSTANCE")
 )
+
+const orphanedResourceTTL = 2 * time.Hour
+
+func TestMain(m *testing.M) {
+	if BigtableProject != "" && BigtableInstance != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		cleanupOrphanedBigtableResources(ctx)
+		cancel()
+	}
+	os.Exit(m.Run())
+}
+
+func cleanupOrphanedBigtableResources(ctx context.Context) {
+	adminClient, err := bigtable.NewAdminClient(ctx, BigtableProject, BigtableInstance)
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: Failed to create Bigtable admin client: %v", err)
+		return
+	}
+	defer adminClient.Close()
+
+	instanceAdminClient, err := bigtable.NewInstanceAdminClient(ctx, BigtableProject)
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: Failed to create Bigtable instance admin client: %v", err)
+		return
+	}
+	defer instanceAdminClient.Close()
+
+	now := time.Now()
+
+	// Logical views must be deleted before the tables they reference.
+	views, err := instanceAdminClient.LogicalViews(ctx, BigtableInstance)
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable logical views: %v", err)
+	} else {
+		for _, view := range views {
+			if shouldCleanupBigtableResource(view.LogicalViewID, "admin_test_view_", now) {
+				log.Printf("INTEGRATION CLEANUP: Deleting orphaned logical view %s", view.LogicalViewID)
+				if err := instanceAdminClient.DeleteLogicalView(ctx, BigtableInstance, view.LogicalViewID); err != nil {
+					log.Printf("INTEGRATION CLEANUP: Failed to delete logical view %s: %v", view.LogicalViewID, err)
+				}
+			}
+		}
+	}
+
+	tables, err := adminClient.Tables(ctx)
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable tables: %v", err)
+	} else {
+		for _, table := range tables {
+			if shouldCleanupBigtableResource(table, "admin_test_table_", now) {
+				log.Printf("INTEGRATION CLEANUP: Deleting orphaned table %s", table)
+				if err := adminClient.DeleteTable(ctx, table); err != nil {
+					log.Printf("INTEGRATION CLEANUP: Failed to delete table %s: %v", table, err)
+				}
+			}
+		}
+	}
+
+	instances, err := instanceAdminClient.Instances(ctx)
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable instances: %v", err)
+	}
+	for _, instance := range instances {
+		if shouldCleanupBigtableResource(instance.Name, "testi-", now) {
+			log.Printf("INTEGRATION CLEANUP: Deleting orphaned instance %s", instance.Name)
+			if err := instanceAdminClient.DeleteInstance(ctx, instance.Name); err != nil {
+				log.Printf("INTEGRATION CLEANUP: Failed to delete instance %s: %v", instance.Name, err)
+			}
+		}
+	}
+}
+
+func shouldCleanupBigtableResource(name, prefix string, now time.Time) bool {
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+
+	suffix := strings.TrimPrefix(name, prefix)
+	separator := strings.IndexAny(suffix, "_-")
+	if separator < 0 {
+		// Resources created before timestamps were added are already orphaned.
+		return true
+	}
+	createdAt, err := strconv.ParseInt(suffix[:separator], 10, 64)
+	if err != nil {
+		// Clean up legacy integration-test resources whose UUID immediately
+		// followed the prefix and therefore cannot be age checked.
+		return true
+	}
+	return now.Sub(time.Unix(createdAt, 0)) > orphanedResourceTTL
+}
 
 func getBigtableVars(t *testing.T) map[string]any {
 	switch "" {
@@ -80,6 +172,14 @@ func TestBigtableToolEndpoints(t *testing.T) {
 
 	t.Cleanup(func() {
 		adminClient.Close()
+	})
+
+	instanceAdminClient, err := bigtable.NewInstanceAdminClient(context.Background(), sourceConfig["project"].(string))
+	if err != nil {
+		t.Fatalf("Failed to create InstanceAdminClient: %v", err)
+	}
+	t.Cleanup(func() {
+		instanceAdminClient.Close()
 	})
 
 	t.Cleanup(func() {
@@ -152,7 +252,7 @@ func TestBigtableToolEndpoints(t *testing.T) {
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	runBigTableAdminToolsGetTest(t)
 	if os.Getenv("RUN_EXPENSIVE_TESTS") == "true" {
-		runBigTableAdminToolsTest(t, sourceConfig["instance"].(string))
+		runBigTableAdminToolsTest(t, ctx, sourceConfig["instance"].(string), adminClient, instanceAdminClient)
 	} else {
 		t.Log("Skipping expensive Bigtable admin tools tests (RUN_EXPENSIVE_TESTS is not true)")
 	}
@@ -368,10 +468,11 @@ func assertMCPSuccess(t *testing.T, toolName string, args map[string]any) *tests
 }
 
 // runBigTableAdminToolsTest verifies all 20 Bigtable admin lifecycle tools for instances, clusters, tables, and logical views.
-func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
+func runBigTableAdminToolsTest(t *testing.T, ctx context.Context, instanceId string, adminClient *bigtable.AdminClient, instanceAdminClient *bigtable.InstanceAdminClient) {
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableName := "admin_test_table_" + uniqueID
-	viewName := "admin_test_view_" + uniqueID
+	createdAt := strconv.FormatInt(time.Now().Unix(), 10)
+	tableName := "admin_test_table_" + createdAt + "_" + uniqueID[:8]
+	viewName := "admin_test_view_" + createdAt + "_" + uniqueID[:8]
 
 	// List instances
 	listInstResp := assertMCPSuccess(t, "bigtable-list-instances", map[string]any{})
@@ -414,7 +515,7 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 	}
 
 	// Create test instance for lifecycle tools (createinstance, updateinstance, updatecluster, createcluster, deletecluster, deleteinstance)
-	testInstId := "testi-" + uniqueID[:8]
+	testInstId := "testi-" + createdAt + "-" + uniqueID[:8]
 	testClusterId1 := "testc1-" + uniqueID[:8]
 	createInstResp := assertMCPSuccess(t, "bigtable-create-instance", map[string]any{
 		"instance_id":  testInstId,
@@ -427,11 +528,10 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 		t.Fatalf("bigtable-create-instance unexpected output: %v", createInstResp.Result.Content)
 	}
 	defer func() {
-		statusCode, mcpResp, err := tests.InvokeMCPTool(t, "bigtable-delete-instance", map[string]any{
-			"instance_id": testInstId,
-		}, map[string]string{})
-		if err != nil || statusCode != http.StatusOK || (mcpResp != nil && (mcpResp.Error != nil || mcpResp.Result.IsError)) {
-			t.Logf("cleanup: bigtable-delete-instance failed for %q (status %d): err=%v, mcpResp=%v", testInstId, statusCode, err, mcpResp)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		if err := instanceAdminClient.DeleteInstance(cleanupCtx, testInstId); err != nil {
+			t.Logf("cleanup: failed to delete Bigtable instance %q: %v", testInstId, err)
 		}
 	}()
 
@@ -486,11 +586,10 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 
 	// Make sure we clean up the table!
 	defer func() {
-		statusCode, mcpResp, err := tests.InvokeMCPTool(t, "bigtable-delete-table", map[string]any{
-			"table_id": tableName,
-		}, map[string]string{})
-		if err != nil || statusCode != http.StatusOK || (mcpResp != nil && (mcpResp.Error != nil || mcpResp.Result.IsError)) {
-			t.Logf("cleanup: bigtable-delete-table failed for %q (status %d): err=%v, mcpResp=%v", tableName, statusCode, err, mcpResp)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		if err := adminClient.DeleteTable(cleanupCtx, tableName); err != nil {
+			t.Logf("cleanup: failed to delete Bigtable table %q: %v", tableName, err)
 		}
 	}()
 
@@ -529,12 +628,10 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 
 	// Make sure we clean up the view!
 	defer func() {
-		statusCode, mcpResp, err := tests.InvokeMCPTool(t, "bigtable-delete-logical-view", map[string]any{
-			"instance_id":     instanceId,
-			"logical_view_id": viewName,
-		}, map[string]string{})
-		if err != nil || statusCode != http.StatusOK || (mcpResp != nil && (mcpResp.Error != nil || mcpResp.Result.IsError)) {
-			t.Logf("cleanup: bigtable-delete-logical-view failed for %q (status %d): err=%v, mcpResp=%v", viewName, statusCode, err, mcpResp)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		if err := instanceAdminClient.DeleteLogicalView(cleanupCtx, instanceId, viewName); err != nil {
+			t.Logf("cleanup: failed to delete Bigtable logical view %q: %v", viewName, err)
 		}
 	}()
 

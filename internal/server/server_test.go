@@ -1902,31 +1902,31 @@ func TestShouldSuppressTool(t *testing.T) {
 		{
 			desc:   "write tool on read-write source (readOnlyHint: false) -> not suppressed",
 			source: readWriteSource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool"}, Source: "readwrite-db", Annotations: tools.NewWriteAnnotations()}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool", Annotations: tools.NewWriteAnnotations()}, Source: "readwrite-db"}),
 			want:   false,
 		},
 		{
 			desc:   "write tool on read-only source (readOnlyHint: false) -> suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool"}, Source: "readonly-db", Annotations: tools.NewWriteAnnotations()}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool", Annotations: tools.NewWriteAnnotations()}, Source: "readonly-db"}),
 			want:   true,
 		},
 		{
 			desc:   "read-only tool on read-only source (readOnlyHint: true) -> not suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "readonly-tool"}, Source: "readonly-db", Annotations: tools.NewReadOnlyAnnotations()}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "readonly-tool", Annotations: tools.NewReadOnlyAnnotations()}, Source: "readonly-db"}),
 			want:   false,
 		},
 		{
 			desc:   "unannotated tool on read-only source -> not suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "unannotated-tool"}, Source: "readonly-db", Annotations: nil}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "unannotated-tool", Annotations: nil}, Source: "readonly-db"}),
 			want:   false,
 		},
 		{
 			desc:   "tool with non-nil annotations but nil readOnlyHint on read-only source -> not suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "nil-hint-tool"}, Source: "readonly-db", Annotations: &tools.ToolAnnotations{ReadOnlyHint: nil}}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "nil-hint-tool", Annotations: &tools.ToolAnnotations{ReadOnlyHint: nil}}, Source: "readonly-db"}),
 			want:   false,
 		},
 		{
@@ -1995,14 +1995,12 @@ func TestInitializeGroups(t *testing.T) {
 			},
 			ToolConfigs: server.ToolConfigs{
 				"allowed_read_tool": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "allowed_read_tool"},
-					Source:      "readonly-db",
-					Annotations: tools.NewReadOnlyAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "allowed_read_tool", Annotations: tools.NewReadOnlyAnnotations()},
+					Source:     "readonly-db",
 				},
 				"suppressed_write_tool": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "suppressed_write_tool"},
-					Source:      "readonly-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "suppressed_write_tool", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readonly-db",
 				},
 			},
 			GroupConfigs: server.GroupConfigs{
@@ -2047,14 +2045,12 @@ func TestInitializeGroups(t *testing.T) {
 			},
 			ToolConfigs: server.ToolConfigs{
 				"write_tool_1": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "write_tool_1"},
-					Source:      "readonly-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "write_tool_1", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readonly-db",
 				},
 				"write_tool_2": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "write_tool_2"},
-					Source:      "readonly-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "write_tool_2", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readonly-db",
 				},
 			},
 			GroupConfigs: server.GroupConfigs{
@@ -2087,14 +2083,12 @@ func TestInitializeGroups(t *testing.T) {
 			},
 			ToolConfigs: server.ToolConfigs{
 				"tool_1": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "tool_1"},
-					Source:      "readwrite-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "tool_1", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readwrite-db",
 				},
 				"tool_2": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "tool_2"},
-					Source:      "readwrite-db",
-					Annotations: tools.NewReadOnlyAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "tool_2", Annotations: tools.NewReadOnlyAnnotations()},
+					Source:     "readwrite-db",
 				},
 			},
 			GroupConfigs: server.GroupConfigs{
