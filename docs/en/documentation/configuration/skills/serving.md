@@ -135,6 +135,7 @@ fails the load, and the error names the skill and the file:
 - `description` holds at most 1024 characters.
 - The skill holds at most 512 files.
 - The files of the skill total at most 16 MiB.
+- No two resources declare the same `skill://` URI.
 
 A `file` resource serves only these extensions: `.txt`, `.md`, `.csv`, `.json`,
 `.yaml`, `.yml`, `.xml`, `.sql`, `.html`, `.htm`, `.js`, `.css`, `.svg`. A
@@ -146,6 +147,12 @@ files it can serve, and set [`dynamic: true`](#dynamic-skills) on the `SKILL.md`
 The entry then publishes the dynamic marker in place of a file list that would
 otherwise be incomplete.
 
+A large file does not fail the load. It truncates. The
+[`maxSize`](../resources/file/) of a `file` resource defaults to 5 MB. Toolbox
+reads `maxSize` bytes, appends a truncation notice to the content, and computes
+the digest over those bytes. The catalogue reports no truncation, so raise
+`maxSize` when a file of the skill is larger.
+
 ## Freshness
 
 Toolbox computes the digests for each request, and does not cache them for the
@@ -155,6 +162,10 @@ requests a fresh entry, and the user approves the new content.
 
 If you add or remove a file of the skill, you change the configuration. Reload
 the server.
+
+A client can still hold an older catalogue. Both results carry `ttlMs: 300000`
+and `cacheScope: public`, so a client can reuse the catalogue for 5 minutes.
+`public` also lets a shared proxy serve that catalogue to a different client.
 
 ## Nested skills
 
@@ -223,3 +234,6 @@ The server then does not answer `skills/list` or `skills/get` on any endpoint,
 and removes the extension from its advertised capabilities. The files stay
 readable as ordinary resources. See
 [Disabling MCP Extensions](../../../reference/cli.md#disabling-mcp-extensions).
+
+Toolbox still validates every skill at startup. A skill that breaks one of the
+[requirements](#requirements) fails the load, with or without the extension.
