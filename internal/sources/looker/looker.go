@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	geminidataanalytics "cloud.google.com/go/geminidataanalytics/apiv1"
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -121,7 +120,6 @@ var _ sources.Source = &Source{}
 type clientSet struct {
 	apiSettings *rtl.ApiSettings
 	sdk         *v4.LookerSDK
-	tokenSource oauth2.TokenSource
 }
 
 type Source struct {
@@ -169,8 +167,7 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			ClientSecret: r.ClientSecret,
 		}
 
-		tokenSource, _ := initGoogleCloudConnection(ctx)
-		cs := &clientSet{apiSettings: &cfg, tokenSource: tokenSource}
+		cs := &clientSet{apiSettings: &cfg}
 
 		if strings.ToLower(r.UseClientOAuth) == "false" {
 			if r.ClientId == "" || r.ClientSecret == "" {
@@ -223,16 +220,7 @@ func (s *Source) GoogleCloudTokenSourceWithScope(ctx context.Context, scope stri
 	return google.DefaultTokenSource(ctx, scope)
 }
 
-// LookerApiSettings is only populated after GetLookerSDK has connected.
-func (s *Source) LookerApiSettings() *rtl.ApiSettings {
-	cs, ok := s.conn.Get()
-	if !ok {
-		return nil
-	}
-	return cs.apiSettings
-}
-
-func (s *Source) apiSettings(ctx context.Context) (*rtl.ApiSettings, error) {
+func (s *Source) LookerApiSettings(ctx context.Context) (*rtl.ApiSettings, error) {
 	cs, err := s.clients(ctx)
 	if err != nil {
 		return nil, err
@@ -312,15 +300,6 @@ func (s *Source) GetLookerSDK(ctx context.Context, accessToken string) (*v4.Look
 	return cs.sdk, nil
 }
 
-func initGoogleCloudConnection(ctx context.Context) (oauth2.TokenSource, error) {
-	cred, err := google.FindDefaultCredentials(ctx, geminidataanalytics.DefaultAuthScopes()...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find default Google Cloud credentials with scope %q: %w", geminidataanalytics.DefaultAuthScopes(), err)
-	}
-
-	return cred.TokenSource, nil
-}
-
 func (s *Source) GetHostURL(ctx context.Context, sdk *v4.LookerSDK) (string, error) {
 	defaultURL := strings.TrimSuffix(s.BaseURL, "/")
 
@@ -371,7 +350,7 @@ func (s *Source) GetHostURL(ctx context.Context, sdk *v4.LookerSDK) (string, err
 			return defaultURL, err
 		}
 
-		apiSettings, err := s.apiSettings(ctx)
+		apiSettings, err := s.LookerApiSettings(ctx)
 		if err != nil {
 			return defaultURL, err
 		}

@@ -49,7 +49,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
@@ -121,7 +121,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
-	resp, err := sdk.AllConnections("name, dialect(name), database, schema", source.LookerApiSettings())
+
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+	resp, err := sdk.AllConnections("name, dialect(name), database, schema", apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -140,7 +145,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		if v.Schema != nil {
 			vMap["schema"] = *v.Schema
 		}
-		conn, err := sdk.ConnectionFeatures(*v.Name, "multiple_databases", source.LookerApiSettings())
+		conn, err := sdk.ConnectionFeatures(*v.Name, "multiple_databases", apiSettings)
 		if err != nil {
 			return nil, util.ProcessGeneralError(err)
 		}

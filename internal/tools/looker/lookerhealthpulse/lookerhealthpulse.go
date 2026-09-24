@@ -53,7 +53,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
@@ -129,8 +129,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
 
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+
 	pulseTool := &pulseTool{
-		ApiSettings: source.LookerApiSettings(),
+		ApiSettings: apiSettings,
 		SdkClient:   sdk,
 	}
 
@@ -144,7 +149,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		Action: action,
 	}
 
-	result, err := pulseTool.RunPulse(ctx, source, pulseParams)
+	result, err := pulseTool.RunPulse(ctx, pulseParams)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -183,27 +188,27 @@ type pulseTool struct {
 	SdkClient   *v4.LookerSDK
 }
 
-func (t *pulseTool) RunPulse(ctx context.Context, source compatibleSource, params PulseParams) (interface{}, error) {
+func (t *pulseTool) RunPulse(ctx context.Context, params PulseParams) (interface{}, error) {
 	switch params.Action {
 	case "check_db_connections":
-		return t.checkDBConnections(ctx, source)
+		return t.checkDBConnections(ctx)
 	case "check_dashboard_performance":
-		return t.checkDashboardPerformance(ctx, source)
+		return t.checkDashboardPerformance(ctx)
 	case "check_dashboard_errors":
-		return t.checkDashboardErrors(ctx, source)
+		return t.checkDashboardErrors(ctx)
 	case "check_explore_performance":
-		return t.checkExplorePerformance(ctx, source)
+		return t.checkExplorePerformance(ctx)
 	case "check_schedule_failures":
-		return t.checkScheduleFailures(ctx, source)
+		return t.checkScheduleFailures(ctx)
 	case "check_legacy_features":
-		return t.checkLegacyFeatures(ctx, source)
+		return t.checkLegacyFeatures(ctx)
 	default:
 		return nil, fmt.Errorf("unknown action: %s", params.Action)
 	}
 }
 
 // Check DB connections and run tests
-func (t *pulseTool) checkDBConnections(ctx context.Context, source compatibleSource) (interface{}, error) {
+func (t *pulseTool) checkDBConnections(ctx context.Context) (interface{}, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
@@ -217,7 +222,7 @@ func (t *pulseTool) checkDBConnections(ctx context.Context, source compatibleSou
 		"looker__ilooker":                      {},
 	}
 
-	connections, err := t.SdkClient.AllConnections("", source.LookerApiSettings())
+	connections, err := t.SdkClient.AllConnections("", t.ApiSettings)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching connections: %w", err)
 	}
@@ -236,7 +241,7 @@ func (t *pulseTool) checkDBConnections(ctx context.Context, source compatibleSou
 	for _, conn := range filteredConnections {
 		var errors []string
 		// Test connection (simulate test_connection endpoint)
-		resp, err := t.SdkClient.TestConnection(*conn.Name, nil, source.LookerApiSettings())
+		resp, err := t.SdkClient.TestConnection(*conn.Name, nil, t.ApiSettings)
 		if err != nil {
 			errors = append(errors, "API JSONDecode Error")
 		} else {
@@ -260,7 +265,7 @@ func (t *pulseTool) checkDBConnections(ctx context.Context, source compatibleSou
 			},
 			Limit: &limit,
 		}
-		raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", source.LookerApiSettings())
+		raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", t.ApiSettings)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +286,7 @@ func (t *pulseTool) checkDBConnections(ctx context.Context, source compatibleSou
 	return results, nil
 }
 
-func (t *pulseTool) checkDashboardPerformance(ctx context.Context, source compatibleSource) (interface{}, error) {
+func (t *pulseTool) checkDashboardPerformance(ctx context.Context) (interface{}, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
@@ -302,7 +307,7 @@ func (t *pulseTool) checkDashboardPerformance(ctx context.Context, source compat
 		Sorts: &[]string{"query.count desc"},
 		Limit: &limit,
 	}
-	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", source.LookerApiSettings())
+	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", t.ApiSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +318,7 @@ func (t *pulseTool) checkDashboardPerformance(ctx context.Context, source compat
 	return dashboards, nil
 }
 
-func (t *pulseTool) checkDashboardErrors(ctx context.Context, source compatibleSource) (interface{}, error) {
+func (t *pulseTool) checkDashboardErrors(ctx context.Context) (interface{}, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
@@ -334,7 +339,7 @@ func (t *pulseTool) checkDashboardErrors(ctx context.Context, source compatibleS
 		Sorts: &[]string{"history.query_run_count desc"},
 		Limit: &limit,
 	}
-	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", source.LookerApiSettings())
+	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", t.ApiSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +350,7 @@ func (t *pulseTool) checkDashboardErrors(ctx context.Context, source compatibleS
 	return dashboards, nil
 }
 
-func (t *pulseTool) checkExplorePerformance(ctx context.Context, source compatibleSource) (interface{}, error) {
+func (t *pulseTool) checkExplorePerformance(ctx context.Context) (interface{}, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
@@ -364,7 +369,7 @@ func (t *pulseTool) checkExplorePerformance(ctx context.Context, source compatib
 		Sorts: &[]string{"history.average_runtime desc"},
 		Limit: &limit,
 	}
-	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", source.LookerApiSettings())
+	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", t.ApiSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +380,7 @@ func (t *pulseTool) checkExplorePerformance(ctx context.Context, source compatib
 
 	// Average query runtime
 	query.Fields = &[]string{"history.average_runtime"}
-	rawAvg, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", source.LookerApiSettings())
+	rawAvg, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", t.ApiSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +395,7 @@ func (t *pulseTool) checkExplorePerformance(ctx context.Context, source compatib
 	return explores, nil
 }
 
-func (t *pulseTool) checkScheduleFailures(ctx context.Context, source compatibleSource) (interface{}, error) {
+func (t *pulseTool) checkScheduleFailures(ctx context.Context) (interface{}, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
@@ -409,7 +414,7 @@ func (t *pulseTool) checkScheduleFailures(ctx context.Context, source compatible
 		Sorts: &[]string{"scheduled_job.count desc"},
 		Limit: &limit,
 	}
-	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", source.LookerApiSettings())
+	raw, err := lookercommon.RunInlineQuery(ctx, t.SdkClient, query, "json", t.ApiSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -420,14 +425,14 @@ func (t *pulseTool) checkScheduleFailures(ctx context.Context, source compatible
 	return schedules, nil
 }
 
-func (t *pulseTool) checkLegacyFeatures(ctx context.Context, source compatibleSource) (interface{}, error) {
+func (t *pulseTool) checkLegacyFeatures(ctx context.Context) (interface{}, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
 	}
 	logger.InfoContext(ctx, "Test 6/6: Checking for enabled legacy features")
 
-	features, err := t.SdkClient.AllLegacyFeatures(source.LookerApiSettings())
+	features, err := t.SdkClient.AllLegacyFeatures(t.ApiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "Unsupported in Looker (Google Cloud core)") {
 			return []map[string]string{{"Feature": "Unsupported in Looker (Google Cloud core)"}}, nil

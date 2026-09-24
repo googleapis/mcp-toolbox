@@ -49,7 +49,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
@@ -132,6 +132,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
 
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+
 	// Define fields to retrieve, trimming unnecessary ones (like alerts, scheduled plans)
 	// We request specific sub-fields to trim the output size.
 	fields := strings.Join([]string{
@@ -145,7 +150,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		"dashboard_elements(id,title,type,query,result_maker,look_id,body_text,subtitle_text,title_text)",
 	}, ",")
 
-	dashboard, err := sdk.Dashboard(dashboardId, fields, source.LookerApiSettings())
+	dashboard, err := sdk.Dashboard(dashboardId, fields, apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
