@@ -84,7 +84,6 @@ func TestContainsTraversalAndValidateTemplatePathParam(t *testing.T) {
 		{"a%5cb.txt", "backslashes"},
 		{"a//b.txt", "double slashes"},
 		{"a%2f%2fb.txt", "double slashes"},
-		{"nested/file..txt", "backward traversal"},
 	}
 
 	for _, tc := range invalid {
@@ -97,6 +96,7 @@ func TestContainsTraversalAndValidateTemplatePathParam(t *testing.T) {
 	valid := []string{
 		"2025/report.md",
 		"data_dictionary.csv",
+		"nested/file..txt",
 	}
 	for _, p := range valid {
 		if err := resources.ValidateTemplatePathParam(p); err != nil {
@@ -111,6 +111,7 @@ func TestContainsHiddenSegment(t *testing.T) {
 		".git/config",
 		"folder/.hidden.txt",
 		"a/.secrets/data.txt",
+		`dir\.git/config`,
 	}
 	for _, p := range hidden {
 		if !resources.ContainsHiddenSegment(p) {

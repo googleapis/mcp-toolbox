@@ -89,7 +89,7 @@ func ValidateTemplatePathParam(p string) error {
 		decoded = unescaped
 	}
 
-	if ContainsTraversal(p) || strings.Contains(p, "..") || strings.Contains(decoded, "..") {
+	if ContainsTraversal(p) {
 		return fmt.Errorf("security violation: path %q contains backward traversal components (..)", p)
 	}
 
@@ -106,7 +106,7 @@ func ValidateTemplatePathParam(p string) error {
 
 // ContainsHiddenSegment checks if any segment of the path starts with a dot (e.g. ".env", ".git", ".secrets").
 func ContainsHiddenSegment(p string) bool {
-	parts := strings.Split(filepath.ToSlash(p), "/")
+	parts := strings.Split(strings.ReplaceAll(p, "\\", "/"), "/")
 	for _, part := range parts {
 		if strings.HasPrefix(part, ".") && part != "." && part != ".." {
 			return true
