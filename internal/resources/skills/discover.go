@@ -40,13 +40,14 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 	for _, skillURI := range reg.URIs() {
 		var e Entry
 		var err error
-		// A dynamic skill publishes no digests, so Discover does not read its
-		// supporting files. It reads only the SKILL.md, for the frontmatter
-		// every entry carries.
-		//
-		// Every URI from reg.URIs() has a doc: both derive from one SkillRoot.
-		doc, _ := reg.Doc(skillURI)
 		if reg.IsDynamic(skillURI) {
+			// A dynamic skill publishes no digests, so Discover does not read its
+			// supporting files. It reads only the SKILL.md, for the frontmatter
+			// every entry carries.
+			doc, ok := reg.Doc(skillURI)
+			if !ok {
+				return nil, fmt.Errorf("skill %q: no %s resource is registered", skillURI, skillFile)
+			}
 			e, err = buildDynamicEntry(ctx, skillURI, doc)
 		} else {
 			members, _ := reg.Members(skillURI)
@@ -77,7 +78,7 @@ func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resou
 	if err != nil {
 		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
 	}
-	// GetSize above is only a hint; this is authoritative.
+	// GetSize above is only a hint. This check is authoritative.
 	if int64(len(content)) > MaxTotalSize {
 		return Entry{}, fmt.Errorf("skill %q: %s exceeds the limit of %d bytes", skillURI, skillFile, MaxTotalSize)
 	}
@@ -108,7 +109,7 @@ func buildEntry(ctx context.Context, skillURI string, members []resources.Resour
 		if err != nil {
 			return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
 		}
-		// GetSize above is only a hint; this is authoritative.
+		// GetSize above is only a hint. This check is authoritative.
 		size := int64(len(content))
 		if size > MaxTotalSize-total {
 			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
