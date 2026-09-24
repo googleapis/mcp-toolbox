@@ -233,12 +233,12 @@ func TestAnnotations(t *testing.T) {
 		ConfigBase: tools.ConfigBase{
 			Name:        "test_tool",
 			Description: "test description",
+			Annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: &readOnlyTrue,
+			},
 		},
 		Type:   "looker-update-agent",
 		Source: "my-instance",
-		Annotations: &tools.ToolAnnotations{
-			ReadOnlyHint: &readOnlyTrue,
-		},
 	}
 
 	tool, err := cfg.Initialize(context.Background())

@@ -131,10 +131,9 @@ func TestGetAnnotations(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			cfg := mysqlexecutesql.Config{
-				ConfigBase:  tools.ConfigBase{Name: "mysql-execute-sql", Description: "execute sql query"},
-				Type:        "mysql-execute-sql",
-				Source:      "my-instance",
-				Annotations: tc.annotations,
+				ConfigBase: tools.ConfigBase{Name: "mysql-execute-sql", Description: "execute sql query", Annotations: tc.annotations},
+				Type:       "mysql-execute-sql",
+				Source:     "my-instance",
 			}
 			tool, err := cfg.Initialize(ctx)
 			if err != nil {
