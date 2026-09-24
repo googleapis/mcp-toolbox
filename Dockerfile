@@ -16,11 +16,14 @@ ARG PROJECT_ID=mcp-toolbox
 FROM --platform=$BUILDPLATFORM us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244 AS build
 
 # Install Zig for CGO cross-compilation
-RUN apt-get update && apt-get install -y xz-utils
-RUN curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz && \
+# Copy pre-downloaded dependencies
+COPY zig.tar.xz /zig.tar.xz
+
+# Install Zig for CGO cross-compilation
+RUN apt-get update && apt-get install -y xz-utils && \
     mkdir -p /zig && \
-    tar -xf zig.tar.xz -C /zig --strip-components=1 && \
-    rm zig.tar.xz
+    tar -xf /zig.tar.xz -C /zig --strip-components=1 && \
+    rm /zig.tar.xz
 
 WORKDIR /go/src/mcp-toolbox
 COPY . .

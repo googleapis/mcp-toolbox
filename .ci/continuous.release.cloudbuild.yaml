@@ -12,9 +12,20 @@
 # limitations under the License.
 
 steps:
+
+  - id: "download-dependencies"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor: ['-']
+    script: |
+        #!/usr/bin/env bash
+        set -e
+        # Download zig for docker build and cross-compilation
+        gcloud storage cp gs://toolbox-build-assets/dependencies/zig-x86_64-linux-0.15.2.tar.xz ./zig.tar.xz
+        echo "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239  ./zig.tar.xz" | sha256sum -c -
+
   - id: "build-docker"
     name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/gcr.io/cloud-builders/docker@sha256:001fb4a870a84485cf198c80002f7af42f6456f2dbc261d70a0b5f0111470df4"
-    waitFor: ['-']
+    waitFor: ['download-dependencies']
     script: |
         #!/usr/bin/env bash
         docker buildx create --name container-builder --driver docker-container --bootstrap --use
@@ -35,7 +46,7 @@ steps:
 
   - id: "install-zig"
     name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
-    waitFor: ['-']
+    waitFor: ['download-dependencies']
     volumes:
       - name: 'zig'
         path: '/zig-tools'
@@ -43,8 +54,7 @@ steps:
         #!/usr/bin/env bash
         set -e
         apt-get update && apt-get install -y xz-utils
-        curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz
-        tar -xf zig.tar.xz -C /zig-tools --strip-components=1
+        tar -xf ./zig.tar.xz -C /zig-tools --strip-components=1
 
   - id: "install-macos-sdk"
     name: "gcr.io/cloud-builders/gcloud:latest"
