@@ -473,6 +473,11 @@ func TestGCSResource_InitializeAndRead(t *testing.T) {
 				contentType: "application/octet-stream",
 				updated:     updatedTime,
 			},
+			"corp-bucket/logs/large_binary.txt": {
+				content:     bytes.Repeat([]byte{0xff}, 10),
+				contentType: "application/octet-stream",
+				updated:     updatedTime,
+			},
 		},
 	}
 
@@ -480,6 +485,7 @@ func TestGCSResource_InitializeAndRead(t *testing.T) {
 	defer cleanup()
 
 	limit20 := int64(20)
+	limit5 := int64(5)
 	limit3 := int64(3)
 	trueVal := true
 
@@ -671,6 +677,23 @@ func TestGCSResource_InitializeAndRead(t *testing.T) {
 					},
 					URI: "gs://corp-bucket/logs/binary_disguised.txt",
 				},
+			},
+			wantSize:         5,
+			wantMimePrefix:   "text/plain",
+			wantLastModified: "2026-09-10T15:30:00Z",
+			wantReadErrIs:    cloudstoragecommon.ErrBinaryContent,
+		},
+		{
+			desc: "binary payload exceeding maxSize rejected with ErrBinaryContent",
+			cfg: &gcs.Config{
+				ResourceConfigBase: resources.ResourceConfigBase{
+					ConfigBase: resources.ConfigBase{
+						Name: "large-binary-log",
+						Type: "gcs",
+					},
+					URI: "gs://corp-bucket/logs/large_binary.txt",
+				},
+				MaxSize: &limit5,
 			},
 			wantSize:         5,
 			wantMimePrefix:   "text/plain",

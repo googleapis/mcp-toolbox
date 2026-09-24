@@ -235,15 +235,9 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 		size = *c.MaxSize
 	}
 
-	var rawStorageClient *storage.Client
-	if sc, ok := client.(*storageClient); ok {
-		rawStorageClient = sc.client
-	}
-
 	return &GCSResource{
 		Config:     *c,
-		client:     rawStorageClient,
-		gcsClient:  client,
+		client:     client,
 		bucket:     bucket,
 		objectPath: objectPath,
 		size:       size,
@@ -255,8 +249,7 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 type GCSResource struct {
 	Config
 	// Cloud Storage client
-	client    *storage.Client
-	gcsClient Client
+	client Client
 	// Parsed GCS Bucket
 	bucket string
 	// Parsed GCS Object Path
@@ -294,7 +287,7 @@ func (r *GCSResource) Read(ctx context.Context, params map[string]any) (any, err
 	if err := resources.ValidateExtension(r.objectPath); err != nil {
 		return nil, fmt.Errorf("security violation: configured file extension not allowed for resource %q: %w", r.Name, err)
 	}
-	return readGCSObject(ctx, r.gcsClient, r.bucket, r.objectPath, *r.MaxSize)
+	return readGCSObject(ctx, r.client, r.bucket, r.objectPath, *r.MaxSize)
 }
 
 // readGCSObject reads up to limit+1 bytes from a GCS object using NewRangeReader,
@@ -315,12 +308,12 @@ func readGCSObject(ctx context.Context, client Client, bucket, objectPath string
 	}
 
 	// If the payload exceeds limit, trim any incomplete trailing multi-byte rune
-	// at the cut boundary before validating UTF-8 so valid multi-byte characters
-	// split at the limit are not misclassified as binary content.
+	// (at most 3 bytes) at the cut boundary before validating UTF-8 so valid
+	// multi-byte characters split at the limit are not misclassified as binary content.
 	checkSlice := data
 	if int64(len(data)) > limit {
 		checkSlice = data[:limit]
-		for len(checkSlice) > 0 {
+		for i := 0; i < 3 && len(checkSlice) > 0; i++ {
 			r, size := utf8.DecodeLastRune(checkSlice)
 			if r == utf8.RuneError && size == 1 {
 				checkSlice = checkSlice[:len(checkSlice)-1]

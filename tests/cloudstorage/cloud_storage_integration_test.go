@@ -2369,7 +2369,7 @@ func TestCloudStorageResources(t *testing.T) {
 	}
 
 	sessionId := tests.RunInitialize(t, "2025-11-25")
-	headers := map[string]string{}
+	headers := tests.NewMCPRequestHeader(t, nil)
 	if sessionId != "" {
 		headers["Mcp-Session-Id"] = sessionId
 	}
