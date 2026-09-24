@@ -25,7 +25,10 @@ source: conversational-analytics-source
 location: ${CLOUD_GDA_LOCATION:global}
 description: |
   List all available Data Agents that can be used for
-  conversational analytics in the current project.
+  conversational analytics in the current project. Every page is fetched
+  automatically, so a single call returns all of them. Only if the response
+  contains a `nextPageToken` are there more: pass that value back as
+  `page_token` to step through the remaining pages one page at a time.
 ---
 kind: tool
 name: get_data_agent_info

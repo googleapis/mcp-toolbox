@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -54,9 +55,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -76,20 +76,11 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	refParameter := parameters.NewStringParameter("ref", "The ref to switch the branch to using `reset --hard`.", parameters.WithStringDefault(""))
 	allParameters := parameters.Parameters{projectIdParameter, branchParameter, refParameter}
 
-	annotations := &tools.ToolAnnotations{}
-	if cfg.Annotations != nil {
-		*annotations = *cfg.Annotations
-	}
-	readOnlyHint := false
-	destructiveHint := true
-	annotations.ReadOnlyHint = &readOnlyHint
-	annotations.DestructiveHint = &destructiveHint
-
 	// finish tool setup
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			annotations,
+			lookercommon.DestructiveAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: allParameters.Manifest(), AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),

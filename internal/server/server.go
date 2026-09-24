@@ -55,20 +55,21 @@ import (
 
 // Server contains info for running an instance of Toolbox. Should be instantiated with NewServer().
 type Server struct {
-	version             string
-	sqlCommenterEnabled bool
-	toolboxUrl          string
-	prmURL              string
-	srv                 *http.Server
-	listener            net.Listener
-	root                chi.Router
-	logger              log.Logger
-	instrumentation     *telemetry.Instrumentation
-	sseManager          *sseManager
-	PrimitiveMgr        *primitives.PrimitiveManager
-	mcpPrmFile          string
-	httpMaxRequestBytes int64
-	enableDraftSpecs    bool
+	version                 string
+	sqlCommenterEnabled     bool
+	toolboxUrl              string
+	prmURL                  string
+	srv                     *http.Server
+	listener                net.Listener
+	root                    chi.Router
+	logger                  log.Logger
+	instrumentation         *telemetry.Instrumentation
+	sseManager              *sseManager
+	PrimitiveMgr            *primitives.PrimitiveManager
+	mcpPrmFile              string
+	openAIAppsChallengeFile string
+	httpMaxRequestBytes     int64
+	enableDraftSpecs        bool
 }
 
 func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
@@ -116,7 +117,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 				trace.WithAttributes(attribute.String("source_name", name)),
 			)
 			defer span.End()
-			s, err := sc.Initialize(childCtx, instrumentation.Tracer)
+			s, err := sc.Initialize(childCtx, instrumentation.Tracer, cfg.DeferSourceConnect)
 			if err != nil {
 				return nil, fmt.Errorf("unable to initialize source %q: %w", name, err)
 			}
@@ -132,6 +133,9 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		sourceNames = append(sourceNames, name)
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d sources: %s", len(sourcesMap), strings.Join(sourceNames, ", ")))
+	if cfg.DeferSourceConnect {
+		l.InfoContext(ctx, "Source connections are deferred; each source connects on first use.")
+	}
 
 	// initialize and validate the auth services from configs
 	authServicesMap := make(map[string]auth.AuthService)
@@ -505,8 +509,8 @@ func initializeGroups(ctx context.Context, cfg ServerConfig, toolsMap map[string
 func hostCheck(allowedHosts map[string]struct{}) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip host validation for health check probes. Container
-			// orchestrators (Kubernetes, Docker, Cloud Run) typically hit
+			// Skip host validation for health check probes and domain verification challenge.
+			// Container orchestrators (Kubernetes, Docker, Cloud Run) typically hit
 			// /healthz via the pod IP or localhost, which would otherwise
 			// trip a strict AllowedHosts setting and break liveness probes.
 			if r.URL.Path == "/healthz" {
@@ -594,20 +598,31 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("unable to initialize server: %w", err)
 	}
 
+	var cachedOpenAITokenBytes []byte
+	if cfg.OpenAIAppsChallengeFile != "" {
+		var err error
+		cachedOpenAITokenBytes, err = os.ReadFile(cfg.OpenAIAppsChallengeFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read openai token file at startup: %w", err)
+		}
+		cachedOpenAITokenBytes = []byte(strings.TrimSpace(string(cachedOpenAITokenBytes)))
+	}
+
 	s := &Server{
-		version:             cfg.Version,
-		sqlCommenterEnabled: cfg.SQLCommenter,
-		srv:                 srv,
-		root:                r,
-		logger:              l,
-		instrumentation:     instrumentation,
-		sseManager:          sseManager,
-		PrimitiveMgr:        primitiveManager,
-		toolboxUrl:          cfg.ToolboxUrl,
-		prmURL:              prmURLStr,
-		mcpPrmFile:          cfg.McpPrmFile,
-		httpMaxRequestBytes: limit,
-		enableDraftSpecs:    cfg.EnableDraftSpecs,
+		version:                 cfg.Version,
+		sqlCommenterEnabled:     cfg.SQLCommenter,
+		srv:                     srv,
+		root:                    r,
+		logger:                  l,
+		instrumentation:         instrumentation,
+		sseManager:              sseManager,
+		PrimitiveMgr:            primitiveManager,
+		toolboxUrl:              cfg.ToolboxUrl,
+		prmURL:                  prmURLStr,
+		mcpPrmFile:              cfg.McpPrmFile,
+		openAIAppsChallengeFile: cfg.OpenAIAppsChallengeFile,
+		httpMaxRequestBytes:     limit,
+		enableDraftSpecs:        cfg.EnableDraftSpecs,
 	}
 
 	if s.enableDraftSpecs {
@@ -720,6 +735,17 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		render.JSON(w, r, map[string]string{"status": "ok"})
 	})
+
+	// OpenAI domain verification challenge endpoint
+	if cfg.OpenAIAppsChallengeFile != "" {
+		r.Get("/.well-known/openai-apps-challenge", func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write(cachedOpenAITokenBytes); err != nil {
+				s.logger.ErrorContext(req.Context(), "failed to write openai challenge response", "error", err)
+			}
+		})
+	}
 
 	return s, nil
 }

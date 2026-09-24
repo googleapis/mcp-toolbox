@@ -248,10 +248,10 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
 * **Define a `Config` struct** for your tool in a file named `newdbtool.go`.
   **Embed [`tools.ConfigBase`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)
   with `yaml:",inline"`** so your tool inherits the shared `name`,
-  `description`, `authRequired`, and `scopesRequired` fields (and their getters)
-  for free. Add only the fields specific to your tool (e.g., `Type`, `Source`,
-  `Statement`, `Parameters`, `Annotations`). Do **not** redeclare the shared
-  fields.
+  `description`, `authRequired`, `scopesRequired`, and `annotations` fields (and
+  the applicable getters) for free. Add only the fields specific to your tool
+  (e.g., `Type`, `Source`, `Statement`, `Parameters`). Do **not** redeclare the
+  shared fields.
 * **Define a `Tool` struct** that **embeds
   [`tools.BaseTool[Config]`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)**.
   `BaseTool` provides default implementations of most of the `Tool` interface —

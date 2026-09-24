@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -54,9 +55,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -88,17 +88,10 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	codeInterpreterParameter := parameters.NewBooleanParameter("code_interpreter", "Optional. Enables Code Interpreter for this Agent.", parameters.WithBooleanDefault(false))
 	params := parameters.Parameters{nameParameter, descriptionParameter, instructionsParameter, sourcesParameter, codeInterpreterParameter}
 
-	annotations := &tools.ToolAnnotations{}
-	if cfg.Annotations != nil {
-		*annotations = *cfg.Annotations
-	}
-	readOnlyHint := false
-	annotations.ReadOnlyHint = &readOnlyHint
-
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			annotations,
+			lookercommon.WriteAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: params.Manifest(), AuthRequired: cfg.AuthRequired},
 			params,
 		),
