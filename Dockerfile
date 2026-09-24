@@ -11,7 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-FROM --platform=$BUILDPLATFORM golang:1 AS build
+ARG _AR_REPO_NAME=toolbox
+ARG PROJECT_ID=mcp-toolbox
+FROM --platform=$BUILDPLATFORM us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244 AS build
 
 # Install Zig for CGO cross-compilation
 RUN apt-get update && apt-get install -y xz-utils

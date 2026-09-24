@@ -23,7 +23,7 @@ steps:
         docker buildx build --platform linux/amd64,linux/arm64 --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) $TAGS --push .
 
   - id: "install-dependencies"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor: ['-']
     env:
       - 'GOPATH=/gopath'
@@ -34,7 +34,7 @@ steps:
         go get -d ./...
 
   - id: "install-zig"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor: ['-']
     volumes:
       - name: 'zig'
@@ -64,7 +64,7 @@ steps:
         tar -xf sdk.tar.xz -C /macos-sdk/MacOSX14.5.sdk --strip-components=1
 
   - id: "build-linux-amd64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -93,7 +93,7 @@ steps:
         gcloud storage cp toolbox.linux.amd64 gs://$_BUCKET_NAME/$REF_NAME/linux/amd64/toolbox
 
   - id: "build-linux-amd64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -115,7 +115,7 @@ steps:
         go build -ldflags "-X github.com/googleapis/mcp-toolbox/cmd.commitSha=$(git rev-parse --short HEAD)" -o toolbox.geminicli.linux.amd64
 
   - id: "build-darwin-arm64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -151,7 +151,7 @@ steps:
         gcloud storage cp toolbox.darwin.arm64 gs://$_BUCKET_NAME/$REF_NAME/darwin/arm64/toolbox
 
   - id: "build-darwin-arm64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -179,7 +179,7 @@ steps:
          go build -trimpath -buildmode=pie -ldflags "-s -w -X github.com/googleapis/mcp-toolbox/cmd.commitSha=$(git rev-parse --short HEAD)" -o toolbox.geminicli.darwin.arm64
 
   - id: "build-darwin-amd64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -215,7 +215,7 @@ steps:
         gcloud storage cp toolbox.darwin.amd64 gs://$_BUCKET_NAME/$REF_NAME/darwin/amd64/toolbox
 
   - id: "build-darwin-amd64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -243,7 +243,7 @@ steps:
          go build -trimpath -buildmode=pie -ldflags "-s -w -X github.com/googleapis/mcp-toolbox/cmd.commitSha=$(git rev-parse --short HEAD)" -o toolbox.geminicli.darwin.amd64
 
   - id: "build-windows-amd64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -272,7 +272,7 @@ steps:
         gcloud storage cp toolbox.windows.amd64 gs://$_BUCKET_NAME/$REF_NAME/windows/amd64/toolbox.exe
 
   - id: "build-windows-amd64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -294,7 +294,7 @@ steps:
         go build -ldflags "-X github.com/googleapis/mcp-toolbox/cmd.commitSha=$(git rev-parse --short HEAD)" -o toolbox.geminicli.windows.amd64
 
   - id: "build-windows-arm64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
@@ -323,7 +323,7 @@ steps:
         gcloud storage cp toolbox.windows.arm64 gs://$_BUCKET_NAME/$REF_NAME/windows/arm64/toolbox.exe
 
   - id: "build-windows-arm64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
       - "install-zig"
