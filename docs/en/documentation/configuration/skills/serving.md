@@ -179,7 +179,7 @@ The skills catalogue is server-wide. [Groups](../groups/) do not scope
 result. Groups do scope `resources/list` and `resources/read`, which return the
 file content.
 
-Treat the content of a skill as visible to every client of the server.
+Treat the skills metadata: skill names and supporting files etc. as visible to all clients.
 
 ## Disabling the extension
 
