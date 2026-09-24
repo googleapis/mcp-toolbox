@@ -20,21 +20,19 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"mime"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 )
 
 const (
-	defaultMaxFileSize = 5 * 1024 * 1024 // 5MB
+	defaultMaxFileSize = resources.DefaultMaxFileSize
 	resourceType       = "file"
 )
 
@@ -97,22 +95,6 @@ func (c *Config) ResourceConfigType() string {
 	return resourceType
 }
 
-var allowedExts = map[string]bool{
-	".txt": true, ".md": true, ".csv": true, ".json": true,
-	".yaml": true, ".yml": true, ".xml": true, ".sql": true,
-	".html": true, ".htm": true, ".js": true, ".css": true, ".svg": true,
-	".py": true,
-}
-
-// validateExtension checks if a file extension is allowed.
-func validateExtension(path string) error {
-	ext := strings.ToLower(filepath.Ext(path))
-	if !allowedExts[ext] {
-		return fmt.Errorf("file extension %q is not allowed", ext)
-	}
-	return nil
-}
-
 // Validate performs specific validation including URI scheme and file size limits.
 func (c *Config) Validate() error {
 	if err := c.ResourceConfigBase.Validate(); err != nil {
@@ -123,34 +105,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid scheme for file resource %q: must be 'file'", c.Name)
 	}
 
-	if c.MaxSize != nil {
-		if *c.MaxSize <= 0 {
-			return fmt.Errorf("file resource %q maxSize must be greater than 0", c.Name)
-		} else if *c.MaxSize > 1024*1024*1024 {
-			return fmt.Errorf("file resource %q maxSize cannot exceed 1GB", c.Name)
-		}
+	if err := resources.ValidateMaxSize(c.MaxSize, "file resource", c.Name); err != nil {
+		return err
 	}
 	return nil
-}
-
-// containsTraversal checks if any component of the path is a backward traversal
-func containsTraversal(p string) bool {
-	// Check for URL-encoded traversal attempts to prevent evasion
-	decoded, err := url.PathUnescape(p)
-	if err == nil {
-		p = decoded
-	}
-
-	// Convert any backslashes to forward slashes for unified checking
-	p = strings.ReplaceAll(p, "\\", "/")
-
-	parts := strings.Split(p, "/")
-	for _, part := range parts {
-		if part == ".." {
-			return true
-		}
-	}
-	return false
 }
 
 // Initialize validates the configuration and initializes the file resource.
@@ -194,11 +152,7 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 	}
 
 	if c.MimeType == "" {
-		ext := strings.ToLower(filepath.Ext(absPath))
-		c.MimeType = mime.TypeByExtension(ext)
-		if c.MimeType == "" {
-			c.MimeType = "text/plain"
-		}
+		c.MimeType = resources.InferMimeType(absPath)
 	}
 
 	if isRelative && resolvedBaseDir != "" {
@@ -218,7 +172,7 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 	}
 
 	// Security check for extension on the requested path
-	if err := validateExtension(absPath); err != nil {
+	if err := resources.ValidateExtension(absPath); err != nil {
 		return nil, fmt.Errorf("invalid extension for resource %q: %w", c.Name, err)
 	}
 
@@ -238,7 +192,7 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 		}
 	}
 
-	if err := validateExtension(absPath); err != nil {
+	if err := resources.ValidateExtension(absPath); err != nil {
 		return nil, fmt.Errorf("invalid extension for resource %q: %w", c.Name, err)
 	}
 
@@ -290,7 +244,7 @@ func (r *FileResource) GetSize() *int64 {
 // Read retrieves the file content.
 func (r *FileResource) Read(ctx context.Context, params map[string]any) (any, error) {
 	// Security check for extension on the resolved target
-	if err := validateExtension(r.absPath); err != nil {
+	if err := resources.ValidateExtension(r.absPath); err != nil {
 		return nil, fmt.Errorf("security violation: configured file extension not allowed for resource %q: %w", r.Name, err)
 	}
 
@@ -313,7 +267,7 @@ func (r *FileResource) Read(ctx context.Context, params map[string]any) (any, er
 		}
 	}
 
-	if err := validateExtension(resolvedPath); err != nil {
+	if err := resources.ValidateExtension(resolvedPath); err != nil {
 		return nil, fmt.Errorf("security violation: file extension changed post-boot for resource %q: %w", r.Name, err)
 	}
 
@@ -352,21 +306,7 @@ func (r *FileResource) Read(ctx context.Context, params map[string]any) (any, er
 		return nil, fmt.Errorf("failed to read file %q: %w", resolvedPath, err)
 	}
 
-	if int64(len(content)) > limit {
-		truncated := content[:limit]
-		for len(truncated) > 0 {
-			r, size := utf8.DecodeLastRune(truncated)
-			if r == utf8.RuneError && size == 1 {
-				truncated = truncated[:len(truncated)-1]
-			} else {
-				break
-			}
-		}
-		warning := fmt.Sprintf("\n\n...[TRUNCATED BY SERVER: Payload exceeded %d byte safety limit]...", limit)
-		return string(truncated) + warning, nil
-	}
-
-	return string(content), nil
+	return resources.TruncateUTF8(content, limit), nil
 }
 
 // GetAnnotations returns the resource annotations, dynamically computing the LastModified timestamp.
@@ -452,12 +392,8 @@ func (c *TemplateConfig) Validate() error {
 		return fmt.Errorf("invalid scheme for file resource template %q: must be 'file'", c.Name)
 	}
 
-	if c.MaxSize != nil {
-		if *c.MaxSize <= 0 {
-			return fmt.Errorf("file resource template %q maxSize must be greater than 0", c.Name)
-		} else if *c.MaxSize > 1024*1024*1024 {
-			return fmt.Errorf("file resource template %q maxSize cannot exceed 1GB", c.Name)
-		}
+	if err := resources.ValidateMaxSize(c.MaxSize, "file resource template", c.Name); err != nil {
+		return err
 	}
 	return nil
 }
@@ -535,7 +471,7 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 	}
 
 	// Explicitly block backward traversal in the raw input
-	if containsTraversal(pathStr) {
+	if resources.ContainsTraversal(pathStr) {
 		return nil, fmt.Errorf("security violation: path %q contains backward traversal components (..)", pathStr)
 	}
 
@@ -589,13 +525,8 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 			if !isAllowed {
 				return fmt.Errorf("security violation: path %q is not within any allowedPaths", pathToCheck)
 			}
-		} else {
-			parts := strings.Split(filepath.ToSlash(pathToCheck), "/")
-			for _, part := range parts {
-				if strings.HasPrefix(part, ".") && part != "." && part != ".." {
-					return fmt.Errorf("security violation: access to hidden file or directory %q is blocked when allowedPaths is not specified", pathToCheck)
-				}
-			}
+		} else if resources.ContainsHiddenSegment(pathToCheck) {
+			return fmt.Errorf("security violation: access to hidden file or directory %q is blocked when allowedPaths is not specified", pathToCheck)
 		}
 		return nil
 	}
@@ -621,10 +552,10 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 	}
 
 	// Security check for extension on BOTH the requested path and resolved target
-	if err := validateExtension(pathStr); err != nil {
+	if err := resources.ValidateExtension(pathStr); err != nil {
 		return nil, fmt.Errorf("security violation: requested file extension not allowed: %w", err)
 	}
-	if err := validateExtension(resolvedPath); err != nil {
+	if err := resources.ValidateExtension(resolvedPath); err != nil {
 		return nil, fmt.Errorf("security violation: file extension not allowed: %w", err)
 	}
 
@@ -663,21 +594,7 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 		return nil, fmt.Errorf("failed to read file %q: %w", resolvedPath, err)
 	}
 
-	if int64(len(content)) > limit {
-		truncated := content[:limit]
-		for len(truncated) > 0 {
-			r, size := utf8.DecodeLastRune(truncated)
-			if r == utf8.RuneError && size == 1 {
-				truncated = truncated[:len(truncated)-1]
-			} else {
-				break
-			}
-		}
-		warning := fmt.Sprintf("\n\n...[TRUNCATED BY SERVER: Payload exceeded %d byte safety limit]...", limit)
-		return string(truncated) + warning, nil
-	}
-
-	return string(content), nil
+	return resources.TruncateUTF8(content, limit), nil
 }
 
 // ToConfig returns the original configuration for this template.
