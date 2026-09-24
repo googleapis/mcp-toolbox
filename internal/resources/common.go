@@ -104,8 +104,12 @@ func ValidateTemplatePathParam(p string) error {
 	return nil
 }
 
-// ContainsHiddenSegment checks if any segment of the path starts with a dot (e.g. ".env", ".git", ".secrets").
+// ContainsHiddenSegment checks if any segment of the path starts with a dot (e.g. ".env", ".git", ".secrets"),
+// including URL-encoded variants.
 func ContainsHiddenSegment(p string) bool {
+	if decoded, err := url.PathUnescape(p); err == nil {
+		p = decoded
+	}
 	parts := strings.Split(strings.ReplaceAll(p, "\\", "/"), "/")
 	for _, part := range parts {
 		if strings.HasPrefix(part, ".") && part != "." && part != ".." {
@@ -127,6 +131,9 @@ func InferMimeType(path string) string {
 // TruncateUTF8 truncates content exceeding limit at a valid UTF-8 rune boundary
 // and appends a server truncation warning.
 func TruncateUTF8(content []byte, limit int64) string {
+	if limit <= 0 {
+		return ""
+	}
 	if int64(len(content)) > limit {
 		truncated := content[:limit]
 		for len(truncated) > 0 {

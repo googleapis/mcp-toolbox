@@ -112,6 +112,10 @@ func TestContainsHiddenSegment(t *testing.T) {
 		"folder/.hidden.txt",
 		"a/.secrets/data.txt",
 		`dir\.git/config`,
+		"%2eenv",
+		"%2ehidden.txt",
+		"folder/%2ehidden.txt",
+		"a/%2esecrets/data.txt",
 	}
 	for _, p := range hidden {
 		if !resources.ContainsHiddenSegment(p) {
@@ -154,5 +158,13 @@ func TestTruncateUTF8(t *testing.T) {
 	gotNoTrunc := resources.TruncateUTF8(input, 10)
 	if gotNoTrunc != "a€b" {
 		t.Errorf("expected 'a€b', got %q", gotNoTrunc)
+	}
+
+	// Zero and negative limits handled gracefully without panicking
+	if gotZero := resources.TruncateUTF8(input, 0); gotZero != "" {
+		t.Errorf("expected empty string for limit 0, got %q", gotZero)
+	}
+	if gotNeg := resources.TruncateUTF8(input, -5); gotNeg != "" {
+		t.Errorf("expected empty string for negative limit, got %q", gotNeg)
 	}
 }
