@@ -136,4 +136,4 @@ Provide the path to the directory containing the generated skill:
 gemini skills install /path/to/generated-skills/my-skill
 ```
 
-Alternatively, use ~/.gemini/skills as the `--output-dir` to generate the skill straight to the Gemini CLI.
+Alternatively, use `~/.gemini/skills` as the `--output-dir` to generate the skill straight to the Gemini CLI.
