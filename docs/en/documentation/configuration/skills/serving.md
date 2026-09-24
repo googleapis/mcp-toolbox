@@ -21,9 +21,8 @@ and the URI, `sha256:` digest, and byte size of every file in the skill. The cli
 reads the content of a file with `resources/read`, and compares the bytes against
 the digest.
 
-A client that does not negotiate the extension still sees the same files as
-ordinary resources. Toolbox advertises extensions only for MCP protocol version
-`2026-07-28`.
+Toolbox advertises extensions only for MCP protocol version `2026-07-28`. A client
+on any other version reads the files as ordinary resources.
 
 ## The skill:// convention
 
@@ -38,10 +37,8 @@ A `skill://` resource with no `SKILL.md` at its skill path joins no skill.
 Toolbox serves it as an ordinary resource, and reports no error.
 
 The skill path holds one or more segments. `skill://guide/SKILL.md` and
-`skill://team/guide/SKILL.md` both declare a skill.
-
-The frontmatter `name` must equal the last segment of the skill path.
-`skill://team/guide/SKILL.md` therefore requires `name: guide`.
+`skill://team/guide/SKILL.md` both declare a skill. The frontmatter `name` must
+equal the last segment, so the second one requires `name: guide`.
 
 Only concrete resources (`kind: resource`) become files of a skill. A
 [resource template](../resources/template/) accepts a `skill://` URI template, but
@@ -143,9 +140,8 @@ resource with any other extension fails the load, and `dynamic: true` does not
 change this.
 
 A skill can therefore hold files on disk that Toolbox cannot serve. Declare the
-files it can serve, and set [`dynamic: true`](#dynamic-skills) on the `SKILL.md`.
-The entry then publishes the dynamic marker in place of a file list that would
-otherwise be incomplete.
+files it can serve, and set [`dynamic: true`](#dynamic-skills) on the `SKILL.md`,
+so the entry publishes no incomplete file list.
 
 A large file does not fail the load. It truncates. The
 [`maxSize`](../resources/file/) of a `file` resource defaults to 5 MB. Toolbox
@@ -155,10 +151,10 @@ the digest over those bytes. The catalogue reports no truncation, so raise
 
 ## Freshness
 
-Toolbox computes the digests for each request, and does not cache them for the
-life of the process. Edit a file, and the next `skills/list` publishes the new
-digest. The specification treats a changed digest as a normal condition: the host
-requests a fresh entry, and the user approves the new content.
+Toolbox computes the digests for each request. Edit a file, and the next
+`skills/list` publishes the new digest. The specification treats a changed digest
+as a normal condition. The host requests a fresh entry, and the user approves the
+new content.
 
 If you add or remove a file of the skill, you change the configuration. Reload
 the server.
@@ -209,9 +205,6 @@ after the skill, because a group lists its resources by config name.
 
 Toolbox logs a second warning at startup when two skills share a frontmatter
 `name`. The warning names both URIs, because a host must distinguish them.
-
-A host reaches a skill through `skills/list` and the URI. No code path routes on
-the resource name.
 
 ## Groups
 
