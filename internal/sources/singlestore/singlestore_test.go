@@ -146,7 +146,7 @@ func TestParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -195,7 +195,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}
@@ -220,7 +220,7 @@ func TestFailInitialization(t *testing.T) {
 		Password:     "pass",
 		QueryTimeout: "abc", // invalid duration
 	}
-	_, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"))
+	_, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"), false)
 	if err == nil {
 		t.Fatalf("expected error for invalid queryTimeout, got nil")
 	}

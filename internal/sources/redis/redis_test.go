@@ -16,8 +16,10 @@ package redis_test
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
@@ -86,7 +88,7 @@ func TestParseFromYamlRedis(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -143,7 +145,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}
@@ -152,5 +154,33 @@ func TestFailParseFromYaml(t *testing.T) {
 				t.Fatalf("unexpected error: got %q, want %q", errStr, tc.err)
 			}
 		})
+	}
+}
+
+// goRedisPoolGoroutines counts live goroutines whose stacks still sit inside
+// go-redis (e.g. the MinIdleConns dialer of a client nobody closed).
+func goRedisPoolGoroutines() int {
+	buf := make([]byte, 2<<20)
+	n := runtime.Stack(buf, true)
+	return strings.Count(string(buf[:n]), "redis/go-redis/v9")
+}
+
+func TestInitializeRedisReleasesClientOnFailedPing(t *testing.T) {
+	cfg := redis.Config{
+		Name:    "test-source",
+		Type:    redis.SourceType,
+		Address: []string{"127.0.0.1:1"},
+	}
+	if _, err := cfg.Initialize(context.Background(), nil, false); err == nil {
+		t.Fatal("expected the connection to fail against a dead endpoint")
+	}
+
+	// Give a surviving dialer a moment to park itself, then make sure no
+	// go-redis goroutine is still trying to connect for the abandoned client.
+	time.Sleep(1500 * time.Millisecond)
+	if n := goRedisPoolGoroutines(); n > 0 {
+		b := make([]byte, 2<<20)
+		runtime.Stack(b, true)
+		t.Fatalf("failed Initialize left %d go-redis goroutine(s) dialing in the background:\n%s", n, b[:2<<20])
 	}
 }

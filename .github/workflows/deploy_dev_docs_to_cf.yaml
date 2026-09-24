@@ -86,6 +86,7 @@ jobs:
         with:
           ref: cloudflare-pages
           path: cf-pages-temp
+          persist-credentials: false
 
       - name: Push to Cloudflare Branch
         env:

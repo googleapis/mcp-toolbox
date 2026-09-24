@@ -27,7 +27,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
-	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
@@ -53,16 +52,14 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Parameters       map[string]any         `yaml:"parameters"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string         `yaml:"type" validate:"required"`
+	Source           string         `yaml:"source" validate:"required"`
+	Parameters       map[string]any `yaml:"parameters"`
 }
 
 var _ tools.ToolConfig = Config{}
@@ -95,7 +92,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewReadOnlyAnnotations),
+			lookercommon.ReadOnlyAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: allParameters.Manifest(), AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),

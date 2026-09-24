@@ -24,7 +24,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 const resourceType string = "mongodb-insert-one"
@@ -46,19 +45,17 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MongoClient() *mongo.Client
 	InsertOne(context.Context, string, bool, string, string) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase        `yaml:",inline"`
-	Type                    string                 `yaml:"type" validate:"required"`
-	Source                  string                 `yaml:"source" validate:"required"`
-	Database                string                 `yaml:"database" validate:"required"`
-	Collection              string                 `yaml:"collection"`
-	CollectionAllowedValues []string               `yaml:"collectionAllowedValues"`
-	Canonical               bool                   `yaml:"canonical"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type                    string   `yaml:"type" validate:"required"`
+	Source                  string   `yaml:"source" validate:"required"`
+	Database                string   `yaml:"database" validate:"required"`
+	Collection              string   `yaml:"collection"`
+	CollectionAllowedValues []string `yaml:"collectionAllowedValues"`
+	Canonical               bool     `yaml:"canonical"`
 }
 
 // validate interface

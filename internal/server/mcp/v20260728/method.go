@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/http"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/auth"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -48,10 +50,20 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 		return toolsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case TOOLS_CALL:
 		return toolsCallHandler(ctx, id, g, primitiveMgr, body, header)
+	case RESOURCES_LIST:
+		return resourcesListHandler(ctx, id, primitiveMgr, g, body, header)
+	case RESOURCES_TEMPLATES_LIST:
+		return resourceTemplatesListHandler(ctx, id, primitiveMgr, g, body, header)
+	case RESOURCES_READ:
+		return resourcesReadHandler(ctx, id, primitiveMgr, g, body, header)
 	case PROMPTS_LIST:
 		return promptsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case PROMPTS_GET:
 		return promptsGetHandler(ctx, id, g, primitiveMgr, body, header)
+	case GROUPS_LIST:
+		return groupsListHandler(ctx, id, primitiveMgr, body, header)
+	case GROUPS_GET:
+		return groupsGetHandler(ctx, id, primitiveMgr, body, header)
 	default:
 		err := fmt.Errorf("invalid method %s", method)
 		return jsonrpc.NewError(id, jsonrpc.METHOD_NOT_FOUND, err.Error(), nil), err
@@ -116,6 +128,18 @@ func validateHeader(id jsonrpc.RequestId, header http.Header, method, name strin
 	if headerName != name {
 		err := fmt.Errorf("Mcp-Name header value '%s' does not match body value '%s'", headerName, name)
 		return jsonrpc.NewHeaderMismatchedError(id, err), err
+	}
+	return nil, nil
+}
+
+// validateToolboxExtension checks that the client negotiated the Toolbox
+// extension. Methods that are only part of the extension must not be served to
+// clients that did not declare it.
+func validateToolboxExtension(id jsonrpc.RequestId, params RequestParams, method string) (any, error) {
+	supportedExts := ParseSupportedExtensions(params.Meta.MetaClientCapabilities.Extensions)
+	if _, ok := supportedExts[ToolboxExtensionURI]; !ok {
+		err := fmt.Errorf("missing required client capability: method %q requires %s extension which is not supported by the client", method, ToolboxExtensionURI)
+		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 	return nil, nil
 }
@@ -204,6 +228,10 @@ func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, body []byt
 			Prompts: &ListChanged{
 				ListChanged: &promptsListChanged,
 			},
+			Resources: &struct {
+				Subscribe   *bool `json:"subscribe,omitempty"`
+				ListChanged *bool `json:"listChanged,omitempty"`
+			}{},
 		},
 	}
 	res := jsonrpc.JSONRPCResponse{
@@ -230,9 +258,14 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
-	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport)
+	var clientExts map[string]any
+	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
+		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
+	}
+	supportedExts := ParseSupportedExtensions(clientExts)
+	_, hasSecureParamsSupport := supportedExts[ToolboxExtensionURI]
+	supportsUI := CheckUISupport(supportedExts)
+	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, hasSecureParamsSupport, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
@@ -301,9 +334,9 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	}
 
 	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
+	_, hasSecureParamsSupport := supportedExts[ToolboxExtensionURI]
 	if tool.HasSecureParams() && !hasSecureParamsSupport {
-		err = fmt.Errorf("missing required client capability: tool %q requires com.google.cloud/toolbox.v1 extension which is not supported by the client", toolName)
+		err = fmt.Errorf("missing required client capability: tool %q requires %s extension which is not supported by the client", toolName, ToolboxExtensionURI)
 		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 
@@ -324,6 +357,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 
 	toolParams, err := tool.GetParameters(src)
 	if err != nil {
+		err = fmt.Errorf("error getting parameters for tool: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
 
@@ -797,9 +831,13 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	if err != nil {
 		return validateHeaderErr, err
 	}
-	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	validateErr, err := validateMetadata(id, req.Params, header == nil)
 	if err != nil {
 		return validateErr, err
+	}
+	extErr, err := validateToolboxExtension(id, req.Params, GROUPS_LIST)
+	if err != nil {
+		return extErr, err
 	}
 
 	groupsList := primitiveMgr.GroupsList()
@@ -808,10 +846,22 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 		groups = append(groups, Group{Name: v.Name, Description: v.Description})
 	}
 	logger.DebugContext(ctx, fmt.Sprintf("returning %d groups", len(groups)))
+	meta, err := getResultMetadata(ctx, nil)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
 	return jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
 		Id:      id,
-		Result:  ListGroupsResult{Groups: groups},
+		Result: ListGroupsResult{
+			Result: Result{
+				ResultType: resultTypeComplete,
+				Result: jsonrpc.Result{
+					Meta: meta,
+				},
+			},
+			Groups: groups,
+		},
 	}, nil
 }
 
@@ -838,6 +888,10 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	if err != nil {
 		return validateErr, err
 	}
+	extErr, err := validateToolboxExtension(id, req.Params.RequestParams, GROUPS_GET)
+	if err != nil {
+		return extErr, err
+	}
 
 	groupName := req.Params.Name
 	logger.DebugContext(ctx, fmt.Sprintf("group name: %s", groupName))
@@ -860,11 +914,254 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	supportedExts := ParseSupportedExtensions(req.Params.Meta.MetaClientCapabilities.Extensions)
-	_, hasSecureParamsSupport := supportedExts["com.google.cloud/toolbox.v1"]
-	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, hasSecureParamsSupport)
+	var clientExts map[string]any
+	if req.Params.Meta != nil && req.Params.Meta.MetaClientCapabilities != nil {
+		clientExts = req.Params.Meta.MetaClientCapabilities.Extensions
+	}
+	supportedExts := ParseSupportedExtensions(clientExts)
+	supportsUI := CheckUISupport(supportedExts)
+	// validateToolboxExtension above already established that the client
+	// declared the extension, so secure params are always supported here.
+	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, true, supportsUI)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// resourcesListHandler generates a response for resources/list.
+func resourcesListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, g group.Group, body []byte, header http.Header) (any, error) {
+	// retrieve logger from context
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling resources/list request")
+
+	var req ListResourcesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp resources list request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_LIST, "")
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	result, err := GenerateListResourcesResult(primitiveMgr, g)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("returning %d resources", len(result.Resources)))
+
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// resourceTemplatesListHandler generates a response for resources/templates/list.
+func resourceTemplatesListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, g group.Group, body []byte, header http.Header) (any, error) {
+	// retrieve logger from context
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling resources/templates/list request")
+
+	var req ListResourceTemplatesRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp resource templates list request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_TEMPLATES_LIST, "")
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	result, err := GenerateListResourceTemplatesResult(primitiveMgr, g)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("returning %d resource templates", len(result.ResourceTemplates)))
+
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// getResourceOrTemplateByURI looks up a resource by exact URI match within a group.
+// If not found, it attempts to match against resource templates (e.g. file://{path}).
+// If still not found, it attempts to match against globally available UI resources/templates.
+// Returns the matched resource OR template, plus extracted params if a template was matched.
+func getResourceOrTemplateByURI(uri string, g group.Group, primitiveMgr *primitives.PrimitiveManager) (resources.Resource, resources.ResourceTemplate, map[string]any, error) {
+	for _, name := range g.ResourceNames {
+		if res, ok := primitiveMgr.GetResource(name); ok {
+			if res.GetURI() == uri {
+				return res, nil, nil, nil
+			}
+		}
+	}
+
+	for _, name := range g.ResourceTemplateNames {
+		if rt, ok := primitiveMgr.GetResourceTemplate(name); ok {
+			if params, ok := primitives.MatchResourceTemplateURI(rt.GetURITemplate(), uri); ok {
+				return nil, rt, params, nil
+			}
+		}
+	}
+
+	// UI resources and templates are globally accessible and not limited to specific groups.
+	if res, ok := primitiveMgr.GetUIResourceFromURI(uri); ok {
+		return res, nil, nil, nil
+	}
+
+	if rt, params, ok := primitiveMgr.GetUIResourceTemplateByURI(uri); ok {
+		return nil, rt, params, nil
+	}
+
+	return nil, nil, nil, fmt.Errorf("no resource or template found for URI: %s", uri)
+}
+
+// resourcesReadHandler generates a response for resources/read.
+func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, g group.Group, body []byte, header http.Header) (any, error) {
+	// retrieve logger from context
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling resources/read request")
+
+	var req ReadResourceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp resources read request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, RESOURCES_READ, req.Params.Uri)
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	uri := req.Params.Uri
+	logger.DebugContext(ctx, fmt.Sprintf("resource uri: %s", uri))
+
+	// Update span name and set gen_ai attributes
+	span := trace.SpanFromContext(ctx)
+	span.SetName(fmt.Sprintf("%s %s", RESOURCES_READ, uri))
+	span.SetAttributes(attribute.String("gen_ai.resource.name", uri))
+
+	// Populate gen_ai attributes for operation duration metric
+	if genAIAttrs := util.GenAIMetricAttrsFromContext(ctx); genAIAttrs != nil {
+		genAIAttrs.OperationName = "read_resource"
+	}
+
+	res, resTmpl, params, err := getResourceOrTemplateByURI(uri, g, primitiveMgr)
+	if err != nil {
+		err = fmt.Errorf("resource lookup failed: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
+	}
+
+	var content any
+	var mimeType string
+
+	if res != nil {
+		content, err = res.Read(ctx, nil)
+		mimeType = res.GetMimeType()
+	} else {
+		content, err = resTmpl.Read(ctx, params)
+		mimeType = resTmpl.GetMimeType()
+	}
+
+	if err != nil {
+		err = fmt.Errorf("failed to read resource: %w", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
+		}
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+
+	// Only text content resource is supported
+	textContent, ok := content.(string)
+	if !ok {
+		err = fmt.Errorf("unsupported resource content type, expected string")
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "read resource successfully")
+
+	meta, err := getResultMetadata(ctx, nil)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+
+	var contentMeta map[string]any
+	var uiMeta any
+	if res != nil && res.IsUI() {
+		uiMeta = res.GetResourceUIMetadata()
+	} else if resTmpl != nil && resTmpl.IsUI() {
+		uiMeta = resTmpl.GetResourceUIMetadata()
+	}
+	if uiMeta != nil {
+		contentMeta = map[string]any{"ui": uiMeta}
+	}
+
+	result := &ReadResourceResult{
+		Result: Result{
+			ResultType: resultTypeComplete,
+			Result: jsonrpc.Result{
+				Meta: meta,
+			},
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      g.GetTTLMs(),
+			CacheScope: cacheScope(g.GetCacheScope()),
+		},
+		Contents: []TextResourceContents{
+			{
+				ResourceContents: ResourceContents{
+					Uri:      uri,
+					MimeType: mimeType,
+					Metadata: contentMeta,
+				},
+				Text: textContent,
+			},
+		},
 	}
 
 	return jsonrpc.JSONRPCResponse{
@@ -916,6 +1213,10 @@ func validateAndMergeSecureParams(ctx context.Context, req *CallToolRequest, par
 				}
 			}
 		}
+	}
+
+	if req.Params.Arguments == nil && req.Params.SecureArguments == nil {
+		return nil, nil, nil
 	}
 
 	// Merge standard arguments and secure arguments.

@@ -12,6 +12,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestParseFromYamlOracle(t *testing.T) {
@@ -94,7 +95,7 @@ func TestParseFromYamlOracle(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -241,7 +242,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}
@@ -266,13 +267,21 @@ func TestRunSQLExecutesDML(t *testing.T) {
 	}
 	defer db.Close()
 
+	cfg := Config{
+		Name: "test-dml-source",
+		Type: SourceType,
+		User: "test-user",
+	}
 	src := &Source{
-		Config: Config{
-			Name: "test-dml-source",
-			Type: SourceType,
-			User: "test-user",
-		},
-		DB: db,
+		Config: cfg,
+		conn:   sources.NewConnectOnce[*sql.DB](context.Background(), cfg.Name, SourceType, noop.NewTracerProvider().Tracer("test")),
+	}
+
+	// Seed the lazy connection with the mock handle so RunSQL does not dial Oracle.
+	if _, err := src.conn.Do(context.Background(), func(context.Context) (*sql.DB, error) {
+		return db, nil
+	}); err != nil {
+		t.Fatalf("failed to seed connection: %v", err)
 	}
 
 	// Invoke RunSQL with readOnly=false to force the DML execution path.

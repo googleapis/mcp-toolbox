@@ -54,18 +54,17 @@ type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
 	GetMaximumBytesBilled() int64
-	RetrieveClientAndService(tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error)
+	RetrieveClientAndService(context.Context, tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error)
 	RunSQL(context.Context, *bigqueryapi.Client, string, string, []bigqueryapi.QueryParameter, []*bigqueryapi.ConnectionProperty, map[string]string) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase   `yaml:",inline"`
-	Type               string                 `yaml:"type" validate:"required"`
-	Source             string                 `yaml:"source" validate:"required"`
-	Statement          string                 `yaml:"statement" validate:"required"`
-	Parameters         parameters.Parameters  `yaml:"parameters"`
-	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type               string                `yaml:"type" validate:"required"`
+	Source             string                `yaml:"source" validate:"required"`
+	Statement          string                `yaml:"statement" validate:"required"`
+	Parameters         parameters.Parameters `yaml:"parameters"`
+	TemplateParameters parameters.Parameters `yaml:"templateParameters"`
 }
 
 // validate interface
@@ -146,7 +145,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
-	bqClient, restService, err := source.RetrieveClientAndService(accessToken)
+	bqClient, restService, err := source.RetrieveClientAndService(ctx, accessToken)
 	if err != nil {
 		return nil, util.NewClientServerError("failed to retrieve BigQuery client", http.StatusInternalServerError, err)
 	}

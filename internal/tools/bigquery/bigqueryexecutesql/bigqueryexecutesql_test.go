@@ -70,7 +70,7 @@ func TestParseFromYamlBigQueryExecuteSql(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -356,10 +356,9 @@ func TestGetAnnotations(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			cfg := bigqueryexecutesql.Config{
-				ConfigBase:  tools.ConfigBase{Name: "bigquery-execute-sql", Description: "execute sql query"},
-				Type:        "bigquery-execute-sql",
-				Source:      "my-instance",
-				Annotations: tc.annotations,
+				ConfigBase: tools.ConfigBase{Name: "bigquery-execute-sql", Description: "execute sql query", Annotations: tc.annotations},
+				Type:       "bigquery-execute-sql",
+				Source:     "my-instance",
 			}
 			tool, err := cfg.Initialize(ctx)
 			if err != nil {

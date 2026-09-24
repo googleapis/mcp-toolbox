@@ -30,6 +30,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/dataplex/searchcatalog"
+	"github.com/googleapis/mcp-toolbox/internal/sources/sqlcommenter"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
@@ -102,6 +103,7 @@ type Config struct {
 	MaxQueryResultRows        int                 `yaml:"maxQueryResultRows"`
 	MaximumBytesBilled        int64               `yaml:"maximumBytesBilled" validate:"gte=0"`
 	APIEndpoint               string              `yaml:"apiEndpoint"`
+	SQLCommenter              *bool               `yaml:"sqlCommenter"`
 }
 
 // StringOrStringSlice is a custom type that can unmarshal both a single string
@@ -136,7 +138,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	if r.WriteMode == "" {
 		r.WriteMode = WriteModeAllowed
 		if r.ReadOnly != nil && *r.ReadOnly {
@@ -162,7 +164,12 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		r.MaxQueryResultRows = 50
 	}
 
-	if r.WriteMode == WriteModeProtected && strings.ToLower(r.UseClientOAuth) != "false" && r.UseClientOAuth != "" {
+	authTokenHeaderName := "Authorization"
+	if usesClientOAuth(r) && strings.ToLower(r.UseClientOAuth) != "true" {
+		authTokenHeaderName = r.UseClientOAuth
+	}
+
+	if r.WriteMode == WriteModeProtected && usesClientOAuth(r) {
 		// The protected mode only allows write operations to the session's temporary datasets.
 		// when using client OAuth, a new session is created every
 		// time a BigQuery tool is invoked. Therefore, no session data can
@@ -170,114 +177,126 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		return nil, fmt.Errorf("writeMode 'protected' cannot be used with useClientOAuth enabled")
 	}
 
-	if strings.ToLower(r.UseClientOAuth) != "false" && r.UseClientOAuth != "" && r.ImpersonateServiceAccount != "" {
+	if usesClientOAuth(r) && r.ImpersonateServiceAccount != "" {
 		return nil, fmt.Errorf("useClientOAuth cannot be used with impersonateServiceAccount")
 	}
 
-	endpoint := NormalizeEndpoint(r.APIEndpoint)
-
-	var client *bigqueryapi.Client
-	var restService *bigqueryrestapi.Service
-	var tokenSource oauth2.TokenSource
-	var clientCreator BigqueryClientCreator
-	var err error
+	allowedDatasets, err := normalizeAllowedDatasets(r.Project, r.AllowedDatasets)
+	if err != nil {
+		return nil, err
+	}
 
 	s := &Source{
 		Config:              r,
-		Client:              client,
-		RestService:         restService,
-		TokenSource:         tokenSource,
-		ClientCreator:       clientCreator,
-		AuthTokenHeaderName: "Authorization",
+		AuthTokenHeaderName: authTokenHeaderName,
+		AllowedDatasets:     allowedDatasets,
+		conn:                sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
 	}
-
-	if strings.ToLower(r.UseClientOAuth) == "false" || r.UseClientOAuth == "" {
-		// Initializes a BigQuery Google SQL source
-		client, restService, tokenSource, err = initBigQueryConnection(ctx, tracer, r.Name, r.Project, r.Location, r.QuotaProject, r.ImpersonateServiceAccount, r.Scopes, endpoint)
-		if err != nil {
-			return nil, fmt.Errorf("error creating client from ADC: %w", err)
-		}
-		s.Client = client
-		s.RestService = restService
-		s.TokenSource = tokenSource
-
-		if r.WriteMode == WriteModeProtected {
-			// session-based connections
-			s.SessionProvider = s.newBigQuerySessionProvider()
-		}
-	} else {
-		if strings.ToLower(r.UseClientOAuth) != "true" {
-			s.AuthTokenHeaderName = r.UseClientOAuth
-		}
-		// use client OAuth
-		baseClientCreator, err := newBigQueryClientCreator(ctx, tracer, r.Project, r.Location, r.QuotaProject, r.Name, endpoint)
-		if err != nil {
-			return nil, fmt.Errorf("error constructing client creator: %w", err)
-		}
-		setupClientCaching(s, baseClientCreator)
+	if usesClientOAuth(r) {
+		s.newClientCaches()
 	}
+	s.SessionProvider = s.newBigQuerySessionProvider()
+	s.makeDataplexCatalogClient = s.lazyInitDataplexClient(ctx, tracer)
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.clients(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 
-	allowedDatasets := make(map[string]struct{})
-	// Get full id of allowed datasets and verify they exist.
-	if len(r.AllowedDatasets) > 0 {
-		for _, allowed := range r.AllowedDatasets {
-			var projectID, datasetID, allowedFullID string
-			if strings.Contains(allowed, ".") {
-				parts := strings.Split(allowed, ".")
-				if len(parts) != 2 {
-					return nil, fmt.Errorf("invalid allowedDataset format: %q, expected 'project.dataset' or 'dataset'", allowed)
-				}
-				projectID = parts[0]
-				datasetID = parts[1]
-				allowedFullID = allowed
-			} else {
-				projectID = r.Project
-				datasetID = allowed
-				allowedFullID = fmt.Sprintf("%s.%s", projectID, datasetID)
+func usesClientOAuth(r Config) bool {
+	return strings.ToLower(r.UseClientOAuth) != "false" && r.UseClientOAuth != ""
+}
+
+// normalizeAllowedDatasets expands each entry to a fully qualified "project.dataset" id; it needs no client, so it runs at construction.
+func normalizeAllowedDatasets(project string, allowed []string) (map[string]struct{}, error) {
+	allowedDatasets := make(map[string]struct{}, len(allowed))
+	for _, entry := range allowed {
+		switch strings.Count(entry, ".") {
+		case 0:
+			allowedDatasets[fmt.Sprintf("%s.%s", project, entry)] = struct{}{}
+		case 1:
+			allowedDatasets[entry] = struct{}{}
+		default:
+			return nil, fmt.Errorf("invalid allowedDataset format: %q, expected 'project.dataset' or 'dataset'", entry)
+		}
+	}
+	return allowedDatasets, nil
+}
+
+var _ sources.Source = &Source{}
+
+// clientSet holds either the ADC client/restService or, under client OAuth, the per-token clientCreator.
+type clientSet struct {
+	client        *bigqueryapi.Client
+	restService   *bigqueryrestapi.Service
+	tokenSource   oauth2.TokenSource
+	clientCreator BigqueryClientCreator
+}
+
+func (s *Source) clients(ctx context.Context) (*clientSet, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
+		r := s.Config
+
+		endpoint := NormalizeEndpoint(r.APIEndpoint)
+		cs := &clientSet{}
+
+		if !usesClientOAuth(r) {
+			// Initializes a BigQuery Google SQL source
+			client, restService, tokenSource, err := initBigQueryConnection(ctx, r.Project, r.Location, r.QuotaProject, r.ImpersonateServiceAccount, r.Scopes, endpoint)
+			if err != nil {
+				return nil, fmt.Errorf("error creating client from ADC: %w", err)
 			}
+			cs.client, cs.restService, cs.tokenSource = client, restService, tokenSource
+		} else {
+			// use client OAuth
+			// The creator outlives this call, so it must not capture the connect's
+			// cancellation, nor the span of whichever caller happened to trigger it.
+			creatorCtx := trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
+			baseClientCreator, err := newBigQueryClientCreator(creatorCtx, s.conn.Tracer(), r.Project, r.Location, r.QuotaProject, r.Name, endpoint)
+			if err != nil {
+				return nil, fmt.Errorf("error constructing client creator: %w", err)
+			}
+			cs.clientCreator = s.cachingClientCreator(baseClientCreator)
+		}
 
-			if s.Client != nil {
-				dataset := s.Client.DatasetInProject(projectID, datasetID)
-				_, err := dataset.Metadata(ctx)
-				if err != nil {
-					s.Client.Close()
+		// Verify the allowed datasets exist; a client-OAuth source has no credentials to check with.
+		if cs.client != nil {
+			for fullID := range s.AllowedDatasets {
+				projectID, datasetID, _ := strings.Cut(fullID, ".")
+				if _, err := cs.client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
+					cs.client.Close()
 					if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
 						return nil, fmt.Errorf("allowedDataset '%s' not found in project '%s'", datasetID, projectID)
 					}
 					return nil, fmt.Errorf("failed to verify allowedDataset '%s' in project '%s': %w", datasetID, projectID, err)
 				}
 			}
-			allowedDatasets[allowedFullID] = struct{}{}
 		}
-	}
 
-	s.AllowedDatasets = allowedDatasets
-	s.SessionProvider = s.newBigQuerySessionProvider()
-	s.makeDataplexCatalogClient = s.lazyInitDataplexClient(ctx, tracer)
-	return s, nil
+		return cs, nil
+	})
 }
 
-// setupClientCaching initializes caches and wraps the base client creator with caching logic.
-func setupClientCaching(s *Source, baseCreator BigqueryClientCreator) {
-	// Define eviction handlers
-	onBqEvict := func(key string, value interface{}) {
+// newClientCaches runs at construction because the Dataplex creator reads the dataplex cache without going through the BigQuery connect.
+func (s *Source) newClientCaches() {
+	s.bqClientCache = sources.NewCache(func(_ string, value any) {
 		if client, ok := value.(*bigqueryapi.Client); ok && client != nil {
 			client.Close()
 		}
-	}
-	onDataplexEvict := func(key string, value interface{}) {
+	})
+	s.bqRestCache = sources.NewCache(nil)
+	s.dataplexCache = sources.NewCache(func(_ string, value any) {
 		if client, ok := value.(*dataplexapi.CatalogClient); ok && client != nil {
 			client.Close()
 		}
-	}
+	})
+}
 
-	// Initialize caches
-	s.bqClientCache = sources.NewCache(onBqEvict)
-	s.bqRestCache = sources.NewCache(nil)
-	s.dataplexCache = sources.NewCache(onDataplexEvict)
-
-	// Create the caching wrapper for the client creator
-	s.ClientCreator = func(tokenString string, wantRestService bool) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
+func (s *Source) cachingClientCreator(baseCreator BigqueryClientCreator) BigqueryClientCreator {
+	return func(tokenString string, wantRestService bool) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
 		// Check cache
 		bqClientVal, bqFound := s.bqClientCache.Get(tokenString)
 
@@ -309,20 +328,16 @@ func setupClientCaching(s *Source, baseCreator BigqueryClientCreator) {
 	}
 }
 
-var _ sources.Source = &Source{}
-
 type Source struct {
 	Config
-	Client                    *bigqueryapi.Client
-	RestService               *bigqueryrestapi.Service
-	TokenSource               oauth2.TokenSource
 	AuthTokenHeaderName       string
-	ClientCreator             BigqueryClientCreator
 	AllowedDatasets           map[string]struct{}
-	sessionMutex              sync.Mutex
-	makeDataplexCatalogClient func() (*dataplexapi.CatalogClient, DataplexClientCreator, error)
 	SessionProvider           BigQuerySessionProvider
 	Session                   *Session
+	sessionMutex              sync.Mutex
+	makeDataplexCatalogClient func() (*dataplexapi.CatalogClient, DataplexClientCreator, error)
+
+	conn *sources.ConnectOnce[*clientSet]
 
 	// Caches for OAuth clients
 	bqClientCache *sources.Cache
@@ -354,14 +369,6 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return cfg
 }
 
-func (s *Source) BigQueryClient() *bigqueryapi.Client {
-	return s.Client
-}
-
-func (s *Source) BigQueryRestService() *bigqueryrestapi.Service {
-	return s.RestService
-}
-
 func (s *Source) BigQueryWriteMode() string {
 	return s.WriteMode
 }
@@ -374,6 +381,11 @@ func (s *Source) newBigQuerySessionProvider() BigQuerySessionProvider {
 	return func(ctx context.Context) (*Session, error) {
 		if s.WriteMode != WriteModeProtected {
 			return nil, nil
+		}
+
+		cs, err := s.clients(ctx)
+		if err != nil {
+			return nil, err
 		}
 
 		s.sessionMutex.Lock()
@@ -402,7 +414,7 @@ func (s *Source) newBigQuerySessionProvider() BigQuerySessionProvider {
 						},
 					},
 				}
-				_, err := s.RestService.Jobs.Insert(s.Project, job).Do()
+				_, err := cs.restService.Jobs.Insert(s.Project, job).Do()
 				if err == nil {
 					s.Session.LastUsed = time.Now()
 					return s.Session, nil
@@ -429,7 +441,7 @@ func (s *Source) newBigQuerySessionProvider() BigQuerySessionProvider {
 			},
 		}
 
-		createdJob, err := s.RestService.Jobs.Insert(s.Project, job).Do()
+		createdJob, err := cs.restService.Jobs.Insert(s.Project, job).Do()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create new session: %w", err)
 		}
@@ -479,10 +491,6 @@ func (s *Source) BigQueryQuotaProject() string {
 	return s.QuotaProject
 }
 
-func (s *Source) BigQueryTokenSource() oauth2.TokenSource {
-	return s.TokenSource
-}
-
 func (s *Source) BigQueryTokenSourceWithScope(ctx context.Context, scopes []string) (oauth2.TokenSource, error) {
 	if len(scopes) == 0 {
 		scopes = s.Scopes
@@ -511,10 +519,6 @@ func (s *Source) GetMaxQueryResultRows() int {
 
 func (s *Source) GetMaximumBytesBilled() int64 {
 	return s.MaximumBytesBilled
-}
-
-func (s *Source) BigQueryClientCreator() BigqueryClientCreator {
-	return s.ClientCreator
 }
 
 func (s *Source) BigQueryAllowedDatasets() []string {
@@ -586,9 +590,11 @@ func (s *Source) lazyInitDataplexClient(ctx context.Context, tracer trace.Tracer
 	}
 }
 
-func (s *Source) RetrieveClientAndService(accessToken tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
-	bqClient := s.BigQueryClient()
-	restService := s.BigQueryRestService()
+func (s *Source) RetrieveClientAndService(ctx context.Context, accessToken tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
+	cs, err := s.clients(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Initialize new client if using user OAuth token
 	if s.UseClientAuthorization() {
@@ -596,12 +602,13 @@ func (s *Source) RetrieveClientAndService(accessToken tools.AccessToken) (*bigqu
 		if err != nil {
 			return nil, nil, fmt.Errorf("error parsing access token: %w", err)
 		}
-		bqClient, restService, err = s.BigQueryClientCreator()(tokenStr, true)
+		bqClient, restService, err := cs.clientCreator(tokenStr, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error creating client from OAuth access token: %w", err)
 		}
+		return bqClient, restService, nil
 	}
-	return bqClient, restService, nil
+	return cs.client, cs.restService, nil
 }
 
 func (s *Source) RunSQL(ctx context.Context, bqClient *bigqueryapi.Client, statement, statementType string, params []bigqueryapi.QueryParameter, connProps []*bigqueryapi.ConnectionProperty, labels map[string]string) (any, error) {
@@ -613,6 +620,10 @@ func (s *Source) RunSQL(ctx context.Context, bqClient *bigqueryapi.Client, state
 	if connProps != nil {
 		query.ConnectionProperties = connProps
 	}
+	// BigQuery attaches SQLCommenter attributes as native job labels rather
+	// than SQL-text comments, so they surface in INFORMATION_SCHEMA.JOBS and
+	// billing exports without query text parsing.
+	labels = sqlcommenter.AppendLabels(ctx, labels, SourceType, s.SQLCommenter)
 	if labels != nil {
 		query.Labels = labels
 	}
@@ -748,8 +759,6 @@ func NormalizeEndpoint(raw string) string {
 
 func initBigQueryConnection(
 	ctx context.Context,
-	tracer trace.Tracer,
-	name string,
 	project string,
 	location string,
 	quotaProject string,
@@ -757,9 +766,6 @@ func initBigQueryConnection(
 	scopes []string,
 	endpoint string,
 ) (*bigqueryapi.Client, *bigqueryrestapi.Service, oauth2.TokenSource, error) {
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, nil, nil, err
