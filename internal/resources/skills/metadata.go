@@ -72,9 +72,9 @@ func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource
 }
 
 // WarnOnDocNameMismatch reports the SKILL.md resources whose config key differs
-// from the frontmatter name. resources/list publishes the config key, so a key
-// that differs hides the skill's name from a client that reads the catalogue.
-// Call it one time, at startup.
+// from the frontmatter name. WithDocMetadata already gives the catalogue the
+// frontmatter name. A group lists its resources by config key, so a key that
+// differs from the skill is hard to maintain. Call it one time, at startup.
 func WarnOnDocNameMismatch(ctx context.Context, entries []Entry, reg *Registry) error {
 	if len(entries) == 0 {
 		return nil
@@ -93,7 +93,7 @@ func WarnOnDocNameMismatch(ctx context.Context, entries []Entry, reg *Registry) 
 		if !ok || name == key {
 			continue
 		}
-		logger.WarnContext(ctx, fmt.Sprintf("resource %q is the %s of skill %q. Rename the resource to %q, so that resources/list publishes the skill's name", key, resources.SkillFile, name, name))
+		logger.WarnContext(ctx, fmt.Sprintf("resource %q is the %s of skill %q. Rename the resource to %q, so that a group lists it under the skill's name", key, resources.SkillFile, name, name))
 	}
 	return nil
 }
