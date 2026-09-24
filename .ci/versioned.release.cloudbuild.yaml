@@ -46,7 +46,7 @@ steps:
       mv in-progress-junit-report.xml junit-report.xml
 
   - id: "build-docker"
-    name: "gcr.io/cloud-builders/docker"
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/gcr.io/cloud-builders/docker@sha256:001fb4a870a84485cf198c80002f7af42f6456f2dbc261d70a0b5f0111470df4"
     waitFor:
       - "run-tests"
     script: |
@@ -64,7 +64,7 @@ steps:
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
         --build-arg BUILD_TYPE=container.release \
-        --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
+        --build-arg _AR_REPO_NAME=${_AR_REPO_NAME} --build-arg PROJECT_ID=${PROJECT_ID} --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
         $TAGS \
         --push .
 

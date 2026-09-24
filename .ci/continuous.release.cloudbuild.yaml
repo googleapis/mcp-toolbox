@@ -13,14 +13,14 @@
 
 steps:
   - id: "build-docker"
-    name: "gcr.io/cloud-builders/docker"
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/gcr.io/cloud-builders/docker@sha256:001fb4a870a84485cf198c80002f7af42f6456f2dbc261d70a0b5f0111470df4"
     waitFor: ['-']
     script: |
         #!/usr/bin/env bash
         docker buildx create --name container-builder --driver docker-container --bootstrap --use
 
         export TAGS="-t ${_DOCKER_URI}:$SHORT_SHA -t ${_DOCKER_URI}:$REF_NAME"
-        docker buildx build --platform linux/amd64,linux/arm64 --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) $TAGS --push .
+        docker buildx build --platform linux/amd64,linux/arm64 --build-arg _AR_REPO_NAME=${_AR_REPO_NAME} --build-arg PROJECT_ID=${PROJECT_ID} --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) $TAGS --push .
 
   - id: "install-dependencies"
     name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"

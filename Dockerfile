@@ -46,7 +46,7 @@ RUN export ZIG_TARGET="" && \
     -o mcp-toolbox .
 
 # Final Stage
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 
 WORKDIR /app
 COPY --from=build --chown=nonroot /go/src/mcp-toolbox/mcp-toolbox /toolbox
