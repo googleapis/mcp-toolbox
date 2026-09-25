@@ -62,7 +62,8 @@ type ConfigParser struct {
 }
 
 // parseEnv replaces environment variables ${ENV_NAME} with their values.
-// also support ${ENV_NAME:default_value}.
+// A required ${ENV_NAME} errors if the variable is unset or set to "".
+// also support ${ENV_NAME:default_value}; ${ENV_NAME:} allows an empty value.
 func (p *ConfigParser) parseEnv(input string) (string, error) {
 	re := regexp.MustCompile(`\$\{(\w+)(:([^}]*))?\}`)
 
@@ -128,7 +129,12 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 			p.requiredEnvVars = append(p.requiredEnvVars, variableName)
 		}
 
-		if value, found := os.LookupEnv(variableName); found {
+		value, found := os.LookupEnv(variableName)
+		// A required ${VAR} (no default) must resolve to a non-empty value; a
+		// set-but-empty value is treated the same as unset. Use ${VAR:} to allow
+		// an empty value.
+		emptyRequired := found && value == "" && !defaultProvided
+		if found && !emptyRequired {
 			p.EnvVars[variableName] = value
 			output.WriteString(value)
 		} else if defaultProvided {
@@ -140,7 +146,11 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 				output.WriteString(variableName)
 			} else if !seenMissing[variableName] {
 				seenMissing[variableName] = true
-				missing = append(missing, fmt.Sprintf("%q (line %d, column %d)", variableName, line, column))
+				if emptyRequired {
+					missing = append(missing, fmt.Sprintf("%q (set but empty, line %d, column %d)", variableName, line, column))
+				} else {
+					missing = append(missing, fmt.Sprintf("%q (line %d, column %d)", variableName, line, column))
+				}
 			}
 		}
 
