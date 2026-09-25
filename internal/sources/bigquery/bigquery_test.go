@@ -780,3 +780,35 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestSource_AppendJobLabels(t *testing.T) {
+	explicit := map[string]string{"mcp-toolbox-tool": "bigquery-analyze-contribution"}
+
+	tcs := []struct {
+		desc                string
+		global              bool
+		sqlCommenter        *bool
+		wantCommenterLabels bool
+	}{
+		{desc: "global off, override on", global: false, sqlCommenter: testutils.BoolPtr(true), wantCommenterLabels: true},
+		{desc: "global off, override off", global: false, sqlCommenter: testutils.BoolPtr(false), wantCommenterLabels: false},
+		{desc: "global off, override unset falls back to global", global: false, sqlCommenter: nil, wantCommenterLabels: false},
+		{desc: "global on, override unset falls back to global", global: true, sqlCommenter: nil, wantCommenterLabels: true},
+		{desc: "global on, override off wins", global: true, sqlCommenter: testutils.BoolPtr(false), wantCommenterLabels: false},
+		{desc: "global on, override on", global: true, sqlCommenter: testutils.BoolPtr(true), wantCommenterLabels: true},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx := util.WithSQLCommenterEnabled(context.Background(), tc.global)
+			ctx = util.WithGenAIMetricAttrs(ctx, &util.GenAIMetricAttrs{ToolName: "analyze_contribution"})
+			s := &bigquery.Source{Config: bigquery.Config{SQLCommenter: tc.sqlCommenter}}
+			got := s.AppendJobLabels(ctx, explicit)
+			if got["mcp-toolbox-tool"] != "bigquery-analyze-contribution" {
+				t.Errorf("explicit label not preserved: %v", got)
+			}
+			if hasToolName := got["tool_name"] != ""; hasToolName != tc.wantCommenterLabels {
+				t.Errorf("tool_name present = %v, want %v (labels: %v)", hasToolName, tc.wantCommenterLabels, got)
+			}
+		})
+	}
+}
