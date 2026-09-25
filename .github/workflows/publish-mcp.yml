@@ -67,6 +67,20 @@ jobs:
             fi
           done
 
+      - name: Promote image from staging to production
+        shell: bash
+        run: |
+          VERSION=$(jq -r '.version' server.json)
+          curl -fsSL -X POST \
+            -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+            -H "Content-Type: application/json" \
+            "https://artifactregistry.googleapis.com/v1/projects/database-toolbox/locations/us-central1/repositories/toolbox:promoteArtifact" \
+            -d "{
+              \"source_repository\": \"projects/database-toolbox/locations/us-central1/repositories/toolbox-containers-staging\",
+              \"source_tag\": \"projects/database-toolbox/locations/us-central1/repositories/toolbox-containers-staging/packages/toolbox/tags/${VERSION}\",
+              \"attachment_behavior\": \"PUBLIC_BCID_VSA_ONLY\"
+            }"
+
       - name: Install MCP Publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
