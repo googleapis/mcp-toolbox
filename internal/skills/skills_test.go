@@ -18,11 +18,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/skills"
 )
 
@@ -68,111 +66,6 @@ func TestManifestMarshalJSON(t *testing.T) {
 				t.Errorf("Marshal() = %s, want %s", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestManifestUnmarshalJSON(t *testing.T) {
-	tcs := []struct {
-		desc    string
-		in      string
-		want    skills.Manifest
-		wantErr string
-	}{
-		{
-			desc: "file list",
-			in:   `[{"uri":"skill://x/SKILL.md","digest":"sha256:a1b2","size":10}]`,
-			want: skills.Manifest{Refs: []skills.ResourceRef{
-				{URI: "skill://x/SKILL.md", Digest: "sha256:a1b2", Size: 10},
-			}},
-		},
-		{
-			desc: "dynamic marker",
-			in:   `"dynamic"`,
-			want: skills.Manifest{Dynamic: true},
-		},
-		{
-			desc:    "any other string is not a third form",
-			in:      `"static"`,
-			wantErr: `only permitted string is "dynamic"`,
-		},
-		{
-			desc:    "an object is not a manifest",
-			in:      `{"refs":[]}`,
-			wantErr: "must be an array",
-		},
-		{
-			// null unmarshals cleanly into both a string and a slice, so
-			// without the type switch this is either reported as an
-			// empty-string marker or silently accepted as an empty manifest.
-			desc:    "null is not a manifest",
-			in:      `null`,
-			wantErr: "must be an array",
-		},
-		{
-			desc:    "a number is not a manifest",
-			in:      `42`,
-			wantErr: "must be an array",
-		},
-		{
-			// MarshalJSON emits [] for an unpopulated manifest; decoding
-			// deliberately will not take it back.
-			desc:    "an empty file list is not a skill with no files",
-			in:      `[]`,
-			wantErr: "names at least the skill's SKILL.md",
-		},
-		{
-			desc:    "true is not a manifest",
-			in:      `true`,
-			wantErr: "must be an array",
-		},
-		{
-			// Dispatches to the array branch on the first byte, then fails
-			// decoding the element.
-			desc:    "a malformed ref in a well-formed list",
-			in:      `[{"uri":123}]`,
-			wantErr: "cannot unmarshal",
-		},
-	}
-
-	for _, tc := range tcs {
-		t.Run(tc.desc, func(t *testing.T) {
-			var got skills.Manifest
-			err := json.Unmarshal([]byte(tc.in), &got)
-
-			if tc.wantErr != "" {
-				if err == nil {
-					t.Fatalf("Unmarshal() = nil, want error containing %q", tc.wantErr)
-				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Errorf("Unmarshal() = %v, want error containing %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Unmarshal() = %v, want nil", err)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("Unmarshal() mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestManifestUnmarshalEmptyInput covers the first-byte dispatch guard, which
-// only a direct call can reach — but the method is exported.
-func TestManifestUnmarshalEmptyInput(t *testing.T) {
-	var m skills.Manifest
-	err := m.UnmarshalJSON([]byte("  "))
-	if err == nil {
-		t.Fatal("UnmarshalJSON() = nil, want an error")
-	}
-	if want := "no value"; !strings.Contains(err.Error(), want) {
-		t.Errorf("UnmarshalJSON() = %v, want error containing %q", err, want)
-	}
-
-	// Dispatches to the string branch on the first byte, then fails decoding.
-	if err := m.UnmarshalJSON([]byte(`"unterminated`)); err == nil {
-		t.Error("UnmarshalJSON() = nil, want an error")
 	}
 }
 
@@ -379,83 +272,6 @@ func TestEntryMarshalJSON(t *testing.T) {
 		`"resources":[{"uri":"skill://analytics-guide/SKILL.md","digest":"sha256:a1b2","size":2314}]}`
 	if string(got) != want {
 		t.Errorf("Marshal() =\n%s\nwant\n%s", got, want)
-	}
-}
-
-func TestEntryUnmarshalJSON(t *testing.T) {
-	tcs := []struct {
-		desc    string
-		in      string
-		want    skills.Entry
-		wantErr string
-	}{
-		{
-			desc: "file list",
-			in:   `{"uri":"skill://x/SKILL.md","frontmatter":{"name":"x"},"resources":[{"uri":"skill://x/SKILL.md","digest":"sha256:a1b2","size":10}]}`,
-			want: skills.Entry{
-				URI:         "skill://x/SKILL.md",
-				Frontmatter: map[string]any{"name": "x"},
-				Resources: skills.Manifest{Refs: []skills.ResourceRef{
-					{URI: "skill://x/SKILL.md", Digest: "sha256:a1b2", Size: 10},
-				}},
-			},
-		},
-		{
-			desc: "dynamic marker",
-			in:   `{"uri":"skill://x/SKILL.md","frontmatter":{"name":"x"},"resources":"dynamic"}`,
-			want: skills.Entry{
-				URI:         "skill://x/SKILL.md",
-				Frontmatter: map[string]any{"name": "x"},
-				Resources:   skills.Manifest{Dynamic: true},
-			},
-		},
-		{
-			// Absent rather than malformed, so Manifest's UnmarshalJSON is
-			// never reached.
-			desc:    "no resources field at all",
-			in:      `{"uri":"skill://x/SKILL.md","frontmatter":{"name":"x"}}`,
-			wantErr: `"skill://x/SKILL.md": resources is required`,
-		},
-		{
-			// Present but null still routes through Manifest, so it keeps the
-			// error naming the two permitted forms.
-			desc:    "null resources",
-			in:      `{"uri":"skill://x/SKILL.md","frontmatter":{"name":"x"},"resources":null}`,
-			wantErr: "must be an array",
-		},
-		{
-			desc:    "empty resources",
-			in:      `{"uri":"skill://x/SKILL.md","frontmatter":{"name":"x"},"resources":[]}`,
-			wantErr: "names at least the skill's SKILL.md",
-		},
-		{
-			desc:    "an entry that is not an object",
-			in:      `["skill://x/SKILL.md"]`,
-			wantErr: "invalid skill entry",
-		},
-	}
-
-	for _, tc := range tcs {
-		t.Run(tc.desc, func(t *testing.T) {
-			var got skills.Entry
-			err := json.Unmarshal([]byte(tc.in), &got)
-
-			if tc.wantErr != "" {
-				if err == nil {
-					t.Fatalf("Unmarshal() = nil, want error containing %q", tc.wantErr)
-				}
-				if !strings.Contains(err.Error(), tc.wantErr) {
-					t.Errorf("Unmarshal() = %v, want error containing %q", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Unmarshal() = %v, want nil", err)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("Unmarshal() mismatch (-want +got):\n%s", diff)
-			}
-		})
 	}
 }
 
@@ -743,92 +559,54 @@ func TestEntryValidate(t *testing.T) {
 	}
 }
 
-// TestEntryUnmarshalReplacesFrontmatter covers encoding/json unioning into a
-// non-nil map: decoding into a reused Entry would otherwise leave the
-// frontmatter a merge of both rather than the verbatim copy the spec requires.
-//
-// Two frontmatter keys in one object still merge, since that happens within a
-// single decode. Duplicate keys are undefined in JSON and the result cannot
-// match any real SKILL.md, so a host rejects it on the field-by-field compare.
-// TestEntryFieldCount is a tripwire. Entry.UnmarshalJSON restates Entry's
-// fields in a local struct, so a field added to one and not the other would be
-// dropped on decode without any test failing.
-func TestEntryFieldCount(t *testing.T) {
-	if got := reflect.TypeOf(skills.Entry{}).NumField(); got != 3 {
-		t.Errorf("Entry has %d fields, want 3: add the new one to Entry.UnmarshalJSON, then update this test", got)
-	}
-}
-
-func TestEntryUnmarshalReplacesFrontmatter(t *testing.T) {
-	var e skills.Entry
-	if err := json.Unmarshal([]byte(`{"uri":"skill://a/SKILL.md","frontmatter":{"name":"a","only-in-a":1},"resources":"dynamic"}`), &e); err != nil {
-		t.Fatalf("Unmarshal() = %v, want nil", err)
-	}
-	if err := json.Unmarshal([]byte(`{"uri":"skill://b/SKILL.md","frontmatter":{"name":"b"},"resources":"dynamic"}`), &e); err != nil {
-		t.Fatalf("Unmarshal() = %v, want nil", err)
-	}
-	if diff := cmp.Diff(map[string]any{"name": "b"}, e.Frontmatter); diff != "" {
-		t.Errorf("Frontmatter mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestEntryRoundTripsDynamic(t *testing.T) {
+func TestEntryMarshalsDynamic(t *testing.T) {
 	in := skills.Entry{
 		URI:         "skill://drafting/SKILL.md",
 		Frontmatter: map[string]any{"name": "drafting"},
 		Resources:   skills.Manifest{Dynamic: true},
 	}
 
-	data, err := json.Marshal(in)
+	got, err := json.Marshal(in)
 	if err != nil {
 		t.Fatalf("Marshal() = %v, want nil", err)
 	}
-	if !strings.Contains(string(data), `"resources":"dynamic"`) {
-		t.Fatalf("Marshal() = %s, want resources to be the dynamic marker", data)
-	}
-
-	var got skills.Entry
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("Unmarshal() = %v, want nil", err)
-	}
-	if diff := cmp.Diff(in, got); diff != "" {
-		t.Errorf("round trip mismatch (-want +got):\n%s", diff)
+	want := `{"uri":"skill://drafting/SKILL.md","frontmatter":{"name":"drafting"},"resources":"dynamic"}`
+	if string(got) != want {
+		t.Errorf("Marshal() =\n%s\nwant\n%s", got, want)
 	}
 }
 
-// TestEntryMatchesSEPExample round-trips a fixture derived from SEP-2640's
+// TestEntryMatchesSEPExample marshals an entry built from SEP-2640's
 // "Retrieval via skills/get" example, so a renamed or dropped field fails here.
-// It pins round-trip stability over the spec's field set, not byte fidelity to
-// the document: frontmatter keys are in Go's sorted order because encoding/json
-// sorts map keys, and the list is three of the example's six entries. The
-// elided placeholder digests make it an invalid manifest by design.
+// Frontmatter keys are in Go's sorted order because encoding/json sorts map
+// keys, and the list is three of the example's six entries. The elided
+// placeholder digests make it an invalid manifest by design.
 func TestEntryMatchesSEPExample(t *testing.T) {
-	const sepExample = `{"uri":"skill://pdf-processing/SKILL.md",` +
+	e := skills.Entry{
+		URI: "skill://pdf-processing/SKILL.md",
+		Frontmatter: map[string]any{
+			"name":        "pdf-processing",
+			"description": "Extract, fill, and assemble PDF documents",
+			"metadata":    map[string]any{"version": "2.1.0"},
+		},
+		Resources: skills.Manifest{Refs: []skills.ResourceRef{
+			{URI: "skill://pdf-processing/SKILL.md", Digest: "sha256:d5e6f7a8...", Size: 5120},
+			{URI: "skill://pdf-processing/references/FORMS.md", Digest: "sha256:e6f7a8b9...", Size: 18433},
+			{URI: "skill://pdf-processing/scripts/extract.py", Digest: "sha256:f7a8b9c0...", Size: 4096},
+		}},
+	}
+	const want = `{"uri":"skill://pdf-processing/SKILL.md",` +
 		`"frontmatter":{"description":"Extract, fill, and assemble PDF documents","metadata":{"version":"2.1.0"},"name":"pdf-processing"},` +
 		`"resources":[` +
 		`{"uri":"skill://pdf-processing/SKILL.md","digest":"sha256:d5e6f7a8...","size":5120},` +
 		`{"uri":"skill://pdf-processing/references/FORMS.md","digest":"sha256:e6f7a8b9...","size":18433},` +
 		`{"uri":"skill://pdf-processing/scripts/extract.py","digest":"sha256:f7a8b9c0...","size":4096}]}`
 
-	var e skills.Entry
-	if err := json.Unmarshal([]byte(sepExample), &e); err != nil {
-		t.Fatalf("Unmarshal() = %v, want nil", err)
-	}
-	if e.URI != "skill://pdf-processing/SKILL.md" {
-		t.Errorf("URI = %q, want the SKILL.md URI", e.URI)
-	}
-	if got := len(e.Resources.Refs); got != 3 {
-		t.Errorf("len(Refs) = %d, want 3", got)
-	}
-	if e.Resources.Dynamic {
-		t.Error("Dynamic = true, want false for a manifest carrying a file list")
-	}
-
 	got, err := json.Marshal(e)
 	if err != nil {
 		t.Fatalf("Marshal() = %v, want nil", err)
 	}
-	if string(got) != sepExample {
-		t.Errorf("round trip differs from the SEP example:\n got %s\nwant %s", got, sepExample)
+	if string(got) != want {
+		t.Errorf("Marshal() differs from the SEP example:\n got %s\nwant %s", got, want)
 	}
 }

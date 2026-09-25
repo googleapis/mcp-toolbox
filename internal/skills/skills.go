@@ -17,7 +17,6 @@
 package skills
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -64,41 +63,6 @@ func (m Manifest) MarshalJSON() ([]byte, error) {
 		return json.Marshal([]ResourceRef{})
 	}
 	return json.Marshal(m.Refs)
-}
-
-func (m *Manifest) UnmarshalJSON(data []byte) error {
-	data = bytes.TrimSpace(data)
-	if len(data) == 0 {
-		return fmt.Errorf("invalid skill manifest: no value")
-	}
-
-	switch data[0] {
-	case '"': // dynamic
-		var marker string
-		if err := json.Unmarshal(data, &marker); err != nil {
-			return fmt.Errorf("invalid skill manifest: %w", err)
-		}
-		if marker != DynamicMarker {
-			return fmt.Errorf("invalid skill manifest %q: the only permitted string is %q", marker, DynamicMarker)
-		}
-		m.Dynamic, m.Refs = true, nil
-		return nil
-
-	case '[': // resources list for skill
-		var refs []ResourceRef
-		if err := json.Unmarshal(data, &refs); err != nil {
-			return fmt.Errorf("invalid skill manifest: %w", err)
-		}
-		// A file list must be complete, and every skill has a SKILL.md.
-		if len(refs) == 0 {
-			return fmt.Errorf("invalid skill manifest: a file list names at least the skill's SKILL.md")
-		}
-		m.Dynamic, m.Refs = false, refs
-		return nil
-
-	default:
-		return fmt.Errorf("invalid skill manifest: must be an array of {uri, digest, size} or the string %q", DynamicMarker)
-	}
 }
 
 func (m Manifest) Validate() error {
@@ -150,26 +114,6 @@ type Entry struct {
 	// Frontmatter is the SKILL.md YAML frontmatter verbatim
 	Frontmatter map[string]any `json:"frontmatter"`
 	Resources   Manifest       `json:"resources"`
-}
-
-// UnmarshalJSON unmarshals a single skill entry. Rejects an entry carrying no resources.
-func (e *Entry) UnmarshalJSON(data []byte) error {
-	var fields struct {
-		URI         string          `json:"uri"`
-		Frontmatter map[string]any  `json:"frontmatter"`
-		Resources   json.RawMessage `json:"resources"`
-	}
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return fmt.Errorf("invalid skill entry: %w", err)
-	}
-	if fields.Resources == nil {
-		return fmt.Errorf("invalid skill entry %q: resources is required", fields.URI)
-	}
-	if err := e.Resources.UnmarshalJSON(fields.Resources); err != nil {
-		return err
-	}
-	e.URI, e.Frontmatter = fields.URI, fields.Frontmatter
-	return nil
 }
 
 // Validate checks the rules relating a manifest to the skill's own identity.
