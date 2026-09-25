@@ -109,6 +109,12 @@ func NewConnectOnce[T any](ctx context.Context, name, sourceType string, tracer 
 	return &ConnectOnce[T]{name: name, sourceType: sourceType, tracer: tracer, startupCtx: ctx, timeout: o.timeout}
 }
 
+// Tracer reports the tracer the holder was built with, so a source needing one
+// inside its connect can reach it without keeping its own copy.
+func (c *ConnectOnce[T]) Tracer() trace.Tracer {
+	return c.tracer
+}
+
 // OnClose registers how to release the connection. A source that holds a
 // handle with no teardown can leave it unset. It is meant to be chained onto
 // NewConnectOnce, before the holder is reachable by another goroutine.
