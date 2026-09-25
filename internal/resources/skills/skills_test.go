@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/googleapis/mcp-toolbox/internal/skills"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 )
 
 func TestManifestMarshalJSON(t *testing.T) {
