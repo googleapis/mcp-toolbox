@@ -16,12 +16,17 @@ package snowflake
 
 import (
 	"context"
+	"crypto/rsa"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/snowflakedb/gosnowflake/v2"
+	"github.com/snowflakedb/gosnowflake/v2"
+	"github.com/youmark/pkcs8"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -45,15 +50,18 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (sources
 }
 
 type Config struct {
-	Name      string `yaml:"name" validate:"required"`
-	Type      string `yaml:"type" validate:"required"`
-	Account   string `yaml:"account" validate:"required"`
-	User      string `yaml:"user" validate:"required"`
-	Password  string `yaml:"password" validate:"required"`
-	Database  string `yaml:"database" validate:"required"`
-	Schema    string `yaml:"schema" validate:"required"`
-	Warehouse string `yaml:"warehouse"`
-	Role      string `yaml:"role"`
+	Name                 string `yaml:"name" validate:"required"`
+	Type                 string `yaml:"type" validate:"required"`
+	Account              string `yaml:"account" validate:"required"`
+	User                 string `yaml:"user" validate:"required"`
+	Password             string `yaml:"password" validate:"required_without_all=PrivateKey PrivateKeyPath"`
+	PrivateKey           string `yaml:"privateKey"`
+	PrivateKeyPath       string `yaml:"privateKeyPath"`
+	PrivateKeyPassphrase string `yaml:"privateKeyPassphrase"`
+	Database             string `yaml:"database" validate:"required"`
+	Schema               string `yaml:"schema" validate:"required"`
+	Warehouse            string `yaml:"warehouse"`
+	Role                 string `yaml:"role"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -86,7 +94,7 @@ type Source struct {
 func (s *Source) SnowflakeDBContext(ctx context.Context) (*sqlx.DB, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*sqlx.DB, error) {
 		r := s.Config
-		db, err := initSnowflakeConnection(ctx, r.Account, r.User, r.Password, r.Database, r.Schema, r.Warehouse, r.Role)
+		db, err := initSnowflakeConnection(ctx, r)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create connection: %w", err)
 		}
@@ -152,8 +160,23 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initSnowflakeConnection(ctx context.Context, account, user, password, database, schema, warehouse, role string) (*sqlx.DB, error) {
+func initSnowflakeConnection(ctx context.Context, r Config) (*sqlx.DB, error) {
+	dsn, err := r.dsn()
+	if err != nil {
+		return nil, err
+	}
+	db, err := sqlx.ConnectContext(ctx, "snowflake", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create connection: %w", err)
+	}
+
+	return db, nil
+}
+
+// dsn builds the connection string for either password or key-pair (JWT) authentication.
+func (r Config) dsn() (string, error) {
 	// Set defaults for optional parameters
+	warehouse, role := r.Warehouse, r.Role
 	if warehouse == "" {
 		warehouse = "COMPUTE_WH"
 	}
@@ -161,12 +184,56 @@ func initSnowflakeConnection(ctx context.Context, account, user, password, datab
 		role = "ACCOUNTADMIN"
 	}
 
-	// Snowflake DSN format: user:password@account/database/schema?warehouse=warehouse&role=role
-	dsn := fmt.Sprintf("%s:%s@%s/%s/%s?warehouse=%s&role=%s", user, password, account, database, schema, warehouse, role)
-	db, err := sqlx.ConnectContext(ctx, "snowflake", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create connection: %w", err)
+	cfg := &gosnowflake.Config{
+		Account:   r.Account,
+		User:      r.User,
+		Database:  r.Database,
+		Schema:    r.Schema,
+		Warehouse: warehouse,
+		Role:      role,
+	}
+	if r.PrivateKey != "" || r.PrivateKeyPath != "" {
+		if r.Password != "" {
+			return "", errors.New("only one of 'password', 'privateKey' or 'privateKeyPath' can be set")
+		}
+		key, err := r.rsaPrivateKey()
+		if err != nil {
+			return "", err
+		}
+		cfg.Authenticator = gosnowflake.AuthTypeJwt
+		cfg.PrivateKey = key
+	} else {
+		cfg.Password = r.Password
 	}
 
-	return db, nil
+	dsn, err := gosnowflake.DSN(cfg)
+	if err != nil {
+		return "", fmt.Errorf("unable to build dsn: %w", err)
+	}
+	return dsn, nil
+}
+
+// rsaPrivateKey loads the PKCS#8 key used for key-pair (JWT) authentication.
+func (r Config) rsaPrivateKey() (*rsa.PrivateKey, error) {
+	keyPEM := []byte(r.PrivateKey)
+	if r.PrivateKeyPath != "" {
+		if r.PrivateKey != "" {
+			return nil, errors.New("only one of 'privateKey' or 'privateKeyPath' can be set")
+		}
+		b, err := os.ReadFile(r.PrivateKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read private key file: %w", err)
+		}
+		keyPEM = b
+	}
+
+	block, _ := pem.Decode(keyPEM)
+	if block == nil {
+		return nil, errors.New("unable to decode private key: no PEM block found")
+	}
+	key, err := pkcs8.ParsePKCS8PrivateKeyRSA(block.Bytes, []byte(r.PrivateKeyPassphrase))
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse private key: %w", err)
+	}
+	return key, nil
 }
