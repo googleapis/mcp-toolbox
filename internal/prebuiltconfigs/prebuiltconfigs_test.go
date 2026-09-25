@@ -24,6 +24,7 @@ import (
 var expectedToolSources = []string{
 	"alloydb-omni",
 	"alloydb-postgres-admin",
+	"alloydb-postgres-memory",
 	"alloydb-postgres-observability",
 	"alloydb-postgres",
 	"conversational-analytics-with-data-agent",
@@ -39,6 +40,7 @@ var expectedToolSources = []string{
 	"cloud-sql-mysql-observability",
 	"cloud-sql-mysql",
 	"cloud-sql-postgres-admin",
+	"cloud-sql-postgres-memory",
 	"cloud-sql-postgres-observability",
 	"cloud-sql-postgres",
 	"dataplex",
@@ -56,6 +58,7 @@ var expectedToolSources = []string{
 	"oceanbase",
 	"oracledb",
 	"postgres",
+	"postgres-memory",
 	"serverless-spark",
 	"singlestore",
 	"snowflake",
@@ -114,6 +117,7 @@ func TestLoadPrebuiltToolYAMLs(t *testing.T) {
 func TestGetPrebuiltTool(t *testing.T) {
 	alloydb_omni_config := getOrFatal(t, "alloydb-omni")
 	alloydb_admin_config := getOrFatal(t, "alloydb-postgres-admin")
+	alloydb_memory_config := getOrFatal(t, "alloydb-postgres-memory")
 	alloydb_observability_config := getOrFatal(t, "alloydb-postgres-observability")
 	alloydb_config := getOrFatal(t, "alloydb-postgres")
 	bigquery_config := getOrFatal(t, "bigquery")
@@ -123,6 +127,7 @@ func TestGetPrebuiltTool(t *testing.T) {
 	cloudsqlpg_observability_config := getOrFatal(t, "cloud-sql-postgres-observability")
 	cloudsqlpg_config := getOrFatal(t, "cloud-sql-postgres")
 	cloudsqlpg_admin_config := getOrFatal(t, "cloud-sql-postgres-admin")
+	cloudsqlpg_memory_config := getOrFatal(t, "cloud-sql-postgres-memory")
 	cloudsqlmysql_admin_config := getOrFatal(t, "cloud-sql-mysql-admin")
 	cloudsqlmssql_admin_config := getOrFatal(t, "cloud-sql-mssql-admin")
 	cloudsqlmysql_observability_config := getOrFatal(t, "cloud-sql-mysql-observability")
@@ -138,6 +143,7 @@ func TestGetPrebuiltTool(t *testing.T) {
 	mssql_config := getOrFatal(t, "mssql")
 	oceanbase_config := getOrFatal(t, "oceanbase")
 	postgresconfig := getOrFatal(t, "postgres")
+	postgres_memory_config := getOrFatal(t, "postgres-memory")
 	singlestore_config := getOrFatal(t, "singlestore")
 	serverlessspark_config := getOrFatal(t, "serverless-spark")
 	spanner_config := getOrFatal(t, "spanner")
@@ -154,6 +160,9 @@ func TestGetPrebuiltTool(t *testing.T) {
 	}
 	if len(alloydb_admin_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch alloydb admin prebuilt tools yaml")
+	}
+	if len(alloydb_memory_config) <= 0 {
+		t.Fatalf("unexpected error: could not fetch alloydb-postgres-memory prebuilt tools yaml")
 	}
 	if len(alloydb_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch alloydb prebuilt tools yaml")
@@ -181,6 +190,9 @@ func TestGetPrebuiltTool(t *testing.T) {
 	}
 	if len(cloudsqlpg_admin_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch cloud sql pg admin prebuilt tools yaml")
+	}
+	if len(cloudsqlpg_memory_config) <= 0 {
+		t.Fatalf("unexpected error: could not fetch cloud-sql-postgres-memory prebuilt tools yaml")
 	}
 	if len(cloudsqlmysql_admin_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch cloud sql mysql admin prebuilt tools yaml")
@@ -226,6 +238,9 @@ func TestGetPrebuiltTool(t *testing.T) {
 	}
 	if len(postgresconfig) <= 0 {
 		t.Fatalf("unexpected error: could not fetch postgres prebuilt tools yaml")
+	}
+	if len(postgres_memory_config) <= 0 {
+		t.Fatalf("unexpected error: could not fetch postgres-memory prebuilt tools yaml")
 	}
 	if len(singlestore_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch singlestore prebuilt tools yaml")

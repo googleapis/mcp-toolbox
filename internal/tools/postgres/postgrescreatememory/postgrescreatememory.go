@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package creatememory
+package postgrescreatememory
 
 import (
 	"context"
@@ -28,16 +28,17 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
-const resourceType string = "create-memory"
+const resourceType string = "postgres-create-memory"
 
-// defaultDescription gives LLMs clear prompt guidance on when to invoke this tool, and is reused across postgres prebuilts
-const defaultDescription = `Persist a single, discrete fact about the user, their project, or their preferences so it can be recalled in future sessions (e.g. "All timestamps in the orders DB are stored in EST", "User prefers tabs over spaces in Go", "Fix for build error X is Y").
+// defaultDescription gives LLMs clear prompt guidance on when to invoke this tool, and is reused across postgres prebuilts.
+// The category list is derived from DefaultCategories so it stays the single source of truth.
+var defaultDescription = fmt.Sprintf(`Persist a single, discrete fact about the user, their project, or their preferences so it can be recalled in future sessions (e.g. "All timestamps in the orders DB are stored in EST", "User prefers tabs over spaces in Go", "Fix for build error X is Y").
 
 Before inserting, the tool checks for existing memories in the same category with identical content:
 - status "created": the memory was stored.
 - status "duplicate": an equivalent memory already exists; it was NOT re-created and its salience was refreshed instead.
 
-Keep content short, self-contained and in the third person. Choose exactly one category of the following: user_preference, coding_convention, tool_guidance, or general_fact.`
+Keep content short, self-contained and in the third person. Choose exactly one category of the following: %q.`, DefaultCategories)
 
 // Preset for now, potentially can support user-defined categories with allowedValues
 var DefaultCategories = []any{
@@ -61,7 +62,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 	return actual, nil
 }
 
-// Config represents the YAML configuration for create-memory, embedding shared table/auth settings.
+// Config represents the YAML configuration for postgres-create-memory, embedding shared table/auth settings.
 type Config struct {
 	memory.Config `yaml:",inline"`
 }
@@ -90,7 +91,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		),
 		parameters.NewStringParameter(
 			"category",
-			"Classification tag for the memory. Must be one of: 'user_preference', 'coding_convention', 'tool_guidance', 'general_fact'.",
+			fmt.Sprintf("Classification tag for the memory. Must be one of: %q.", DefaultCategories),
 			parameters.WithStringRequired(true),
 			parameters.WithStringAllowedValues(DefaultCategories),
 		),
@@ -135,7 +136,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	logger, _ := util.LoggerFromContext(ctx)
 	source, ok := s.(memory.CompatibleSource)
 	if !ok {
-		err := fmt.Errorf("source %q is not compatible with create-memory (requires PostgresPool)", t.Cfg.Source)
+		err := fmt.Errorf("source %q is not compatible with postgres-create-memory (requires PostgresPool)", t.Cfg.Source)
 		if logger != nil {
 			logger.ErrorContext(ctx, err.Error())
 		}

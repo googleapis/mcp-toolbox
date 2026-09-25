@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package creatememory_test
+package postgrescreatememory_test
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
-	"github.com/googleapis/mcp-toolbox/internal/tools/memory/creatememory"
+	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -49,16 +49,16 @@ func TestParseFromYaml(t *testing.T) {
 	in := `
             kind: tool
             name: create_memory
-            type: create-memory
+            type: postgres-create-memory
             source: my-pg
             authService: my-auth
             userIdField: email
 	`
 	want := server.ToolConfigs{
-		"create_memory": creatememory.Config{
+		"create_memory": postgrescreatememory.Config{
 			Config: memory.Config{
 				ConfigBase:  tools.ConfigBase{Name: "create_memory", AuthRequired: []string{}},
-				Type:        "create-memory",
+				Type:        "postgres-create-memory",
 				Source:      "my-pg",
 				AuthService: "my-auth",
 				UserIDField: "email",
@@ -81,10 +81,10 @@ func TestInitializeParameters(t *testing.T) {
 	}
 
 	t.Run("default parameters and categories", func(t *testing.T) {
-		cfg := creatememory.Config{
+		cfg := postgrescreatememory.Config{
 			Config: memory.Config{
 				ConfigBase: tools.ConfigBase{Name: "create_memory"},
-				Type:       "create-memory",
+				Type:       "postgres-create-memory",
 				Source:     "pg",
 			},
 		}
@@ -113,7 +113,7 @@ func TestInitializeParameters(t *testing.T) {
 		}
 		for _, p := range params {
 			if sp, ok := p.(*parameters.StringParameter); ok && sp.GetName() == "category" {
-				if diff := cmp.Diff(creatememory.DefaultCategories, sp.AllowedValues); diff != "" {
+				if diff := cmp.Diff(postgrescreatememory.DefaultCategories, sp.AllowedValues); diff != "" {
 					t.Errorf("category allowed values diff: %s", diff)
 				}
 				if _, err := sp.Parse("invalid_category"); err == nil {
@@ -132,10 +132,10 @@ func TestInitializeParameters(t *testing.T) {
 	})
 
 	t.Run("invalid table name errors", func(t *testing.T) {
-		cfg := creatememory.Config{
+		cfg := postgrescreatememory.Config{
 			Config: memory.Config{
 				ConfigBase: tools.ConfigBase{Name: "create_memory"},
-				Type:       "create-memory",
+				Type:       "postgres-create-memory",
 				Source:     "pg",
 				TableName:  "drop table users; --",
 			},
@@ -148,10 +148,10 @@ func TestInitializeParameters(t *testing.T) {
 }
 
 func TestValidateSource(t *testing.T) {
-	cfg := creatememory.Config{
+	cfg := postgrescreatememory.Config{
 		Config: memory.Config{
 			ConfigBase: tools.ConfigBase{Name: "create_memory"},
-			Type:       "create-memory",
+			Type:       "postgres-create-memory",
 			Source:     "pg",
 		},
 	}

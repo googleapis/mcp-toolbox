@@ -38,7 +38,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/http"
-	"github.com/googleapis/mcp-toolbox/internal/tools/memory/creatememory"
+	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
@@ -2676,7 +2676,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"memory": group.GroupConfig{
 					Name:        "memory",
-					Description: "Use these skills to persist, query, and manage long-term agent memories across sessions.",
+					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
 					ToolNames:   []string{"create_memory"},
 				},
 			},
@@ -2687,7 +2687,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"memory": group.GroupConfig{
 					Name:        "memory",
-					Description: "Use these skills to persist, query, and manage long-term agent memories across sessions.",
+					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
 					ToolNames:   []string{"create_memory"},
 				},
 			},
@@ -2698,7 +2698,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"memory": group.GroupConfig{
 					Name:        "memory",
-					Description: "Use these skills to persist, query, and manage long-term agent memories across sessions.",
+					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
 					ToolNames:   []string{"create_memory"},
 				},
 			},
@@ -3209,9 +3209,9 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 			if !ok {
 				t.Fatalf("prebuilt %s missing create_memory tool", name)
 			}
-			memCfg, ok := toolCfg.(creatememory.Config)
+			memCfg, ok := toolCfg.(postgrescreatememory.Config)
 			if !ok {
-				t.Fatalf("expected creatememory.Config, got %T", toolCfg)
+				t.Fatalf("expected postgrescreatememory.Config, got %T", toolCfg)
 			}
 			if memCfg.DefaultUserID != "default" {
 				t.Errorf("[%s] expected DefaultUserID 'default', got %q", name, memCfg.DefaultUserID)
@@ -3251,9 +3251,9 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 			if !ok {
 				t.Fatalf("prebuilt %s missing create_memory tool", name)
 			}
-			memCfg, ok := toolCfg.(creatememory.Config)
+			memCfg, ok := toolCfg.(postgrescreatememory.Config)
 			if !ok {
-				t.Fatalf("expected creatememory.Config, got %T", toolCfg)
+				t.Fatalf("expected postgrescreatememory.Config, got %T", toolCfg)
 			}
 			if memCfg.DefaultUserID != "alextalreja" {
 				t.Errorf("[%s] expected DefaultUserID 'alextalreja', got %q", name, memCfg.DefaultUserID)
