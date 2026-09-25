@@ -261,7 +261,12 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 
 	// Validate every skill the config declares. This runs after the log above
 	// because every resource did initialize: the check is across resources.
-	entries, err := skills.Discover(ctx, resourcesMap)
+	skillReg := skills.NewRegistry(resourcesMap)
+	// This function runs exactly once per config load (startup, reload, or invoke).
+	if orphans := skillReg.Orphans(); len(orphans) > 0 {
+		l.WarnContext(ctx, fmt.Sprintf("resources %s use the %s:// scheme but no SKILL.md is above them, so they belong to no skill; check the URI for a typo", strings.Join(orphans, ", "), resources.SkillScheme))
+	}
+	entries, err := skills.Discover(ctx, skillReg)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
