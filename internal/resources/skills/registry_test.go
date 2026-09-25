@@ -19,7 +19,7 @@ import (
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
-	"github.com/googleapis/mcp-toolbox/internal/skills"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 )
 
 // memberURIs reads back one skill's member list as URIs, so a test can compare
