@@ -118,9 +118,10 @@ func (c *Config) Validate() error {
 	if err := c.ResourceConfigBase.Validate(); err != nil {
 		return err
 	}
-	parsed, _ := url.Parse(c.URI)
-	if !c.UI && parsed.Scheme != "file" {
-		return fmt.Errorf("invalid scheme for file resource %q: must be 'file'", c.Name)
+	if !c.UI {
+		if err := resources.ValidateScheme(c.URI, resourceType); err != nil {
+			return fmt.Errorf("invalid scheme for file resource %q: %w", c.Name, err)
+		}
 	}
 
 	if c.MaxSize != nil {
@@ -447,9 +448,10 @@ func (c *TemplateConfig) Validate() error {
 	if err := c.ResourceTemplateConfigBase.Validate(); err != nil {
 		return err
 	}
-	parsed, _ := url.Parse(strings.ReplaceAll(c.URITemplate, "{path}", "path"))
-	if !c.UI && parsed.Scheme != "file" {
-		return fmt.Errorf("invalid scheme for file resource template %q: must be 'file'", c.Name)
+	if !c.UI {
+		if err := resources.ValidateScheme(strings.ReplaceAll(c.URITemplate, "{path}", "path"), resourceType); err != nil {
+			return fmt.Errorf("invalid scheme for file resource template %q: %w", c.Name, err)
+		}
 	}
 
 	if c.MaxSize != nil {

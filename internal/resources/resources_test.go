@@ -128,6 +128,45 @@ func TestDecodeConfig(t *testing.T) {
 	})
 }
 
+func TestValidateScheme(t *testing.T) {
+	tcs := []struct {
+		desc         string
+		uri          string
+		nativeScheme string
+		wantErr      string
+	}{
+		{desc: "native scheme", uri: "file://queries.md", nativeScheme: "file"},
+		{desc: "skill scheme", uri: "skill://analytics-guide/references/queries.md", nativeScheme: "file"},
+		// url.Parse lowercases the scheme, so case never reaches the comparison.
+		{desc: "uppercase native scheme", uri: "FILE://Queries.md", nativeScheme: "file"},
+		{desc: "uppercase skill scheme", uri: "SKILL://Analytics-Guide/queries.md", nativeScheme: "file"},
+		// The helper is not file-specific: any resource type may pass its own scheme.
+		{desc: "other native scheme", uri: "text://greeting", nativeScheme: "text"},
+		{desc: "foreign scheme", uri: "query://queries.md", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "native scheme of another resource", uri: "text://greeting", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "no scheme", uri: "queries.md", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "unparseable uri", uri: "file://\x7f", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := resources.ValidateScheme(tc.uri, tc.nativeScheme)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateScheme(%q, %q): got %v, want nil", tc.uri, tc.nativeScheme, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateScheme(%q, %q): got nil, want %q", tc.uri, tc.nativeScheme, tc.wantErr)
+			}
+			if err.Error() != tc.wantErr {
+				t.Errorf("ValidateScheme(%q, %q): got %q, want %q", tc.uri, tc.nativeScheme, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestGetBaseDirFromContext(t *testing.T) {
 	ctx := context.Background()
 
