@@ -360,6 +360,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgreslistviews"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgreslongrunningtransactions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresreplicationstats"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressearchmemory"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/redis"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/scylladb/scyllacql"
