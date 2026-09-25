@@ -16,6 +16,7 @@ package mssql_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -23,6 +24,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/mssql"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestParseFromYamlMssql(t *testing.T) {
@@ -81,6 +83,82 @@ func TestParseFromYamlMssql(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "with entra id auth and no sql login",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			encrypt: strict
+			azureAuth:
+			  mode: workload-identity
+			  clientId: 11111111-1111-1111-1111-111111111111
+			  tenantId: 22222222-2222-2222-2222-222222222222
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mssql-instance": mssql.Config{
+					Name:     "my-mssql-instance",
+					Type:     mssql.SourceType,
+					Host:     "my-server.database.windows.net",
+					Port:     "1433",
+					Database: "my_db",
+					Encrypt:  "strict",
+					AzureAuth: &mssql.AzureAuthConfig{
+						Mode:     "workload-identity",
+						ClientID: "11111111-1111-1111-1111-111111111111",
+						TenantID: "22222222-2222-2222-2222-222222222222",
+					},
+				},
+			},
+		},
+		{
+			desc: "with entra id default mode only",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			azureAuth:
+			  mode: default
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mssql-instance": mssql.Config{
+					Name:      "my-mssql-instance",
+					Type:      mssql.SourceType,
+					Host:      "my-server.database.windows.net",
+					Port:      "1433",
+					Database:  "my_db",
+					AzureAuth: &mssql.AzureAuthConfig{Mode: "default"},
+				},
+			},
+		},
+		{
+			desc: "authenticating as the caller",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			useClientOAuth: "true"
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mssql-instance": mssql.Config{
+					Name:           "my-mssql-instance",
+					Type:           mssql.SourceType,
+					Host:           "my-server.database.windows.net",
+					Port:           "1433",
+					Database:       "my_db",
+					UseClientOAuth: "true",
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -127,7 +205,66 @@ func TestFailParseFromYaml(t *testing.T) {
 			database: my_db
 			user: my_user
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required' tag",
+			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required_without_all' tag",
+		},
+		{
+			desc: "entra id tenant without a client id",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			azureAuth:
+			  mode: default
+			  tenantId: 22222222-2222-2222-2222-222222222222
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": [1:10] Key: 'AzureAuthConfig.ClientID' Error:Field validation for 'ClientID' failed on the 'required_with' tag\n>  1 | azureAuth:\n                ^\n   2 |   mode: default\n   3 |   tenantId: 22222222-2222-2222-2222-222222222222\n   4 | database: my_db\n   5 | ",
+		},
+		{
+			desc: "entra id service principal without a client id",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			password: my_secret
+			azureAuth:
+			  mode: service-principal
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": [1:10] Key: 'AzureAuthConfig.ClientID' Error:Field validation for 'ClientID' failed on the 'required_if' tag\n>  1 | azureAuth:\n                ^\n   2 |   mode: service-principal\n   3 | database: my_db\n   4 | host: my-server.database.windows.net\n   5 | ",
+		},
+		{
+			desc: "entra id alongside a sql user",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			user: my_user
+			azureAuth:
+			  mode: default
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": [8:7] Key: 'Config.User' Error:Field validation for 'User' failed on the 'excluded_with' tag\n   5 | name: my-mssql-instance\n   6 | port: \"1433\"\n   7 | type: mssql\n>  8 | user: my_user\n             ^\n",
+		},
+		{
+			desc: "unsupported entra id mode",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: my-server.database.windows.net
+			port: "1433"
+			database: my_db
+			azureAuth:
+			  mode: certificate
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-mssql-instance\" as \"mssql\": [2:9] Key: 'AzureAuthConfig.Mode' Error:Field validation for 'Mode' failed on the 'oneof' tag\n   1 | azureAuth:\n>  2 |   mode: certificate\n               ^\n   3 | database: my_db\n   4 | host: my-server.database.windows.net\n   5 | name: my-mssql-instance\n   6 | ",
 		},
 	}
 	for _, tc := range tcs {
@@ -139,6 +276,33 @@ func TestFailParseFromYaml(t *testing.T) {
 			errStr := err.Error()
 			if errStr != tc.err {
 				t.Fatalf("unexpected error: got %q, want %q", errStr, tc.err)
+			}
+		})
+	}
+}
+
+func TestInitializeRejectsMixedIdentity(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		cfg     mssql.Config
+		wantErr string
+	}{
+		{
+			desc:    "a service principal without its client secret",
+			cfg:     mssql.Config{AzureAuth: &mssql.AzureAuthConfig{Mode: "service-principal", ClientID: "11111111-1111-1111-1111-111111111111"}},
+			wantErr: "needs the client secret in 'password'",
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := tc.cfg
+			cfg.Name, cfg.Type, cfg.Host, cfg.Port, cfg.Database = "n", mssql.SourceType, "0.0.0.0", "1433", "my_db"
+			_, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"), true)
+			if err == nil {
+				t.Fatalf("expected initialization to fail")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("unexpected error: got %q, want it to contain %q", err, tc.wantErr)
 			}
 		})
 	}
