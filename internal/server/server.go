@@ -261,7 +261,13 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 
 	// Validate every skill the config declares. This runs after the log above
 	// because every resource did initialize: the check is across resources.
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	skillReg := skills.NewRegistry(resourcesMap)
+	// Warn here, not in NewRegistry: PrimitiveManager builds a registry too,
+	// and this runs one time for each config load.
+	if orphans := skillReg.Orphans(); len(orphans) > 0 {
+		l.WarnContext(ctx, fmt.Sprintf("resources %s use the %s:// scheme but no SKILL.md is above them, so they belong to no skill; check the URI for a typo", strings.Join(orphans, ", "), resources.SkillScheme))
+	}
+	entries, err := skills.Discover(ctx, skillReg)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}

@@ -209,3 +209,56 @@ func TestRegistryMembersUnknownURI(t *testing.T) {
 		})
 	}
 }
+
+// TestRegistryOrphans covers a skill:// resource no SKILL.md sits above, which
+// no manifest would carry. Most often its URI has a typo.
+func TestRegistryOrphans(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+
+	reg := skills.NewRegistry(map[string]resources.Resource{
+		"guide": textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query the warehouse")),
+		"queries": textResource(t, ctx, "queries",
+			"skill://analytics-guide/references/queries.md", "# Common queries\n"),
+		// A typo in the skill path: close to the skill above, under none.
+		"typo": textResource(t, ctx, "typo",
+			"skill://analytcs-guide/references/joins.md", "# Joins\n"),
+		// A name prefix of the skill above, not a path prefix.
+		"sibling": textResource(t, ctx, "sibling",
+			"skill://analytics-guide-v2/notes.md", "# Notes\n"),
+		// Not addressed by skill://, so it is never an orphan.
+		"docs": textResource(t, ctx, "docs", "file://project-docs", "unrelated"),
+	})
+
+	want := []string{
+		"skill://analytcs-guide/references/joins.md",
+		"skill://analytics-guide-v2/notes.md",
+	}
+	if got := reg.Orphans(); !slices.Equal(got, want) {
+		t.Errorf("Orphans() = %v, want %v", got, want)
+	}
+
+	reg.Orphans()[0] = "skill://tampered/x.md"
+	if got := reg.Orphans(); !slices.Equal(got, want) {
+		t.Errorf("Orphans() = %v after a caller wrote to an earlier result, want %v", got, want)
+	}
+}
+
+func TestRegistryNoOrphans(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+
+	reg := skills.NewRegistry(map[string]resources.Resource{
+		"guide": textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query the warehouse")),
+		"queries": textResource(t, ctx, "queries",
+			"skill://analytics-guide/references/queries.md", "# Common queries\n"),
+	})
+	if got := reg.Orphans(); len(got) != 0 {
+		t.Errorf("Orphans() = %v, want empty", got)
+	}
+
+	var nilReg *skills.Registry
+	if got := nilReg.Orphans(); len(got) != 0 {
+		t.Errorf("nil Orphans() = %v, want empty", got)
+	}
+}
