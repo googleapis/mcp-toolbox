@@ -11,7 +11,7 @@ description: >
 The `cloud-gemini-data-analytics-query` tool allows you to send natural language questions to the Gemini Data Analytics API and receive structured responses containing SQL queries, natural language answers, and explanations. For details on defining data agent context for database data sources, see the official [documentation](https://docs.cloud.google.com/gemini/docs/conversational-analytics-api/data-agent-authored-context-databases).
 
 > [!NOTE]
-> Only `alloydb`, `spannerReference`, and `cloudSqlReference` are supported as [datasource references](https://cloud.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences).
+> Only `alloydb`, `spannerReference`, `cloudSqlReference`, `bigtableReference`, and `firestoreReference` are supported as [datasource references](https://cloud.google.com/gemini/docs/conversational-analytics-api/reference/rest/v1beta/projects.locations.dataAgents#DatasourceReferences).
 
 
 ## Compatible Sources
@@ -111,32 +111,52 @@ Toolbox loads the configuration.
 
 #### Datasource references
 
-Set exactly one of `alloydb`, `spannerReference`, or `cloudSqlReference` under
-`datasourceReferences`. The API also defines `bq`, `studio`, and `looker`, but
-this tool does not support them.
+Set exactly one of `alloydb`, `spannerReference`, `cloudSqlReference`,
+`bigtableReference`, or `firestoreReference` under `datasourceReferences`. The
+API also defines `bq`, `studio`, and `looker`, but this tool does not support
+them.
 
-All three supported kinds take the same two fields:
+All five supported kinds take the same two fields:
 
 | **field**                          | **type** | **required** | **description**                                                                                                                                                            |
 | ---------------------------------- | :------: | :----------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | databaseReference                  |  object  |     true     | Identifies the database. Fields vary by kind. See [databaseReference fields](#databasereference-fields) below.                                                             |
 | agentContextReference.contextSetId |  string  |    false     | Resource name of an authored context set to apply to the query, in the form `projects/{project}/locations/{location}/contextSets/{context_set}`. Improves query accuracy. |
 
+For example, a Bigtable `context`:
+
+```yaml
+context:
+  datasourceReferences:
+    bigtableReference:
+      databaseReference:
+        projectId: "${your_project_id}"
+        instanceId: "${your_bigtable_instance_id}"
+        tableIds:
+          - "${your_table_id}"
+      agentContextReference:
+        contextSetId: "${your_context_set_id}"
+```
+
 #### databaseReference fields
 
-One table covers all three kinds; the **applies to** column shows where each
+One table covers all five kinds; the **applies to** column shows where each
 field is accepted. Supplying a field to a kind that does not accept it is a
 configuration error.
 
-| **field**  |    **type**    | **required** | **applies to**                       | **description**                                                                                            |
-| ---------- | :------------: | :----------: | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| projectId  |     string     |     true     | all                                  | The project the instance belongs to.                                                                       |
-| region     |     string     |     true     | all                                  | The region of the instance, for example `us-central1`.                                                     |
-| clusterId  |     string     |     true     | `alloydb`                            | The AlloyDB cluster id.                                                                                    |
-| instanceId |     string     |     true     | all                                  | The instance id.                                                                                           |
-| databaseId |     string     |     true     | all                                  | The database id.                                                                                           |
-| engine     |     string     |     true     | `cloudSqlReference`, `spannerReference` | `POSTGRESQL` or `MYSQL` for `cloudSqlReference`; `GOOGLE_SQL` or `POSTGRESQL` for `spannerReference`. AlloyDB has no engine field. |
-| tableIds   | list of string |    false     | all                                  | Restricts the query to these tables. All tables in the database are used if unset.                         |
+| **field**               |    **type**    | **required** | **applies to**                          | **description**                                                                                                                                  |
+| ----------------------- | :------------: | :----------: | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| projectId               |     string     |     true     | all                                     | The project the database belongs to.                                                                                                             |
+| region                  |     string     |     true     | `alloydb`, `cloudSqlReference`          | The region of the instance, for example `us-central1`. The API removed `region` from `spannerReference`; Toolbox ignores it there and logs a warning. |
+| clusterId               |     string     |     true     | `alloydb`                               | The AlloyDB cluster id.                                                                                                                          |
+| instanceId              |     string     |     true     | all except `firestoreReference`         | The instance id.                                                                                                                                 |
+| databaseId              |     string     |     true     | all except `bigtableReference`          | The database id.                                                                                                                                 |
+| engine                  |     string     |     true     | `cloudSqlReference`, `spannerReference` | `POSTGRESQL` or `MYSQL` for `cloudSqlReference`; `GOOGLE_SQL` or `POSTGRESQL` for `spannerReference`. Other kinds have no engine field.            |
+| tableIds                | list of string |    false     | all except `firestoreReference`         | Restricts the query to these tables. All tables are used if unset.                                                                               |
+| collectionIds           | list of string |    false     | `firestoreReference`                    | Restricts the query to these collections. All collections are used if unset.                                                                     |
+| databaseTableReferences | list of object |    false     | all                                     | Restricts the query to these tables (collections for `firestoreReference`), with optional schema. Each entry takes `tableId` (required) and `schema`. Richer alternative to `tableIds` or `collectionIds`. |
+| priority                |     string     |    false     | `spannerReference`                      | Spanner request priority: `LOW`, `MEDIUM`, or `HIGH`. Unsupported values are ignored.                                                            |
+| requestTag              |     string     |    false     | `spannerReference`                      | Tag attached to all Spanner queries, for identifying and monitoring traffic from this tool.                                                      |
 
 ## Advanced Usage
 
