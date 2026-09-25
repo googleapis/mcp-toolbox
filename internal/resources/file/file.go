@@ -470,9 +470,9 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 		return nil, fmt.Errorf("'path' parameter must be a string")
 	}
 
-	// Explicitly block backward traversal in the raw input
-	if resources.ContainsTraversal(pathStr) {
-		return nil, fmt.Errorf("security violation: path %q contains backward traversal components (..)", pathStr)
+	// Explicitly validate the raw input path parameter
+	if err := resources.ValidateTemplatePathParam(pathStr); err != nil {
+		return nil, err
 	}
 
 	// If the path is relative, reconstruct the full path
