@@ -1116,7 +1116,7 @@ Once generated, you can install the skill into the Gemini CLI:
 gemini skills install ./skills/my-skill
 ```
 
-For more details, see the [Generate Agent Skills guide](https://mcp-toolbox.dev/documentation/configuration/skills/).
+For more details, see the [Generating Skills guide](https://mcp-toolbox.dev/documentation/configuration/skills/generating/).
 
 The repository also ships ready-to-use Agent Skills (e.g. maintainer workflows). See [`skills/`](./skills/README.md) for the catalog and install instructions.
 

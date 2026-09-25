@@ -112,7 +112,7 @@ toolbox skills-generate --name <name> --description <description> --toolset <too
 - `--invocation-mode`: (Optional) Invocation mode for the generated scripts: 'binary' or 'npx' (default: "npx").
 - `--toolbox-version`: (Optional) Version of @toolbox-sdk/server to use for npx approach (defaults to current toolbox version).
 
-For more detailed instructions, see [Generate Agent Skills](../documentation/configuration/skills/_index.md).
+For more detailed instructions, see [Generating Skills](../documentation/configuration/skills/generating.md).
 
 </details>
 
