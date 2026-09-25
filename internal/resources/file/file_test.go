@@ -1094,21 +1094,35 @@ dynamic: true
 }
 
 // TestFileResourceTemplate_RejectsDynamic pins dynamic as a resource-only field.
-// ResourceTemplateConfigBase does not carry it, so strict decoding rejects the key.
+// ResourceTemplateConfigBase does not carry it, so strict decoding rejects the key
+// before it reads the uriTemplate. A SKILL.md template is refused like any other.
 func TestFileResourceTemplate_RejectsDynamic(t *testing.T) {
-	yamlStr := `
+	tcs := []struct {
+		desc        string
+		uriTemplate string
+	}{
+		{desc: "supporting file", uriTemplate: "file://docs/{path}"},
+		{desc: "skill doc", uriTemplate: "skill://guide/SKILL.md"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			yamlStr := fmt.Sprintf(`
 kind: resourceTemplate
 name: my-template
 type: file
-uriTemplate: file://docs/{path}
+uriTemplate: %s
 allowedPaths: ["./docs"]
 dynamic: true
-`
-	_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
-	if err == nil {
-		t.Fatal("UnmarshalPrimitiveConfig() = nil, want an unknown-field error")
-	}
-	if !strings.Contains(err.Error(), "dynamic") {
-		t.Errorf("error = %q, want it to name the unknown 'dynamic' field", err)
+`, tc.uriTemplate)
+
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(yamlStr))
+			if err == nil {
+				t.Fatal("UnmarshalPrimitiveConfig() = nil, want an unknown-field error")
+			}
+			if !strings.Contains(err.Error(), "dynamic") {
+				t.Errorf("error = %q, want it to name the unknown 'dynamic' field", err)
+			}
+		})
 	}
 }
