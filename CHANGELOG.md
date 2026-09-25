@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.13.0](https://github.com/googleapis/mcp-toolbox/compare/v1.12.0...v1.13.0) (2026-09-24)
+
+
+### Features
+
+* Support `--defer-source-connect` feature ([#4076](https://github.com/googleapis/mcp-toolbox/issues/4076)) ([5700630](https://github.com/googleapis/mcp-toolbox/commit/5700630c132d5e2fc2d38cf3e9ce1f9898bd757d))
+* **prebuiltconfig/bigtable:** Add prebuilt config for bigtable ([#4068](https://github.com/googleapis/mcp-toolbox/issues/4068)) ([576b9f7](https://github.com/googleapis/mcp-toolbox/commit/576b9f74f93a7564dcaaf6d6c06d799b8de3fb1d))
+* **tool/conversational-analytics-list-accessible-data-agents:** Return all data agents and support manual paging ([#4066](https://github.com/googleapis/mcp-toolbox/issues/4066)) ([0131c39](https://github.com/googleapis/mcp-toolbox/commit/0131c390ac42dde99ad94106690e856d6cfe5c2a))
+* **tool/looker:** Expose value_format and value_format_name in field metadata ([#4094](https://github.com/googleapis/mcp-toolbox/issues/4094)) ([4b7a44d](https://github.com/googleapis/mcp-toolbox/commit/4b7a44d6052137c912a15aea44fed4e826173ce9))
+
+
+### Bug Fixes
+
+* **config:** Fix parseEnv inconsistent handling with YAML comments ([#4039](https://github.com/googleapis/mcp-toolbox/issues/4039)) ([558c5a9](https://github.com/googleapis/mcp-toolbox/commit/558c5a9d0fc51555321291584fe1a91f60ba75f2))
+
+## [1.12.0](https://github.com/googleapis/mcp-toolbox/compare/v1.11.0...v1.12.0) (2026-09-17)
+
+
+### Features
+
+* Added logic to serve /.well-known/openai-apps-challenge ([#4038](https://github.com/googleapis/mcp-toolbox/issues/4038)) ([7ac00a2](https://github.com/googleapis/mcp-toolbox/commit/7ac00a2dc940b0e6e07e2b75ca79fef08bd87d77))
+* **tool/looker:** Expose certification_metadata in looker dashboard and look tools ([#4041](https://github.com/googleapis/mcp-toolbox/issues/4041)) ([ed42084](https://github.com/googleapis/mcp-toolbox/commit/ed420847be0d86209f5505f4a436ca7963eb3fc3))
+
+
+### Bug Fixes
+
+* **prebuilt/cloud-sql-postgres:** Clarify execute_sql tool description ([#3884](https://github.com/googleapis/mcp-toolbox/issues/3884)) ([ed4cfde](https://github.com/googleapis/mcp-toolbox/commit/ed4cfde6d6d5133120a9ed6811aab8947f3eb540))
+* **source/cockroachdb,source/redis:** Release the handle when a connect attempt fails ([#3933](https://github.com/googleapis/mcp-toolbox/issues/3933)) ([2d52f8a](https://github.com/googleapis/mcp-toolbox/commit/2d52f8aee5e0d373db30dc7d70bca175570dd29e))
+* **tool/looker-generate-embed-url:** Require embed parameters ([#3913](https://github.com/googleapis/mcp-toolbox/issues/3913)) ([93520cf](https://github.com/googleapis/mcp-toolbox/commit/93520cf4ab4059ec4c1ed77f25bf3a836d3192c6))
+* **tools/looker:** Add additional annotations to support OpenAI plugins ([#4035](https://github.com/googleapis/mcp-toolbox/issues/4035)) ([7b41e73](https://github.com/googleapis/mcp-toolbox/commit/7b41e73c3f7486afe55022fbcb437e26e931b8d0))
+
 ## [1.11.0](https://github.com/googleapis/mcp-toolbox/compare/v1.10.0...v1.11.0) (2026-09-10)
 
 

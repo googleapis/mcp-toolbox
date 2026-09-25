@@ -52,13 +52,12 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase        `yaml:",inline"`
-	Type                    string                 `yaml:"type" validate:"required"`
-	Source                  string                 `yaml:"source" validate:"required"`
-	Database                string                 `yaml:"database" validate:"required"`
-	Collection              string                 `yaml:"collection"`
-	CollectionAllowedValues []string               `yaml:"collectionAllowedValues"`
-	Canonical               bool                   `yaml:"canonical"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type                    string   `yaml:"type" validate:"required"`
+	Source                  string   `yaml:"source" validate:"required"`
+	Database                string   `yaml:"database" validate:"required"`
+	Collection              string   `yaml:"collection"`
+	CollectionAllowedValues []string `yaml:"collectionAllowedValues"`
+	Canonical               bool     `yaml:"canonical"`
 }
 
 // validate interface

@@ -1940,19 +1940,17 @@ func TestLooker(t *testing.T) {
 				"parameters": []any{
 					map[string]any{
 						"authServices": []any{},
-						"description":  "Type of Looker content to embed (ie. dashboards, looks, query-visualization)",
+						"description":  "Type of Looker content to embed (e.g. dashboards, looks, query-visualizations, or explores).",
 						"name":         "type",
-						"required":     false,
+						"required":     true,
 						"type":         "string",
-						"default":      "",
 					},
 					map[string]any{
 						"authServices": []any{},
 						"description":  "The ID of the content to embed.",
 						"name":         "id",
-						"required":     false,
+						"required":     true,
 						"type":         "string",
-						"default":      "",
 					},
 				},
 			},
@@ -2382,7 +2380,7 @@ func TestLooker(t *testing.T) {
 	tests.RunToolInvokeParametersTest(t, "get_field_value_suggestions", []byte(`{"model": "system__activity", "explore": "history", "field": "history.source"}`), wantResult)
 
 	// Verify that the suggestions list contains the expected values
-	wantSuggestions := []string{"api4", "dashboard", "explore", "merge_query", "regenerator", "sqlrunner", "suggest"}
+	wantSuggestions := []string{"api4", "dashboard", "explore", "regenerator", "sqlrunner", "suggest"}
 	testFieldValueSuggestions(t, "basic", []byte("{\"model\": \"system__activity\", \"explore\": \"history\", \"field\": \"history.source\"}"), wantSuggestions)
 
 	// Verify that search term filtering works

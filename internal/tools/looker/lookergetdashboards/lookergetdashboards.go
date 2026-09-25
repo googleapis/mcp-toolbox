@@ -55,9 +55,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -144,11 +143,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
+	fields := "id,title,description,certification_metadata"
 	req := v4.RequestSearchDashboards{
 		Title:       title_ptr,
 		Description: desc_ptr,
 		Limit:       &limit,
 		Offset:      &offset,
+		Fields:      &fields,
 	}
 	logger.DebugContext(ctx, "Making request %v", req)
 	resp, err := sdk.SearchDashboards(req, source.LookerApiSettings())
@@ -171,6 +172,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 		if v.Description != nil {
 			vMap["description"] = *v.Description
+		}
+		if v.CertificationMetadata != nil {
+			vMap["certification_metadata"] = v.CertificationMetadata
 		}
 		logger.DebugContext(ctx, "Converted to %v\n", vMap)
 		data = append(data, vMap)

@@ -227,6 +227,11 @@ implementation](https://github.com/googleapis/mcp-toolbox/blob/main/internal/sou
   * `SourceType() string`: Returns the same string identifier as `SourceConfigType()`.
 * **Implement `init()`** to register the new Source.
 * **Implement Unit Tests** in a file named `newdb_test.go`.
+* **Configure Labels, Issue Routing, and Permissions (Google Cloud Databases):**
+  For every Google Cloud database, the following repository setup is required:
+  * Add a corresponding `product: <database>` label to [`.github/labels.yaml`](.github/labels.yaml).
+  * Add routing rules in [`.github/blunderbuss.yml`](.github/blunderbuss.yml) under both `assign_issues_by` and `assign_prs_by` to route the `product: <database>` label to the product's GitHub team (e.g., `googleapis/toolbox-<database>-team`).
+  * These GitHub teams should be team-synced from MDB groups and have write access to the repo.
 
 #### Adding a New Tool
 
@@ -243,10 +248,10 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
 * **Define a `Config` struct** for your tool in a file named `newdbtool.go`.
   **Embed [`tools.ConfigBase`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)
   with `yaml:",inline"`** so your tool inherits the shared `name`,
-  `description`, `authRequired`, and `scopesRequired` fields (and their getters)
-  for free. Add only the fields specific to your tool (e.g., `Type`, `Source`,
-  `Statement`, `Parameters`, `Annotations`). Do **not** redeclare the shared
-  fields.
+  `description`, `authRequired`, `scopesRequired`, and `annotations` fields (and
+  the applicable getters) for free. Add only the fields specific to your tool
+  (e.g., `Type`, `Source`, `Statement`, `Parameters`). Do **not** redeclare the
+  shared fields.
 * **Define a `Tool` struct** that **embeds
   [`tools.BaseTool[Config]`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)**.
   `BaseTool` provides default implementations of most of the `Tool` interface —
