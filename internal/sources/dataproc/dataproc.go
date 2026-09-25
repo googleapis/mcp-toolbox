@@ -101,16 +101,20 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
 		}
 		endpoint := fmt.Sprintf("%s-dataproc.googleapis.com:443", r.Region)
-		client, err := dataproc.NewClusterControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+		// The clients returned here outlive this call, so they are built from a
+		// context the connect does not cancel.
+		clientCtx := sources.DetachedConnectContext(ctx)
+
+		client, err := dataproc.NewClusterControllerClient(clientCtx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create dataproc client: %w", err)
 		}
-		opsClient, err := longrunning.NewOperationsClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+		opsClient, err := longrunning.NewOperationsClient(clientCtx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 		if err != nil {
 			client.Close()
 			return nil, fmt.Errorf("failed to create longrunning client: %w", err)
 		}
-		jobClient, err := dataproc.NewJobControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+		jobClient, err := dataproc.NewJobControllerClient(clientCtx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 		if err != nil {
 			client.Close()
 			opsClient.Close()

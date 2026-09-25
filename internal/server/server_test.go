@@ -2432,3 +2432,68 @@ func TestInitializeConfigsDeferSourceConnect(t *testing.T) {
 		}
 	})
 }
+
+// closableSource is a source holding something worth releasing. Shutdown closes
+// sources serially, so the flag needs no synchronization.
+type closableSource struct {
+	testutils.MockSource
+	closed bool
+	err    error
+}
+
+func (s *closableSource) Close(context.Context) error {
+	s.closed = true
+	return s.err
+}
+
+func TestShutdownClosesSources(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := server.ServerConfig{Version: "0.0.0", Address: "127.0.0.1", Port: 0, AllowedHosts: []string{"*"}}
+
+	otelShutdown, err := telemetry.SetupOTel(ctx, "0.0.0", "", false, "", "toolbox")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	defer func() {
+		if err := otelShutdown(ctx); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+	}()
+
+	testLogger, err := log.NewStdLogger(os.Stdout, os.Stderr, "info")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithLogger(ctx, testLogger)
+
+	instrumentation, err := telemetry.CreateTelemetryInstrumentation(cfg.Version)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithInstrumentation(ctx, instrumentation)
+
+	s, err := server.NewServer(ctx, cfg)
+	if err != nil {
+		t.Fatalf("unable to initialize server: %v", err)
+	}
+
+	// A source that fails to close must not stop the others being released.
+	failing := &closableSource{err: errors.New("boom")}
+	ok := &closableSource{}
+	s.PrimitiveMgr.SetPrimitives(
+		map[string]sources.Source{"failing": failing, "ok": ok, "plain": testutils.MockSource{}},
+		nil, nil, nil, nil, nil, nil, nil,
+	)
+
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown reported an error: %s", err)
+	}
+	if !ok.closed {
+		t.Error("shutdown did not close a source implementing sources.Closer")
+	}
+	if !failing.closed {
+		t.Error("shutdown did not attempt every source")
+	}
+}

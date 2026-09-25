@@ -62,7 +62,10 @@ func (r Config) SourceConfigType() string {
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*lineage.Client](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*lineage.Client](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, c *lineage.Client) error {
+				return c.Close()
+			}),
 	}
 	if deferConnect {
 		return s, nil
@@ -83,12 +86,19 @@ type Source struct {
 func (s *Source) client(ctx context.Context) (*lineage.Client, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*lineage.Client, error) {
 		r := s.Config
-		return initLineageConnection(ctx, r.Project)
+		// The client returned here outlives this call, and its credentials
+		// reuse the context they were built with for every token refresh.
+		return initLineageConnection(sources.DetachedConnectContext(ctx), r.Project)
 	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {

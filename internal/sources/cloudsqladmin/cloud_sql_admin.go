@@ -103,6 +103,10 @@ func (s *Source) adminService(ctx context.Context) (*sqladmin.Service, error) {
 			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
 		}
 
+		// The service returned here outlives this call, and its token source
+		// reuses the context it was built with for every refresh.
+		clientCtx := sources.DetachedConnectContext(ctx)
+
 		var client *http.Client
 		if r.UseClientOAuth {
 			client = &http.Client{
@@ -110,16 +114,16 @@ func (s *Source) adminService(ctx context.Context) (*sqladmin.Service, error) {
 			}
 		} else {
 			// Use Application Default Credentials
-			creds, err := google.FindDefaultCredentials(ctx, sqladmin.SqlserviceAdminScope)
+			creds, err := google.FindDefaultCredentials(clientCtx, sqladmin.SqlserviceAdminScope)
 			if err != nil {
 				return nil, fmt.Errorf("failed to find default credentials: %w", err)
 			}
-			baseClient := oauth2.NewClient(ctx, creds.TokenSource)
+			baseClient := oauth2.NewClient(clientCtx, creds.TokenSource)
 			baseClient.Transport = util.NewUserAgentRoundTripper(ua, baseClient.Transport)
 			client = baseClient
 		}
 
-		service, err := sqladmin.NewService(ctx, option.WithHTTPClient(client))
+		service, err := sqladmin.NewService(clientCtx, option.WithHTTPClient(client))
 		if err != nil {
 			return nil, fmt.Errorf("error creating new sqladmin service: %w", err)
 		}

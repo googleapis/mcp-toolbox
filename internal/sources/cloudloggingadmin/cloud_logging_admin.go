@@ -70,7 +70,15 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnec
 	}
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, cs *clientSet) error {
+				// nil under client OAuth, where each caller's client is cached
+				// per token instead.
+				if cs.client == nil {
+					return nil
+				}
+				return cs.client.Close()
+			}),
 	}
 	if deferConnect {
 		return s, nil
@@ -113,7 +121,10 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			setupClientCaching(cs, baseClientCreator)
 			return cs, nil
 		}
-		client, tokenSource, err := initLogAdminConnection(ctx, r.Project, r.ImpersonateServiceAccount)
+		// The client and token source returned here outlive this call, and an
+		// oauth2 token source reuses the context it was built with for every
+		// refresh.
+		client, tokenSource, err := initLogAdminConnection(sources.DetachedConnectContext(ctx), r.Project, r.ImpersonateServiceAccount)
 		if err != nil {
 			return nil, fmt.Errorf("error creating client from ADC %w", err)
 		}
@@ -123,6 +134,11 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -434,7 +450,7 @@ func newLogAdminClientCreator(
 
 	// The creator outlives this call, so it must not capture the connect's
 	// cancellation, nor the span of whichever caller happened to trigger it.
-	creatorCtx := trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
+	creatorCtx := sources.DetachedConnectContext(ctx)
 	return func(tokenString string) (*logadmin.Client, error) {
 		return initLogAdminConnectionWithOAuthToken(creatorCtx, tracer, project, name, userAgent, tokenString)
 	}, nil

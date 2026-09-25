@@ -29,6 +29,25 @@ import (
 // for a cold cloud connector path rather than for a healthy connection.
 const ConnectTimeout = 60 * time.Second
 
+// DetachedConnectContext returns the context a connect must use for anything it
+// builds that outlives the connect itself — credentials, token sources, clients
+// that refresh in the background.
+//
+// Do runs the connect under a context it cancels as soon as the connect
+// returns, which is right for the attempt but wrong for its product: an oauth2
+// token source keeps the context it was built with and reuses it for every
+// later refresh, so a handle built from the connect context fails its first
+// refresh with "context canceled" and never recovers. The span is dropped for
+// the same reason — those refreshes outlive the span of whichever caller
+// happened to trigger the connect.
+//
+// Values are preserved, so the user agent and logger still cross over. Anything
+// the connect does inline — a ping, a dial, a metadata check — should keep
+// using the connect context so the attempt stays bounded.
+func DetachedConnectContext(ctx context.Context) context.Context {
+	return trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
+}
+
 // Option configures a ConnectOnce.
 type Option func(*options)
 

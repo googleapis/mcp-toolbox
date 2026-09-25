@@ -94,7 +94,9 @@ type Source struct {
 func (s *Source) client(ctx context.Context) (*http.Client, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*http.Client, error) {
 		r := s.Config
-		return initConnection(ctx, r.Project)
+		// The client returned here outlives this call, and its token source
+		// reuses the context it was built with for every refresh.
+		return initConnection(sources.DetachedConnectContext(ctx), r.Project)
 	})
 }
 

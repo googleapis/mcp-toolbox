@@ -16,6 +16,7 @@ package bigtable
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cloud.google.com/go/bigtable"
@@ -60,7 +61,10 @@ func (r Config) SourceConfigType() string {
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, cs *clientSet) error {
+				return errors.Join(cs.client.Close(), cs.instanceAdmin.Close(), cs.admin.Close())
+			}),
 	}
 	if deferConnect {
 		return s, nil
@@ -87,18 +91,24 @@ type Source struct {
 func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
 		r := s.Config
-		client, err := initBigtableClient(ctx, r.Project, r.Instance)
+		// The clients returned here outlive this call. The data client's
+		// connection pool in particular runs goroutines that recycle channels
+		// and scale the pool for as long as the context it was built with is
+		// live, so on the connect context they would exit immediately.
+		clientCtx := sources.DetachedConnectContext(ctx)
+
+		client, err := initBigtableClient(clientCtx, r.Project, r.Instance)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create client: %w", err)
 		}
 
-		instanceAdminClient, err := initBigtableInstanceAdminClient(ctx, r.Project)
+		instanceAdminClient, err := initBigtableInstanceAdminClient(clientCtx, r.Project)
 		if err != nil {
 			client.Close()
 			return nil, fmt.Errorf("unable to create instance admin client: %w", err)
 		}
 
-		adminClient, err := initBigtableAdminClient(ctx, r.Project, r.Instance)
+		adminClient, err := initBigtableAdminClient(clientCtx, r.Project, r.Instance)
 		if err != nil {
 			client.Close()
 			instanceAdminClient.Close()
@@ -115,6 +125,11 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {

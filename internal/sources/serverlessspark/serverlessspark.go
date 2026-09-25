@@ -103,22 +103,26 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
 		}
 		endpoint := fmt.Sprintf("%s-dataproc.googleapis.com:443", r.Location)
-		batchClient, err := dataproc.NewBatchControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+		// The clients returned here outlive this call, so they are built from a
+		// context the connect does not cancel.
+		clientCtx := sources.DetachedConnectContext(ctx)
+
+		batchClient, err := dataproc.NewBatchControllerClient(clientCtx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create dataproc batch client: %w", err)
 		}
-		sessionTemplateClient, err := dataproc.NewSessionTemplateControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+		sessionTemplateClient, err := dataproc.NewSessionTemplateControllerClient(clientCtx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 		if err != nil {
 			batchClient.Close()
 			return nil, fmt.Errorf("failed to create dataproc session template client: %w", err)
 		}
-		opsClient, err := longrunning.NewOperationsClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+		opsClient, err := longrunning.NewOperationsClient(clientCtx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 		if err != nil {
 			batchClient.Close()
 			sessionTemplateClient.Close()
 			return nil, fmt.Errorf("failed to create longrunning client: %w", err)
 		}
-		sessionClient, err := dataproc.NewSessionControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+		sessionClient, err := dataproc.NewSessionControllerClient(clientCtx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 		if err != nil {
 			batchClient.Close()
 			sessionTemplateClient.Close()

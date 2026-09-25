@@ -96,6 +96,10 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
 		}
 
+		// The client returned here outlives this call, and its token source
+		// reuses the context it was built with for every refresh.
+		clientCtx := sources.DetachedConnectContext(ctx)
+
 		var client *http.Client
 		if r.UseClientOAuth {
 			client = &http.Client{
@@ -103,11 +107,11 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			}
 		} else {
 			// Use Application Default Credentials
-			creds, err := google.FindDefaultCredentials(ctx, monitoring.MonitoringScope)
+			creds, err := google.FindDefaultCredentials(clientCtx, monitoring.MonitoringScope)
 			if err != nil {
 				return nil, fmt.Errorf("failed to find default credentials: %w", err)
 			}
-			baseClient := oauth2.NewClient(ctx, creds.TokenSource)
+			baseClient := oauth2.NewClient(clientCtx, creds.TokenSource)
 			baseClient.Transport = util.NewUserAgentRoundTripper(ua, baseClient.Transport)
 			client = baseClient
 		}

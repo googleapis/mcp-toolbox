@@ -24,6 +24,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -499,5 +500,52 @@ func TestConnectOnceCloseWithoutACloser(t *testing.T) {
 	}
 	if _, ok := once.Get(); ok {
 		t.Fatal("a closed holder must not still report a connection")
+	}
+}
+
+// A source that builds credentials or a client from the connect context ships a
+// handle that stops working the moment the connect returns: an oauth2 token
+// source keeps that context and reuses it for every later refresh. This is what
+// DetachedConnectContext exists to prevent.
+func TestDetachedConnectContextOutlivesTheConnect(t *testing.T) {
+	startupCtx := testutils.ContextWithUserAgent(context.Background(), "1.2.3")
+	once := newConnectOnce(startupCtx)
+
+	var connectCtx, detached context.Context
+	_, err := once.Do(context.Background(), func(ctx context.Context) (*handle, error) {
+		connectCtx, detached = ctx, sources.DetachedConnectContext(ctx)
+		return &handle{id: 1}, nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error connecting: %s", err)
+	}
+
+	if connectCtx.Err() == nil {
+		t.Fatal("the connect context must be cancelled once the connect returns")
+	}
+	if err := detached.Err(); err != nil {
+		t.Errorf("the detached context must outlive the connect, got %s", err)
+	}
+	// The user agent has to survive, or a detached client reports the wrong one.
+	ua, _ := util.UserAgentFromContext(detached)
+	if want := "genai-toolbox/1.2.3"; ua != want {
+		t.Errorf("detached context carries user agent %q, want %q", ua, want)
+	}
+}
+
+// Whatever the detached context is handed to outlives the span of the caller
+// that happened to trigger the connect, so it must not keep that span.
+func TestDetachedConnectContextDropsTheSpan(t *testing.T) {
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{0x01},
+		SpanID:  trace.SpanID{0x02},
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), sc)
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		t.Fatal("test setup: the context should start with a valid span")
+	}
+
+	if got := trace.SpanContextFromContext(sources.DetachedConnectContext(ctx)); got.IsValid() {
+		t.Errorf("detached context still carries span %v, want none", got)
 	}
 }
