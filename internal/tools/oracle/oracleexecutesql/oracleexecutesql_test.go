@@ -3,13 +3,18 @@
 package oracleexecutesql_test
 
 import (
+	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/sources/oracle"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/oracle/oracleexecutesql"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
 func TestParseFromYamlOracleExecuteSql(t *testing.T) {
@@ -128,5 +133,111 @@ func TestParseFromYamlOracleExecuteSql(t *testing.T) {
 			}
 		})
 	}
+}
 
+type mockSource struct {
+	lastCtx context.Context
+	lastSQL string
+}
+
+func (m *mockSource) OracleDB() *sql.DB {
+	return nil
+}
+
+func (m *mockSource) RunSQL(ctx context.Context, s string, _ []any, _ bool) (any, error) {
+	m.lastCtx = ctx
+	m.lastSQL = s
+	return "ok", nil
+}
+
+func (m *mockSource) SourceType() string {
+	return "oracle"
+}
+
+func (m *mockSource) IsReadOnly() bool {
+	return false
+}
+
+func (m *mockSource) ToConfig() sources.SourceConfig {
+	return nil
+}
+
+func TestOracleExecuteSqlAuthAndHeaderName(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	// 1. Test GetAuthTokenHeaderName with authRequired
+	cfgWithAuth := oracleexecutesql.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:         "execute_sql",
+			Description:  "Executes SQL",
+			AuthRequired: []string{"google-auth"},
+		},
+		Type:   "oracle-execute-sql",
+		Source: "my-oracle",
+	}
+	toolWithAuth, err := cfgWithAuth.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	headerName, err := toolWithAuth.GetAuthTokenHeaderName(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if headerName != "google-auth_token" {
+		t.Errorf("expected header name 'google-auth_token', got %q", headerName)
+	}
+
+	// 2. Test GetAuthTokenHeaderName without authRequired
+	cfgWithoutAuth := oracleexecutesql.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "execute_sql_no_auth",
+			Description: "Executes SQL no auth",
+		},
+		Type:   "oracle-execute-sql",
+		Source: "my-oracle",
+	}
+	toolNoAuth, err := cfgWithoutAuth.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+	headerNameNoAuth, err := toolNoAuth.GetAuthTokenHeaderName(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if headerNameNoAuth != "Authorization" {
+		t.Errorf("expected header name 'Authorization', got %q", headerNameNoAuth)
+	}
+
+	// 3. Test Invoke passes parsed JWT claims to Source via context
+	mockSrc := &mockSource{}
+	fakeJWT := "header.eyJlbWFpbCI6ImVicy1zZXJ2aWNlLWFjY291bnRAYWktbnktZGVtby5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsInN1YiI6IjExNjMyNDY4NzI3NDczODI1NjIxOSJ9.signature"
+	params := parameters.ParamValues{
+		{Name: "sql", Value: "SELECT 1 FROM DUAL"},
+	}
+
+	_, invokeErr := toolWithAuth.Invoke(ctx, mockSrc, params, tools.AccessToken(fakeJWT))
+	if invokeErr != nil {
+		t.Fatalf("Invoke failed: %v", invokeErr)
+	}
+
+	if mockSrc.lastCtx == nil {
+		t.Fatal("expected mockSrc.lastCtx to be non-nil")
+	}
+
+	claims := oracle.AuthClaimsFromContext(mockSrc.lastCtx)
+	if claims == nil {
+		t.Fatal("expected auth claims on context, got nil")
+	}
+	if claims["email"] != "ebs-service-account@ai-ny-demo.iam.gserviceaccount.com" {
+		t.Errorf("expected email claim in context, got: %v", claims["email"])
+	}
+
+	toolParams := oracle.ToolParamsFromContext(mockSrc.lastCtx)
+	if toolParams == nil || toolParams["sql"] != "SELECT 1 FROM DUAL" {
+		t.Errorf("expected toolParams with sql, got: %v", toolParams)
+	}
 }

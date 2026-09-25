@@ -9,6 +9,7 @@ import (
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/sources/oracle"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -94,6 +95,13 @@ func (t Tool) ValidateSource(source sources.Source) error {
 	return nil
 }
 
+func (t Tool) GetAuthTokenHeaderName(_ sources.Source) (string, error) {
+	if len(t.Cfg.AuthRequired) > 0 {
+		return t.Cfg.AuthRequired[0] + "_token", nil
+	}
+	return "Authorization", nil
+}
+
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
 	source, ok := s.(compatibleSource)
 	if !ok {
@@ -121,6 +129,22 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if t.Cfg.ReadOnly != nil {
 		isReadOnly = *t.Cfg.ReadOnly
 	}
+
+	mergedParams := make(map[string]any)
+	for k, v := range paramsMap {
+		mergedParams[k] = v
+	}
+	for k, v := range newParams.AsMap() {
+		mergedParams[k] = v
+	}
+
+	if accessToken != "" {
+		if claims := oracle.ParseJWTClaims(string(accessToken)); len(claims) > 0 {
+			ctx = oracle.WithAuthClaims(ctx, claims)
+		}
+	}
+
+	ctx = oracle.WithToolParams(ctx, mergedParams)
 
 	resp, err := source.RunSQL(ctx, newStatement, sliceParams, isReadOnly)
 
