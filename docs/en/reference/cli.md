@@ -285,7 +285,7 @@ During the client discovery phase, Toolbox advertises the extensions below. One 
 | :--- | :--- |
 | `com.google.cloud/toolbox.v1` | Toolbox-specific features that fall outside the official MCP specification, such as secure parameters and `groups/*`. See the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for the capabilities this extension covers. |
 | `io.modelcontextprotocol/ui` | [MCP Apps](../documentation/configuration/mcp-apps/index.md) interactive UI resources |
-| `io.modelcontextprotocol/skills` | Agent Skills discovery through `skills/list` and `skills/get`. The catalogue is server-wide and is [not scoped by group](../documentation/configuration/groups/). |
+| `io.modelcontextprotocol/skills` | [Agent Skills](../documentation/configuration/skills/serving.md) discovery through `skills/list` and `skills/get`. The catalogue is server-wide and is [not scoped by group](../documentation/configuration/groups/). |
 
 Disabling an extension removes it from the server's advertised capabilities. To disable specific extensions on the server, pass their URIs via the `--disable-ext` flag:
 
