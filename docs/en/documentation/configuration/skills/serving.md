@@ -123,9 +123,10 @@ load, and the error names the skill and the file.
 
 The `SKILL.md` must follow the [Agent Skills
 specification](https://agentskills.io/specification), and the skill must follow
-[SEP-2640](https://modelcontextprotocol.io/seps/2640-skills-extension),
-the MCP extension that defines how a server serves a skill. Toolbox adds one rule
-of its own: no two resources declare the same `skill://` URI.
+the [`io.modelcontextprotocol/skills`
+extension](https://modelcontextprotocol.io/extensions/skills/overview), which
+defines how a server serves a skill. Toolbox adds one rule of its own: no two
+resources declare the same `skill://` URI.
 
 
 ## Freshness
