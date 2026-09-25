@@ -27,12 +27,12 @@ readOnly: ${ALLOYDB_POSTGRES_READONLY:false}
 ---
 kind: tool
 name: create_memory
-type: create-memory
+type: postgres-create-memory
 source: alloydb-pg-source
 defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
 ---
 kind: group
 name: memory
-description: Use these skills to persist, query, and manage long-term agent memories across sessions.
+description: Use these tools to persist, query, and manage long-term agent memories across sessions.
 tools:
 - create_memory
