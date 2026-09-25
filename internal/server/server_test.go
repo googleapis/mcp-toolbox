@@ -53,6 +53,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
+	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/postgres"
@@ -1725,6 +1726,88 @@ func TestInitializeConfigs(t *testing.T) {
 			if _, ok := resourcesMap[name]; !ok {
 				t.Errorf("resource %q missing from the map", name)
 			}
+		}
+	})
+
+	// A SKILL.md configured as "guide" must reach a client as the skill it
+	// declares, so a listing names the skill rather than the file backing it.
+	t.Run("publishes a skill under its frontmatter identity", func(t *testing.T) {
+		const (
+			skillMD   = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
+			queriesMD = "# Common queries\n"
+		)
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/plain"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: skillMD,
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: queriesMD,
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+
+		doc := resourcesMap["guide"]
+		if doc == nil {
+			t.Fatal("the SKILL.md resource is missing from the map")
+		}
+		if got := doc.GetName(); got != "analytics-guide" {
+			t.Errorf("GetName() = %q, want the frontmatter name", got)
+		}
+		if got := doc.GetDescription(); got != "Query the warehouse" {
+			t.Errorf("GetDescription() = %q, want the frontmatter description", got)
+		}
+		// Configured as text/plain above, so this can only come from the wrapper.
+		if got := doc.GetMimeType(); got != "text/markdown" {
+			t.Errorf("GetMimeType() = %q, want text/markdown", got)
+		}
+
+		// A supporting file keeps the identity the operator gave it.
+		if got := resourcesMap["queries"].GetName(); got != "queries" {
+			t.Errorf("supporting file GetName() = %q, want queries", got)
+		}
+
+		// The wrapper is only worth anything if resources/list carries it, so
+		// assert on the manifest a client actually receives.
+		g := group.NewGroup(group.GroupConfig{ResourceNames: []string{"guide", "queries"}})
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil,
+			map[string]group.Group{g.Name: g})
+		listed, err := v20260728.GenerateListResourcesResult(pMgr, g)
+		if err != nil {
+			t.Fatalf("GenerateListResourcesResult() = %v, want nil", err)
+		}
+		skillSize, queriesSize := int64(len(skillMD)), int64(len(queriesMD))
+		want := []v20260728.Resource{
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "analytics-guide"},
+				Uri:          "skill://analytics-guide/SKILL.md",
+				Description:  "Query the warehouse",
+				MimeType:     "text/markdown",
+				Size:         &skillSize,
+			},
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "queries"},
+				Uri:          "skill://analytics-guide/references/queries.md",
+				MimeType:     "text/markdown",
+				Size:         &queriesSize,
+			},
+		}
+		if diff := cmp.Diff(want, listed.Resources); diff != "" {
+			t.Errorf("resources/list mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
