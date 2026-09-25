@@ -17,12 +17,6 @@
 			&lt;/tr&gt;
 			&lt;tr&gt;
 					&lt;td&gt;&lt;/td&gt;
-					&lt;td&gt;&lt;code&gt;--defer-source-connect&lt;/code&gt;&lt;/td&gt;
-					&lt;td&gt;Connect to each source on first use instead of at startup.&lt;/td&gt;
-					&lt;td&gt;&lt;code&gt;false&lt;/code&gt;&lt;/td&gt;
-			&lt;/tr&gt;
-			&lt;tr&gt;
-					&lt;td&gt;&lt;/td&gt;
 					&lt;td&gt;&lt;code&gt;--disable-ext&lt;/code&gt;&lt;/td&gt;
 					&lt;td&gt;Specifies MCP extension URIs disabled on this server.&lt;/td&gt;
 					&lt;td&gt;&lt;/td&gt;

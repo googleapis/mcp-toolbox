@@ -2882,12 +2882,6 @@ names, or other parts of the query.&lt;/p&gt;</description></item><item><title>C
 			&lt;/tr&gt;
 			&lt;tr&gt;
 					&lt;td&gt;&lt;/td&gt;
-					&lt;td&gt;&lt;code&gt;--defer-source-connect&lt;/code&gt;&lt;/td&gt;
-					&lt;td&gt;Connect to each source on first use instead of at startup.&lt;/td&gt;
-					&lt;td&gt;&lt;code&gt;false&lt;/code&gt;&lt;/td&gt;
-			&lt;/tr&gt;
-			&lt;tr&gt;
-					&lt;td&gt;&lt;/td&gt;
 					&lt;td&gt;&lt;code&gt;--disable-ext&lt;/code&gt;&lt;/td&gt;
 					&lt;td&gt;Specifies MCP extension URIs disabled on this server.&lt;/td&gt;
 					&lt;td&gt;&lt;/td&gt;
@@ -11092,7 +11086,7 @@ returned. Otherwise, the selection is not guaranteed.&lt;/p&gt;
 &lt;p&gt;The tool returns a single JSON object representing the document, wrapped in a
 JSON array.&lt;/p&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
-&lt;h2 id="hahahugoshortcode445s0hbhb"&gt;
+&lt;h2 id="hahahugoshortcode126s0hbhb"&gt;
 
 
 

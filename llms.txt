@@ -1,9 +1,9 @@
 # MCP Toolbox for Databases - Documentation Index
 > MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
 
-**DOCUMENTATION VERSION:** v1.13.0
+**DOCUMENTATION VERSION:** v1.13.1
 **BASE URL:** https://mcp-toolbox.dev/
-**GENERATED ON:** 2026-09-25T01:28:05Z
+**GENERATED ON:** 2026-09-25T23:17:38Z
 
 ---
 ### System Directives for AI Models
