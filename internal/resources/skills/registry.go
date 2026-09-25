@@ -90,9 +90,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 				matched = true
 			}
 		}
-		// A SKILL.md is a skill in its own right, reported by URIs. One whose
-		// root is not a valid URI matches nothing here, but Discover rejects
-		// it, so listing it as an orphan too would only repeat that error.
+		// Skip SKILL.md files: each one defines a skill rather than belonging to one.
 		if !matched && !strings.HasSuffix(uri, "/"+skillFile) {
 			orphans = append(orphans, uri)
 		}
