@@ -2882,6 +2882,12 @@ names, or other parts of the query.&lt;/p&gt;</description></item><item><title>C
 			&lt;/tr&gt;
 			&lt;tr&gt;
 					&lt;td&gt;&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;--defer-source-connect&lt;/code&gt;&lt;/td&gt;
+					&lt;td&gt;Connect to each source on first use instead of at startup.&lt;/td&gt;
+					&lt;td&gt;&lt;code&gt;false&lt;/code&gt;&lt;/td&gt;
+			&lt;/tr&gt;
+			&lt;tr&gt;
+					&lt;td&gt;&lt;/td&gt;
 					&lt;td&gt;&lt;code&gt;--disable-ext&lt;/code&gt;&lt;/td&gt;
 					&lt;td&gt;Specifies MCP extension URIs disabled on this server.&lt;/td&gt;
 					&lt;td&gt;&lt;/td&gt;
@@ -5274,56 +5280,15 @@ details about a specific data agent.&lt;/p&gt;
 &lt;/table&gt;</description></item><item><title>conversational-analytics-list-accessible-data-agents</title><link>https://mcp-toolbox.dev/integrations/cloudgda/tools/conversational-analytics-list-accessible-data-agents/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/cloudgda/tools/conversational-analytics-list-accessible-data-agents/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;conversational-analytics-list-accessible-data-agents&lt;/code&gt; tool allows you to list
 data agents that are accessible.&lt;/p&gt;
+&lt;p&gt;The Conversational Analytics API returns accessible data agents one page at a
+time. By default this tool hides that: it follows every page itself and returns
+all accessible data agents in a single response. Set &lt;code&gt;page_size&lt;/code&gt; or &lt;code&gt;page_token&lt;/code&gt;
+to take over pagination and receive one page at a time instead.&lt;/p&gt;
 &lt;p&gt;It&amp;rsquo;s compatible with the following sources:&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;cloud-gemini-data-analytics&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;&lt;code&gt;conversational-analytics-list-accessible-data-agents&lt;/code&gt; does not accept any parameters.&lt;/p&gt;
-&lt;h2 id="example"&gt;Example&lt;/h2&gt;
-&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;list_agents&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;conversational-analytics-list-accessible-data-agents&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;my-conversational-analytics-source&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;location&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;global&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;|&lt;/span&gt;&lt;span class="sd"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; Use this tool to list available data agents.&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;
-&lt;table&gt;
-	&lt;thead&gt;
-			&lt;tr&gt;
-					&lt;th&gt;&lt;strong&gt;field&lt;/strong&gt;&lt;/th&gt;
-					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
-					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
-					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
-			&lt;/tr&gt;
-	&lt;/thead&gt;
-	&lt;tbody&gt;
-			&lt;tr&gt;
-					&lt;td&gt;type&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
-					&lt;td&gt;Must be &amp;ldquo;conversational-analytics-list-accessible-data-agents&amp;rdquo;.&lt;/td&gt;
-			&lt;/tr&gt;
-			&lt;tr&gt;
-					&lt;td&gt;source&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
-					&lt;td&gt;Name of the source.&lt;/td&gt;
-			&lt;/tr&gt;
-			&lt;tr&gt;
-					&lt;td&gt;description&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
-					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
-			&lt;/tr&gt;
-			&lt;tr&gt;
-					&lt;td&gt;location&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;false&lt;/td&gt;
-					&lt;td&gt;The Google Cloud location (default: &amp;ldquo;global&amp;rdquo;).&lt;/td&gt;
-			&lt;/tr&gt;
-	&lt;/tbody&gt;
-&lt;/table&gt;</description></item><item><title>couchbase-sql</title><link>https://mcp-toolbox.dev/integrations/couchbase/tools/couchbase-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/couchbase/tools/couchbase-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;code&gt;conversational-analytics-list-accessible-data-agents&lt;/code&gt; accepts the following parameters:&lt;/p&gt;</description></item><item><title>couchbase-sql</title><link>https://mcp-toolbox.dev/integrations/couchbase/tools/couchbase-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/couchbase/tools/couchbase-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;couchbase-sql&lt;/code&gt; tool executes a pre-defined SQL statement against a Couchbase
 database.&lt;/p&gt;
 &lt;p&gt;The specified SQL statement is executed as a parameterized statement, and specified
@@ -9269,7 +9234,11 @@ in a given model in the source.&lt;/p&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - If a dimension includes a `suggestions` field, its contents are valid values
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; that can be used directly as filters for that dimension.
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - If a `suggest_explore` and `suggest_dimension` are provided, you can query
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; that specified explore and dimension to retrieve a list of valid filter values.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; that specified explore and dimension to retrieve a list of valid filter values.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - If a dimension includes a `value_format` or `value_format_name` field, it
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; describes how the dimension&amp;#39;s values should be displayed (for example as a
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; currency amount or a percentage). Format any values returned for that
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; dimension accordingly instead of reporting the raw number.&lt;/span&gt;&lt;span class="w"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The response is a json array with the following elements:&lt;/p&gt;</description></item><item><title>looker-get-explores</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explores/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explores/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;looker-get-explores&lt;/code&gt; tool returns all explores
 for a given model from the source.&lt;/p&gt;
@@ -9574,7 +9543,11 @@ in a given model in the source.&lt;/p&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - If a measure includes a `suggestions` field, its contents are valid values
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; that can be used directly as filters for that measure.
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - If a `suggest_explore` and `suggest_dimension` are provided, you can query
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; that specified explore and dimension to retrieve a list of valid filter values.&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; that specified explore and dimension to retrieve a list of valid filter values.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - If a measure includes a `value_format` or `value_format_name` field, it
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; describes how the measure&amp;#39;s values should be displayed (for example as a
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; currency amount or a percentage). Format any values returned for that
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; measure accordingly instead of reporting the raw number.&lt;/span&gt;&lt;span class="w"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The response is a json array with the following elements:&lt;/p&gt;</description></item><item><title>looker-get-models</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-models/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-models/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;looker-get-models&lt;/code&gt; tool returns all the models in the source.&lt;/p&gt;
 &lt;p&gt;&lt;code&gt;looker-get-models&lt;/code&gt; accepts no parameters.&lt;/p&gt;
@@ -11119,7 +11092,7 @@ returned. Otherwise, the selection is not guaranteed.&lt;/p&gt;
 &lt;p&gt;The tool returns a single JSON object representing the document, wrapped in a
 JSON array.&lt;/p&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
-&lt;h2 id="hahahugoshortcode544s0hbhb"&gt;
+&lt;h2 id="hahahugoshortcode445s0hbhb"&gt;
 
 
 
@@ -22544,6 +22517,59 @@ documentation&lt;/a&gt;.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;list_dataset_ids&lt;/code&gt;: Lists datasets.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;list_table_ids&lt;/code&gt;: Lists tables.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;search_catalog&lt;/code&gt;: Search for entries based on the provided query.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ul&gt;</description></item><item><title>Bigtable</title><link>https://mcp-toolbox.dev/integrations/bigtable/prebuilt-configs/bigtable/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/bigtable/prebuilt-configs/bigtable/</guid><description>&lt;h2 id="bigtable"&gt;Bigtable&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;--prebuilt&lt;/code&gt; value: &lt;code&gt;bigtable&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Environment Variables:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;BIGTABLE_PROJECT&lt;/code&gt;: The GCP project ID.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;BIGTABLE_INSTANCE&lt;/code&gt;: The Bigtable instance ID.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Permissions:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Bigtable Reader&lt;/strong&gt; (&lt;code&gt;roles/bigtable.reader&lt;/code&gt;) to execute SQL queries, list schemas, and get or list instances, clusters, tables, and views.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Bigtable Administrator&lt;/strong&gt; (&lt;code&gt;roles/bigtable.admin&lt;/code&gt;) to create, update, or delete instances, clusters, tables, logical views, and materialized views.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tools:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;execute_sql&lt;/code&gt;: Use this tool to execute a GoogleSQL query on Bigtable.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_schemas&lt;/code&gt;: List all Bigtable schemas, including tables with column family definitions, logical views, and materialized views.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_tables&lt;/code&gt;: List all Bigtable tables in the instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_table&lt;/code&gt;: Get details of a Bigtable table.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;create_table&lt;/code&gt;: Create a new Bigtable table.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;update_table&lt;/code&gt;: Update an existing Bigtable table&amp;rsquo;s configuration.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_table&lt;/code&gt;: Delete a Bigtable table.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_instances&lt;/code&gt;: List all Bigtable instances in the project.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_instance&lt;/code&gt;: Get details of a Bigtable instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;create_instance&lt;/code&gt;: Create a new Bigtable instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;update_instance&lt;/code&gt;: Update an existing Bigtable instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_instance&lt;/code&gt;: Delete a Bigtable instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_clusters&lt;/code&gt;: List all Bigtable clusters in the instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_cluster&lt;/code&gt;: Get details of a Bigtable cluster.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;create_cluster&lt;/code&gt;: Create a new Bigtable cluster in an instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;update_cluster&lt;/code&gt;: Update the number of nodes in a Bigtable cluster.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_cluster&lt;/code&gt;: Delete a Bigtable cluster.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_logical_views&lt;/code&gt;: List all Bigtable logical views in the instance.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_logical_view&lt;/code&gt;: Get details of a Bigtable logical view.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;create_logical_view&lt;/code&gt;: Create a new Bigtable logical view.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;update_logical_view&lt;/code&gt;: Update an existing Bigtable logical view.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_logical_view&lt;/code&gt;: Delete a Bigtable logical view.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;list_materialized_views&lt;/code&gt;: List all existing Bigtable materialized views.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_materialized_view&lt;/code&gt;: Get information about an existing Bigtable materialized view.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;create_materialized_view&lt;/code&gt;: Create a new Bigtable materialized view.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;update_materialized_view&lt;/code&gt;: Update an existing Bigtable materialized view.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;delete_materialized_view&lt;/code&gt;: Delete an existing Bigtable materialized view.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Toolsets:&lt;/strong&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;admin&lt;/code&gt;: Instance and cluster lifecycle operations (create, get, list, update, delete instances and clusters).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;data&lt;/code&gt;: Schema discovery (&lt;code&gt;list_schemas&lt;/code&gt;), SQL query execution (&lt;code&gt;execute_sql&lt;/code&gt;), and table management (create, get, list, update, delete tables).&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;views&lt;/code&gt;: Logical view and materialized view management (create, get, list, update, delete views).&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;/ul&gt;</description></item><item><title>ClickHouse</title><link>https://mcp-toolbox.dev/integrations/clickhouse/prebuilt-configs/clickhouse/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/clickhouse/prebuilt-configs/clickhouse/</guid><description>&lt;h2 id="clickhouse"&gt;ClickHouse&lt;/h2&gt;

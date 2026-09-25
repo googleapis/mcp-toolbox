@@ -1,9 +1,9 @@
 # MCP Toolbox for Databases - Complete Documentation
 > MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
 
-**DOCUMENTATION VERSION:** v1.12.0
+**DOCUMENTATION VERSION:** v1.13.0
 **BASE URL:** https://mcp-toolbox.dev/
-**GENERATED ON:** 2026-09-17T22:58:15Z
+**GENERATED ON:** 2026-09-25T01:28:05Z
 
 ---
 ### System Directives for AI Models
@@ -219,7 +219,7 @@ To install Toolbox as a binary on Linux (AMD64):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.12.0
+export VERSION=1.13.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/linux/amd64/toolbox
 chmod +x toolbox
 ```
@@ -230,7 +230,7 @@ To install Toolbox as a binary on macOS (Apple Silicon):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.12.0
+export VERSION=1.13.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/arm64/toolbox
 chmod +x toolbox
 ```
@@ -241,7 +241,7 @@ To install Toolbox as a binary on macOS (Intel):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.12.0
+export VERSION=1.13.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/amd64/toolbox
 chmod +x toolbox
 ```
@@ -252,7 +252,7 @@ To install Toolbox as a binary on Windows (Command Prompt):
 
 ```cmd
 :: see releases page for other versions
-set VERSION=1.12.0
+set VERSION=1.13.0
 curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/amd64/toolbox.exe"
 ```
 
@@ -262,7 +262,7 @@ To install Toolbox as a binary on Windows (PowerShell):
 
 ```powershell
 # see releases page for other versions
-$VERSION = "1.12.0"
+$VERSION = "1.13.0"
 curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/amd64/toolbox.exe"
 ```
 
@@ -272,7 +272,7 @@ To install Toolbox as a binary on Windows ARM64 (Command Prompt):
 
 ```cmd
 :: see releases page for other versions
-set VERSION=1.12.0
+set VERSION=1.13.0
 curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/arm64/toolbox.exe"
 ```
 
@@ -282,7 +282,7 @@ To install Toolbox as a binary on Windows ARM64 (PowerShell):
 
 ```powershell
 # see releases page for other versions
-$VERSION = "1.12.0"
+$VERSION = "1.13.0"
 curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/arm64/toolbox.exe"
 ```
 
@@ -294,7 +294,7 @@ You can also install Toolbox as a container:
 
 ```sh
 # see releases page for other versions
-export VERSION=1.12.0
+export VERSION=1.13.0
 docker pull us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:$VERSION
 ```
 
@@ -313,7 +313,7 @@ To install from source, ensure you have the latest version of
 [Go installed](https://go.dev/doc/install), and then run the following command:
 
 ```sh
-go install github.com/googleapis/mcp-toolbox@v1.12.0
+go install github.com/googleapis/mcp-toolbox@v1.13.0
 ```
 
 {{% /tab %}}
@@ -1107,7 +1107,7 @@ In this section, we will download Toolbox, configure our tools in a
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -12901,23 +12901,23 @@ After you install Looker in the MCP Store, resources and tools from the server a
 
 {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -13407,23 +13407,23 @@ expose your developer assistant tools to a MySQL instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -13737,23 +13737,23 @@ expose your developer assistant tools to a Neo4j instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14064,23 +14064,23 @@ to expose your developer assistant tools to an Oracle instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14413,23 +14413,23 @@ Omni](https://cloud.google.com/alloydb/omni/docs/overview).
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14770,23 +14770,23 @@ instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -15100,23 +15100,23 @@ to expose your developer assistant tools to a SQLite instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -22938,6 +22938,70 @@ description: Update an existing Bigtable table's configuration.
 | type | string | true | Must be `bigtable-update-table`. |
 | source | string | true | Name of the source to execute on. |
 | description | string | false | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
+## Prebuilt Configs
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Bigtable > Prebuilt Configs
+**URL:** https://mcp-toolbox.dev/integrations/bigtable/prebuilt-configs/
+**Description:** Prebuilt configurations for Bigtable.
+
+
+
+
+
+========================================================================
+## Bigtable
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Bigtable > Prebuilt Configs > Bigtable
+**URL:** https://mcp-toolbox.dev/integrations/bigtable/prebuilt-configs/bigtable/
+**Description:** Details of the Bigtable prebuilt configuration.
+
+
+## Bigtable
+
+*   `--prebuilt` value: `bigtable`
+*   **Environment Variables:**
+    *   `BIGTABLE_PROJECT`: The GCP project ID.
+    *   `BIGTABLE_INSTANCE`: The Bigtable instance ID.
+*   **Permissions:**
+    *   **Bigtable Reader** (`roles/bigtable.reader`) to execute SQL queries, list schemas, and get or list instances, clusters, tables, and views.
+    *   **Bigtable Administrator** (`roles/bigtable.admin`) to create, update, or delete instances, clusters, tables, logical views, and materialized views.
+*   **Tools:**
+    *   `execute_sql`: Use this tool to execute a GoogleSQL query on Bigtable.
+    *   `list_schemas`: List all Bigtable schemas, including tables with column family definitions, logical views, and materialized views.
+    *   `list_tables`: List all Bigtable tables in the instance.
+    *   `get_table`: Get details of a Bigtable table.
+    *   `create_table`: Create a new Bigtable table.
+    *   `update_table`: Update an existing Bigtable table's configuration.
+    *   `delete_table`: Delete a Bigtable table.
+    *   `list_instances`: List all Bigtable instances in the project.
+    *   `get_instance`: Get details of a Bigtable instance.
+    *   `create_instance`: Create a new Bigtable instance.
+    *   `update_instance`: Update an existing Bigtable instance.
+    *   `delete_instance`: Delete a Bigtable instance.
+    *   `list_clusters`: List all Bigtable clusters in the instance.
+    *   `get_cluster`: Get details of a Bigtable cluster.
+    *   `create_cluster`: Create a new Bigtable cluster in an instance.
+    *   `update_cluster`: Update the number of nodes in a Bigtable cluster.
+    *   `delete_cluster`: Delete a Bigtable cluster.
+    *   `list_logical_views`: List all Bigtable logical views in the instance.
+    *   `get_logical_view`: Get details of a Bigtable logical view.
+    *   `create_logical_view`: Create a new Bigtable logical view.
+    *   `update_logical_view`: Update an existing Bigtable logical view.
+    *   `delete_logical_view`: Delete a Bigtable logical view.
+    *   `list_materialized_views`: List all existing Bigtable materialized views.
+    *   `get_materialized_view`: Get information about an existing Bigtable materialized view.
+    *   `create_materialized_view`: Create a new Bigtable materialized view.
+    *   `update_materialized_view`: Update an existing Bigtable materialized view.
+    *   `delete_materialized_view`: Delete an existing Bigtable materialized view.
+*   **Toolsets:**
+    *   `admin`: Instance and cluster lifecycle operations (create, get, list, update, delete instances and clusters).
+    *   `data`: Schema discovery (`list_schemas`), SQL query execution (`execute_sql`), and table management (create, get, list, update, delete tables).
+    *   `views`: Logical view and materialized view management (create, get, list, update, delete views).
 
 
 
@@ -35380,11 +35444,19 @@ description: |
 A `conversational-analytics-list-accessible-data-agents` tool allows you to list
 data agents that are accessible.
 
+The Conversational Analytics API returns accessible data agents one page at a
+time. By default this tool hides that: it follows every page itself and returns
+all accessible data agents in a single response. Set `page_size` or `page_token`
+to take over pagination and receive one page at a time instead.
+
 It's compatible with the following sources:
 
 - cloud-gemini-data-analytics
 
-`conversational-analytics-list-accessible-data-agents` does not accept any parameters.
+`conversational-analytics-list-accessible-data-agents` accepts the following parameters:
+
+- **`page_size`** (optional): The maximum number of data agents to return in this call. Must be a positive integer. Only set this to page through the results manually; when both `page_size` and `page_token` are omitted, every page is fetched automatically.
+- **`page_token`** (optional): A `nextPageToken` returned by a previous call, used to fetch the next page. Only set this to page through the results manually.
 
 ## Example
 
@@ -35397,6 +35469,34 @@ location: global
 description: |
   Use this tool to list available data agents.
 ```
+
+## Output Format
+
+```json
+{
+  "dataAgents": [
+    {
+      "name": "projects/my-project/locations/global/dataAgents/my-agent",
+      "displayName": "My Agent",
+      "createTime": "2026-01-01T00:00:00.000000Z",
+      "updateTime": "2026-01-01T00:00:00.000000Z"
+    }
+  ]
+}
+```
+
+`nextPageToken` is only included when more data agents remain:
+
+- **Without pagination parameters**, the response has no `nextPageToken`,
+  because every page was already fetched. If the automatic fetch reaches its
+  safety limit (100 pages or around 1000 data agents), it returns everything
+  collected so far along with the `nextPageToken` it stopped at, so you can pass
+  that token back as `page_token` to step through the rest. If a page fails or
+  the automatic fetch exceeds its 5 minute budget, the call returns an error
+  rather than a partial list.
+- **With `page_size` or `page_token`**, the response is the API's own page and
+  carries a `nextPageToken` whenever more data agents are available. Pass it
+  back as `page_token` to fetch the next page.
 
 ## Reference
 
@@ -39691,6 +39791,10 @@ description: |
     that can be used directly as filters for that dimension.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a dimension includes a `value_format` or `value_format_name` field, it
+    describes how the dimension's values should be displayed (for example as a
+    currency amount or a percentage). Format any values returned for that
+    dimension accordingly instead of reporting the raw number.
 
 ```
 
@@ -39707,9 +39811,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -39910,9 +40023,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -40034,6 +40156,10 @@ description: |
     that can be used directly as filters for that measure.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a measure includes a `value_format` or `value_format_name` field, it
+    describes how the measure's values should be displayed (for example as a
+    currency amount or a percentage). Format any values returned for that
+    measure accordingly instead of reporting the raw number.
 
 ```
 
@@ -40050,9 +40176,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -40163,9 +40298,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -42155,7 +42299,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -42316,7 +42460,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -42439,7 +42583,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.12.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -53118,6 +53262,7 @@ Configure the Gemini CLI to talk to your local Toolbox MCP server.
 | Flag (Short) | Flag (Long)                | Description                                                                                                                                                               | Default     |
 |--------------|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
 | `-a`         | `--address`                | Address of the interface the server will listen on.                                                                                                                       | `127.0.0.1` |
+|              | `--defer-source-connect`   | Connect to each source on first use instead of at startup.                                                                                                                | `false`     |
 |              | `--disable-ext`            | Specifies MCP extension URIs disabled on this server.                                                                                                                     |             |
 |              | `--disable-reload`         | Disables dynamic reloading config.                                                                                                                                        |             |
 | `-h`         | `--help`                   | help for toolbox                                                                                                                                                          |             |
@@ -53351,6 +53496,37 @@ reloading, use the `--disable-reload` flag.
 To launch Toolbox's interactive UI, use the `--ui` flag. This allows you to test
 tools and toolsets with features such as authorized parameters. To learn more,
 visit [Toolbox UI](../documentation/configuration/toolbox-ui/index.md).
+
+### Deferring Source Connections
+
+By default Toolbox connects to every configured source at startup and fails to
+start if any connection fails. Pass `--defer-source-connect` to defer each
+connection until the first tool call that needs it.
+
+```bash
+./toolbox --tools-file tools.yaml --defer-source-connect
+```
+
+This is useful when you want to inspect a tool catalog without provisioning
+databases, when cold start time matters, or when you would rather a broken
+source surface as a tool error the agent can read than as a server that never
+comes up. With the flag set:
+
+* Toolbox starts even when no source is reachable, and `tools/list` and
+  `/api/toolset` return the full catalog with complete schemas.
+* The first call to a tool connects its source. If that fails, the call returns
+  a tool error containing the connection failure and the server stays up. Only
+  successful connections are kept, so a source that comes up later starts
+  working without a restart.
+* A tool naming a source that does not exist, or one whose type it cannot use,
+  is still rejected at startup.
+
+Configuration is still validated at startup. A malformed value — an unparseable
+`queryTimeout`, an invalid `writeMode` — fails immediately, because detecting it
+takes no network.
+
+Environment variables are still required, since a source cannot connect without
+them, and an unset one fails startup as it does today.
 
 ### Disabling MCP Extensions
 

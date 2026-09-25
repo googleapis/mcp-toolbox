@@ -1,9 +1,9 @@
 # MCP Toolbox for Databases - Documentation Index
 > MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
 
-**DOCUMENTATION VERSION:** v1.12.0
+**DOCUMENTATION VERSION:** v1.13.0
 **BASE URL:** https://mcp-toolbox.dev/
-**GENERATED ON:** 2026-09-17T22:58:15Z
+**GENERATED ON:** 2026-09-25T01:28:05Z
 
 ---
 ### System Directives for AI Models
@@ -489,6 +489,10 @@ This documentation is structured following the Diátaxis framework to assist in 
 
 
       - [bigtable-update-table](https://mcp-toolbox.dev/integrations/bigtable/tools/bigtable-update-table/): The "bigtable-update-table" tool allows you to update an existing bigtable table's configuration.
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/integrations/bigtable/prebuilt-configs/): Prebuilt configurations for Bigtable.
+
+      - [Bigtable](https://mcp-toolbox.dev/integrations/bigtable/prebuilt-configs/bigtable/): Details of the Bigtable prebuilt configuration.
 
   - [Cassandra](https://mcp-toolbox.dev/integrations/cassandra/): No description provided.
 
