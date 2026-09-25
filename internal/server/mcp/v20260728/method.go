@@ -27,8 +27,10 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
 	"github.com/googleapis/mcp-toolbox/internal/group"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -1239,6 +1241,19 @@ func validateAndMergeSecureParams(ctx context.Context, req *CallToolRequest, par
 	return toolArgument, nil, nil
 }
 
+// skillCatalogueError logs a catalogue failure in full and answers the client
+// without the server file paths that an unreadable file puts in the error. A
+// misconfigured skill fails with its own message, which names no path.
+func skillCatalogueError(ctx context.Context, logger log.Logger, id jsonrpc.RequestId, err error) (any, error) {
+	logger.ErrorContext(ctx, fmt.Sprintf("unable to read the skill catalogue: %s", err))
+	msg := err.Error()
+	var readErr *skills.ReadError
+	if errors.As(err, &readErr) {
+		msg = fmt.Sprintf("unable to read %q", readErr.URI)
+	}
+	return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, msg, nil), err
+}
+
 // skillsListHandler serves skills/list. It returns every skill the server
 // declares.
 func skillsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
@@ -1270,7 +1285,7 @@ func skillsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	// The catalogue is reported complete or not at all.
 	result, err := GenerateListSkillsResult(ctx, primitiveMgr)
 	if err != nil {
-		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+		return skillCatalogueError(ctx, logger, id, err)
 	}
 	logger.DebugContext(ctx, fmt.Sprintf("returning %d skills", len(result.Skills)))
 
@@ -1322,7 +1337,7 @@ func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 
 	result, found, err := GenerateGetSkillResult(ctx, primitiveMgr, uri)
 	if err != nil {
-		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+		return skillCatalogueError(ctx, logger, id, err)
 	}
 	if !found {
 		err := fmt.Errorf("unknown skill: %s", uri)

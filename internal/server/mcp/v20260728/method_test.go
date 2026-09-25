@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
@@ -2692,6 +2694,135 @@ func TestSkillsMethodsDynamicSkill(t *testing.T) {
 			t.Errorf("frontmatter name = %v, want live-report", name)
 		}
 	})
+}
+
+// TestSkillsHandlersHideServerPaths checks that an unreadable skill file tells
+// the client nothing about the server's filesystem. The detail belongs in the
+// logs, which the caller of these handlers cannot read.
+func TestSkillsHandlersHideServerPaths(t *testing.T) {
+	ctx := skillsTestContext(t)
+	Initialize(nil)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(path, []byte("---\nname: vanishing\ndescription: Goes away\n---\n"), 0600); err != nil {
+		t.Fatalf("unable to write the skill file: %s", err)
+	}
+	cfg := &file.Config{
+		ResourceConfigBase: resources.ResourceConfigBase{
+			ConfigBase: resources.ConfigBase{Name: "vanishing", Type: "file", MimeType: "text/markdown"},
+			URI:        "skill://vanishing/SKILL.md",
+		},
+		Path: filepath.ToSlash(path),
+	}
+	res, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("unable to initialize the skill resource: %s", err)
+	}
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{"vanishing": res}, nil, nil)
+
+	// The resource sizes its file at startup, so remove it only now.
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("unable to remove the skill file: %s", err)
+	}
+
+	listBody, err := json.Marshal(ListSkillsRequest{
+		Request: jsonrpc.Request{Method: SKILLS_LIST},
+		Params:  RequestParams{Meta: skillsValidMeta()},
+	})
+	if err != nil {
+		t.Fatalf("unable to marshal the skills/list body: %s", err)
+	}
+	getBody, err := json.Marshal(GetSkillRequest{
+		Request: jsonrpc.Request{Method: SKILLS_GET},
+		Params: GetSkillRequestParams{
+			RequestParams: RequestParams{Meta: skillsValidMeta()},
+			URI:           "skill://vanishing/SKILL.md",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unable to marshal the skills/get body: %s", err)
+	}
+
+	tests := []struct {
+		name string
+		call func() (any, error)
+	}{
+		{
+			name: SKILLS_LIST,
+			call: func() (any, error) {
+				return skillsListHandler(ctx, "id", primitiveMgr, listBody,
+					http.Header{"Mcp-Method": []string{SKILLS_LIST}})
+			},
+		},
+		{
+			name: SKILLS_GET,
+			call: func() (any, error) {
+				return skillsGetHandler(ctx, "id", primitiveMgr, getBody, http.Header{
+					"Mcp-Method": []string{SKILLS_GET},
+					"Mcp-Name":   []string{"skill://vanishing/SKILL.md"},
+				})
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := tc.call()
+			if err == nil {
+				t.Fatal("handler returned a nil error, want the unreadable file to fail the request")
+			}
+			// The error the server keeps still names the file, for the logs.
+			if !strings.Contains(err.Error(), dir) {
+				t.Errorf("internal error = %q, want it to name %q", err, dir)
+			}
+			rpcErr, ok := res.(jsonrpc.JSONRPCError)
+			if !ok {
+				t.Fatalf("response is %T, want jsonrpc.JSONRPCError", res)
+			}
+			want := `unable to read "skill://vanishing/SKILL.md"`
+			if got := rpcErr.Error.Message; got != want {
+				t.Errorf("client message = %q, want %q", got, want)
+			}
+			if rpcErr.Error.Code != jsonrpc.INTERNAL_ERROR {
+				t.Errorf("client error code = %d, want %d", rpcErr.Error.Code, jsonrpc.INTERNAL_ERROR)
+			}
+		})
+	}
+}
+
+// TestSkillsListSendsConfigErrors is the other half of the test above: a
+// misconfigured skill names no server path, so its message reaches the client
+// whole and the operator can fix the config without reading the logs.
+func TestSkillsListSendsConfigErrors(t *testing.T) {
+	ctx := skillsTestContext(t)
+	Initialize(nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{
+			"broken": skillTextResource(t, ctx, "broken", "skill://broken/SKILL.md", "no frontmatter here\n"),
+		}, nil, nil)
+
+	body, err := json.Marshal(ListSkillsRequest{
+		Request: jsonrpc.Request{Method: SKILLS_LIST},
+		Params:  RequestParams{Meta: skillsValidMeta()},
+	})
+	if err != nil {
+		t.Fatalf("unable to marshal body: %s", err)
+	}
+	res, err := skillsListHandler(ctx, "id", primitiveMgr, body,
+		http.Header{"Mcp-Method": []string{SKILLS_LIST}})
+	if err == nil {
+		t.Fatal("skillsListHandler() = nil error, want the bad frontmatter to fail the request")
+	}
+	rpcErr, ok := res.(jsonrpc.JSONRPCError)
+	if !ok {
+		t.Fatalf("response is %T, want jsonrpc.JSONRPCError", res)
+	}
+	want := `skill "skill://broken/SKILL.md": SKILL.md must open with YAML frontmatter delimited by ---`
+	if got := rpcErr.Error.Message; got != want {
+		t.Errorf("client message = %q, want %q", got, want)
+	}
 }
 
 // TestSkillsListEmptyCatalogue pins the wire shape when the config declares no

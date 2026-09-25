@@ -132,10 +132,21 @@ func readBounded(ctx context.Context, res resources.Resource, remaining int64) (
 	return content, nil
 }
 
+// ReadError reports a skill file the server could not read. Its cause names the
+// server's own file paths, so a caller answering a client sends URI alone.
+type ReadError struct {
+	URI string
+	Err error
+}
+
+func (e *ReadError) Error() string { return fmt.Sprintf("unable to read %q: %s", e.URI, e.Err) }
+
+func (e *ReadError) Unwrap() error { return e.Err }
+
 func readString(ctx context.Context, res resources.Resource) (string, error) {
 	got, err := res.Read(ctx, nil)
 	if err != nil {
-		return "", fmt.Errorf("unable to read %q: %w", res.GetURI(), err)
+		return "", &ReadError{URI: res.GetURI(), Err: err}
 	}
 	content, ok := got.(string)
 	if !ok {
