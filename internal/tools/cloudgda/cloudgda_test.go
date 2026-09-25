@@ -55,7 +55,6 @@ func TestParseFromYaml(t *testing.T) {
 					spannerReference:
 						databaseReference:
 							projectId:  "cloud-db-nl2sql"
-							region:     "us-central1"
 							instanceId: "evalbench"
 							databaseId: "financial"
 							engine:     "GOOGLE_SQL"
@@ -81,7 +80,6 @@ func TestParseFromYaml(t *testing.T) {
 									SpannerReference: &geminidataanalyticspb.SpannerReference{
 										DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
 											ProjectId:  "cloud-db-nl2sql",
-											Region:     "us-central1",
 											InstanceId: "evalbench",
 											DatabaseId: "financial",
 											Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,
@@ -237,7 +235,6 @@ func TestInvoke(t *testing.T) {
 						SpannerReference: &geminidataanalyticspb.SpannerReference{
 							DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
 								ProjectId:  "cloud-db-nl2sql",
-								Region:     "us-central1",
 								InstanceId: "evalbench",
 								DatabaseId: "financial",
 								Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,
