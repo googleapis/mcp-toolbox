@@ -107,7 +107,7 @@ Once you have identified a bug, assess it and provide it with an **initial ackno
     * Feature requests that are open for contribution can be labeled P3.
       * Example: a request to add a new, non-critical feature to an existing extension.
 * Product
-  * Each product should have a label. Add labels in [`labels.yaml`](.github/labels.yaml) if one is missing.
+  * Each product should have a label. Add labels in [`labels.yaml`](.github/labels.yaml) if one is missing. For every Google Cloud database, there must be a product label in [`.github/labels.yaml`](.github/labels.yaml) and routing configured in [`.github/blunderbuss.yml`](.github/blunderbuss.yml). These GitHub teams should be team-synced from MDB groups and have write access to the repo.
 * Status
   * help wanted \- Unplanned work open for contributions from the community.
   * feedback wanted \- Waiting for feedback from community or issue author. If the contributor did not respond for \>60 days, we should just close the PR.
@@ -443,7 +443,11 @@ settings:
 ## Repo Setup & Automation
 
 * .github/blunderbuss.yml - Auto-assign issues and PRs from GitHub teams. Use a
-  product label to assign to a product-specific team member.
+  product label to assign to a product-specific team member. For every Google Cloud
+  database, ensure a corresponding product label exists in `.github/labels.yaml`
+  and is added to `.github/blunderbuss.yml` (under both `assign_issues_by` and
+  `assign_prs_by`). These GitHub teams should be team-synced from MDB groups and
+  have write access to the repo.
 * .github/renovate.json5 - Tooling for dependency updates. Dependabot is built
   into the GitHub repo for GitHub security warnings
 * go/github-issue-mirror - GitHub issues are automatically mirrored into buganizer
