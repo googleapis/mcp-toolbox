@@ -12,11 +12,34 @@
 # limitations under the License.
 
 steps:
-  - id: "install-dependencies"
-    name: golang:1
+  # --- Setup Airlock Authentication ---
+  - id: "setup-airlock-auth"
+    name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ["-"]
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      TOKEN=$(gcloud auth print-access-token)
+      
+      # Write auth files to the persistent /workspace directory
+      echo "machine us-go.pkg.dev login oauth2accesstoken password ${TOKEN}" > /workspace/.netrc
+      echo "machine us-python.pkg.dev login oauth2accesstoken password ${TOKEN}" >> /workspace/.netrc
+      
+      cat > /workspace/.npmrc <<EOL
+      registry=https://us-npm.pkg.dev/artifact-foundry-prod/npm-3p-trusted/
+      //us-npm.pkg.dev/artifact-foundry-prod/npm-3p-trusted/:always-auth=true
+      //us-npm.pkg.dev/artifact-foundry-prod/npm-3p-trusted/:_authToken=${TOKEN}
+      EOL
+
+  - id: "install-dependencies"
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
+    waitFor: 
+      - "setup-airlock-auth"
     env:
       - "GOPATH=/gopath"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -24,11 +47,14 @@ steps:
       go get -d ./...
 
   - id: "run-tests"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "install-dependencies"
     env:
       - "GOPATH=/gopath"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -42,7 +68,6 @@ steps:
       echo "Running unit tests and generating JUnit XML report..."
       go test -race -v ./cmd/... ./internal/... 2>&1 | tee /dev/stderr | $(go env GOPATH)/bin/go-junit-report -set-exit-code > in-progress-junit-report.xml
 
-      # If the previous command failed, this will never be renamed and thus not uploaded
       mv in-progress-junit-report.xml junit-report.xml
 
   - id: "build-docker"
@@ -53,14 +78,15 @@ steps:
       #!/usr/bin/env bash
       set -e
       export VERSION=$(cat ./cmd/version.txt)
-      docker buildx create --name container-builder --driver docker-container --bootstrap --use
+      
+      # Added: --driver-opt network=cloudbuild
+      docker buildx create --name container-builder --driver docker-container --driver-opt network=cloudbuild --bootstrap --use
 
       export TAGS="-t ${_DOCKER_URI}:$VERSION"
       if [[ "$_PUSH_LATEST" == "true" ]]; then
         export TAGS="$TAGS -t ${_DOCKER_URI}:latest"
       fi
 
-      # Build and push
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
         --build-arg BUILD_TYPE=container.release \
@@ -68,12 +94,11 @@ steps:
         $TAGS \
         --push .
 
-      # Pull the image to ensure it's available for provenance generation.
       docker pull ${_DOCKER_URI}:${VERSION}
       docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
 
   - id: "install-zig"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor: ["-"]
     volumes:
       - name: "zig"
@@ -103,7 +128,7 @@ steps:
       tar -xf sdk.tar.xz -C /macos-sdk/MacOSX14.5.sdk --strip-components=1
 
   - id: "build-linux-amd64"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -114,6 +139,9 @@ steps:
       - "GOARCH=amd64"
       - "CC=/zig-tools/zig cc -target x86_64-linux-gnu"
       - "CXX=/zig-tools/zig c++ -target x86_64-linux-gnu"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -133,7 +161,7 @@ steps:
       gcloud storage cp toolbox.linux.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/linux/amd64/toolbox
 
   - id: "build-linux-amd64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -144,6 +172,9 @@ steps:
       - "GOARCH=amd64"
       - "CC=/zig-tools/zig cc -target x86_64-linux-gnu"
       - "CXX=/zig-tools/zig c++ -target x86_64-linux-gnu"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -163,7 +194,7 @@ steps:
       gcloud storage cp toolbox.geminicli.linux.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/linux/amd64/toolbox
 
   - id: "build-darwin-arm64"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -179,6 +210,9 @@ steps:
       - "COMMON_FLAGS=-mmacosx-version-min=10.14 -target aarch64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CC=/zig-tools/zig cc -mmacosx-version-min=10.14 -target aarch64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CXX=/zig-tools/zig c++ -mmacosx-version-min=10.14 -target aarch64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -200,7 +234,7 @@ steps:
       gcloud storage cp toolbox.darwin.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-arm64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -216,6 +250,9 @@ steps:
       - "COMMON_FLAGS=-mmacosx-version-min=10.14 -target aarch64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CC=/zig-tools/zig cc -mmacosx-version-min=10.14 -target aarch64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CXX=/zig-tools/zig c++ -mmacosx-version-min=10.14 -target aarch64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -237,7 +274,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-amd64"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -253,6 +290,9 @@ steps:
       - "COMMON_FLAGS=-mmacosx-version-min=10.14 -target x86_64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CC=/zig-tools/zig cc -mmacosx-version-min=10.14 -target x86_64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CXX=/zig-tools/zig c++ -mmacosx-version-min=10.14 -target x86_64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -274,7 +314,7 @@ steps:
       gcloud storage cp toolbox.darwin.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/amd64/toolbox
 
   - id: "build-darwin-amd64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -290,6 +330,9 @@ steps:
       - "COMMON_FLAGS=-mmacosx-version-min=10.14 -target x86_64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CC=/zig-tools/zig cc -mmacosx-version-min=10.14 -target x86_64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
       - "CXX=/zig-tools/zig c++ -mmacosx-version-min=10.14 -target x86_64-macos.11.0.0-none -isysroot /macos-sdk/MacOSX14.5.sdk -iwithsysroot /usr/include -iframeworkwithsysroot /System/Library/Frameworks"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -311,7 +354,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/amd64/toolbox
 
   - id: "build-windows-amd64"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -322,6 +365,9 @@ steps:
       - "GOARCH=amd64"
       - "CC=/zig-tools/zig cc -target x86_64-windows-gnu"
       - "CXX=/zig-tools/zig c++ -target x86_64-windows-gnu"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -341,7 +387,7 @@ steps:
       gcloud storage cp toolbox.windows.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-amd64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -352,6 +398,9 @@ steps:
       - "GOARCH=amd64"
       - "CC=/zig-tools/zig cc -target x86_64-windows-gnu"
       - "CXX=/zig-tools/zig c++ -target x86_64-windows-gnu"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -371,7 +420,7 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-arm64"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -382,6 +431,9 @@ steps:
       - "GOARCH=arm64"
       - "CC=/zig-tools/zig cc -target aarch64-windows-gnu"
       - "CXX=/zig-tools/zig c++ -target aarch64-windows-gnu"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -401,7 +453,7 @@ steps:
       gcloud storage cp toolbox.windows.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/arm64/toolbox.exe
 
   - id: "build-windows-arm64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/golang:1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -412,6 +464,9 @@ steps:
       - "GOARCH=arm64"
       - "CC=/zig-tools/zig cc -target aarch64-windows-gnu"
       - "CXX=/zig-tools/zig c++ -target aarch64-windows-gnu"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/artifact-foundry-prod/golang-3p-trusted"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -431,13 +486,16 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/arm64/toolbox.exe
 
   - id: "publish-npm-to-ar"
-    name: node:20
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/node:20"
     waitFor:
+      - "setup-airlock-auth"
       - "build-linux-amd64"
       - "build-darwin-arm64"
       - "build-darwin-amd64"
       - "build-windows-amd64"
       - "build-windows-arm64"
+    env:
+      - "HOME=/workspace"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_npm_to_ar.sh
@@ -456,13 +514,17 @@ steps:
       bash .ci/trigger_exit_gate.sh npm
 
   - id: "publish-pypi-to-ar"
-    name: python:3.12
+    name: "us-docker.pkg.dev/artifact-foundry-prod/docker-3p-trusted/python:3.12"
     waitFor:
+      - "setup-airlock-auth"
       - "build-linux-amd64"
       - "build-darwin-arm64"
       - "build-darwin-amd64"
       - "build-windows-amd64"
       - "build-windows-arm64"
+    env:
+      - "HOME=/workspace"
+      - "PIP_INDEX_URL=https://us-python.pkg.dev/artifact-foundry-prod/python-3p-trusted/simple/"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_pypi_to_ar.sh
@@ -509,3 +571,4 @@ substitutions:
   _EXIT_GATE_PROJECT: "mcp-toolbox"
   _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
   _PUSH_TO_EXIT_GATES: "false"
+
