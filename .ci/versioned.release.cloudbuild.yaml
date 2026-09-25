@@ -66,11 +66,8 @@ steps:
         --build-arg BUILD_TYPE=container.release \
         --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
         $TAGS \
-        --push .
-
-      # Pull the image to ensure it's available for provenance generation.
-      docker pull ${_DOCKER_URI}:${VERSION}
-      docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
+        --provenance=false \
+        --output=type=oci,dest=/workspace/image.tar .
 
   - id: "install-zig"
     name: golang:1
@@ -480,15 +477,6 @@ steps:
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh pypi
 
-artifacts:
-  images:
-    - "${_DOCKER_URI}:latest"
-  testResults:
-    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${BUILD_ID}"
-    paths:
-      - "junit-report.xml"
-    format: JUNIT
-
 options:
   requestedVerifyOption: VERIFIED # This ensures provenance is generated
   automapSubstitutions: true
@@ -500,7 +488,7 @@ options:
 substitutions:
   _REGION: us-central1
   _AR_HOSTNAME: ${_REGION}-docker.pkg.dev
-  _AR_REPO_NAME: toolbox
+  _AR_REPO_NAME: toolbox-containers-staging
   _BUCKET_NAME: mcp-toolbox-for-databases
   _UNSIGNED_BUCKET_NAME: mcp-toolbox-for-databases-unsigned
   _ASSETS_BUCKET: toolbox-build-assets
@@ -509,3 +497,14 @@ substitutions:
   _EXIT_GATE_PROJECT: "mcp-toolbox"
   _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
   _PUSH_TO_EXIT_GATES: "false"
+
+artifacts:
+  testResults:
+    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${BUILD_ID}"
+    paths:
+      - "junit-report.xml"
+    format: JUNIT
+  oci:
+    - file: '/workspace/image.tar'
+      registryPath: '${_DOCKER_URI}'
+      tags: ['${TAG_NAME}', 'latest']
