@@ -34,9 +34,14 @@ import (
 	"google.golang.org/api/firebaserules/v1"
 	"google.golang.org/api/option"
 	"google.golang.org/genproto/googleapis/type/latlng"
+	"google.golang.org/grpc/metadata"
 )
 
-const SourceType string = "firestore"
+const (
+	SourceType                     string = "firestore"
+	firestoreAPIRequesterHeader    string = "x-goog-firestore-api-requester"
+	firestoreAPIRequesterQueryData string = "querydata"
+)
 
 // validate interface
 var _ sources.SourceConfig = Config{}
@@ -667,8 +672,26 @@ type CollectionSchema struct {
 	Fields     []FieldSchema `json:"fields"`
 }
 
+func withRequesterMetadata(ctx context.Context, requester string) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, firestoreAPIRequesterHeader, requester)
+}
+
+func buildPipelineRequest(ctx context.Context, url string, bodyBytes []byte, userAgent, projectID, databaseID string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("x-goog-request-params", fmt.Sprintf("project_id=%s&database_id=%s", projectID, databaseID))
+	req.Header.Set(firestoreAPIRequesterHeader, firestoreAPIRequesterQueryData)
+	return req, nil
+}
+
 // GetSchema returns schema information for the specified collection or all root collections.
 func (s *Source) GetSchema(ctx context.Context, collection string) (any, error) {
+	ctx = withRequesterMetadata(ctx, firestoreAPIRequesterQueryData)
+
 	client, err := s.FirestoreClientContext(ctx)
 	if err != nil {
 		return nil, err
@@ -679,12 +702,16 @@ func (s *Source) GetSchema(ctx context.Context, collection string) (any, error) 
 		collectionsToInspect = []string{collection}
 	} else {
 		// Discover root collections
-		collRefs, err := client.Collections(ctx).GetAll()
+		rawColls, err := s.ListCollections(ctx, "")
 		if err != nil {
 			return nil, fmt.Errorf("failed to list collections: %w", err)
 		}
-		for _, ref := range collRefs {
-			collectionsToInspect = append(collectionsToInspect, ref.ID)
+		for _, item := range rawColls {
+			if collMap, ok := item.(map[string]any); ok {
+				if id, ok := collMap["id"].(string); ok {
+					collectionsToInspect = append(collectionsToInspect, id)
+				}
+			}
 		}
 	}
 
@@ -772,14 +799,10 @@ func (s *Source) getSchemaFromPipeline(ctx context.Context, collection string) (
 	}
 
 	url := fmt.Sprintf("https://firestore.googleapis.com/v1/projects/%s/databases/%s/documents:executePipeline", s.GetProjectId(), s.GetDatabaseId())
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	req, err := buildPipelineRequest(ctx, url, bodyBytes, userAgent, s.GetProjectId(), s.GetDatabaseId())
 	if err != nil {
 		return CollectionSchema{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("x-goog-request-params", fmt.Sprintf("project_id=%s&database_id=%s", s.GetProjectId(), s.GetDatabaseId()))
-	req.Header.Set("x-goog-firestore-api-requester", "querydata")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -972,14 +995,10 @@ func (s *Source) ExecuteMQL(ctx context.Context, query string) (any, error) {
 		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	req, err := buildPipelineRequest(ctx, url, bodyBytes, userAgent, s.GetProjectId(), s.GetDatabaseId())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("x-goog-request-params", fmt.Sprintf("project_id=%s&database_id=%s", s.GetProjectId(), s.GetDatabaseId()))
-	req.Header.Set("x-goog-firestore-api-requester", "querydata")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
