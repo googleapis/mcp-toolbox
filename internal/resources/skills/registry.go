@@ -145,8 +145,6 @@ func (r *Registry) Len() int {
 }
 
 // Orphans returns a copy of every skill:// URI that belongs to no skill, sorted.
-// Such a resource is still listed and readable, but no skill's manifest carries
-// it: most often its URI has a typo, or the SKILL.md above it is missing.
 func (r *Registry) Orphans() []string {
 	if r == nil {
 		return nil
