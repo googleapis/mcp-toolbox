@@ -39,6 +39,7 @@ type Registry struct {
 	keys    map[string]string
 	dynamic map[string]bool
 	uris    []string
+	orphans []string
 }
 
 // NewRegistry groups resourcesMap into skills. A skill is any resource at
@@ -87,11 +88,13 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	}
 
 	members := make(map[string][]resources.Resource, len(isRoot))
+	var orphans []string
 	for _, res := range resourcesMap {
 		uri := res.GetURI()
 		if !strings.HasPrefix(uri, prefix) {
 			continue
 		}
+		matched := false
 		// Walk the URI's ancestors rather than every root, so the scan costs
 		// path depth instead of the number of skills.
 		for i := strings.LastIndex(uri, "/"); i > 0; i = strings.LastIndex(uri[:i], "/") {
@@ -105,9 +108,15 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 				if res.IsDynamic() {
 					dynamic[skillURI] = true
 				}
+				matched = true
 			}
 		}
+		// Skip SKILL.md files: each one defines a skill rather than belonging to one.
+		if !matched && !strings.HasSuffix(uri, "/"+resources.SkillFile) {
+			orphans = append(orphans, uri)
+		}
 	}
+	sort.Strings(orphans)
 
 	// Order by skill root, not by SKILL.md URI: "guide-v2" sorts before "guide"
 	// once "/SKILL.md" is appended, because "-" precedes "/".
@@ -125,7 +134,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
 
-	return &Registry{members: members, docs: docs, keys: keys, dynamic: dynamic, uris: uris}
+	return &Registry{members: members, docs: docs, keys: keys, dynamic: dynamic, uris: uris, orphans: orphans}
 }
 
 // URIs returns a copy of every skill's SKILL.md URI, sorted.
@@ -183,4 +192,12 @@ func (r *Registry) Len() int {
 		return 0
 	}
 	return len(r.uris)
+}
+
+// Orphans returns a copy of every skill:// URI that belongs to no skill, sorted.
+func (r *Registry) Orphans() []string {
+	if r == nil {
+		return nil
+	}
+	return slices.Clone(r.orphans)
 }
