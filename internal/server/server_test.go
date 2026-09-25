@@ -433,7 +433,9 @@ func TestUpdateServer(t *testing.T) {
 	newGroups := map[string]group.Group{
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
-	newResources := map[string]resources.Resource{"example-resource": nil}
+	// A real resource, not nil: SetPrimitives rebuilds the skill registry from
+	// this map, so it reads every value's URI.
+	newResources := map[string]resources.Resource{"example-resource": testutils.MockResource1}
 	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
 	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 	if err != nil {
@@ -469,9 +471,11 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, prompts (-want +got):\n%s", diff)
 	}
 
+	// Compared by identity, not by cmp.Diff: a real resource carries unexported
+	// fields that cmp refuses to walk.
 	gotResource, _ := s.PrimitiveMgr.GetResource("example-resource")
-	if diff := cmp.Diff(gotResource, newResources["example-resource"]); diff != "" {
-		t.Errorf("error updating server, resources (-want +got):\n%s", diff)
+	if gotResource != newResources["example-resource"] {
+		t.Errorf("error updating server, resources: got %v, want %v", gotResource, newResources["example-resource"])
 	}
 
 	gotTemplate, _ := s.PrimitiveMgr.GetResourceTemplate("example-template")

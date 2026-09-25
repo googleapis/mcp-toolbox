@@ -27,8 +27,10 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/auth"
 	"github.com/googleapis/mcp-toolbox/internal/group"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -64,6 +66,18 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 		return groupsListHandler(ctx, id, primitiveMgr, body, header)
 	case GROUPS_GET:
 		return groupsGetHandler(ctx, id, primitiveMgr, body, header)
+	case SKILLS_LIST, SKILLS_GET:
+		// A disabled extension must not answer. Unlike the Toolbox extension,
+		// which gates on what the client declared, skills/* is switched off
+		// server-side by --disable-ext, so the method simply does not exist.
+		if _, ok := ServerExtensions[SkillsExtensionURI]; !ok {
+			err := fmt.Errorf("invalid method %s", method)
+			return jsonrpc.NewError(id, jsonrpc.METHOD_NOT_FOUND, err.Error(), nil), err
+		}
+		if method == SKILLS_LIST {
+			return skillsListHandler(ctx, id, primitiveMgr, body, header)
+		}
+		return skillsGetHandler(ctx, id, primitiveMgr, body, header)
 	default:
 		err := fmt.Errorf("invalid method %s", method)
 		return jsonrpc.NewError(id, jsonrpc.METHOD_NOT_FOUND, err.Error(), nil), err
@@ -1225,4 +1239,120 @@ func validateAndMergeSecureParams(ctx context.Context, req *CallToolRequest, par
 	maps.Copy(toolArgument, req.Params.SecureArguments)
 
 	return toolArgument, nil, nil
+}
+
+// skillCatalogueError logs a catalogue failure in full and answers the client
+// without the server file paths that an unreadable file puts in the error. A
+// misconfigured skill fails with its own message, which names no path.
+func skillCatalogueError(ctx context.Context, logger log.Logger, id jsonrpc.RequestId, err error) (any, error) {
+	logger.ErrorContext(ctx, fmt.Sprintf("unable to read the skill catalogue: %s", err))
+	msg := err.Error()
+	var readErr *skills.ReadError
+	if errors.As(err, &readErr) {
+		msg = fmt.Sprintf("unable to read %q", readErr.URI)
+	}
+	return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, msg, nil), err
+}
+
+// skillsListHandler serves skills/list. It returns every skill the server
+// declares.
+func skillsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling skills/list request")
+
+	var req ListSkillsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp skills/list request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, SKILLS_LIST, "")
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	if genAIAttrs := util.GenAIMetricAttrsFromContext(ctx); genAIAttrs != nil {
+		genAIAttrs.OperationName = "list_skills"
+	}
+
+	// A file that has become unreadable since startup fails the whole request.
+	// The catalogue is reported complete or not at all.
+	result, err := GenerateListSkillsResult(ctx, primitiveMgr)
+	if err != nil {
+		return skillCatalogueError(ctx, logger, id, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("returning %d skills", len(result.Skills)))
+
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// skillsGetHandler serves skills/get for one skill URI.
+func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling skills/get request")
+
+	var req GetSkillRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp skills/get request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, SKILLS_GET, req.Params.URI)
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+
+	uri := req.Params.URI
+	logger.DebugContext(ctx, fmt.Sprintf("skill uri: %s", uri))
+
+	span := trace.SpanFromContext(ctx)
+	span.SetName(fmt.Sprintf("%s %s", SKILLS_GET, uri))
+	span.SetAttributes(attribute.String("gen_ai.skill.uri", uri))
+
+	if genAIAttrs := util.GenAIMetricAttrsFromContext(ctx); genAIAttrs != nil {
+		genAIAttrs.OperationName = "get_skill"
+	}
+
+	result, found, err := GenerateGetSkillResult(ctx, primitiveMgr, uri)
+	if err != nil {
+		return skillCatalogueError(ctx, logger, id, err)
+	}
+	if !found {
+		err := fmt.Errorf("unknown skill: %s", uri)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
+	}
+
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
 }

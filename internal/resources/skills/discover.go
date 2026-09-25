@@ -47,10 +47,6 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 		}
 		entries = append(entries, e)
 	}
-
-	if err := warnOnDuplicateNames(ctx, entries); err != nil {
-		return nil, err
-	}
 	return entries, nil
 }
 
@@ -97,10 +93,21 @@ func buildEntry(ctx context.Context, skillURI string, members []resources.Resour
 	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}, nil
 }
 
+// ReadError reports a skill file the server could not read. Its cause names the
+// server's own file paths, so a caller answering a client sends URI alone.
+type ReadError struct {
+	URI string
+	Err error
+}
+
+func (e *ReadError) Error() string { return fmt.Sprintf("unable to read %q: %s", e.URI, e.Err) }
+
+func (e *ReadError) Unwrap() error { return e.Err }
+
 func readString(ctx context.Context, res resources.Resource) (string, error) {
 	got, err := res.Read(ctx, nil)
 	if err != nil {
-		return "", fmt.Errorf("unable to read %q: %w", res.GetURI(), err)
+		return "", &ReadError{URI: res.GetURI(), Err: err}
 	}
 	content, ok := got.(string)
 	if !ok {
@@ -146,8 +153,9 @@ func cutAtDelimiter(rest string) (string, bool) {
 	}
 }
 
-// warnOnDuplicateNames reports skills sharing a frontmatter name.
-func warnOnDuplicateNames(ctx context.Context, entries []Entry) error {
+// WarnOnDuplicateNames reports the skills that share a frontmatter name. Call
+// it one time, at startup. Discover also runs one time for each request.
+func WarnOnDuplicateNames(ctx context.Context, entries []Entry) error {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("checking for duplicate skill names: %w", err)

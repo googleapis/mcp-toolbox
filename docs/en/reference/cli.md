@@ -279,12 +279,23 @@ them, and an unset one fails startup as it does today.
 
 ### Disabling MCP Extensions
 
-By default, Toolbox advertises support for its own custom MCP extensions (e.g., `com.google.cloud/toolbox.v1`) during the client discovery phase. This extension signals to clients that they can leverage Toolbox-specific features that fall outside the official MCP specification (see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for a list of currently supported capabilities).
+During the client discovery phase, Toolbox advertises the extensions below. One is Toolbox's own; the others are defined by the MCP specification.
+
+| Extension URI | What it provides |
+| :--- | :--- |
+| `com.google.cloud/toolbox.v1` | Toolbox-specific features that fall outside the official MCP specification, such as secure parameters and `groups/*`. See the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for the capabilities this extension covers. |
+| `io.modelcontextprotocol/ui` | [MCP Apps](../documentation/configuration/mcp-apps/index.md) interactive UI resources |
+| `io.modelcontextprotocol/skills` | Agent Skills discovery through `skills/list` and `skills/get`. The catalogue is server-wide and is [not scoped by group](../documentation/configuration/groups/). |
 
 Disabling an extension removes it from the server's advertised capabilities. To disable specific extensions on the server, pass their URIs via the `--disable-ext` flag:
 
 ```bash
 # Disable the Toolbox v1 extension
 ./toolbox --disable-ext com.google.cloud/toolbox.v1
+
+# Disable Agent Skills, which also stops the server answering skills/list and skills/get
+./toolbox --disable-ext io.modelcontextprotocol/skills
 ```
+
+Extensions are advertised only for MCP protocol version `2026-07-28`. Older versions do not support extensions.
 
