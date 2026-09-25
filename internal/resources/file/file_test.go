@@ -1094,8 +1094,6 @@ dynamic: true
 }
 
 // TestFileResourceTemplate_RejectsDynamic pins dynamic as a resource-only field.
-// ResourceTemplateConfigBase does not carry it, so strict decoding rejects the key
-// before it reads the uriTemplate. A SKILL.md template is refused like any other.
 func TestFileResourceTemplate_RejectsDynamic(t *testing.T) {
 	tcs := []struct {
 		desc        string
