@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.13.0](https://github.com/googleapis/mcp-toolbox/compare/v1.12.0...v1.13.0) (2026-09-24)
+
+
+### Features
+
+* Support `--defer-source-connect` feature ([#4076](https://github.com/googleapis/mcp-toolbox/issues/4076)) ([5700630](https://github.com/googleapis/mcp-toolbox/commit/5700630c132d5e2fc2d38cf3e9ce1f9898bd757d))
+* **prebuiltconfig/bigtable:** Add prebuilt config for bigtable ([#4068](https://github.com/googleapis/mcp-toolbox/issues/4068)) ([576b9f7](https://github.com/googleapis/mcp-toolbox/commit/576b9f74f93a7564dcaaf6d6c06d799b8de3fb1d))
+* **tool/conversational-analytics-list-accessible-data-agents:** Return all data agents and support manual paging ([#4066](https://github.com/googleapis/mcp-toolbox/issues/4066)) ([0131c39](https://github.com/googleapis/mcp-toolbox/commit/0131c390ac42dde99ad94106690e856d6cfe5c2a))
+* **tool/looker:** Expose value_format and value_format_name in field metadata ([#4094](https://github.com/googleapis/mcp-toolbox/issues/4094)) ([4b7a44d](https://github.com/googleapis/mcp-toolbox/commit/4b7a44d6052137c912a15aea44fed4e826173ce9))
+
+
+### Bug Fixes
+
+* **config:** Fix parseEnv inconsistent handling with YAML comments ([#4039](https://github.com/googleapis/mcp-toolbox/issues/4039)) ([558c5a9](https://github.com/googleapis/mcp-toolbox/commit/558c5a9d0fc51555321291584fe1a91f60ba75f2))
+
 ## [1.12.0](https://github.com/googleapis/mcp-toolbox/compare/v1.11.0...v1.12.0) (2026-09-17)
 
 

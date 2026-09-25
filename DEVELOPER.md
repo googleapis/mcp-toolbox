@@ -227,6 +227,11 @@ implementation](https://github.com/googleapis/mcp-toolbox/blob/main/internal/sou
   * `SourceType() string`: Returns the same string identifier as `SourceConfigType()`.
 * **Implement `init()`** to register the new Source.
 * **Implement Unit Tests** in a file named `newdb_test.go`.
+* **Configure Labels, Issue Routing, and Permissions (Google Cloud Databases):**
+  For every Google Cloud database, the following repository setup is required:
+  * Add a corresponding `product: <database>` label to [`.github/labels.yaml`](.github/labels.yaml).
+  * Add routing rules in [`.github/blunderbuss.yml`](.github/blunderbuss.yml) under both `assign_issues_by` and `assign_prs_by` to route the `product: <database>` label to the product's GitHub team (e.g., `googleapis/toolbox-<database>-team`).
+  * These GitHub teams should be team-synced from MDB groups and have write access to the repo.
 
 #### Adding a New Tool
 
