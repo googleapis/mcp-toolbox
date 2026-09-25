@@ -75,7 +75,10 @@ func (r Config) SourceConfigType() string {
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*storage.Client](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*storage.Client](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, c *storage.Client) error {
+				return c.Close()
+			}),
 	}
 	if deferConnect {
 		return s, nil
@@ -96,7 +99,9 @@ type Source struct {
 func (s *Source) client(ctx context.Context) (*storage.Client, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*storage.Client, error) {
 		r := s.Config
-		client, err := initGCSClient(ctx, r.Project)
+		// The client returned here outlives this call, so it is built from a
+		// context the connect does not cancel.
+		client, err := initGCSClient(sources.DetachedConnectContext(ctx), r.Project)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create client: %w", err)
 		}
@@ -181,6 +186,11 @@ func isUnderRoot(target, root string) bool {
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {

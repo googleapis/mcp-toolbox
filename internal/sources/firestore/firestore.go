@@ -72,7 +72,10 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnec
 	// Initializes a Firestore source
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, cs *clientSet) error {
+				return cs.client.Close()
+			}),
 	}
 	if deferConnect {
 		return s, nil
@@ -98,13 +101,17 @@ type Source struct {
 func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
 		r := s.Config
-		client, err := initFirestoreConnection(ctx, r.Project, r.Database)
+		// The clients returned here outlive this call, so they are built from a
+		// context the connect does not cancel.
+		clientCtx := sources.DetachedConnectContext(ctx)
+
+		client, err := initFirestoreConnection(clientCtx, r.Project, r.Database)
 		if err != nil {
 			return nil, err
 		}
 
 		// Initialize Firebase Rules client
-		rulesClient, err := initFirebaseRulesConnection(ctx, r.Project)
+		rulesClient, err := initFirebaseRulesConnection(clientCtx, r.Project)
 		if err != nil {
 			client.Close()
 			return nil, fmt.Errorf("failed to initialize Firebase Rules client: %w", err)
@@ -116,6 +123,11 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {

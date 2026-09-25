@@ -119,7 +119,10 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 		var serviceCreator HealthcareServiceCreator
 		var tokenSource oauth2.TokenSource
 
-		svc, tok, err := initHealthcareConnection(ctx)
+		// The service and token source returned here outlive this call, and an
+		// oauth2 token source reuses the context it was built with for every
+		// refresh.
+		svc, tok, err := initHealthcareConnection(sources.DetachedConnectContext(ctx))
 		if err != nil {
 			return nil, fmt.Errorf("error creating service from ADC: %w", err)
 		}
@@ -134,7 +137,7 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 		}
 
 		dsName := fmt.Sprintf("projects/%s/locations/%s/datasets/%s", c.Project, c.Region, c.Dataset)
-		if _, err = svc.Projects.Locations.Datasets.FhirStores.Get(dsName).Do(); err != nil {
+		if _, err = svc.Projects.Locations.Datasets.FhirStores.Get(dsName).Context(ctx).Do(); err != nil {
 			if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
 				return nil, fmt.Errorf("dataset '%s' not found", dsName)
 			}
@@ -143,7 +146,7 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 
 		for _, store := range c.AllowedFHIRStores {
 			name := fmt.Sprintf("%s/fhirStores/%s", dsName, store)
-			_, err := svc.Projects.Locations.Datasets.FhirStores.Get(name).Do()
+			_, err := svc.Projects.Locations.Datasets.FhirStores.Get(name).Context(ctx).Do()
 			if err != nil {
 				if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
 					return nil, fmt.Errorf("allowedFhirStore '%s' not found in dataset '%s'", store, dsName)
@@ -153,7 +156,7 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 		}
 		for _, store := range c.AllowedDICOMStores {
 			name := fmt.Sprintf("%s/dicomStores/%s", dsName, store)
-			_, err := svc.Projects.Locations.Datasets.DicomStores.Get(name).Do()
+			_, err := svc.Projects.Locations.Datasets.DicomStores.Get(name).Context(ctx).Do()
 			if err != nil {
 				if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
 					return nil, fmt.Errorf("allowedDicomStore '%s' not found in dataset '%s'", store, dsName)
@@ -173,7 +176,7 @@ func newHealthcareServiceCreator(ctx context.Context, tracer trace.Tracer, name 
 	}
 	// The creator outlives this call, so it must not capture the connect's
 	// cancellation, nor the span of whichever caller happened to trigger it.
-	creatorCtx := trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
+	creatorCtx := sources.DetachedConnectContext(ctx)
 	return func(tokenString string) (*healthcare.Service, error) {
 		return initHealthcareConnectionWithOAuthToken(creatorCtx, tracer, name, userAgent, tokenString)
 	}, nil

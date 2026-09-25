@@ -169,7 +169,9 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			ClientSecret: r.ClientSecret,
 		}
 
-		tokenSource, _ := initGoogleCloudConnection(ctx)
+		// The token source outlives this call and reuses the context it was
+		// built with for every refresh.
+		tokenSource, _ := initGoogleCloudConnection(sources.DetachedConnectContext(ctx))
 		cs := &clientSet{apiSettings: &cfg, tokenSource: tokenSource}
 
 		if strings.ToLower(r.UseClientOAuth) == "false" {

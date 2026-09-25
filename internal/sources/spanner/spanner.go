@@ -72,7 +72,11 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnec
 
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*spanner.Client](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*spanner.Client](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, c *spanner.Client) error {
+				c.Close()
+				return nil
+			}),
 		// Builds nothing until a catalog call arrives, so it is free to hold here.
 		dataplexMgr: &searchcatalog.DataplexClientManager{
 			UseClientOAuth: r.UseClientOAuth,
@@ -103,12 +107,19 @@ func (s *Source) IsReadOnly() bool {
 func (s *Source) client(ctx context.Context) (*spanner.Client, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*spanner.Client, error) {
 		r := s.Config
-		client, err := initSpannerClient(ctx, r.Project, r.Instance, r.Database)
+		// The client returned here outlives this call, so it is built from a
+		// context the connect does not cancel.
+		client, err := initSpannerClient(sources.DetachedConnectContext(ctx), r.Project, r.Instance, r.Database)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create client: %w", err)
 		}
 		return client, nil
 	})
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {

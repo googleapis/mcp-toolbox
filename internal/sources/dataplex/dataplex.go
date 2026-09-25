@@ -17,6 +17,7 @@ package dataplex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -84,7 +85,10 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnec
 	// Initializes a Dataplex source
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, cs *clientSet) error {
+				return errors.Join(cs.client.Close(), cs.dataScanClient.Close(), cs.dataProductClient.Close(), cs.projectsClient.Close())
+			}),
 	}
 	if deferConnect {
 		return s, nil
@@ -117,7 +121,11 @@ func (s *Source) IsReadOnly() bool {
 func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
 		r := s.Config
-		client, dataScanClient, dataProductClient, projectsClient, err := initDataplexConnection(ctx, r.Project, r.ImpersonateServiceAccount, r.Scopes)
+		// The clients returned here outlive this call, and the credentials they
+		// carry reuse the context they were built with for every token refresh.
+		// The project lookup below stays on ctx, so the attempt itself is still
+		// bounded by the connect timeout.
+		client, dataScanClient, dataProductClient, projectsClient, err := initDataplexConnection(sources.DetachedConnectContext(ctx), r.Project, r.ImpersonateServiceAccount, r.Scopes)
 		if err != nil {
 			return nil, err
 		}
@@ -159,6 +167,11 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 			projectNumber:     projectNumber,
 		}, nil
 	})
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {

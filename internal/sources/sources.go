@@ -71,6 +71,14 @@ type Source interface {
 	IsReadOnly() bool
 }
 
+// Closer is implemented by a source holding a connection worth releasing. It is
+// optional, and deliberately not part of Source: most sources hold either
+// nothing or an http.Client whose idle connections time out on their own, and
+// requiring a no-op Close from all of them would say nothing.
+type Closer interface {
+	Close(ctx context.Context) error
+}
+
 // InitConnectionSpan adds a span for database pool connection initialization
 func InitConnectionSpan(ctx context.Context, tracer trace.Tracer, sourceType, sourceName string) (context.Context, trace.Span) {
 	// Sources that never opened a span before this path existed are still

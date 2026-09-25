@@ -190,7 +190,15 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnec
 		Config:              r,
 		AuthTokenHeaderName: authTokenHeaderName,
 		AllowedDatasets:     allowedDatasets,
-		conn:                sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+		conn: sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, cs *clientSet) error {
+				// nil under client OAuth, where each caller's client is built
+				// per token and cached separately.
+				if cs.client == nil {
+					return nil
+				}
+				return cs.client.Close()
+			}),
 	}
 	if usesClientOAuth(r) {
 		s.newClientCaches()
@@ -243,19 +251,20 @@ func (s *Source) clients(ctx context.Context) (*clientSet, error) {
 		endpoint := NormalizeEndpoint(r.APIEndpoint)
 		cs := &clientSet{}
 
+		// Everything built here outlives this call, and an oauth2 token source
+		// reuses the context it was built with for every refresh.
+		clientCtx := sources.DetachedConnectContext(ctx)
+
 		if !usesClientOAuth(r) {
 			// Initializes a BigQuery Google SQL source
-			client, restService, tokenSource, err := initBigQueryConnection(ctx, r.Project, r.Location, r.QuotaProject, r.ImpersonateServiceAccount, r.Scopes, endpoint)
+			client, restService, tokenSource, err := initBigQueryConnection(clientCtx, r.Project, r.Location, r.QuotaProject, r.ImpersonateServiceAccount, r.Scopes, endpoint)
 			if err != nil {
 				return nil, fmt.Errorf("error creating client from ADC: %w", err)
 			}
 			cs.client, cs.restService, cs.tokenSource = client, restService, tokenSource
 		} else {
 			// use client OAuth
-			// The creator outlives this call, so it must not capture the connect's
-			// cancellation, nor the span of whichever caller happened to trigger it.
-			creatorCtx := trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
-			baseClientCreator, err := newBigQueryClientCreator(creatorCtx, s.conn.Tracer(), r.Project, r.Location, r.QuotaProject, r.Name, endpoint)
+			baseClientCreator, err := newBigQueryClientCreator(clientCtx, s.conn.Tracer(), r.Project, r.Location, r.QuotaProject, r.Name, endpoint)
 			if err != nil {
 				return nil, fmt.Errorf("error constructing client creator: %w", err)
 			}
@@ -355,6 +364,11 @@ type Session struct {
 
 func (s *Source) IsReadOnly() bool {
 	return s.WriteMode == WriteModeBlocked || s.WriteMode == WriteModeProtected
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
