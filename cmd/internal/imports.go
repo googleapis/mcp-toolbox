@@ -362,6 +362,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresreplicationstats"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressearchmemory"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresupdatememory"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/redis"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/scylladb/scyllacql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/serverlessspark/serverlesssparkcancelbatch"

@@ -34,9 +34,16 @@ type: postgres-search-memory
 source: postgresql-source
 defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
 ---
+kind: tool
+name: update_memory
+type: postgres-update-memory
+source: postgresql-source
+defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
+---
 kind: group
 name: memory
 description: Use these tools to persist, query, and manage long-term agent memories across sessions.
 tools:
 - create_memory
 - search_memory
+- update_memory
