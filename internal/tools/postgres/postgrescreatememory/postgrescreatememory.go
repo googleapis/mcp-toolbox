@@ -38,15 +38,7 @@ Before inserting, the tool checks for existing memories in the same category wit
 - status "created": the memory was stored.
 - status "duplicate": an equivalent memory already exists; it was NOT re-created and its salience was refreshed instead.
 
-Keep content short, self-contained and in the third person. Choose exactly one category of the following: %q.`, DefaultCategories)
-
-// Preset for now, potentially can support user-defined categories with allowedValues
-var DefaultCategories = []any{
-	"user_preference",
-	"coding_convention",
-	"tool_guidance",
-	"general_fact",
-}
+Keep content short, self-contained and in the third person. Choose exactly one category of the following: %q.`, memory.DefaultCategories)
 
 func init() {
 	if !tools.Register(resourceType, newConfig) {
@@ -91,9 +83,9 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		),
 		parameters.NewStringParameter(
 			"category",
-			fmt.Sprintf("Classification tag for the memory. Must be one of: %q.", DefaultCategories),
+			fmt.Sprintf("Classification tag for the memory. Must be one of: %q.", memory.DefaultCategories),
 			parameters.WithStringRequired(true),
-			parameters.WithStringAllowedValues(DefaultCategories),
+			parameters.WithStringAllowedValues(memory.DefaultCategories),
 		),
 		parameters.NewBooleanParameter(
 			"is_global",
