@@ -48,7 +48,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	FirestoreClientContext(context.Context) (*firestoreapi.Client, error)
+	FirestoreClient() *firestoreapi.Client
 	AddDocuments(context.Context, string, any, bool) (map[string]any, error)
 }
 
@@ -159,11 +159,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	// Convert the document data from JSON format to Firestore format
 	// The client is passed to handle referenceValue types
-	client, err := source.FirestoreClientContext(ctx)
-	if err != nil {
-		return nil, util.ProcessGcpError(err)
-	}
-	documentData, err := fsUtil.JSONToFirestoreValue(documentDataRaw, client)
+	documentData, err := fsUtil.JSONToFirestoreValue(documentDataRaw, source.FirestoreClient())
 	if err != nil {
 		return nil, util.NewAgentError(fmt.Sprintf("failed to convert document data: %v", err), err)
 	}

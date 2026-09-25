@@ -20,6 +20,7 @@ import (
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	redissrc "github.com/googleapis/mcp-toolbox/internal/sources/redis"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -42,6 +43,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
+	RedisClient() redissrc.RedisClient
 	RunCommand(context.Context, [][]any) (any, error)
 }
 

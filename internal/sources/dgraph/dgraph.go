@@ -79,16 +79,19 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	hc, err := initDgraphHttpClient(ctx, tracer, r)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := hc.healthCheck(); err != nil {
+		return nil, err
+	}
+
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*DgraphClient](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.client(ctx); err != nil {
-		return nil, err
+		Client: hc,
 	}
 	return s, nil
 }
@@ -97,22 +100,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*DgraphClient]
-}
-
-func (s *Source) client(ctx context.Context) (*DgraphClient, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*DgraphClient, error) {
-		r := s.Config
-		hc, err := initDgraphHttpClient(ctx, r)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := hc.healthCheck(); err != nil {
-			return nil, err
-		}
-		return hc, nil
-	})
+	Client *DgraphClient `yaml:"client"`
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -127,14 +115,13 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) RunSQL(ctx context.Context, statement string, params parameters.ParamValues, isQuery bool, timeout string) (any, error) {
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (s *Source) DgraphClient() *DgraphClient {
+	return s.Client
+}
 
+func (s *Source) RunSQL(statement string, params parameters.ParamValues, isQuery bool, timeout string) (any, error) {
 	paramsMap := params.AsMapWithDollarPrefix()
-	resp, err := client.ExecuteQuery(statement, paramsMap, isQuery, timeout)
+	resp, err := s.DgraphClient().ExecuteQuery(statement, paramsMap, isQuery, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +141,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 	return result.Data, nil
 }
 
-func initDgraphHttpClient(ctx context.Context, r Config) (*DgraphClient, error) {
+func initDgraphHttpClient(ctx context.Context, tracer trace.Tracer, r Config) (*DgraphClient, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, r.Name)
+	defer span.End()
+
 	if r.DgraphUrl == "" {
 		return nil, fmt.Errorf("dgraph url should not be empty")
 	}

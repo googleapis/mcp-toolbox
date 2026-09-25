@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestCockroachDBSourceConfig(t *testing.T) {
@@ -236,7 +237,8 @@ func pgxPoolGoroutines() int {
 func TestInitCockroachDBConnectionPoolWithRetryReleasesFailedPools(t *testing.T) {
 	_, err := initCockroachDBConnectionPoolWithRetry(
 		context.Background(),
-		"127.0.0.1", "1", "u", "p", "db", nil, 2, time.Millisecond,
+		noop.NewTracerProvider().Tracer("cockroachdb-test"),
+		"test-source", "127.0.0.1", "1", "u", "p", "db", nil, 2, time.Millisecond,
 	)
 	if err == nil {
 		t.Fatal("expected the connection to fail against a dead endpoint")

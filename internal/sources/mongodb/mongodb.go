@@ -58,16 +58,22 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	client, err := initMongoDBClient(ctx, tracer, r.Name, r.Uri)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create MongoDB client: %w", err)
+	}
+
+	// Verify the connection
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		_ = client.Disconnect(ctx)
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	}
+
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*mongo.Client](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.client(ctx); err != nil {
-		return nil, err
+		Client: client,
 	}
 	return s, nil
 }
@@ -76,24 +82,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*mongo.Client]
-}
-
-func (s *Source) client(ctx context.Context) (*mongo.Client, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*mongo.Client, error) {
-		r := s.Config
-		client, err := initMongoDBClient(ctx, r.Uri)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create MongoDB client: %w", err)
-		}
-
-		// Verify the connection
-		if err := client.Ping(ctx, nil); err != nil {
-			_ = client.Disconnect(ctx)
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return client, nil
-	})
+	Client *mongo.Client
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -106,6 +95,10 @@ func (s *Source) SourceType() string {
 
 func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
+}
+
+func (s *Source) MongoClient() *mongo.Client {
+	return s.Client
 }
 
 func parseData(ctx context.Context, cur *mongo.Cursor) ([]any, error) {
@@ -145,12 +138,7 @@ func (s *Source) Aggregate(ctx context.Context, pipelineString string, canonical
 		}
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	cur, err := client.Database(database).Collection(collection).Aggregate(ctx, pipeline)
+	cur, err := s.MongoClient().Database(database).Collection(collection).Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, err
 	}
@@ -172,12 +160,7 @@ func (s *Source) Find(ctx context.Context, filterString, database, collection st
 		return nil, err
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	cur, err := client.Database(database).Collection(collection).Find(ctx, filter, opts)
+	cur, err := s.MongoClient().Database(database).Collection(collection).Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -192,12 +175,7 @@ func (s *Source) FindOne(ctx context.Context, filterString, database, collection
 		return nil, err
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res := client.Database(database).Collection(collection).FindOne(ctx, filter, opts)
+	res := s.MongoClient().Database(database).Collection(collection).FindOne(ctx, filter, opts)
 	if res.Err() != nil {
 		return nil, res.Err()
 	}
@@ -227,12 +205,7 @@ func (s *Source) InsertMany(ctx context.Context, jsonData string, canonical bool
 		return nil, err
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := client.Database(database).Collection(collection).InsertMany(ctx, data, options.InsertMany())
+	res, err := s.MongoClient().Database(database).Collection(collection).InsertMany(ctx, data, options.InsertMany())
 	if err != nil {
 		return nil, err
 	}
@@ -246,12 +219,7 @@ func (s *Source) InsertOne(ctx context.Context, jsonData string, canonical bool,
 		return nil, err
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := client.Database(database).Collection(collection).InsertOne(ctx, data, options.InsertOne())
+	res, err := s.MongoClient().Database(database).Collection(collection).InsertOne(ctx, data, options.InsertOne())
 	if err != nil {
 		return nil, err
 	}
@@ -270,12 +238,7 @@ func (s *Source) UpdateMany(ctx context.Context, filterString string, canonical 
 		return nil, fmt.Errorf("unable to unmarshal update string: %w", err)
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := client.Database(database).Collection(collection).UpdateMany(ctx, filter, update, options.UpdateMany().SetUpsert(upsert))
+	res, err := s.MongoClient().Database(database).Collection(collection).UpdateMany(ctx, filter, update, options.UpdateMany().SetUpsert(upsert))
 	if err != nil {
 		return nil, fmt.Errorf("error updating collection: %w", err)
 	}
@@ -294,12 +257,7 @@ func (s *Source) UpdateOne(ctx context.Context, filterString string, canonical b
 		return nil, fmt.Errorf("unable to unmarshal update string: %w", err)
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := client.Database(database).Collection(collection).UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(upsert))
+	res, err := s.MongoClient().Database(database).Collection(collection).UpdateOne(ctx, filter, update, options.UpdateOne().SetUpsert(upsert))
 	if err != nil {
 		return nil, fmt.Errorf("error updating collection: %w", err)
 	}
@@ -313,12 +271,7 @@ func (s *Source) DeleteMany(ctx context.Context, filterString, database, collect
 		return nil, err
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := client.Database(database).Collection(collection).DeleteMany(ctx, filter, options.DeleteMany())
+	res, err := s.MongoClient().Database(database).Collection(collection).DeleteMany(ctx, filter, options.DeleteMany())
 	if err != nil {
 		return nil, err
 	}
@@ -336,20 +289,17 @@ func (s *Source) DeleteOne(ctx context.Context, filterString, database, collecti
 		return nil, err
 	}
 
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := client.Database(database).Collection(collection).DeleteOne(ctx, filter, options.DeleteOne())
+	res, err := s.MongoClient().Database(database).Collection(collection).DeleteOne(ctx, filter, options.DeleteOne())
 	if err != nil {
 		return nil, err
 	}
 	return res.DeletedCount, nil
 }
 
-func initMongoDBClient(ctx context.Context, uri string) (*mongo.Client, error) {
+func initMongoDBClient(ctx context.Context, tracer trace.Tracer, name, uri string) (*mongo.Client, error) {
 	// Start a tracing span
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
 
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {

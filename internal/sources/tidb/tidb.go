@@ -68,16 +68,21 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	pool, err := initTiDBConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.UseSSL)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create pool: %w", err)
+	}
+
+	err = pool.PingContext(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	}
+
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.TiDBPoolContext(ctx); err != nil {
-		return nil, err
+		Pool:   pool,
 	}
 	return s, nil
 }
@@ -86,26 +91,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*sql.DB]
-}
-
-// TiDBPoolContext returns the pool, connecting on first use. It is the
-// discriminator the tidb tools assert on.
-func (s *Source) TiDBPoolContext(ctx context.Context) (*sql.DB, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
-		r := s.Config
-		pool, err := initTiDBConnectionPool(ctx, r.Host, r.Port, r.User, r.Password, r.Database, r.UseSSL)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create pool: %w", err)
-		}
-
-		err = pool.PingContext(ctx)
-		if err != nil {
-			pool.Close()
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return pool, nil
-	})
+	Pool *sql.DB
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -120,12 +106,12 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+func (s *Source) TiDBPool() *sql.DB {
+	return s.Pool
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	pool, err := s.TiDBPoolContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	results, err := pool.QueryContext(ctx, statement, params...)
+	results, err := s.TiDBPool().QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -206,7 +192,11 @@ func IsTiDBCloudHost(host string) bool {
 	return match
 }
 
-func initTiDBConnectionPool(ctx context.Context, host, port, user, pass, dbname string, useSSL bool) (*sql.DB, error) {
+func initTiDBConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string, useSSL bool) (*sql.DB, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	// Configure the driver to connect to the database
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&tls=%t", user, pass, host, port, dbname, useSSL)
 

@@ -30,7 +30,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util"
-	"go.opentelemetry.io/otel"
 )
 
 func TestParseFromYamlHttp(t *testing.T) {
@@ -167,7 +166,7 @@ func TestRunRequestSanitizesErrorBodyByDefault(t *testing.T) {
 		Timeout:              "30s",
 		AllowPrivateNetworks: true,
 	}
-	initialized, err := sourceConfig.Initialize(ctx, otel.Tracer("test"), false)
+	initialized, err := sourceConfig.Initialize(ctx, nil)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}
@@ -211,7 +210,7 @@ func TestRunRequestIncludesErrorBodyWhenEnabled(t *testing.T) {
 		ReturnFullError:      true,
 		AllowPrivateNetworks: true,
 	}
-	initialized, err := sourceConfig.Initialize(ctx, otel.Tracer("test"), false)
+	initialized, err := sourceConfig.Initialize(ctx, nil)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}

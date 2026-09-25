@@ -27,6 +27,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
+	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
@@ -49,6 +50,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
+	LookerApiSettings() *rtl.ApiSettings
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 	LookerSessionLength() int64
 	GetHostURL(context.Context, *v4.LookerSDK) (string, error)

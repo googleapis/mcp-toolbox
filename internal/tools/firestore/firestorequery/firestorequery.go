@@ -53,7 +53,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 // compatibleSource defines the interface for sources that can provide a Firestore client
 type compatibleSource interface {
-	FirestoreClientContext(context.Context) (*firestoreapi.Client, error)
+	FirestoreClient() *firestoreapi.Client
 	BuildQuery(string, firestoreapi.EntityFilter, []string, string, firestoreapi.Direction, int, bool) (*firestoreapi.Query, error)
 	ExecuteQuery(context.Context, *firestoreapi.Query, bool) (any, error)
 }
@@ -194,14 +194,8 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 			return nil, util.NewAgentError(fmt.Sprintf("failed to parse filters: %v", err), err)
 		}
 
-		// The converter needs a live client to resolve referenceValue types.
-		client, err := source.FirestoreClientContext(ctx)
-		if err != nil {
-			return nil, util.ProcessGcpError(err)
-		}
-
 		// Convert simplified filter to Firestore filter
-		filter = t.convertToFirestoreFilter(client, simplifiedFilter)
+		filter = t.convertToFirestoreFilter(source, simplifiedFilter)
 	}
 	// Process and apply ordering
 	orderBy, err := t.getOrderBy(paramsMap)
@@ -241,12 +235,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 }
 
 // convertToFirestoreFilter converts simplified filter format to Firestore EntityFilter
-func (t Tool) convertToFirestoreFilter(client *firestoreapi.Client, filter SimplifiedFilter) firestoreapi.EntityFilter {
+func (t Tool) convertToFirestoreFilter(source compatibleSource, filter SimplifiedFilter) firestoreapi.EntityFilter {
 	// Handle AND filters
 	if len(filter.And) > 0 {
 		filters := make([]firestoreapi.EntityFilter, 0, len(filter.And))
 		for _, f := range filter.And {
-			if converted := t.convertToFirestoreFilter(client, f); converted != nil {
+			if converted := t.convertToFirestoreFilter(source, f); converted != nil {
 				filters = append(filters, converted)
 			}
 		}
@@ -260,7 +254,7 @@ func (t Tool) convertToFirestoreFilter(client *firestoreapi.Client, filter Simpl
 	if len(filter.Or) > 0 {
 		filters := make([]firestoreapi.EntityFilter, 0, len(filter.Or))
 		for _, f := range filter.Or {
-			if converted := t.convertToFirestoreFilter(client, f); converted != nil {
+			if converted := t.convertToFirestoreFilter(source, f); converted != nil {
 				filters = append(filters, converted)
 			}
 		}
@@ -274,7 +268,7 @@ func (t Tool) convertToFirestoreFilter(client *firestoreapi.Client, filter Simpl
 	if filter.Field != "" && filter.Op != "" && filter.Value != nil {
 		if validOperators[filter.Op] {
 			// Convert the value using the Firestore native JSON converter
-			convertedValue, err := fsUtil.JSONToFirestoreValue(filter.Value, client)
+			convertedValue, err := fsUtil.JSONToFirestoreValue(filter.Value, source.FirestoreClient())
 			if err != nil {
 				// If conversion fails, use the original value
 				convertedValue = filter.Value

@@ -44,7 +44,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	SQLiteDBContext(context.Context) (*sql.DB, error)
+	SQLiteDB() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
 }
 

@@ -44,7 +44,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	TiDBPoolContext(context.Context) (*sql.DB, error)
+	TiDBPool() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
 }
 
