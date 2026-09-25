@@ -71,10 +71,19 @@ type QueryDataContext struct {
 	*geminidataanalyticspb.QueryDataContext
 }
 
-func (q *QueryDataContext) UnmarshalYAML(b []byte) error {
+var _ yaml.BytesUnmarshalerContext = &QueryDataContext{}
+
+func (q *QueryDataContext) UnmarshalYAML(ctx context.Context, b []byte) error {
 	var raw map[string]any
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return fmt.Errorf("failed to unmarshal context from yaml: %w", err)
+	}
+	if dropSpannerRegion(raw) {
+		// Warning is best effort: a caller without a logger in context still
+		// gets the config loaded.
+		if logger, err := util.LoggerFromContext(ctx); err == nil {
+			logger.WarnContext(ctx, "ignoring context.datasourceReferences.spannerReference.databaseReference.region, which the Gemini Data Analytics API no longer supports; remove it from your configuration")
+		}
 	}
 	jsonBytes, err := json.Marshal(raw)
 	if err != nil {
@@ -83,6 +92,31 @@ func (q *QueryDataContext) UnmarshalYAML(b []byte) error {
 	q.QueryDataContext = &geminidataanalyticspb.QueryDataContext{}
 	if err := protojson.Unmarshal(jsonBytes, q.QueryDataContext); err != nil {
 		return fmt.Errorf("failed to unmarshal context to proto: %w", err)
+	}
+	return nil
+}
+
+// dropSpannerRegion deletes datasourceReferences.spannerReference.databaseReference.region
+// from a raw context and reports whether it was present. The API removed the
+// field, and strict proto decoding would otherwise reject configs that set it.
+func dropSpannerRegion(raw map[string]any) bool {
+	refs := childMap(raw, "datasourceReferences", "datasource_references")
+	spanner := childMap(refs, "spannerReference", "spanner_reference")
+	db := childMap(spanner, "databaseReference", "database_reference")
+	if _, ok := db["region"]; !ok {
+		return false
+	}
+	delete(db, "region")
+	return true
+}
+
+// childMap returns the map stored under the first of keys present in m. It
+// accepts both JSON and proto field names, as protojson does.
+func childMap(m map[string]any, keys ...string) map[string]any {
+	for _, k := range keys {
+		if child, ok := m[k].(map[string]any); ok {
+			return child
+		}
 	}
 	return nil
 }

@@ -25,12 +25,14 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	bigqueryapi "cloud.google.com/go/bigquery"
 	geminidataanalytics "cloud.google.com/go/geminidataanalytics/apiv1beta"
 	"cloud.google.com/go/geminidataanalytics/apiv1beta/geminidataanalyticspb"
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -45,6 +47,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/testing/protocmp"
 )
 
 var (
@@ -63,6 +66,9 @@ func getCloudGDAProject(t *testing.T) string {
 type mockDataChatServer struct {
 	geminidataanalyticspb.UnimplementedDataChatServiceServer
 	t *testing.T
+
+	mu       sync.Mutex
+	lastRefs *geminidataanalyticspb.DatasourceReferences
 }
 
 func (s *mockDataChatServer) QueryData(ctx context.Context, req *geminidataanalyticspb.QueryDataRequest) (*geminidataanalyticspb.QueryDataResponse, error) {
@@ -70,11 +76,22 @@ func (s *mockDataChatServer) QueryData(ctx context.Context, req *geminidataanaly
 		s.t.Errorf("missing prompt")
 		return nil, fmt.Errorf("missing prompt")
 	}
+	s.mu.Lock()
+	s.lastRefs = req.GetContext().GetDatasourceReferences()
+	s.mu.Unlock()
 
 	return &geminidataanalyticspb.QueryDataResponse{
 		GeneratedQuery:        "SELECT * FROM table;",
 		NaturalLanguageAnswer: "Here is the answer.",
 	}, nil
+}
+
+// lastDatasourceReferences returns the datasource references of the most
+// recent QueryData request.
+func (s *mockDataChatServer) lastDatasourceReferences() *geminidataanalyticspb.DatasourceReferences {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastRefs
 }
 
 func getCloudGdaToolsConfig() map[string]any {
@@ -104,6 +121,23 @@ func getCloudGdaToolsConfig() map[string]any {
 					},
 				},
 			},
+			"cloud-gda-query-bigtable": map[string]any{
+				"type":        cloudGdaToolType,
+				"source":      "my-gda-source",
+				"description": "Test GDA Tool for Bigtable",
+				"location":    "us-central1",
+				"context": map[string]any{
+					"datasourceReferences": map[string]any{
+						"bigtableReference": map[string]any{
+							"databaseReference": map[string]any{
+								"projectId":  "test-project",
+								"instanceId": "test-instance",
+								"tableIds":   []any{"test-table"},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -118,7 +152,8 @@ func TestCloudGdaToolEndpoints(t *testing.T) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	geminidataanalyticspb.RegisterDataChatServiceServer(s, &mockDataChatServer{t: t})
+	mock := &mockDataChatServer{t: t}
+	geminidataanalyticspb.RegisterDataChatServiceServer(s, mock)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			// This might happen on strict shutdown, log if unexpected
@@ -220,6 +255,23 @@ func TestCloudGdaToolEndpoints(t *testing.T) {
 	respStr := string(respBody)
 	if !strings.Contains(respStr, "SELECT * FROM table;") {
 		t.Errorf("MCP response does not contain expected query result: %s", respStr)
+	}
+
+	// 4. Bigtable datasource reference is forwarded to QueryData
+	tests.RunToolInvokeParametersTest(t, "cloud-gda-query-bigtable", params, "\"generated_query\":\"SELECT * FROM table;\"")
+	wantRefs := &geminidataanalyticspb.DatasourceReferences{
+		References: &geminidataanalyticspb.DatasourceReferences_BigtableReference{
+			BigtableReference: &geminidataanalyticspb.BigtableReference{
+				DatabaseReference: &geminidataanalyticspb.BigtableDatabaseReference{
+					ProjectId:  "test-project",
+					InstanceId: "test-instance",
+					TableIds:   []string{"test-table"},
+				},
+			},
+		},
+	}
+	if diff := cmp.Diff(wantRefs, mock.lastDatasourceReferences(), protocmp.Transform()); diff != "" {
+		t.Errorf("unexpected datasource references sent to QueryData (-want +got):\n%s", diff)
 	}
 }
 

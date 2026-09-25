@@ -15,20 +15,52 @@
 package cloudgda_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/geminidataanalytics/apiv1beta/geminidataanalyticspb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	cloudgdatool "github.com/googleapis/mcp-toolbox/internal/tools/cloudgda"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"google.golang.org/protobuf/testing/protocmp"
 )
+
+// wantToolConfigs returns the parsed form of the test tool, which differs
+// between cases only in its datasource references.
+func wantToolConfigs(refs *geminidataanalyticspb.DatasourceReferences) server.ToolConfigs {
+	return server.ToolConfigs{
+		"my-gda-query-tool": cloudgdatool.Config{
+			ConfigBase: tools.ConfigBase{
+				Name:         "my-gda-query-tool",
+				Description:  "Test Description",
+				AuthRequired: []string{},
+			},
+			Type:     "cloud-gemini-data-analytics-query",
+			Source:   "gda-api-source",
+			Location: "us-central1",
+			Context: &cloudgdatool.QueryDataContext{
+				QueryDataContext: &geminidataanalyticspb.QueryDataContext{
+					DatasourceReferences: refs,
+				},
+			},
+			GenerationOptions: &cloudgdatool.GenerationOptions{
+				GenerationOptions: &geminidataanalyticspb.GenerationOptions{
+					GenerateQueryResult: true,
+				},
+			},
+		},
+	}
+}
 
 func TestParseFromYaml(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
@@ -36,6 +68,21 @@ func TestParseFromYaml(t *testing.T) {
 		t.Fatalf("unexpected error: %s", err)
 	}
 	t.Parallel()
+	spannerRefs := &geminidataanalyticspb.DatasourceReferences{
+		References: &geminidataanalyticspb.DatasourceReferences_SpannerReference{
+			SpannerReference: &geminidataanalyticspb.SpannerReference{
+				DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
+					ProjectId:  "cloud-db-nl2sql",
+					InstanceId: "evalbench",
+					DatabaseId: "financial",
+					Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,
+				},
+				AgentContextReference: &geminidataanalyticspb.AgentContextReference{
+					ContextSetId: "projects/cloud-db-nl2sql/locations/us-east1/contextSets/bdf_gsql_gemini_all_templates",
+				},
+			},
+		},
+	}
 	tcs := []struct {
 		desc string
 		in   string
@@ -43,6 +90,30 @@ func TestParseFromYaml(t *testing.T) {
 	}{
 		{
 			desc: "basic example",
+			in: `
+			kind: tool
+			name: my-gda-query-tool
+			type: cloud-gemini-data-analytics-query
+			source: gda-api-source
+			description: Test Description
+			location: us-central1
+			context:
+				datasourceReferences:
+					spannerReference:
+						databaseReference:
+							projectId:  "cloud-db-nl2sql"
+							instanceId: "evalbench"
+							databaseId: "financial"
+							engine:     "GOOGLE_SQL"
+						agentContextReference:
+							contextSetId: "projects/cloud-db-nl2sql/locations/us-east1/contextSets/bdf_gsql_gemini_all_templates"
+			generationOptions:
+				generateQueryResult: true
+			`,
+			want: wantToolConfigs(spannerRefs),
+		},
+		{
+			desc: "spanner region is ignored",
 			in: `
 			kind: tool
 			name: my-gda-query-tool
@@ -64,43 +135,102 @@ func TestParseFromYaml(t *testing.T) {
 			generationOptions:
 				generateQueryResult: true
 			`,
-			want: map[string]tools.ToolConfig{
-				"my-gda-query-tool": cloudgdatool.Config{
-					ConfigBase: tools.ConfigBase{
-						Name:         "my-gda-query-tool",
-						Description:  "Test Description",
-						AuthRequired: []string{},
-					},
-					Type:     "cloud-gemini-data-analytics-query",
-					Source:   "gda-api-source",
-					Location: "us-central1",
-					Context: &cloudgdatool.QueryDataContext{
-						QueryDataContext: &geminidataanalyticspb.QueryDataContext{
-							DatasourceReferences: &geminidataanalyticspb.DatasourceReferences{
-								References: &geminidataanalyticspb.DatasourceReferences_SpannerReference{
-									SpannerReference: &geminidataanalyticspb.SpannerReference{
-										DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
-											ProjectId:  "cloud-db-nl2sql",
-											Region:     "us-central1",
-											InstanceId: "evalbench",
-											DatabaseId: "financial",
-											Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,
-										},
-										AgentContextReference: &geminidataanalyticspb.AgentContextReference{
-											ContextSetId: "projects/cloud-db-nl2sql/locations/us-east1/contextSets/bdf_gsql_gemini_all_templates",
-										},
-									},
-								},
-							},
+			want: wantToolConfigs(spannerRefs),
+		},
+		{
+			desc: "spanner region is ignored with proto field names",
+			in: `
+			kind: tool
+			name: my-gda-query-tool
+			type: cloud-gemini-data-analytics-query
+			source: gda-api-source
+			description: Test Description
+			location: us-central1
+			context:
+				datasource_references:
+					spanner_reference:
+						database_reference:
+							project_id:  "cloud-db-nl2sql"
+							region:      "us-central1"
+							instance_id: "evalbench"
+							database_id: "financial"
+							engine:      "GOOGLE_SQL"
+						agent_context_reference:
+							context_set_id: "projects/cloud-db-nl2sql/locations/us-east1/contextSets/bdf_gsql_gemini_all_templates"
+			generationOptions:
+				generateQueryResult: true
+			`,
+			want: wantToolConfigs(spannerRefs),
+		},
+		{
+			desc: "bigtable reference",
+			in: `
+			kind: tool
+			name: my-gda-query-tool
+			type: cloud-gemini-data-analytics-query
+			source: gda-api-source
+			description: Test Description
+			location: us-central1
+			context:
+				datasourceReferences:
+					bigtableReference:
+						databaseReference:
+							projectId:  "my-project"
+							instanceId: "my-instance"
+							tableIds:
+								- "flights"
+								- "airports"
+						agentContextReference:
+							contextSetId: "projects/my-project/locations/us-east1/contextSets/flights"
+			generationOptions:
+				generateQueryResult: true
+			`,
+			want: wantToolConfigs(&geminidataanalyticspb.DatasourceReferences{
+				References: &geminidataanalyticspb.DatasourceReferences_BigtableReference{
+					BigtableReference: &geminidataanalyticspb.BigtableReference{
+						DatabaseReference: &geminidataanalyticspb.BigtableDatabaseReference{
+							ProjectId:  "my-project",
+							InstanceId: "my-instance",
+							TableIds:   []string{"flights", "airports"},
 						},
-					},
-					GenerationOptions: &cloudgdatool.GenerationOptions{
-						GenerationOptions: &geminidataanalyticspb.GenerationOptions{
-							GenerateQueryResult: true,
+						AgentContextReference: &geminidataanalyticspb.AgentContextReference{
+							ContextSetId: "projects/my-project/locations/us-east1/contextSets/flights",
 						},
 					},
 				},
-			},
+			}),
+		},
+		{
+			desc: "firestore reference",
+			in: `
+			kind: tool
+			name: my-gda-query-tool
+			type: cloud-gemini-data-analytics-query
+			source: gda-api-source
+			description: Test Description
+			location: us-central1
+			context:
+				datasourceReferences:
+					firestoreReference:
+						databaseReference:
+							projectId:  "my-project"
+							databaseId: "my-database"
+							collectionIds:
+								- "orders"
+			generationOptions:
+				generateQueryResult: true
+			`,
+			want: wantToolConfigs(&geminidataanalyticspb.DatasourceReferences{
+				References: &geminidataanalyticspb.DatasourceReferences_FirestoreReference{
+					FirestoreReference: &geminidataanalyticspb.FirestoreReference{
+						DatabaseReference: &geminidataanalyticspb.FirestoreDatabaseReference{
+							ProjectId:     "my-project",
+							DatabaseId:    "my-database",
+							CollectionIds: []string{"orders"},
+						},
+					},
+				},
+			}),
 		},
 	}
 	for _, tc := range tcs {
@@ -111,8 +241,96 @@ func TestParseFromYaml(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
-			if !cmp.Equal(tc.want, got, cmpopts.IgnoreUnexported(geminidataanalyticspb.QueryDataContext{}, geminidataanalyticspb.DatasourceReferences{}, geminidataanalyticspb.SpannerReference{}, geminidataanalyticspb.SpannerDatabaseReference{}, geminidataanalyticspb.AgentContextReference{}, geminidataanalyticspb.GenerationOptions{}, geminidataanalyticspb.DatasourceReferences_SpannerReference{})) {
-				t.Fatalf("incorrect parse: want %v, got %v", tc.want, got)
+			if diff := cmp.Diff(tc.want, got, protocmp.Transform()); diff != "" {
+				t.Fatalf("incorrect parse (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFailParseFromYaml(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tcs := []struct {
+		desc string
+		in   string
+		err  string
+	}{
+		{
+			desc: "region is rejected outside spannerReference",
+			in: `
+			kind: tool
+			name: my-gda-query-tool
+			type: cloud-gemini-data-analytics-query
+			source: gda-api-source
+			description: Test Description
+			location: us-central1
+			context:
+				datasourceReferences:
+					bigtableReference:
+						databaseReference:
+							projectId:  "my-project"
+							region:     "us-central1"
+							instanceId: "my-instance"
+			`,
+			err: `unknown field "region"`,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			if err == nil {
+				t.Fatalf("expect parsing to fail")
+			}
+			if errStr := err.Error(); !strings.Contains(errStr, tc.err) {
+				t.Fatalf("unexpected error string: got %q, want substring %q", errStr, tc.err)
+			}
+		})
+	}
+}
+
+func TestParseFromYamlSpannerRegionWarning(t *testing.T) {
+	const warning = "spannerReference.databaseReference.region"
+	tcs := []struct {
+		desc        string
+		region      string
+		wantWarning bool
+	}{
+		{desc: "warns when region is set", region: `region: "us-central1"`, wantWarning: true},
+		{desc: "silent when region is unset", region: "", wantWarning: false},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger, err := log.NewStdLogger(&logs, &logs, "info")
+			if err != nil {
+				t.Fatalf("unable to create logger: %s", err)
+			}
+			ctx := util.WithLogger(context.Background(), logger)
+			in := fmt.Sprintf(`
+			kind: tool
+			name: my-gda-query-tool
+			type: cloud-gemini-data-analytics-query
+			source: gda-api-source
+			description: Test Description
+			location: us-central1
+			context:
+				datasourceReferences:
+					spannerReference:
+						databaseReference:
+							projectId:  "cloud-db-nl2sql"
+							instanceId: "evalbench"
+							databaseId: "financial"
+							engine:     "GOOGLE_SQL"
+							%s
+			`, tc.region)
+			if _, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(in)); err != nil {
+				t.Fatalf("unable to unmarshal: %s", err)
+			}
+			if got := strings.Contains(logs.String(), warning); got != tc.wantWarning {
+				t.Errorf("warning logged = %t, want %t; logs: %q", got, tc.wantWarning, logs.String())
 			}
 		})
 	}
@@ -237,7 +455,6 @@ func TestInvoke(t *testing.T) {
 						SpannerReference: &geminidataanalyticspb.SpannerReference{
 							DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
 								ProjectId:  "cloud-db-nl2sql",
-								Region:     "us-central1",
 								InstanceId: "evalbench",
 								DatabaseId: "financial",
 								Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,
