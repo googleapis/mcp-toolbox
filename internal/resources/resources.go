@@ -40,6 +40,26 @@ const BaseDirKey contextKey = "baseDir"
 // as skill://<skill-name>/<path>, whichever resource type backs it.
 const SkillScheme = "skill"
 
+// SkillFile is the document at the root of every Agent Skill.
+const SkillFile = "SKILL.md"
+
+// SkillRoot returns the skill path of a SKILL.md, and reports whether uri
+// addresses one.
+//
+// The test reads the raw uri, not the decoded path, so one rule serves both the
+// config validation and the skill registry.
+func SkillRoot(uri string) (string, bool) {
+	root, ok := strings.CutSuffix(uri, "/"+SkillFile)
+	if !ok {
+		return "", false
+	}
+	parsed, err := url.Parse(root)
+	if err != nil || parsed.Scheme != SkillScheme || parsed.Host == "" {
+		return "", false
+	}
+	return root, true
+}
+
 // ValidateScheme checks uri against the schemes a resource may be addressed by:
 // nativeScheme, which is the resource's own type (eg. file), or SkillScheme. The
 // returned error names the accepted set, so callers need only prefix it with the
@@ -85,6 +105,7 @@ type Resource interface {
 	ToConfig() ResourceConfig
 	GetResourceUIMetadata() any
 	IsUI() bool
+	IsDynamic() bool
 }
 
 type ResourceAnnotations struct {
@@ -156,11 +177,18 @@ func (c ConfigBase) GetResourceUIMetadata() any {
 type ResourceConfigBase struct {
 	ConfigBase `yaml:",inline"`
 	URI        string `yaml:"uri,omitempty" validate:"omitempty,uri"`
+	Dynamic    bool   `yaml:"dynamic,omitempty"`
 }
 
 // GetURI returns the URI of the resource configuration.
 func (c ResourceConfigBase) GetURI() string {
 	return c.URI
+}
+
+// IsDynamic reports whether the skill at this SKILL.md publishes the "dynamic"
+// marker in place of a manifest of digests.
+func (c ResourceConfigBase) IsDynamic() bool {
+	return c.Dynamic
 }
 
 type AudienceRole string
@@ -291,6 +319,12 @@ func (c *ResourceConfigBase) Validate() error {
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	parsed.Host = strings.ToLower(parsed.Host)
 	c.URI = parsed.String()
+
+	// The check runs after normalization, which lowercases the scheme and the
+	// host. The SKILL.md suffix still matches exact case.
+	if _, isSkillDoc := SkillRoot(c.URI); c.Dynamic && !isSkillDoc {
+		return fmt.Errorf("dynamic cannot be configured for resource %q: it applies only to a skill's %s, addressed as %s://<skill-path>/%s", c.Name, SkillFile, SkillScheme, SkillFile)
+	}
 
 	return nil
 }

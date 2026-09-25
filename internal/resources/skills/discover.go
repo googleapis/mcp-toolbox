@@ -27,8 +27,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
-const skillFile = "SKILL.md"
-
 // Discover builds one Entry per skill. A skill can have 1 or more supporting files.
 func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 	if reg.Len() == 0 {
@@ -37,8 +35,21 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 
 	entries := make([]Entry, 0, reg.Len())
 	for _, skillURI := range reg.URIs() {
-		members, _ := reg.Members(skillURI)
-		e, err := buildEntry(ctx, skillURI, members)
+		var e Entry
+		var err error
+		if reg.IsDynamic(skillURI) {
+			// A dynamic skill publishes no digests, so Discover does not read its
+			// supporting files. It reads only the SKILL.md, for the frontmatter
+			// every entry carries.
+			doc, ok := reg.Doc(skillURI)
+			if !ok {
+				return nil, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
+			}
+			e, err = buildDynamicEntry(ctx, skillURI, doc)
+		} else {
+			members, _ := reg.Members(skillURI)
+			e, err = buildEntry(ctx, skillURI, members)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -48,6 +59,24 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// buildDynamicEntry assembles the entry for a skill that publishes the
+// "dynamic" marker in place of a file list.
+//
+// The file count does not apply: SEP-2640 counts it over the entries of a
+// manifest, and a dynamic skill has none. The size limit still bounds the one
+// file this reads, because Discover runs on every request.
+func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
+	content, err := readBounded(ctx, doc, MaxTotalSize)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	frontmatter, err := parseFrontmatter(content)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Dynamic: true}}, nil
 }
 
 // buildEntry hashes every file of one skill and assembles its entry.
@@ -62,19 +91,11 @@ func buildEntry(ctx context.Context, skillURI string, members []resources.Resour
 	// memory. We sum as we read: this bounds what each skill loads.
 	var total int64
 	for _, res := range members {
-		// Subtraction, not addition: a huge hint would wrap the total negative.
-		if sz := res.GetSize(); sz != nil && *sz > MaxTotalSize-total {
-			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
-		}
-		content, err := readString(ctx, res)
+		content, err := readBounded(ctx, res, MaxTotalSize-total)
 		if err != nil {
 			return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
 		}
-		// GetSize above is only a hint; this is authoritative.
 		size := int64(len(content))
-		if size > MaxTotalSize-total {
-			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
-		}
 		total += size
 		sum := sha256.Sum256([]byte(content))
 		refs = append(refs, ResourceRef{
@@ -91,6 +112,24 @@ func buildEntry(ctx context.Context, skillURI string, members []resources.Resour
 	}
 
 	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}, nil
+}
+
+// readBounded reads one resource, and rejects content larger than remaining
+// bytes. Callers pass the budget they have left, not the limit, so a huge size
+// hint cannot wrap a running total negative.
+func readBounded(ctx context.Context, res resources.Resource, remaining int64) (string, error) {
+	if sz := res.GetSize(); sz != nil && *sz > remaining {
+		return "", fmt.Errorf("total size exceeds the limit of %d bytes", MaxTotalSize)
+	}
+	content, err := readString(ctx, res)
+	if err != nil {
+		return "", err
+	}
+	// GetSize above is only a hint. This check is authoritative.
+	if int64(len(content)) > remaining {
+		return "", fmt.Errorf("total size exceeds the limit of %d bytes", MaxTotalSize)
+	}
+	return content, nil
 }
 
 // ReadError reports a skill file the server could not read. Its cause names the
@@ -124,16 +163,16 @@ func parseFrontmatter(content string) (map[string]any, error) {
 
 	opening, rest, ok := strings.Cut(content, "\n")
 	if !ok || strings.TrimRight(opening, " \t") != "---" {
-		return nil, fmt.Errorf("%s must open with YAML frontmatter delimited by ---", skillFile)
+		return nil, fmt.Errorf("%s must open with YAML frontmatter delimited by ---", resources.SkillFile)
 	}
 	body, ok := cutAtDelimiter(rest)
 	if !ok {
-		return nil, fmt.Errorf("%s frontmatter is not closed by --- on a line of its own", skillFile)
+		return nil, fmt.Errorf("%s frontmatter is not closed by --- on a line of its own", resources.SkillFile)
 	}
 
 	fm := map[string]any{}
 	if err := yaml.Unmarshal([]byte(body), &fm); err != nil {
-		return nil, fmt.Errorf("unable to parse %s frontmatter: %w", skillFile, err)
+		return nil, fmt.Errorf("unable to parse %s frontmatter: %w", resources.SkillFile, err)
 	}
 	return fm, nil
 }

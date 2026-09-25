@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -412,6 +413,7 @@ type badResource struct {
 	uri     string
 	content any
 	err     error
+	dynamic bool
 }
 
 func (r badResource) GetURI() string                                    { return r.uri }
@@ -423,6 +425,7 @@ func (r badResource) GetAnnotations() *resources.ResourceAnnotations    { return
 func (r badResource) GetSize() *int64                                   { return nil }
 func (r badResource) GetResourceUIMetadata() any                        { return nil }
 func (r badResource) IsUI() bool                                        { return false }
+func (r badResource) IsDynamic() bool                                   { return r.dynamic }
 func (r badResource) ToConfig() resources.ResourceConfig                { return nil }
 func (r badResource) Read(context.Context, map[string]any) (any, error) { return r.content, r.err }
 
@@ -697,5 +700,240 @@ func TestDiscoverRejectsOversizeTextSkill(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "skill://analytics-guide/SKILL.md") {
 		t.Errorf("Discover() = %v, want the error to name the skill", err)
+	}
+}
+
+// dynamicSkillDoc builds a SKILL.md resource that declares its skill dynamic.
+func dynamicSkillDoc(t *testing.T, ctx context.Context, name, uri, content string) resources.Resource {
+	t.Helper()
+	cfg := &text.Config{
+		ResourceConfigBase: resources.ResourceConfigBase{
+			ConfigBase: resources.ConfigBase{Name: name, Type: "text", MimeType: "text/markdown"},
+			URI:        uri,
+			Dynamic:    true,
+		},
+		Text: content,
+	}
+	res, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("unable to initialize %q: %s", uri, err)
+	}
+	return res
+}
+
+// neverReadResource fails the test if Discover reads it.
+type neverReadResource struct {
+	badResource
+	t *testing.T
+}
+
+func (r neverReadResource) Read(context.Context, map[string]any) (any, error) {
+	r.t.Errorf("Read() was called on %q, want a dynamic skill to read only its SKILL.md", r.uri)
+	return "", nil
+}
+
+// TestDiscoverDynamicSkill checks that a dynamic skill publishes the marker
+// rather than a file list, and reads only its SKILL.md to do it.
+func TestDiscoverDynamicSkill(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc := skillMD("live-report", "Summarize the current run")
+	resourcesMap := map[string]resources.Resource{
+		"report": dynamicSkillDoc(t, ctx, "report", "skill://live-report/SKILL.md", doc),
+		"rows": neverReadResource{
+			badResource: badResource{uri: "skill://live-report/rows.csv"},
+			t:           t,
+		},
+	}
+
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+
+	got := entries[0]
+	if !got.Resources.Dynamic {
+		t.Error("Dynamic = false, want true")
+	}
+	if len(got.Resources.Refs) != 0 {
+		t.Errorf("got %d refs, want none on a dynamic skill", len(got.Resources.Refs))
+	}
+	// Entry.Validate still requires the frontmatter: it ties the frontmatter
+	// name to the URI, and a host builds its registry from these fields.
+	if name := got.Frontmatter["name"]; name != "live-report" {
+		t.Errorf("frontmatter name = %v, want live-report", name)
+	}
+	if desc := got.Frontmatter["description"]; desc != "Summarize the current run" {
+		t.Errorf("frontmatter description = %v, want the SKILL.md description", desc)
+	}
+}
+
+// TestDiscoverDynamicSkillIsExemptFromTheFileCount checks that the file count
+// does not apply to a dynamic skill. SEP-2640 counts it over a manifest's
+// entries, and a dynamic skill publishes none.
+func TestDiscoverDynamicSkillIsExemptFromTheFileCount(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resourcesMap := map[string]resources.Resource{
+		"doc": dynamicSkillDoc(t, ctx, "doc", "skill://big-skill/SKILL.md",
+			skillMD("big-skill", "More files than a static skill may carry")),
+	}
+	for i := range skills.MaxRefs + 1 {
+		uri := fmt.Sprintf("skill://big-skill/refs/f%d.md", i)
+		resourcesMap[fmt.Sprintf("ref%d", i)] = neverReadResource{
+			badResource: badResource{uri: uri},
+			t:           t,
+		}
+	}
+
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil: a dynamic skill has no refs to count", err)
+	}
+	if len(entries) != 1 || !entries[0].Resources.Dynamic {
+		t.Fatalf("got %+v, want one dynamic entry", entries)
+	}
+}
+
+// TestDiscoverRejectsOversizeDynamicDoc checks the size limit on the one file a
+// dynamic skill reads. Discover runs on every request, so an unbounded read
+// repeats on every request.
+func TestDiscoverRejectsOversizeDynamicDoc(t *testing.T) {
+	const uri = "skill://live-report/SKILL.md"
+
+	t.Run("size hint", func(t *testing.T) {
+		ctx := mustLoggerCtx(t)
+		resourcesMap := map[string]resources.Resource{
+			"doc": hugeResource{
+				badResource: badResource{uri: uri, dynamic: true},
+				t:           t,
+			},
+		}
+
+		_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+		if err == nil {
+			t.Fatal("Discover() = nil, want a size error")
+		}
+		if !strings.Contains(err.Error(), "exceeds the limit") {
+			t.Errorf("Discover() = %v, want a size error", err)
+		}
+	})
+
+	t.Run("bytes read", func(t *testing.T) {
+		ctx := mustLoggerCtx(t)
+		// The resource reports no size, so this exercises the check on the
+		// bytes that Discover reads.
+		resourcesMap := map[string]resources.Resource{
+			"doc": badResource{
+				uri:     uri,
+				dynamic: true,
+				content: strings.Repeat("x", skills.MaxTotalSize+1),
+			},
+		}
+
+		_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+		if err == nil {
+			t.Fatal("Discover() = nil, want a size error")
+		}
+		if !strings.Contains(err.Error(), "exceeds the limit") {
+			t.Errorf("Discover() = %v, want a size error", err)
+		}
+		if !strings.Contains(err.Error(), uri) {
+			t.Errorf("Discover() = %v, want the error to name the skill", err)
+		}
+	})
+}
+
+// TestDiscoverDynamicSkillStillValidatesItsDoc checks that dynamic exempts a
+// skill's members, never its SKILL.md.
+func TestDiscoverDynamicSkillStillValidatesItsDoc(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tcs := []struct {
+		name    string
+		doc     string
+		wantErr string
+	}{
+		{
+			name:    "no frontmatter",
+			doc:     "# Just a heading\n",
+			wantErr: "must open with YAML frontmatter",
+		},
+		{
+			name:    "name disagrees with the uri",
+			doc:     skillMD("something-else", "Mismatched name"),
+			wantErr: "does not match the uri",
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			resourcesMap := map[string]resources.Resource{
+				"doc": dynamicSkillDoc(t, ctx, "doc", "skill://live-report/SKILL.md", tc.doc),
+			}
+			_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+			if err == nil {
+				t.Fatalf("Discover() = nil, want an error containing %q", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Discover() = %v, want an error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestDiscoverDynamicPropagatesUpward checks that a nested dynamic skill makes
+// its enclosing skill dynamic. The SEP's completeness rule puts the nested
+// files in the enclosing skill's set, so no digest over that set stays stable.
+func TestDiscoverDynamicPropagatesUpward(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resourcesMap := map[string]resources.Resource{
+		"outer":  textResource(t, ctx, "outer", "skill://outer/SKILL.md", skillMD("outer", "The enclosing skill")),
+		"middle": textResource(t, ctx, "middle", "skill://outer/middle/SKILL.md", skillMD("middle", "The skill between")),
+		"inner":  dynamicSkillDoc(t, ctx, "inner", "skill://outer/middle/inner/SKILL.md", skillMD("inner", "The nested skill")),
+		"other":  textResource(t, ctx, "other", "skill://other/SKILL.md", skillMD("other", "An unrelated skill")),
+	}
+
+	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	if err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+
+	got := map[string]bool{}
+	for _, e := range entries {
+		got[e.URI] = e.Resources.Dynamic
+	}
+	// The marker reaches every ancestor, and no sibling.
+	want := map[string]bool{
+		"skill://outer/SKILL.md":              true,
+		"skill://outer/middle/SKILL.md":       true,
+		"skill://outer/middle/inner/SKILL.md": true,
+		"skill://other/SKILL.md":              false,
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("dynamic by skill = %v, want %v", got, want)
+	}
+
+	// The marker replaces the digests. An ancestor that kept them would publish
+	// a partial file set, because it no longer covers the nested skill.
+	for _, e := range entries {
+		if e.Resources.Dynamic && len(e.Resources.Refs) != 0 {
+			t.Errorf("skill %q is dynamic with %d refs, want 0", e.URI, len(e.Resources.Refs))
+		}
 	}
 }

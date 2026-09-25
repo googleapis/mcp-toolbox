@@ -274,6 +274,9 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	if err := skills.WarnOnDuplicateNames(ctx, entries); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
+	if err := skills.WarnOnDocNameMismatch(ctx, entries, skillReg); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
 	// A SKILL.md is published under the name and description its frontmatter
 	// declares, so a client sees the skill rather than the filename.
 	docs, err := skills.WithDocMetadata(entries, resourcesMap)

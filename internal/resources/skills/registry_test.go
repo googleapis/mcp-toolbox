@@ -154,6 +154,44 @@ func TestNilRegistry(t *testing.T) {
 	if members, ok := reg.Members("skill://analytics-guide/SKILL.md"); ok {
 		t.Errorf("Members() = %v, true, want false", members)
 	}
+	if doc, ok := reg.Doc("skill://analytics-guide/SKILL.md"); ok {
+		t.Errorf("Doc() = %v, true, want false", doc)
+	}
+	if reg.IsDynamic("skill://analytics-guide/SKILL.md") {
+		t.Error("IsDynamic() = true, want false")
+	}
+}
+
+// TestRegistryDoc pins the SKILL.md lookup. buildDynamicEntry reads this
+// resource for the frontmatter, so it must resolve without a scan of the
+// member list.
+func TestRegistryDoc(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+
+	const docURI = "skill://analytics-guide/SKILL.md"
+	reg := skills.NewRegistry(map[string]resources.Resource{
+		"guide":   textResource(t, ctx, "guide", docURI, skillMD("analytics-guide", "Query the warehouse")),
+		"queries": textResource(t, ctx, "queries", "skill://analytics-guide/references/queries.md", "# Common queries\n"),
+	})
+
+	doc, ok := reg.Doc(docURI)
+	if !ok {
+		t.Fatalf("Doc(%q) = _, false, want the SKILL.md resource", docURI)
+	}
+	if doc.GetURI() != docURI {
+		t.Errorf("Doc(%q).GetURI() = %q, want %q", docURI, doc.GetURI(), docURI)
+	}
+
+	// The same URIs Members rejects: a supporting file is not a skill's doc.
+	for _, uri := range []string{
+		"skill://nope/SKILL.md",
+		"skill://analytics-guide",
+		"skill://analytics-guide/references/queries.md",
+	} {
+		if got, ok := reg.Doc(uri); ok {
+			t.Errorf("Doc(%q) = %v, true, want false", uri, got)
+		}
+	}
 }
 
 // TestRegistryReturnsCopies pins the accessor results as safe to modify. Several

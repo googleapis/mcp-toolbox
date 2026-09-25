@@ -15,9 +15,11 @@
 package skills
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // docMimeType is what SEP-2640 fixes for a SKILL.md, whichever resource type
@@ -67,4 +69,31 @@ func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource
 		docs[key] = skillDoc{Resource: res, name: name, description: desc}
 	}
 	return docs, nil
+}
+
+// WarnOnDocNameMismatch reports the SKILL.md resources whose config key differs
+// from the frontmatter name. WithDocMetadata already gives the catalogue the
+// frontmatter name. A group lists its resources by config key, so a key that
+// differs from the skill is hard to maintain. Call it one time, at startup.
+func WarnOnDocNameMismatch(ctx context.Context, entries []Entry, reg *Registry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("checking the names of the skill documents: %w", err)
+	}
+
+	for _, e := range entries {
+		key, ok := reg.Key(e.URI)
+		if !ok {
+			continue
+		}
+		name, ok := e.Frontmatter["name"].(string)
+		if !ok || name == key {
+			continue
+		}
+		logger.WarnContext(ctx, fmt.Sprintf("resource %q is the %s of skill %q. Rename the resource to %q, so that a group lists it under the skill's name", key, resources.SkillFile, name, name))
+	}
+	return nil
 }

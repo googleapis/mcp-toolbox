@@ -35,6 +35,9 @@ import (
 // loads needs no nil check.
 type Registry struct {
 	members map[string][]resources.Resource
+	docs    map[string]resources.Resource
+	keys    map[string]string
+	dynamic map[string]bool
 	uris    []string
 	orphans []string
 }
@@ -50,13 +53,18 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	prefix := resources.SkillScheme + "://"
 
 	isRoot := make(map[string]bool)
-	for _, res := range resourcesMap {
+	docs := make(map[string]resources.Resource)
+	keys := make(map[string]string)
+	for key, res := range resourcesMap {
 		uri := res.GetURI()
-		if !strings.HasPrefix(uri, prefix) {
-			continue
-		}
-		if root, ok := strings.CutSuffix(uri, "/"+skillFile); ok {
+		if root, ok := resources.SkillRoot(uri); ok {
 			isRoot[root] = true
+			docs[uri] = res
+			// Two config keys can address one URI. Keep the lowest, so the
+			// registry does not depend on map order.
+			if prev, seen := keys[uri]; !seen || key < prev {
+				keys[uri] = key
+			}
 		}
 	}
 
@@ -66,6 +74,16 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	for root := range isRoot {
 		if _, segs, err := uriSegments(root); err == nil {
 			rootSegs[root] = segs
+		}
+	}
+
+	// A skill is dynamic if its own SKILL.md carries the flag, or if it contains
+	// a nested skill that does. The enclosing skill's file set includes the
+	// nested skill's files, so its digests cannot be stable either.
+	dynamic := make(map[string]bool, len(isRoot))
+	for uri, doc := range docs {
+		if doc.IsDynamic() {
+			dynamic[uri] = true
 		}
 	}
 
@@ -85,13 +103,16 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 			// which fails startup for the whole config.
 			root := uri[:i]
 			if segs, ok := rootSegs[root]; ok && underSkill(uri, resources.SkillScheme, segs) {
-				skillURI := root + "/" + skillFile
+				skillURI := root + "/" + resources.SkillFile
 				members[skillURI] = append(members[skillURI], res)
+				if res.IsDynamic() {
+					dynamic[skillURI] = true
+				}
 				matched = true
 			}
 		}
 		// Skip SKILL.md files: each one defines a skill rather than belonging to one.
-		if !matched && !strings.HasSuffix(uri, "/"+skillFile) {
+		if !matched && !strings.HasSuffix(uri, "/"+resources.SkillFile) {
 			orphans = append(orphans, uri)
 		}
 	}
@@ -107,13 +128,13 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 
 	uris := make([]string, 0, len(roots))
 	for _, root := range roots {
-		uris = append(uris, root+"/"+skillFile)
+		uris = append(uris, root+"/"+resources.SkillFile)
 	}
 	for _, m := range members {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
 
-	return &Registry{members: members, uris: uris, orphans: orphans}
+	return &Registry{members: members, docs: docs, keys: keys, dynamic: dynamic, uris: uris, orphans: orphans}
 }
 
 // URIs returns a copy of every skill's SKILL.md URI, sorted.
@@ -132,6 +153,37 @@ func (r *Registry) Members(skillURI string) ([]resources.Resource, bool) {
 	}
 	m, ok := r.members[skillURI]
 	return slices.Clone(m), ok
+}
+
+// Doc returns one skill's SKILL.md resource. The second result reports whether
+// the skill is registered.
+func (r *Registry) Doc(skillURI string) (resources.Resource, bool) {
+	if r == nil {
+		return nil, false
+	}
+	d, ok := r.docs[skillURI]
+	return d, ok
+}
+
+// Key returns the config key that holds one skill's SKILL.md. A group lists its
+// resources by this key. The second result reports whether the skill is
+// registered.
+func (r *Registry) Key(skillURI string) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	k, ok := r.keys[skillURI]
+	return k, ok
+}
+
+// IsDynamic reports whether a skill publishes the dynamic marker in place of a
+// manifest of digests. A nested dynamic skill makes every enclosing skill
+// dynamic, because the enclosing skill's file set contains the nested files.
+func (r *Registry) IsDynamic(skillURI string) bool {
+	if r == nil {
+		return false
+	}
+	return r.dynamic[skillURI]
 }
 
 // Len reports how many skills are registered.
