@@ -78,16 +78,22 @@ func initOceanBaseConnectionPool(host, port, user, pass, dbname string) (*sql.DB
 }
 
 func TestOceanBaseToolEndpoints(t *testing.T) {
+	tableName := setupOceanBaseTest(t, "--enable-api")
+	t.Run("discovery", tests.RunToolGetTest)
+	runOceanBaseCallTests(t, tableName, nil, nil, nil)
+}
+
+func setupOceanBaseTest(t *testing.T, args ...string) string {
+	t.Helper()
 	sourceConfig := getOceanBaseVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
+	t.Cleanup(cancel)
 
 	pool, err := initOceanBaseConnectionPool(OceanBaseHost, OceanBasePort, OceanBaseUser, OceanBasePass, OceanBaseDatabase)
 	if err != nil {
 		t.Fatalf("unable to create OceanBase connection pool: %s", err)
 	}
+	t.Cleanup(func() { pool.Close() })
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -97,12 +103,12 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getOceanBaseParamToolInfo(tableNameParam)
 	teardownTable1 := setupOceanBaseTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	t.Cleanup(func() { teardownTable1(t) })
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getOceanBaseAuthToolInfo(tableNameAuth)
 	teardownTable2 := setupOceanBaseTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	t.Cleanup(func() { teardownTable2(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, OceanBaseToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -114,7 +120,16 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -124,15 +139,25 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
-	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := getOceanBaseWants()
+	return tableNameTemplateParam
+}
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+func runOceanBaseCallTests(t *testing.T, tableName string, invokeOptions []tests.InvokeTestOption, sqlOptions []tests.ExecuteSqlOption, templateOptions []tests.TemplateParamOption) {
+	t.Helper()
+	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := getOceanBaseWants()
+	t.Run("invoke", func(t *testing.T) {
+		opts := []tests.InvokeTestOption{tests.DisableArrayTest()}
+		tests.RunToolInvokeTest(t, select1Want, append(opts, invokeOptions...)...)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("execute_sql", func(t *testing.T) {
+		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, sqlOptions...)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, tableName, templateOptions...)
+	})
 }
 
 // OceanBase specific parameter tool info
@@ -203,13 +228,13 @@ func setupOceanBaseTable(t *testing.T, ctx context.Context, pool *sql.DB, create
 	}
 
 	// Create table
-	_, err = pool.QueryContext(ctx, createStatement)
+	_, err = pool.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
 	// Insert test data
-	_, err = pool.QueryContext(ctx, insertStatement, params...)
+	_, err = pool.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
 		t.Fatalf("unable to insert test data: %s", err)
 	}
