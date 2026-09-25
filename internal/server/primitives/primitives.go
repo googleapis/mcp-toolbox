@@ -26,7 +26,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
-	"github.com/googleapis/mcp-toolbox/internal/skills"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 )

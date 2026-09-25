@@ -15,9 +15,9 @@
 package v20260728
 
 import (
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
-	"github.com/googleapis/mcp-toolbox/internal/skills"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
