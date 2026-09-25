@@ -38,6 +38,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/http"
+	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
@@ -1877,6 +1878,9 @@ func TestPrebuiltTools(t *testing.T) {
 	oceanbase_config, _ := prebuiltconfigs.Get("oceanbase")
 	oracle_config, _ := prebuiltconfigs.Get("oracledb")
 	postgresconfig, _ := prebuiltconfigs.Get("postgres")
+	postgres_memory_config, _ := prebuiltconfigs.Get("postgres-memory")
+	alloydb_postgres_memory_config, _ := prebuiltconfigs.Get("alloydb-postgres-memory")
+	cloudsqlpg_memory_config, _ := prebuiltconfigs.Get("cloud-sql-postgres-memory")
 	serverless_spark_config, _ := prebuiltconfigs.Get("serverless-spark")
 	cloudstorage_config, _ := prebuiltconfigs.Get("cloud-storage")
 	singlestore_config, _ := prebuiltconfigs.Get("singlestore")
@@ -2642,6 +2646,39 @@ func TestPrebuiltTools(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "postgres memory prebuilt tools",
+			in:   postgres_memory_config,
+			wantGroups: server.GroupConfigs{
+				"memory": group.GroupConfig{
+					Name:        "memory",
+					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
+					ToolNames:   []string{"create_memory"},
+				},
+			},
+		},
+		{
+			name: "alloydb postgres memory prebuilt tools",
+			in:   alloydb_postgres_memory_config,
+			wantGroups: server.GroupConfigs{
+				"memory": group.GroupConfig{
+					Name:        "memory",
+					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
+					ToolNames:   []string{"create_memory"},
+				},
+			},
+		},
+		{
+			name: "cloud sql postgres memory prebuilt tools",
+			in:   cloudsqlpg_memory_config,
+			wantGroups: server.GroupConfigs{
+				"memory": group.GroupConfig{
+					Name:        "memory",
+					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
+					ToolNames:   []string{"create_memory"},
+				},
+			},
+		},
 	}
 
 	for _, tc := range tcs {
@@ -3101,4 +3138,116 @@ resourceTemplates:
 	if tmplContent != "anchored content" {
 		t.Fatalf("expected 'anchored content', got %v", tmplContent)
 	}
+}
+
+func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	prebuilts := []string{"postgres-memory", "alloydb-postgres-memory", "cloud-sql-postgres-memory"}
+
+	setRequiredSourceEnv := func(t *testing.T) {
+		t.Helper()
+		t.Setenv("POSTGRES_DATABASE", "testdb")
+		t.Setenv("POSTGRES_USER", "user")
+		t.Setenv("POSTGRES_PASSWORD", "pass")
+		t.Setenv("ALLOYDB_POSTGRES_PROJECT", "proj")
+		t.Setenv("ALLOYDB_POSTGRES_REGION", "region")
+		t.Setenv("ALLOYDB_POSTGRES_CLUSTER", "cluster")
+		t.Setenv("ALLOYDB_POSTGRES_INSTANCE", "inst")
+		t.Setenv("ALLOYDB_POSTGRES_DATABASE", "db")
+		t.Setenv("ALLOYDB_POSTGRES_USER", "user")
+		t.Setenv("ALLOYDB_POSTGRES_PASSWORD", "pass")
+		t.Setenv("CLOUD_SQL_POSTGRES_PROJECT", "proj")
+		t.Setenv("CLOUD_SQL_POSTGRES_REGION", "region")
+		t.Setenv("CLOUD_SQL_POSTGRES_INSTANCE", "inst")
+		t.Setenv("CLOUD_SQL_POSTGRES_DATABASE", "db")
+		t.Setenv("CLOUD_SQL_POSTGRES_USER", "user")
+		t.Setenv("CLOUD_SQL_POSTGRES_PASSWORD", "pass")
+	}
+
+	t.Run("default when TOOLBOX_MEMORY_DEFAULT_USER_ID is unset", func(t *testing.T) {
+		setRequiredSourceEnv(t)
+
+		for _, name := range prebuilts {
+			buf, err := prebuiltconfigs.Get(name)
+			if err != nil {
+				t.Fatalf("unable to get prebuilt %s: %v", name, err)
+			}
+			p := &ConfigParser{}
+			parsed, err := p.ParseConfig(ctx, buf)
+			if err != nil {
+				t.Fatalf("unable to parse prebuilt %s: %v", name, err)
+			}
+			toolCfg, ok := parsed.Tools["create_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing create_memory tool", name)
+			}
+			memCfg, ok := toolCfg.(postgrescreatememory.Config)
+			if !ok {
+				t.Fatalf("expected postgrescreatememory.Config, got %T", toolCfg)
+			}
+			if memCfg.DefaultUserID != "default" {
+				t.Errorf("[%s] expected DefaultUserID 'default', got %q", name, memCfg.DefaultUserID)
+			}
+
+			tool, err := memCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize failed: %v", name, err)
+			}
+			params, err := tool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] GetParameters failed: %v", name, err)
+			}
+			for _, param := range params {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
+		}
+	})
+
+	t.Run("configured with TOOLBOX_MEMORY_DEFAULT_USER_ID", func(t *testing.T) {
+		setRequiredSourceEnv(t)
+		t.Setenv("TOOLBOX_MEMORY_DEFAULT_USER_ID", "alextalreja")
+
+		for _, name := range prebuilts {
+			buf, err := prebuiltconfigs.Get(name)
+			if err != nil {
+				t.Fatalf("unable to get prebuilt %s: %v", name, err)
+			}
+			p := &ConfigParser{}
+			parsed, err := p.ParseConfig(ctx, buf)
+			if err != nil {
+				t.Fatalf("unable to parse prebuilt %s: %v", name, err)
+			}
+			toolCfg, ok := parsed.Tools["create_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing create_memory tool", name)
+			}
+			memCfg, ok := toolCfg.(postgrescreatememory.Config)
+			if !ok {
+				t.Fatalf("expected postgrescreatememory.Config, got %T", toolCfg)
+			}
+			if memCfg.DefaultUserID != "alextalreja" {
+				t.Errorf("[%s] expected DefaultUserID 'alextalreja', got %q", name, memCfg.DefaultUserID)
+			}
+
+			tool, err := memCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize failed: %v", name, err)
+			}
+			params, err := tool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] GetParameters failed: %v", name, err)
+			}
+			for _, param := range params {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
+		}
+	})
 }

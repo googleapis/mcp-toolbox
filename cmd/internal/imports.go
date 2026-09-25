@@ -336,6 +336,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/oceanbase/oceanbasesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/oracle/oracleexecutesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/oracle/oraclesql"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresdatabaseoverview"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresexecutesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresgetcolumncardinality"
