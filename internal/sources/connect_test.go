@@ -24,6 +24,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -81,6 +82,14 @@ func (c *connector) connect(ctx context.Context) (*handle, error) {
 		return nil, err
 	}
 	return &handle{id: id}, nil
+}
+
+// doOnce adapts the config-free connect functions these tests use; the config
+// handed to a connect is exercised in deferredenv_test.go.
+func doOnce(once *sources.ConnectOnce[*handle], ctx context.Context, connect func(context.Context) (*handle, error)) (*handle, error) {
+	return once.Do(ctx, func(ctx context.Context) (*handle, error) {
+		return connect(ctx)
+	})
 }
 
 func (c *connector) callCount() int {
@@ -150,7 +159,7 @@ func TestConnectOnceCoalescesConcurrentCallers(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, errs[i] = once.Do(context.Background(), c.connect)
+			_, errs[i] = doOnce(once, context.Background(), c.connect)
 		}()
 	}
 	close(start)
@@ -178,7 +187,7 @@ func TestConnectOnceSurvivesFirstCallerCancellation(t *testing.T) {
 	firstErr := make(chan error, 1)
 	go func() {
 		close(firstStarted)
-		_, err := once.Do(firstCtx, c.connect)
+		_, err := doOnce(once, firstCtx, c.connect)
 		firstErr <- err
 	}()
 	<-firstStarted
@@ -190,7 +199,7 @@ func TestConnectOnceSurvivesFirstCallerCancellation(t *testing.T) {
 		// the cancellation could land before the attempt it is meant to test.
 		<-c.entered
 		cancelFirst()
-		_, err := once.Do(context.Background(), c.connect)
+		_, err := doOnce(once, context.Background(), c.connect)
 		secondErr <- err
 	}()
 
@@ -219,7 +228,7 @@ func TestConnectOnceRespectsCallerDeadline(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := once.Do(ctx, c.connect)
+	_, err := doOnce(once, ctx, c.connect)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected the caller's deadline to end the wait, got %v", err)
 	}
@@ -232,7 +241,7 @@ func TestConnectOnceRetriesAfterFailure(t *testing.T) {
 	c := &connector{err: errors.New("connection refused")}
 	once := newConnectOnce(context.Background())
 
-	if _, err := once.Do(context.Background(), c.connect); err == nil {
+	if _, err := doOnce(once, context.Background(), c.connect); err == nil {
 		t.Fatal("expected the first connect to fail")
 	}
 	if _, ok := once.Get(); ok {
@@ -243,7 +252,7 @@ func TestConnectOnceRetriesAfterFailure(t *testing.T) {
 	c.err = nil
 	c.mu.Unlock()
 
-	if _, err := once.Do(context.Background(), c.connect); err != nil {
+	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
 		t.Fatalf("expected the retry to succeed, got %s", err)
 	}
 	if got := c.callCount(); got != 2 {
@@ -255,11 +264,11 @@ func TestConnectOnceReusesTheConnection(t *testing.T) {
 	c := &connector{}
 	once := newConnectOnce(context.Background())
 
-	first, err := once.Do(context.Background(), c.connect)
+	first, err := doOnce(once, context.Background(), c.connect)
 	if err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
-	second, err := once.Do(context.Background(), c.connect)
+	second, err := doOnce(once, context.Background(), c.connect)
 	if err != nil {
 		t.Fatalf("unexpected error on the second call: %s", err)
 	}
@@ -299,7 +308,7 @@ func TestConnectOnceCeiling(t *testing.T) {
 			once := newConnectOnce(context.Background(), tc.opts...)
 
 			start := time.Now()
-			if _, err := once.Do(context.Background(), c.connect); err != nil {
+			if _, err := doOnce(once, context.Background(), c.connect); err != nil {
 				t.Fatalf("unexpected error connecting: %s", err)
 			}
 			if got := c.observedTimeout(start); (got - tc.want).Abs() > time.Second {
@@ -343,7 +352,7 @@ func TestConnectOnceConnectsUnderTheStartupContext(t *testing.T) {
 				testutils.ContextWithUserAgent(context.Background(), "1.2.3"),
 				map[string]any{"sub": "caller@example.com"},
 			)
-			if _, err := once.Do(callerCtx, c.connect); err != nil {
+			if _, err := doOnce(once, callerCtx, c.connect); err != nil {
 				t.Fatalf("unexpected error connecting: %s", err)
 			}
 			if got := c.observedUserAgent(); got != tc.want {
@@ -361,7 +370,7 @@ func TestConnectOnceCloseReleasesTheConnection(t *testing.T) {
 	r := &releases{}
 	once := newConnectOnce(context.Background()).OnClose(r.close)
 
-	value, err := once.Do(context.Background(), c.connect)
+	value, err := doOnce(once, context.Background(), c.connect)
 	if err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
@@ -400,7 +409,7 @@ func TestConnectOnceCloseIsIdempotent(t *testing.T) {
 	r := &releases{}
 	once := newConnectOnce(context.Background()).OnClose(r.close)
 
-	if _, err := once.Do(context.Background(), c.connect); err != nil {
+	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
 	for i := range 3 {
@@ -420,7 +429,7 @@ func TestConnectOnceRefusesToConnectAfterClose(t *testing.T) {
 	if err := once.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error closing: %s", err)
 	}
-	if _, err := once.Do(context.Background(), c.connect); err == nil {
+	if _, err := doOnce(once, context.Background(), c.connect); err == nil {
 		t.Fatal("expected a closed source to refuse to connect")
 	}
 	if got := c.callCount(); got != 0 {
@@ -438,7 +447,7 @@ func TestConnectOnceReleasesAnAttemptThatOutlivesClose(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := once.Do(context.Background(), c.connect)
+		_, err := doOnce(once, context.Background(), c.connect)
 		done <- err
 	}()
 
@@ -463,7 +472,7 @@ func TestConnectOnceCloseReportsCloserFailure(t *testing.T) {
 	r := &releases{fail: errors.New("pool did not drain")}
 	once := newConnectOnce(context.Background()).OnClose(r.close)
 
-	if _, err := once.Do(context.Background(), c.connect); err != nil {
+	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
 	err := once.Close(context.Background())
@@ -483,7 +492,7 @@ func TestConnectOnceCloseWithoutACloser(t *testing.T) {
 	// A source whose handle needs no teardown leaves the closer unset.
 	once := newConnectOnce(context.Background())
 
-	if _, err := once.Do(context.Background(), c.connect); err != nil {
+	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
 	if err := once.Close(context.Background()); err != nil {
@@ -491,5 +500,52 @@ func TestConnectOnceCloseWithoutACloser(t *testing.T) {
 	}
 	if _, ok := once.Get(); ok {
 		t.Fatal("a closed holder must not still report a connection")
+	}
+}
+
+// A source that builds credentials or a client from the connect context ships a
+// handle that stops working the moment the connect returns: an oauth2 token
+// source keeps that context and reuses it for every later refresh. This is what
+// DetachedConnectContext exists to prevent.
+func TestDetachedConnectContextOutlivesTheConnect(t *testing.T) {
+	startupCtx := testutils.ContextWithUserAgent(context.Background(), "1.2.3")
+	once := newConnectOnce(startupCtx)
+
+	var connectCtx, detached context.Context
+	_, err := once.Do(context.Background(), func(ctx context.Context) (*handle, error) {
+		connectCtx, detached = ctx, sources.DetachedConnectContext(ctx)
+		return &handle{id: 1}, nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error connecting: %s", err)
+	}
+
+	if connectCtx.Err() == nil {
+		t.Fatal("the connect context must be cancelled once the connect returns")
+	}
+	if err := detached.Err(); err != nil {
+		t.Errorf("the detached context must outlive the connect, got %s", err)
+	}
+	// The user agent has to survive, or a detached client reports the wrong one.
+	ua, _ := util.UserAgentFromContext(detached)
+	if want := "genai-toolbox/1.2.3"; ua != want {
+		t.Errorf("detached context carries user agent %q, want %q", ua, want)
+	}
+}
+
+// Whatever the detached context is handed to outlives the span of the caller
+// that happened to trigger the connect, so it must not keep that span.
+func TestDetachedConnectContextDropsTheSpan(t *testing.T) {
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{0x01},
+		SpanID:  trace.SpanID{0x02},
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), sc)
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		t.Fatal("test setup: the context should start with a valid span")
+	}
+
+	if got := trace.SpanContextFromContext(sources.DetachedConnectContext(ctx)); got.IsValid() {
+		t.Errorf("detached context still carries span %v, want none", got)
 	}
 }

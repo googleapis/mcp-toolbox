@@ -117,7 +117,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 				trace.WithAttributes(attribute.String("source_name", name)),
 			)
 			defer span.End()
-			s, err := sc.Initialize(childCtx, instrumentation.Tracer)
+			s, err := sc.Initialize(childCtx, instrumentation.Tracer, cfg.DeferSourceConnect)
 			if err != nil {
 				return nil, fmt.Errorf("unable to initialize source %q: %w", name, err)
 			}
@@ -133,6 +133,9 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		sourceNames = append(sourceNames, name)
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d sources: %s", len(sourcesMap), strings.Join(sourceNames, ", ")))
+	if cfg.DeferSourceConnect {
+		l.InfoContext(ctx, "Source connections are deferred; each source connects on first use.")
+	}
 
 	// initialize and validate the auth services from configs
 	authServicesMap := make(map[string]auth.AuthService)
@@ -852,7 +855,14 @@ func (s *Server) ServeStdio(ctx context.Context, stdin io.Reader, stdout io.Writ
 // connections. It uses http.Server.Shutdown() and has the same functionality.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.DebugContext(ctx, "shutting down the server.")
-	return s.srv.Shutdown(ctx)
+	err := s.srv.Shutdown(ctx)
+	// After the HTTP drain, so nothing is still serving a request against a
+	// source being released. A close failure is logged rather than returned:
+	// the server is already down, and it must not mask a drain error.
+	if cerr := s.PrimitiveMgr.CloseSources(ctx); cerr != nil {
+		s.logger.WarnContext(ctx, fmt.Sprintf("unable to close sources: %s", cerr))
+	}
+	return err
 }
 
 func (s *Server) Addr() string {

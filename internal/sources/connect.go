@@ -29,6 +29,25 @@ import (
 // for a cold cloud connector path rather than for a healthy connection.
 const ConnectTimeout = 60 * time.Second
 
+// DetachedConnectContext returns the context a connect must use for anything it
+// builds that outlives the connect itself — credentials, token sources, clients
+// that refresh in the background.
+//
+// Do runs the connect under a context it cancels as soon as the connect
+// returns, which is right for the attempt but wrong for its product: an oauth2
+// token source keeps the context it was built with and reuses it for every
+// later refresh, so a handle built from the connect context fails its first
+// refresh with "context canceled" and never recovers. The span is dropped for
+// the same reason — those refreshes outlive the span of whichever caller
+// happened to trigger the connect.
+//
+// Values are preserved, so the user agent and logger still cross over. Anything
+// the connect does inline — a ping, a dial, a metadata check — should keep
+// using the connect context so the attempt stays bounded.
+func DetachedConnectContext(ctx context.Context) context.Context {
+	return trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
+}
+
 // Option configures a ConnectOnce.
 type Option func(*options)
 
@@ -90,6 +109,12 @@ func NewConnectOnce[T any](ctx context.Context, name, sourceType string, tracer 
 	return &ConnectOnce[T]{name: name, sourceType: sourceType, tracer: tracer, startupCtx: ctx, timeout: o.timeout}
 }
 
+// Tracer reports the tracer the holder was built with, so a source needing one
+// inside its connect can reach it without keeping its own copy.
+func (c *ConnectOnce[T]) Tracer() trace.Tracer {
+	return c.tracer
+}
+
 // OnClose registers how to release the connection. A source that holds a
 // handle with no teardown can leave it unset. It is meant to be chained onto
 // NewConnectOnce, before the holder is reachable by another goroutine.
@@ -98,10 +123,11 @@ func (c *ConnectOnce[T]) OnClose(fn func(context.Context, T) error) *ConnectOnce
 	return c
 }
 
-// Get returns the connection if one has already been made. It never blocks and
-// never fails, so a source's context-free accessors — the ones tools type
-// assert on — can report a handle without being able to build one.
-func (c *ConnectOnce[T]) Get() (T, bool) {
+// get reports the connection if one has already been made, without blocking
+// and without being able to build one. It backs Do's fast path; a source
+// reaches its handle through Do so that a first caller connects rather than
+// seeing a zero value.
+func (c *ConnectOnce[T]) get() (T, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.value, c.ready
@@ -159,21 +185,21 @@ func (c *ConnectOnce[T]) Close(ctx context.Context) error {
 // not once per process.
 func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (T, error)) (T, error) {
 	var zero T
-	if value, ok := c.Get(); ok {
+	if value, ok := c.get(); ok {
 		return value, nil
 	}
 	if c.isClosed() {
-		return zero, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
+		return zero, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
 	}
 
 	ch := c.initGroup.DoChan("", func() (any, error) {
 		// singleflight only shares an attempt that is still in flight, so a
 		// caller queued behind a finished winner would start a second connect.
-		if value, ok := c.Get(); ok {
+		if value, ok := c.get(); ok {
 			return value, nil
 		}
 		if c.isClosed() {
-			return nil, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
+			return nil, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
 		}
 
 		// The attempt is shared by every waiter and the handle outlives the
@@ -200,7 +226,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 		value, err := connect(childCtx)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
-			return nil, fmt.Errorf("unable to initialize source %q: %w", c.name, err)
+			return nil, fmt.Errorf("unable to connect to source %q: %w", c.name, err)
 		}
 
 		c.mu.Lock()
@@ -213,7 +239,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 			if cerr := c.release(context.WithoutCancel(childCtx), value); cerr != nil {
 				return nil, fmt.Errorf("unable to close source %q: %w", c.name, cerr)
 			}
-			return nil, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
+			return nil, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
 		}
 		c.value, c.ready = value, true
 		c.mu.Unlock()
@@ -229,6 +255,6 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 		return value, nil
 	case <-ctx.Done():
 		// Only this caller gives up; the shared attempt runs on for the others.
-		return zero, fmt.Errorf("unable to initialize source %q: %w", c.name, ctx.Err())
+		return zero, fmt.Errorf("unable to connect to source %q: %w", c.name, ctx.Err())
 	}
 }

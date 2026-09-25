@@ -51,7 +51,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 	GetHostURL(context.Context, *v4.LookerSDK) (string, error)
 }
@@ -139,7 +139,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
-	if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, source.LookerApiSettings()); escErr != nil {
+
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+	if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, apiSettings); escErr != nil {
 		logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
 	}
 	paramsMap := params.AsMap()
@@ -149,7 +154,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	visConfig := paramsMap["vis_config"].(map[string]any)
 
 	mrespFields := "id,personal_folder_id"
-	mresp, err := sdk.Me(mrespFields, source.LookerApiSettings())
+	mresp, err := sdk.Me(mrespFields, apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -164,7 +169,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		folder = *mresp.PersonalFolderId
 	}
 
-	looks, err := sdk.FolderLooks(folder, "title", source.LookerApiSettings())
+	looks, err := sdk.FolderLooks(folder, "title", apiSettings)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
@@ -181,7 +186,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	wq.VisConfig = &visConfig
 
 	qrespFields := "id"
-	qresp, err := sdk.CreateQuery(*wq, qrespFields, source.LookerApiSettings())
+	qresp, err := sdk.CreateQuery(*wq, qrespFields, apiSettings)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
@@ -193,7 +198,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		QueryId:     qresp.Id,
 		FolderId:    &folder,
 	}
-	resp, err := sdk.CreateLook(wlwq, "", source.LookerApiSettings())
+	resp, err := sdk.CreateLook(wlwq, "", apiSettings)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

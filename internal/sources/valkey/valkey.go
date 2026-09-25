@@ -58,15 +58,20 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-
-	client, err := initValkeyClient(ctx, r)
-	if err != nil {
-		return nil, fmt.Errorf("error initializing Valkey client: %s", err)
-	}
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: r,
-		Client: client,
+		conn: sources.NewConnectOnce[valkey.Client](ctx, r.Name, SourceType, tracer).
+			OnClose(func(ctx context.Context, c valkey.Client) error {
+				c.Close()
+				return nil
+			}),
+	}
+	if deferConnect {
+		return s, nil
+	}
+	if _, err := s.client(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -74,9 +79,13 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 func initValkeyClient(ctx context.Context, r Config) (valkey.Client, error) {
 	var authFn func(valkey.AuthCredentialsContext) (valkey.AuthCredentials, error)
 	if r.UseGCPIAM {
-		// Pass in an access token getter fn for IAM auth
+		// Pass in an access token getter fn for IAM auth. valkey-go runs this on
+		// every connection attempt, including reconnects long after the connect
+		// returns, and passes no context of its own — so the token fetch must
+		// not be pinned to the connect's context.
+		authCtx := sources.DetachedConnectContext(ctx)
 		authFn = func(valkey.AuthCredentialsContext) (valkey.AuthCredentials, error) {
-			token, err := sources.GetIAMAccessToken(ctx)
+			token, err := sources.GetIAMAccessToken(authCtx)
 			creds := valkey.AuthCredentials{Username: "default", Password: token}
 			if err != nil {
 				return creds, err
@@ -111,11 +120,27 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Client valkey.Client
+	conn *sources.ConnectOnce[valkey.Client]
+}
+
+func (s *Source) client(ctx context.Context) (valkey.Client, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (valkey.Client, error) {
+		r := s.Config
+		client, err := initValkeyClient(ctx, r)
+		if err != nil {
+			return nil, fmt.Errorf("error initializing Valkey client: %s", err)
+		}
+		return client, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+// Close releases the connection, if one was ever made.
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -126,16 +151,17 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) ValkeyClient() valkey.Client {
-	return s.Client
-}
-
 func (s *Source) RunCommand(ctx context.Context, cmds [][]string) (any, error) {
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// Build commands
 	builtCmds := make(valkey.Commands, len(cmds))
 
 	for i, cmd := range cmds {
-		builtCmds[i] = s.ValkeyClient().B().Arbitrary(cmd...).Build()
+		builtCmds[i] = client.B().Arbitrary(cmd...).Build()
 	}
 
 	if len(builtCmds) == 0 {
@@ -143,7 +169,7 @@ func (s *Source) RunCommand(ctx context.Context, cmds [][]string) (any, error) {
 	}
 
 	// Execute commands
-	responses := s.ValkeyClient().DoMulti(ctx, builtCmds...)
+	responses := client.DoMulti(ctx, builtCmds...)
 
 	// Parse responses
 	out := make([]any, len(cmds))

@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"net/http"
 
-	dataproc "cloud.google.com/go/dataproc/v2/apiv1"
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -44,7 +43,6 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	GetBatchControllerClient() *dataproc.BatchControllerClient
 	ListBatches(context.Context, *int, string, string) (any, error)
 }
 

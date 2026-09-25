@@ -16,6 +16,9 @@ package primitives
 
 import (
 	"cmp"
+	"context"
+	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -140,6 +143,24 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.resources = resourcesMap
 	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
+}
+
+// CloseSources releases every source that holds a connection worth releasing.
+// One source failing does not stop the rest; the failures are returned joined.
+func (r *PrimitiveManager) CloseSources(ctx context.Context) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var errs []error
+	for name, src := range r.sources {
+		closer, ok := src.(sources.Closer)
+		if !ok {
+			continue
+		}
+		if err := closer.Close(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("source %q: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // AuthServices returns a copy of the auth services map

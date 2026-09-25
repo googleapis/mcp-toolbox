@@ -44,7 +44,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MindsDBPool() *sql.DB
+	MindsDBPoolContext(context.Context) (*sql.DB, error)
 	RunSQL(context.Context, string, []any) (any, error)
 }
 

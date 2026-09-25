@@ -124,8 +124,8 @@ func (m MockSource) GetAuthTokenHeaderName() string {
 	return "Authorization"
 }
 
-func (m MockSource) LookerApiSettings() *rtl.ApiSettings {
-	return &rtl.ApiSettings{}
+func (m MockSource) LookerApiSettings(context.Context) (*rtl.ApiSettings, error) {
+	return &rtl.ApiSettings{}, nil
 }
 
 func (m MockSource) GetLookerSDK(ctx context.Context, s string) (*v4.LookerSDK, error) {

@@ -51,7 +51,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 }
 
@@ -131,7 +131,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
-	dashboard, err := sdk.Dashboard(dashboard_id, "", source.LookerApiSettings())
+
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+	dashboard, err := sdk.Dashboard(dashboard_id, "", apiSettings)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -150,7 +155,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 
 	channels := make([]<-chan map[string]any, len(*dashboard.DashboardElements))
 	for i, element := range *dashboard.DashboardElements {
-		channels[i] = tileQueryWorker(ctx, sdk, source.LookerApiSettings(), i, element)
+		channels[i] = tileQueryWorker(ctx, sdk, apiSettings, i, element)
 	}
 
 	for resp := range merge(channels...) {

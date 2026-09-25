@@ -65,7 +65,7 @@ type compatibleSource interface {
 	GoogleCloudQuotaProject() string
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
+	LookerApiSettings(context.Context) (*rtl.ApiSettings, error)
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
 	GetHostURL(context.Context, *v4.LookerSDK) (string, error)
 }
@@ -257,6 +257,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
 
+	apiSettings, err := source.LookerApiSettings(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting api settings", http.StatusInternalServerError, err)
+	}
+
 	hostURL, err := source.GetHostURL(ctx, sdk)
 	if err != nil {
 		logger.WarnContext(ctx, "failed to dynamically resolve public host URL, utilizing fallback", "error", err)
@@ -274,7 +279,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 		oauth_creds.Token = TokenBased{AccessToken: rawToken}
 	} else {
-		oauth_creds.Secret = SecretBased{ClientId: source.LookerApiSettings().ClientId, ClientSecret: source.LookerApiSettings().ClientSecret}
+		oauth_creds.Secret = SecretBased{ClientId: apiSettings.ClientId, ClientSecret: apiSettings.ClientSecret}
 	}
 
 	lers := LookerExploreReferences{

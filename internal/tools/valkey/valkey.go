@@ -23,7 +23,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
-	"github.com/valkey-io/valkey-go"
 )
 
 const resourceType string = "valkey"
@@ -43,7 +42,6 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	ValkeyClient() valkey.Client
 	RunCommand(context.Context, [][]string) (any, error)
 }
 

@@ -4,7 +4,6 @@ package oracleexecutesql
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 
@@ -32,7 +31,6 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	OracleDB() *sql.DB
 	RunSQL(context.Context, string, []any, bool) (any, error)
 }
 

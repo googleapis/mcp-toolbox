@@ -44,8 +44,8 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	CouchbaseScope() *gocb.Scope
-	RunSQL(string, parameters.ParamValues) (any, error)
+	CouchbaseScopeContext(context.Context) (*gocb.Scope, error)
+	RunSQL(context.Context, string, parameters.ParamValues) (any, error)
 }
 
 type Config struct {
@@ -121,7 +121,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewAgentError("unable to extract standard params", err)
 	}
 
-	resp, err := source.RunSQL(newStatement, newParams)
+	resp, err := source.RunSQL(ctx, newStatement, newParams)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
