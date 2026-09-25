@@ -36,6 +36,7 @@ import (
 type Registry struct {
 	members map[string][]resources.Resource
 	uris    []string
+	orphans []string
 }
 
 // NewRegistry groups resourcesMap into skills. A skill is any resource at
@@ -69,11 +70,13 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	}
 
 	members := make(map[string][]resources.Resource, len(isRoot))
+	var orphans []string
 	for _, res := range resourcesMap {
 		uri := res.GetURI()
 		if !strings.HasPrefix(uri, prefix) {
 			continue
 		}
+		matched := false
 		// Walk the URI's ancestors rather than every root, so the scan costs
 		// path depth instead of the number of skills.
 		for i := strings.LastIndex(uri, "/"); i > 0; i = strings.LastIndex(uri[:i], "/") {
@@ -84,9 +87,17 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 			if segs, ok := rootSegs[root]; ok && underSkill(uri, resources.SkillScheme, segs) {
 				skillURI := root + "/" + skillFile
 				members[skillURI] = append(members[skillURI], res)
+				matched = true
 			}
 		}
+		// A SKILL.md is a skill in its own right, reported by URIs. One whose
+		// root is not a valid URI matches nothing here, but Discover rejects
+		// it, so listing it as an orphan too would only repeat that error.
+		if !matched && !strings.HasSuffix(uri, "/"+skillFile) {
+			orphans = append(orphans, uri)
+		}
 	}
+	sort.Strings(orphans)
 
 	// Order by skill root, not by SKILL.md URI: "guide-v2" sorts before "guide"
 	// once "/SKILL.md" is appended, because "-" precedes "/".
@@ -104,7 +115,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
 
-	return &Registry{members: members, uris: uris}
+	return &Registry{members: members, uris: uris, orphans: orphans}
 }
 
 // URIs returns a copy of every skill's SKILL.md URI, sorted.
@@ -131,4 +142,14 @@ func (r *Registry) Len() int {
 		return 0
 	}
 	return len(r.uris)
+}
+
+// Orphans returns a copy of every skill:// URI that belongs to no skill, sorted.
+// Such a resource is still listed and readable, but no skill's manifest carries
+// it: most often its URI has a typo, or the SKILL.md above it is missing.
+func (r *Registry) Orphans() []string {
+	if r == nil {
+		return nil
+	}
+	return slices.Clone(r.orphans)
 }
