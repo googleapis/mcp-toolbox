@@ -16,14 +16,17 @@ package bigquerycommon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 
 	bigqueryapi "cloud.google.com/go/bigquery"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	bigqueryrestapi "google.golang.org/api/bigquery/v2"
+	"google.golang.org/api/googleapi"
 )
 
 // validBQTableID matches BigQuery table identifiers in 'dataset.table' or
@@ -44,6 +47,24 @@ func ValidTableID(s string) bool {
 	return validBQTableID.MatchString(s)
 }
 
+// ValidColumnParam returns true if s (stripped of leading/trailing single quotes) is a safe column name.
+func ValidColumnParam(s string) bool {
+	return ValidColumnName(StripSingleQuotes(s))
+}
+
+// ValidContributionMetricParam returns true if s (stripped of leading/trailing single quotes) is a safe contribution metric (does not contain single quotes).
+func ValidContributionMetricParam(s string) bool {
+	return !strings.ContainsRune(StripSingleQuotes(s), '\'')
+}
+
+// StripSingleQuotes removes leading and trailing single quotes from a string if both are present.
+func StripSingleQuotes(s string) string {
+	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
 // ValidColumnName returns true if s is a safe BigQuery column name.
 // Values that fail this check must not be interpolated as SQL identifiers
 // or into single-quoted SQL string arguments that represent column references.
@@ -52,9 +73,18 @@ func ValidColumnName(s string) bool {
 }
 
 // DryRunQuery performs a dry run of the SQL query to validate it and get metadata.
-func DryRunQuery(ctx context.Context, restService *bigqueryrestapi.Service, projectID string, location string, sql string, params []*bigqueryrestapi.QueryParameter, connProps []*bigqueryapi.ConnectionProperty, maximumBytesBilled int64) (*bigqueryrestapi.Job, error) {
+func DryRunQuery(
+	ctx context.Context,
+	restService *bigqueryrestapi.Service,
+	projectID string,
+	location string,
+	sql string,
+	params []*bigqueryrestapi.QueryParameter,
+	connProps []*bigqueryapi.ConnectionProperty,
+	maximumBytesBilled int64,
+	createSession bool,
+) (*bigqueryrestapi.Job, error) {
 	useLegacySql := false
-
 	restConnProps := make([]*bigqueryrestapi.ConnectionProperty, len(connProps))
 	for i, prop := range connProps {
 		restConnProps[i] = &bigqueryrestapi.ConnectionProperty{Key: prop.Key, Value: prop.Value}
@@ -73,6 +103,7 @@ func DryRunQuery(ctx context.Context, restService *bigqueryrestapi.Service, proj
 				ConnectionProperties: restConnProps,
 				QueryParameters:      params,
 				MaximumBytesBilled:   maximumBytesBilled,
+				CreateSession:        createSession,
 			},
 		},
 	}
@@ -82,6 +113,242 @@ func DryRunQuery(ctx context.Context, restService *bigqueryrestapi.Service, proj
 		return nil, fmt.Errorf("failed to insert dry run job: %w", err)
 	}
 	return insertResponse, nil
+}
+
+// DatasetValidator defines the interface for checking if a dataset is allowed.
+type DatasetValidator interface {
+	IsDatasetAllowed(projectID, datasetID string) bool
+}
+
+// tableReference represents a fully qualified reference to a BigQuery table or routine.
+// Using a structured type avoids ambiguous string splitting on dots when project IDs
+// contain domain prefixes (e.g. "google.com:project-id").
+type tableReference struct {
+	ProjectID string
+	DatasetID string
+	TableID   string
+}
+
+// ValidateQueryAgainstAllowedDatasets validates a SQL query against a list of allowed datasets.
+//
+// Why custom SQL parsing (TableParserDetailed & IsAnyTableExplicitlyReferenced) is needed
+// alongside BigQuery dry run statistics:
+//
+//  1. Supporting Authorized Views:
+//     When a query accesses an Authorized View (e.g. `SELECT * FROM allowed_ds.my_view`),
+//     BigQuery's dry run resolves the view and includes ALL underlying base tables in
+//     Statistics.Query.ReferencedTables, even if they reside in restricted datasets
+//     (e.g. `restricted_ds.base_table`). If we relied solely on dry run statistics, queries
+//     against legitimate authorized views would be erroneously blocked.
+//     To distinguish legitimate authorized view access from unauthorized direct access:
+//     - If a restricted dataset appears in dry run statistics, IsAnyTableExplicitlyReferenced
+//     performs a lexical scan of the SQL to check whether the restricted table is
+//     explicitly referenced by name in the query text.
+//     - If the user explicitly typed the restricted table name, the query is blocked.
+//     - If the restricted table was NOT named in the query (and all other references are
+//     fully qualified), the access is via an authorized view and is granted exemption.
+//
+//  2. Catching Unanalyzable or Ambiguous Operations:
+//     Dry run statistics alone cannot detect every security boundary issue:
+//     - Unqualified table references (e.g. `SELECT * FROM my_table`): In the presence of
+//     dataset restrictions, table names must be fully qualified (dataset.table) to prevent
+//     accidental or ambiguous resolution based on session state or search paths.
+//     TableParserDetailed detects unqualified references.
+//     - Procedural operations (SET session variables, CALL, etc.) whose dynamic behavior
+//     cannot be safely analyzed.
+func ValidateQueryAgainstAllowedDatasets(
+	ctx context.Context,
+	restService *bigqueryrestapi.Service,
+	projectID string,
+	location string,
+	sql string,
+	params []*bigqueryrestapi.QueryParameter,
+	connProps []*bigqueryapi.ConnectionProperty,
+	validator DatasetValidator,
+	maximumBytesBilled int64,
+	createSession bool,
+) (*bigqueryrestapi.Job, util.ToolboxError) {
+	dryRunJob, err := DryRunQuery(ctx, restService, projectID, location, sql, params, connProps, maximumBytesBilled, createSession)
+	if err != nil {
+		var gErr *googleapi.Error
+		if errors.As(err, &gErr) {
+			return nil, util.ProcessGcpError(err)
+		}
+		return nil, util.NewAgentError("query validation failed", err)
+	}
+
+	if dryRunJob.Statistics == nil || dryRunJob.Statistics.Query == nil {
+		return nil, util.NewAgentError("dry run failed to return query statistics", nil)
+	}
+
+	queryStats := dryRunJob.Statistics.Query
+
+	// Statement types whose accessed objects cannot be determined statically must be
+	// rejected outright. The dry run reports these reliably; the lexical fallback in
+	// TableParser does not (e.g. it cannot see CREATE TABLE FUNCTION).
+	switch queryStats.StatementType {
+	case "CREATE_SCHEMA", "DROP_SCHEMA", "ALTER_SCHEMA":
+		return nil, util.NewAgentError(fmt.Sprintf(
+			"dataset-level operations like '%s' are not allowed when dataset restrictions are in place",
+			queryStats.StatementType), nil)
+	case "CREATE_FUNCTION", "CREATE_TABLE_FUNCTION", "CREATE_PROCEDURE":
+		return nil, util.NewAgentError(fmt.Sprintf(
+			"creating stored routines ('%s') is not allowed when dataset restrictions are in place, as their contents cannot be safely analyzed",
+			queryStats.StatementType), nil)
+	case "CALL":
+		return nil, util.NewAgentError(fmt.Sprintf(
+			"calling stored procedures ('%s') is not allowed when dataset restrictions are in place, as their contents cannot be safely analyzed",
+			queryStats.StatementType), nil)
+	case "SET":
+		return nil, util.NewAgentError(
+			"session variable assignment ('SET') is not allowed when dataset restrictions are in place, "+
+				"as it can change how unqualified table names are resolved", nil)
+	}
+
+	// Use a structured map to avoid duplicate table names from the dry run result.
+	// Storing typed tableReference objects avoids issues with domain-scoped project IDs (e.g. "google.com:project-id").
+	tableRefSet := make(map[tableReference]struct{})
+	addTableRef := func(pID, dsID, tID string) {
+		if pID != "" && dsID != "" && tID != "" {
+			tableRefSet[tableReference{
+				ProjectID: pID,
+				DatasetID: dsID,
+				TableID:   tID,
+			}] = struct{}{}
+		}
+	}
+	for _, tableRef := range queryStats.ReferencedTables {
+		if tableRef != nil {
+			addTableRef(tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)
+		}
+	}
+	if tableRef := queryStats.DdlTargetTable; tableRef != nil {
+		addTableRef(tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)
+	}
+	if tableRef := queryStats.DdlDestinationTable; tableRef != nil {
+		addTableRef(tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)
+	}
+	// DROP FUNCTION / DROP PROCEDURE etc. target a routine, not a table.
+	if routineRef := queryStats.DdlTargetRoutine; routineRef != nil {
+		addTableRef(routineRef.ProjectId, routineRef.DatasetId, routineRef.RoutineId)
+	}
+
+	var violatingTables []string
+	var violatingRefs []tableReference
+	for ref := range tableRefSet {
+		// Skip validation for specific system functions that BigQuery reports as referenced tables.
+		if IsSystemResource(ref.DatasetID, ref.TableID) {
+			continue
+		}
+		if !validator.IsDatasetAllowed(ref.ProjectID, ref.DatasetID) {
+			violatingTables = append(violatingTables, fmt.Sprintf("%s.%s.%s", ref.ProjectID, ref.DatasetID, ref.TableID))
+			violatingRefs = append(violatingRefs, ref)
+		}
+	}
+
+	parsed, parseErr := TableParserDetailed(sql, projectID)
+	if parseErr != nil {
+		return nil, util.NewAgentError("could not safely analyze query with dataset restrictions", parseErr)
+	}
+
+	// 1) Direct lexically visible violating datasets - unconditionally reject (consistent with main)
+	var parsedViolatingDatasets []string
+	seenParsedDatasets := make(map[string]struct{})
+	for _, tableID := range parsed.TableIDs {
+		parts := strings.Split(tableID, ".")
+		if len(parts) == 4 && strings.Contains(parts[1], ":") {
+			parts = []string{parts[0] + "." + parts[1], parts[2], parts[3]}
+		}
+		if len(parts) == 3 {
+			if IsSystemResource(parts[1], parts[2]) {
+				continue
+			}
+			if !validator.IsDatasetAllowed(parts[0], parts[1]) {
+				datasetFQN := fmt.Sprintf("%s.%s", parts[0], parts[1])
+				if _, seen := seenParsedDatasets[datasetFQN]; !seen {
+					parsedViolatingDatasets = append(parsedViolatingDatasets, datasetFQN)
+					seenParsedDatasets[datasetFQN] = struct{}{}
+				}
+			}
+		}
+	}
+	if len(parsedViolatingDatasets) > 0 {
+		return nil, notAllowedDatasetsErr(parsedViolatingDatasets)
+	}
+
+	// 2) Dry run violating tables
+	if len(violatingTables) > 0 {
+		explicitlyReferenced, err := IsAnyTableExplicitlyReferenced(sql, projectID, violatingTables)
+		if err != nil {
+			return nil, util.NewAgentError("failed to analyze query for explicit table references", err)
+		}
+		if explicitlyReferenced {
+			var violatingDatasets []string
+			seenDatasets := make(map[string]struct{})
+			for _, ref := range violatingRefs {
+				datasetFQN := fmt.Sprintf("%s.%s", ref.ProjectID, ref.DatasetID)
+				if _, seen := seenDatasets[datasetFQN]; !seen {
+					violatingDatasets = append(violatingDatasets, datasetFQN)
+					seenDatasets[datasetFQN] = struct{}{}
+				}
+			}
+			return nil, notAllowedDatasetsErr(violatingDatasets)
+		}
+
+		// Only when all table references in the query are explicit and fully-qualified
+		// do we consider this an authorized view and grant exemption.
+		if len(parsed.UnqualifiedRefs) > 0 {
+			return nil, util.NewAgentError(fmt.Sprintf(
+				"query references table %q without a dataset qualifier; "+
+					"fully qualify all table names (dataset.table) when dataset restrictions are in place",
+				parsed.UnqualifiedRefs[0]), nil)
+		}
+	}
+
+	return dryRunJob, nil
+}
+
+func notAllowedDatasetsErr(datasetFQNs []string) util.ToolboxError {
+	sort.Strings(datasetFQNs)
+	formatted := make([]string, len(datasetFQNs))
+	for i, ds := range datasetFQNs {
+		formatted[i] = fmt.Sprintf("'%s'", ds)
+	}
+	plural := ""
+	if len(formatted) > 1 {
+		plural = "s"
+	}
+	return util.NewAgentError(fmt.Sprintf("access to dataset%s %s is not allowed", plural, strings.Join(formatted, ", ")), nil)
+}
+
+// IsSystemResource checks if a given dataset and table/function ID refer to a BigQuery system resource
+// (like a built-in AI or ML function) that should be exempted from dataset restriction checks.
+// Note: This function exempts system resources by dataset and resource name prefix (e.g. AI.FORECAST, ML.PREDICT).
+// User-created datasets with these identical names will also be exempted; this is a known, acceptable tradeoff.
+func IsSystemResource(datasetID, resourceID string) bool {
+	datasetID = strings.ToUpper(datasetID)
+	resourceID = strings.ToUpper(resourceID)
+
+	if datasetID == "AI" {
+		switch resourceID {
+		case "FORECAST", "GENERATE_TEXT", "EXTRACT_ENTITY", "SUMMARIZE",
+			"GENERATE", "GENERATE_BOOL", "GENERATE_INT", "GENERATE_DOUBLE",
+			"GENERATE_TABLE", "IF", "CLASSIFY", "SCORE":
+			return true
+		}
+	}
+	if datasetID == "ML" {
+		switch resourceID {
+		case "GET_INSIGHTS", "EXPLAIN_PREDICT", "GENERATE_TEXT", "DISTANCE", "PREDICT",
+			"GENERATE_EMBEDDING", "TRANSLATE", "UNDERSTAND_TEXT", "ANNOTATE_IMAGE", "TRANSCRIBE",
+			"PROCESS_DOCUMENT", "DETECT_ANOMALIES", "FORECAST", "EVALUATE", "TRAINING_INFO",
+			"FEATURE_INFO", "WEIGHTS", "CENTROIDS", "CONFUSION_MATRIX", "ROC_CURVE",
+			"ARIMA_EVALUATE", "ARIMA_COEFFICIENTS", "GLOBAL_EXPLAIN", "RECOMMEND",
+			"TRANSFORM", "PRINCIPAL_COMPONENTS", "HOLIDAY":
+			return true
+		}
+	}
+	return false
 }
 
 // BQTypeStringFromToolType converts a tool parameter type string to a BigQuery standard SQL type string.
@@ -146,22 +413,4 @@ func InitializeDatasetParameters(
 	projectParam = parameters.NewStringParameter(projectKey, projectDescription, parameters.WithStringDefault(defaultProjectID))
 
 	return projectParam, datasetParam
-}
-
-// StripSingleQuotes removes leading and trailing single quotes from a string if both are present.
-func StripSingleQuotes(s string) string {
-	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
-		return s[1 : len(s)-1]
-	}
-	return s
-}
-
-// ValidColumnParam returns true if s (stripped of leading/trailing single quotes) is a safe column name.
-func ValidColumnParam(s string) bool {
-	return ValidColumnName(StripSingleQuotes(s))
-}
-
-// ValidContributionMetricParam returns true if s (stripped of leading/trailing single quotes) is a safe contribution metric (does not contain single quotes).
-func ValidContributionMetricParam(s string) bool {
-	return !strings.ContainsRune(StripSingleQuotes(s), '\'')
 }

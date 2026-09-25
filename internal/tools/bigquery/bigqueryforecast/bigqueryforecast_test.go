@@ -30,6 +30,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigquerycommon"
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigqueryforecast"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	bigqueryrestapi "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/option"
 )
 
@@ -292,9 +293,15 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 		t.Fatalf("failed to create mocked BigQuery client: %v", err)
 	}
 
+	restService, err := bigqueryrestapi.NewService(ctx, option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery REST service: %v", err)
+	}
+
 	// 3. Define mock source that returns this client and allowed datasets configuration
 	testSrc := &bigquerycommon.MockSource{
 		Client:          bqClient,
+		Service:         restService,
 		AllowedDatasets: []string{"allowed_dataset"}, // only "allowed_dataset" is allowed!
 	}
 
@@ -316,32 +323,50 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 		t.Fatalf("expected bigqueryforecast.Tool, got %T", tool)
 	}
 
-	// 4. Set up parameters mimicking the bypass/injection attempt
-	// We try to run the tool, but the dry-run of the final query will detect the reference to "unauthorized_dataset"
-	data := map[string]any{
-		"history_data":  "allowed_dataset.my_table",
-		"timestamp_col": "ts",
-		"data_col":      "val",
-		"horizon":       5,
+	// 4. Set up test cases covering both explicit query and table ID formats
+	testCases := []struct {
+		name       string
+		input      string
+		wantErrSub string
+	}{
+		{
+			name:       "query referencing forbidden dataset",
+			input:      "SELECT * FROM unauthorized_dataset.some_table",
+			wantErrSub: "access to dataset 'test-project.unauthorized_dataset'",
+		},
+		{
+			name:       "table id in forbidden dataset, final SQL validated",
+			input:      "unauthorized_dataset.some_table",
+			wantErrSub: "access to dataset 'test-project.unauthorized_dataset'",
+		},
 	}
 
-	params, err := forecastTool.GetParameters(testSrc)
-	if err != nil {
-		t.Fatalf("failed to get parameters: %v", err)
-	}
-	paramVals, err := parameters.ParseParams(params, data, nil)
-	if err != nil {
-		t.Fatalf("unexpected error parsing parameters: %v", err)
-	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := map[string]any{
+				"history_data":  tc.input,
+				"timestamp_col": "ts",
+				"data_col":      "val",
+				"horizon":       5,
+			}
 
-	// 5. Invoke the tool and assert it fails with the dataset permission check error
-	_, err = tool.Invoke(ctx, testSrc, paramVals, "")
-	if err == nil {
-		t.Fatal("expected Invoke to return an error due to out-of-allowlist dataset reference, but got nil")
-	}
+			params, err := forecastTool.GetParameters(testSrc)
+			if err != nil {
+				t.Fatalf("failed to get parameters: %v", err)
+			}
+			paramVals, err := parameters.ParseParams(params, data, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing parameters: %v", err)
+			}
 
-	expectedErr := "query accesses dataset 'test-project.unauthorized_dataset', which is not in the allowed list"
-	if !strings.Contains(err.Error(), expectedErr) {
-		t.Errorf("expected error to contain %q, got: %v", expectedErr, err)
+			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
+			if err == nil {
+				t.Fatal("expected Invoke to return an error due to out-of-allowlist dataset reference, but got nil")
+			}
+
+			if !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Errorf("expected error to contain %q, got: %v", tc.wantErrSub, err)
+			}
+		})
 	}
 }
