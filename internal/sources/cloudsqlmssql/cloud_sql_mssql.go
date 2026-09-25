@@ -66,17 +66,23 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
 	// Initializes a Cloud SQL MSSQL source
+	db, err := initCloudSQLMssqlConnection(ctx, tracer, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create db connection: %w", err)
+	}
+
+	// Verify db connection
+	err = db.PingContext(ctx)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	}
+
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.MSSQLDBContext(ctx); err != nil {
-		return nil, err
+		Db:     db,
 	}
 	return s, nil
 }
@@ -85,26 +91,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*sql.DB]
-}
-
-// MSSQLDBContext returns the pool, connecting on first use. It is the
-// discriminator the mssql tools assert on.
-func (s *Source) MSSQLDBContext(ctx context.Context) (*sql.DB, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
-		r := s.Config
-		db, err := initCloudSQLMssqlConnection(ctx, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create db connection: %w", err)
-		}
-
-		// Verify db connection
-		if err := db.PingContext(ctx); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return db, nil
-	})
+	Db *sql.DB
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -120,12 +107,13 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+func (s *Source) MSSQLDB() *sql.DB {
+	// Returns a Cloud SQL MSSQL database connection pool
+	return s.Db
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	db, err := s.MSSQLDBContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	results, err := db.QueryContext(ctx, statement, params...)
+	results, err := s.MSSQLDB().QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -166,7 +154,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initCloudSQLMssqlConnection(ctx context.Context, project, region, instance, ipType, user, pass, dbname string) (*sql.DB, error) {
+func initCloudSQLMssqlConnection(ctx context.Context, tracer trace.Tracer, name, project, region, instance, ipType, user, pass, dbname string) (*sql.DB, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, err

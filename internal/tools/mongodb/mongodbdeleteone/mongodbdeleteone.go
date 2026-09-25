@@ -23,6 +23,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
@@ -45,6 +46,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
+	MongoClient() *mongo.Client
 	DeleteOne(context.Context, string, string, string) (any, error)
 }
 

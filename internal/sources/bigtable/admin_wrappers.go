@@ -24,11 +24,7 @@ import (
 )
 
 func (s *Source) GetInstance(ctx context.Context, instanceId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	instance, err := cs.instanceAdmin.InstanceInfo(ctx, instanceId)
+	instance, err := s.InstanceAdmin.InstanceInfo(ctx, instanceId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get instance: %w", err)
 	}
@@ -36,10 +32,6 @@ func (s *Source) GetInstance(ctx context.Context, instanceId string) (any, error
 }
 
 func (s *Source) CreateInstance(ctx context.Context, instanceId, displayName, clusterId, zone string, numNodes int32) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
 	conf := &bigtable.InstanceConf{
 		InstanceId:  instanceId,
 		DisplayName: displayName,
@@ -47,7 +39,7 @@ func (s *Source) CreateInstance(ctx context.Context, instanceId, displayName, cl
 		Zone:        zone,
 		NumNodes:    numNodes,
 	}
-	err = cs.instanceAdmin.CreateInstance(ctx, conf)
+	err := s.InstanceAdmin.CreateInstance(ctx, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create instance: %w", err)
 	}
@@ -55,15 +47,11 @@ func (s *Source) CreateInstance(ctx context.Context, instanceId, displayName, cl
 }
 
 func (s *Source) UpdateInstance(ctx context.Context, instanceId, displayName string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
 	conf := &bigtable.InstanceWithClustersConfig{
 		InstanceID:  instanceId,
 		DisplayName: displayName,
 	}
-	err = cs.instanceAdmin.UpdateInstanceWithClusters(ctx, conf)
+	err := s.InstanceAdmin.UpdateInstanceWithClusters(ctx, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update instance: %w", err)
 	}
@@ -71,11 +59,7 @@ func (s *Source) UpdateInstance(ctx context.Context, instanceId, displayName str
 }
 
 func (s *Source) DeleteInstance(ctx context.Context, instanceId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = cs.instanceAdmin.DeleteInstance(ctx, instanceId)
+	err := s.InstanceAdmin.DeleteInstance(ctx, instanceId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete instance: %w", err)
 	}
@@ -83,11 +67,7 @@ func (s *Source) DeleteInstance(ctx context.Context, instanceId string) (any, er
 }
 
 func (s *Source) ListInstances(ctx context.Context) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	instances, err := cs.instanceAdmin.Instances(ctx)
+	instances, err := s.InstanceAdmin.Instances(ctx)
 	if err != nil {
 		var partialErr bigtable.ErrPartiallyUnavailable
 		if errors.As(err, &partialErr) {
@@ -99,11 +79,7 @@ func (s *Source) ListInstances(ctx context.Context) (any, error) {
 }
 
 func (s *Source) GetCluster(ctx context.Context, instanceId, clusterId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	cluster, err := cs.instanceAdmin.GetCluster(ctx, instanceId, clusterId)
+	cluster, err := s.InstanceAdmin.GetCluster(ctx, instanceId, clusterId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster: %w", err)
 	}
@@ -111,11 +87,7 @@ func (s *Source) GetCluster(ctx context.Context, instanceId, clusterId string) (
 }
 
 func (s *Source) ListClusters(ctx context.Context, instanceId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	clusters, err := cs.instanceAdmin.Clusters(ctx, instanceId)
+	clusters, err := s.InstanceAdmin.Clusters(ctx, instanceId)
 	if err != nil {
 		var partialErr bigtable.ErrPartiallyUnavailable
 		if errors.As(err, &partialErr) {
@@ -127,17 +99,13 @@ func (s *Source) ListClusters(ctx context.Context, instanceId string) (any, erro
 }
 
 func (s *Source) CreateCluster(ctx context.Context, instanceId, clusterId, zone string, numNodes int32) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
 	conf := &bigtable.ClusterConfig{
 		InstanceID: instanceId,
 		ClusterID:  clusterId,
 		Zone:       zone,
 		NumNodes:   numNodes,
 	}
-	err = cs.instanceAdmin.CreateCluster(ctx, conf)
+	err := s.InstanceAdmin.CreateCluster(ctx, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cluster: %w", err)
 	}
@@ -145,11 +113,7 @@ func (s *Source) CreateCluster(ctx context.Context, instanceId, clusterId, zone 
 }
 
 func (s *Source) UpdateCluster(ctx context.Context, instanceId, clusterId string, serveNodes int32) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = cs.instanceAdmin.UpdateCluster(ctx, instanceId, clusterId, serveNodes)
+	err := s.InstanceAdmin.UpdateCluster(ctx, instanceId, clusterId, serveNodes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update cluster: %w", err)
 	}
@@ -157,11 +121,7 @@ func (s *Source) UpdateCluster(ctx context.Context, instanceId, clusterId string
 }
 
 func (s *Source) DeleteCluster(ctx context.Context, instanceId, clusterId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = cs.instanceAdmin.DeleteCluster(ctx, instanceId, clusterId)
+	err := s.InstanceAdmin.DeleteCluster(ctx, instanceId, clusterId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete cluster: %w", err)
 	}
@@ -169,11 +129,7 @@ func (s *Source) DeleteCluster(ctx context.Context, instanceId, clusterId string
 }
 
 func (s *Source) GetTable(ctx context.Context, tableId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	table, err := cs.admin.TableInfo(ctx, tableId)
+	table, err := s.Admin.TableInfo(ctx, tableId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get table: %w", err)
 	}
@@ -181,16 +137,12 @@ func (s *Source) GetTable(ctx context.Context, tableId string) (any, error) {
 }
 
 func (s *Source) CreateTable(ctx context.Context, tableId, columnFamily string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = cs.admin.CreateTable(ctx, tableId)
+	err := s.Admin.CreateTable(ctx, tableId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
 	}
 	if columnFamily != "" {
-		if err := cs.admin.CreateColumnFamily(ctx, tableId, columnFamily); err != nil {
+		if err := s.Admin.CreateColumnFamily(ctx, tableId, columnFamily); err != nil {
 			return nil, fmt.Errorf("failed to create column family: %w", err)
 		}
 	}
@@ -198,11 +150,7 @@ func (s *Source) CreateTable(ctx context.Context, tableId, columnFamily string) 
 }
 
 func (s *Source) DeleteTable(ctx context.Context, tableId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = cs.admin.DeleteTable(ctx, tableId)
+	err := s.Admin.DeleteTable(ctx, tableId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete table: %w", err)
 	}
@@ -210,11 +158,7 @@ func (s *Source) DeleteTable(ctx context.Context, tableId string) (any, error) {
 }
 
 func (s *Source) ListTables(ctx context.Context) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	tables, err := cs.admin.Tables(ctx)
+	tables, err := s.Admin.Tables(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tables: %w", err)
 	}
@@ -222,14 +166,11 @@ func (s *Source) ListTables(ctx context.Context) (any, error) {
 }
 
 func (s *Source) UpdateTable(ctx context.Context, tableId string, disableChangeStream bool) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
+	var err error
 	if disableChangeStream {
-		err = cs.admin.UpdateTableDisableChangeStream(ctx, tableId)
+		err = s.Admin.UpdateTableDisableChangeStream(ctx, tableId)
 	} else {
-		err = cs.admin.UpdateTableWithChangeStream(ctx, tableId, 24*time.Hour)
+		err = s.Admin.UpdateTableWithChangeStream(ctx, tableId, 24*time.Hour)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to update table: %w", err)
@@ -238,11 +179,7 @@ func (s *Source) UpdateTable(ctx context.Context, tableId string, disableChangeS
 }
 
 func (s *Source) GetLogicalView(ctx context.Context, instanceId, logicalViewId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	view, err := cs.instanceAdmin.LogicalViewInfo(ctx, instanceId, logicalViewId)
+	view, err := s.InstanceAdmin.LogicalViewInfo(ctx, instanceId, logicalViewId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logical view: %w", err)
 	}
@@ -250,11 +187,7 @@ func (s *Source) GetLogicalView(ctx context.Context, instanceId, logicalViewId s
 }
 
 func (s *Source) ListLogicalViews(ctx context.Context, instanceId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	views, err := cs.instanceAdmin.LogicalViews(ctx, instanceId)
+	views, err := s.InstanceAdmin.LogicalViews(ctx, instanceId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list logical views: %w", err)
 	}
@@ -262,11 +195,7 @@ func (s *Source) ListLogicalViews(ctx context.Context, instanceId string) (any, 
 }
 
 func (s *Source) ListMaterializedViews(ctx context.Context, instanceId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	views, err := cs.instanceAdmin.MaterializedViews(ctx, instanceId)
+	views, err := s.InstanceAdmin.MaterializedViews(ctx, instanceId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list materialized views: %w", err)
 	}
@@ -274,15 +203,11 @@ func (s *Source) ListMaterializedViews(ctx context.Context, instanceId string) (
 }
 
 func (s *Source) CreateLogicalView(ctx context.Context, instanceId, logicalViewId, query string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
 	conf := &bigtable.LogicalViewInfo{
 		LogicalViewID: logicalViewId,
 		Query:         query,
 	}
-	err = cs.instanceAdmin.CreateLogicalView(ctx, instanceId, conf)
+	err := s.InstanceAdmin.CreateLogicalView(ctx, instanceId, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logical view: %w", err)
 	}
@@ -290,15 +215,11 @@ func (s *Source) CreateLogicalView(ctx context.Context, instanceId, logicalViewI
 }
 
 func (s *Source) UpdateLogicalView(ctx context.Context, instanceId, logicalViewId, query string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
 	conf := bigtable.LogicalViewInfo{ // MUST be value per bigtable SDK
 		LogicalViewID: logicalViewId,
 		Query:         query,
 	}
-	err = cs.instanceAdmin.UpdateLogicalView(ctx, instanceId, conf)
+	err := s.InstanceAdmin.UpdateLogicalView(ctx, instanceId, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update logical view: %w", err)
 	}
@@ -306,11 +227,7 @@ func (s *Source) UpdateLogicalView(ctx context.Context, instanceId, logicalViewI
 }
 
 func (s *Source) DeleteLogicalView(ctx context.Context, instanceId, logicalViewId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = cs.instanceAdmin.DeleteLogicalView(ctx, instanceId, logicalViewId)
+	err := s.InstanceAdmin.DeleteLogicalView(ctx, instanceId, logicalViewId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete logical view: %w", err)
 	}
@@ -318,11 +235,7 @@ func (s *Source) DeleteLogicalView(ctx context.Context, instanceId, logicalViewI
 }
 
 func (s *Source) GetMaterializedView(ctx context.Context, instanceId, materializedViewId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	view, err := cs.instanceAdmin.MaterializedViewInfo(ctx, instanceId, materializedViewId)
+	view, err := s.InstanceAdmin.MaterializedViewInfo(ctx, instanceId, materializedViewId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get materialized view: %w", err)
 	}
@@ -330,15 +243,11 @@ func (s *Source) GetMaterializedView(ctx context.Context, instanceId, materializ
 }
 
 func (s *Source) CreateMaterializedView(ctx context.Context, instanceId, materializedViewId, query string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
 	conf := &bigtable.MaterializedViewInfo{
 		MaterializedViewID: materializedViewId,
 		Query:              query,
 	}
-	err = cs.instanceAdmin.CreateMaterializedView(ctx, instanceId, conf)
+	err := s.InstanceAdmin.CreateMaterializedView(ctx, instanceId, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create materialized view: %w", err)
 	}
@@ -346,15 +255,11 @@ func (s *Source) CreateMaterializedView(ctx context.Context, instanceId, materia
 }
 
 func (s *Source) UpdateMaterializedView(ctx context.Context, instanceId, materializedViewId, query string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
 	conf := bigtable.MaterializedViewInfo{ // MUST be value per bigtable SDK
 		MaterializedViewID: materializedViewId,
 		Query:              query,
 	}
-	err = cs.instanceAdmin.UpdateMaterializedView(ctx, instanceId, conf)
+	err := s.InstanceAdmin.UpdateMaterializedView(ctx, instanceId, conf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update materialized view: %w", err)
 	}
@@ -362,11 +267,7 @@ func (s *Source) UpdateMaterializedView(ctx context.Context, instanceId, materia
 }
 
 func (s *Source) DeleteMaterializedView(ctx context.Context, instanceId, materializedViewId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	err = cs.instanceAdmin.DeleteMaterializedView(ctx, instanceId, materializedViewId)
+	err := s.InstanceAdmin.DeleteMaterializedView(ctx, instanceId, materializedViewId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete materialized view: %w", err)
 	}

@@ -68,50 +68,34 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
 	// Initializes a Firestore source
-	s := &Source{
-		Config: r,
-		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.clients(ctx); err != nil {
+	client, err := initFirestoreConnection(ctx, tracer, r.Name, r.Project, r.Database)
+	if err != nil {
 		return nil, err
+	}
+
+	// Initialize Firebase Rules client
+	rulesClient, err := initFirebaseRulesConnection(ctx, r.Project)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to initialize Firebase Rules client: %w", err)
+	}
+
+	s := &Source{
+		Config:      r,
+		Client:      client,
+		RulesClient: rulesClient,
 	}
 	return s, nil
 }
 
 var _ sources.Source = &Source{}
 
-type clientSet struct {
-	client      *firestore.Client
-	rulesClient *firebaserules.Service
-}
-
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*clientSet]
-}
-
-func (s *Source) clients(ctx context.Context) (*clientSet, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
-		r := s.Config
-		client, err := initFirestoreConnection(ctx, r.Project, r.Database)
-		if err != nil {
-			return nil, err
-		}
-
-		// Initialize Firebase Rules client
-		rulesClient, err := initFirebaseRulesConnection(ctx, r.Project)
-		if err != nil {
-			client.Close()
-			return nil, fmt.Errorf("failed to initialize Firebase Rules client: %w", err)
-		}
-
-		return &clientSet{client: client, rulesClient: rulesClient}, nil
-	})
+	Client      *firestore.Client
+	RulesClient *firebaserules.Service
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -127,13 +111,12 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-// FirestoreClientContext returns the Firestore client, connecting on first use.
-func (s *Source) FirestoreClientContext(ctx context.Context) (*firestore.Client, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return cs.client, nil
+func (s *Source) FirestoreClient() *firestore.Client {
+	return s.Client
+}
+
+func (s *Source) FirebaseRulesClient() *firebaserules.Service {
+	return s.RulesClient
 }
 
 func (s *Source) GetProjectId() string {
@@ -185,11 +168,7 @@ func FirestoreValueToJSON(value any) any {
 
 // BuildQuery constructs the Firestore query from parameters
 func (s *Source) BuildQuery(collectionPath string, filter firestore.EntityFilter, selectFields []string, field string, direction firestore.Direction, limit int, analyzeQuery bool) (*firestore.Query, error) {
-	cs, err := s.clients(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	collection := cs.client.Collection(collectionPath)
+	collection := s.FirestoreClient().Collection(collectionPath)
 	query := collection.Query
 
 	// Process and apply filters if template is provided
@@ -301,19 +280,14 @@ func getExplainMetrics(docIterator *firestore.DocumentIterator) (map[string]any,
 }
 
 func (s *Source) GetDocuments(ctx context.Context, documentPaths []string) ([]any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Create document references from paths
 	docRefs := make([]*firestore.DocumentRef, len(documentPaths))
 	for i, path := range documentPaths {
-		docRefs[i] = cs.client.Doc(path)
+		docRefs[i] = s.FirestoreClient().Doc(path)
 	}
 
 	// Get all documents
-	snapshots, err := cs.client.GetAll(ctx, docRefs)
+	snapshots, err := s.FirestoreClient().GetAll(ctx, docRefs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get documents: %w", err)
 	}
@@ -339,13 +313,8 @@ func (s *Source) GetDocuments(ctx context.Context, documentPaths []string) ([]an
 }
 
 func (s *Source) AddDocuments(ctx context.Context, collectionPath string, documentData any, returnData bool) (map[string]any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get the collection reference
-	collection := cs.client.Collection(collectionPath)
+	collection := s.FirestoreClient().Collection(collectionPath)
 
 	// Add the document to the collection
 	docRef, writeResult, err := collection.Add(ctx, documentData)
@@ -372,13 +341,8 @@ func (s *Source) AddDocuments(ctx context.Context, collectionPath string, docume
 }
 
 func (s *Source) UpdateDocument(ctx context.Context, documentPath string, updates []firestore.Update, documentData any, returnData bool) (map[string]any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get the document reference
-	docRef := cs.client.Doc(documentPath)
+	docRef := s.FirestoreClient().Doc(documentPath)
 
 	// Prepare update data
 	var writeResult *firestore.WriteResult
@@ -416,20 +380,15 @@ func (s *Source) UpdateDocument(ctx context.Context, documentPath string, update
 }
 
 func (s *Source) DeleteDocuments(ctx context.Context, documentPaths []string) ([]any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Create a BulkWriter to handle multiple deletions efficiently
-	bulkWriter := cs.client.BulkWriter(ctx)
+	bulkWriter := s.FirestoreClient().BulkWriter(ctx)
 
 	// Keep track of jobs for each document
 	jobs := make([]*firestore.BulkWriterJob, len(documentPaths))
 
 	// Add all delete operations to the BulkWriter
 	for i, path := range documentPaths {
-		docRef := cs.client.Doc(path)
+		docRef := s.FirestoreClient().Doc(path)
 		job, err := bulkWriter.Delete(docRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to add delete operation for document %q: %w", path, err)
@@ -461,22 +420,18 @@ func (s *Source) DeleteDocuments(ctx context.Context, documentPaths []string) ([
 }
 
 func (s *Source) ListCollections(ctx context.Context, parentPath string) ([]any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	var collectionRefs []*firestore.CollectionRef
+	var err error
 	if parentPath != "" {
 		// List subcollections of the specified document
-		docRef := cs.client.Doc(parentPath)
+		docRef := s.FirestoreClient().Doc(parentPath)
 		collectionRefs, err = docRef.Collections(ctx).GetAll()
 		if err != nil {
 			return nil, fmt.Errorf("failed to list subcollections of document %q: %w", parentPath, err)
 		}
 	} else {
 		// List root collections
-		collectionRefs, err = cs.client.Collections(ctx).GetAll()
+		collectionRefs, err = s.FirestoreClient().Collections(ctx).GetAll()
 		if err != nil {
 			return nil, fmt.Errorf("failed to list root collections: %w", err)
 		}
@@ -499,14 +454,9 @@ func (s *Source) ListCollections(ctx context.Context, parentPath string) ([]any,
 }
 
 func (s *Source) GetRules(ctx context.Context) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get the latest release for Firestore
 	releaseName := fmt.Sprintf("projects/%s/releases/cloud.firestore/%s", s.GetProjectId(), s.GetDatabaseId())
-	release, err := cs.rulesClient.Projects.Releases.Get(releaseName).Context(ctx).Do()
+	release, err := s.FirebaseRulesClient().Projects.Releases.Get(releaseName).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest Firestore release: %w", err)
 	}
@@ -516,7 +466,7 @@ func (s *Source) GetRules(ctx context.Context) (any, error) {
 	}
 
 	// Get the ruleset content
-	ruleset, err := cs.rulesClient.Projects.Rulesets.Get(release.RulesetName).Context(ctx).Do()
+	ruleset, err := s.FirebaseRulesClient().Projects.Rulesets.Get(release.RulesetName).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ruleset content: %w", err)
 	}
@@ -553,11 +503,6 @@ type ValidationResult struct {
 }
 
 func (s *Source) ValidateRules(ctx context.Context, sourceParam string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// Create test request
 	testRequest := &firebaserules.TestRulesetRequest{
 		Source: &firebaserules.Source{
@@ -575,7 +520,7 @@ func (s *Source) ValidateRules(ctx context.Context, sourceParam string) (any, er
 	}
 	// Call the test API
 	projectName := fmt.Sprintf("projects/%s", s.GetProjectId())
-	response, err := cs.rulesClient.Projects.Test(projectName, testRequest).Context(ctx).Do()
+	response, err := s.FirebaseRulesClient().Projects.Test(projectName, testRequest).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate rules: %w", err)
 	}
@@ -669,17 +614,12 @@ type CollectionSchema struct {
 
 // GetSchema returns schema information for the specified collection or all root collections.
 func (s *Source) GetSchema(ctx context.Context, collection string) (any, error) {
-	client, err := s.FirestoreClientContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	var collectionsToInspect []string
 	if collection != "" {
 		collectionsToInspect = []string{collection}
 	} else {
 		// Discover root collections
-		collRefs, err := client.Collections(ctx).GetAll()
+		collRefs, err := s.FirestoreClient().Collections(ctx).GetAll()
 		if err != nil {
 			return nil, fmt.Errorf("failed to list collections: %w", err)
 		}
@@ -697,7 +637,7 @@ func (s *Source) GetSchema(ctx context.Context, collection string) (any, error) 
 		}
 
 		// Fallback: sample documents directly if get_schema pipeline stage is not available
-		collRef := client.Collection(collName)
+		collRef := s.FirestoreClient().Collection(collName)
 		docs, err := collRef.Limit(50).Documents(ctx).GetAll()
 		if err != nil {
 			return nil, fmt.Errorf("failed to sample documents from collection %q: %w", collName, err)
@@ -1006,9 +946,14 @@ func (s *Source) ExecuteMQL(ctx context.Context, query string) (any, error) {
 
 func initFirestoreConnection(
 	ctx context.Context,
+	tracer trace.Tracer,
+	name string,
 	project string,
 	database string,
 ) (*firestore.Client, error) {
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, err

@@ -63,62 +63,44 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	ua, err := util.UserAgentFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
+	}
+	endpoint := fmt.Sprintf("%s-dataproc.googleapis.com:443", r.Region)
+	client, err := dataproc.NewClusterControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dataproc client: %w", err)
+	}
+	opsClient, err := longrunning.NewOperationsClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to create longrunning client: %w", err)
+	}
+	jobClient, err := dataproc.NewJobControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
+	if err != nil {
+		client.Close()
+		opsClient.Close()
+		return nil, fmt.Errorf("failed to create dataproc job client: %w", err)
+	}
+
 	s := &Source{
-		Config: r,
-		conn: sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer).
-			OnClose(func(ctx context.Context, cs *clientSet) error {
-				return errors.Join(cs.client.Close(), cs.opsClient.Close(), cs.jobClient.Close())
-			}),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.clients(ctx); err != nil {
-		return nil, err
+		Config:    r,
+		Client:    client,
+		OpsClient: opsClient,
+		JobClient: jobClient,
 	}
 	return s, nil
 }
 
 var _ sources.Source = &Source{}
 
-type clientSet struct {
-	client    *dataproc.ClusterControllerClient
-	opsClient *longrunning.OperationsClient
-	jobClient *dataproc.JobControllerClient
-}
-
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*clientSet]
-}
-
-func (s *Source) clients(ctx context.Context) (*clientSet, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
-		r := s.Config
-		ua, err := util.UserAgentFromContext(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
-		}
-		endpoint := fmt.Sprintf("%s-dataproc.googleapis.com:443", r.Region)
-		client, err := dataproc.NewClusterControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create dataproc client: %w", err)
-		}
-		opsClient, err := longrunning.NewOperationsClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
-		if err != nil {
-			client.Close()
-			return nil, fmt.Errorf("failed to create longrunning client: %w", err)
-		}
-		jobClient, err := dataproc.NewJobControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
-		if err != nil {
-			client.Close()
-			opsClient.Close()
-			return nil, fmt.Errorf("failed to create dataproc job client: %w", err)
-		}
-
-		return &clientSet{client: client, opsClient: opsClient, jobClient: jobClient}, nil
-	})
+	Client    *dataproc.ClusterControllerClient
+	OpsClient *longrunning.OperationsClient
+	JobClient *dataproc.JobControllerClient
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -133,9 +115,20 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-// Close releases the clients if they were ever created.
-func (s *Source) Close(ctx context.Context) error {
-	return s.conn.Close(ctx)
+func (s *Source) GetClusterControllerClient() *dataproc.ClusterControllerClient {
+	return s.Client
+}
+
+func (s *Source) GetOperationsClient(ctx context.Context) (*longrunning.OperationsClient, error) {
+	return s.OpsClient, nil
+}
+
+func (s *Source) GetJobControllerClient() *dataproc.JobControllerClient {
+	return s.JobClient
+}
+
+func (s *Source) Close() error {
+	return errors.Join(s.Client.Close(), s.OpsClient.Close(), s.JobClient.Close())
 }
 
 // ListClustersResponse is the response from the list clusters API.
@@ -156,11 +149,7 @@ type Cluster struct {
 
 // ListClusters executes the list clusters operation.
 func (s *Source) ListClusters(ctx context.Context, pageSize *int, pageToken, filter string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	client := cs.client
+	client := s.GetClusterControllerClient()
 
 	req := &dataprocpb.ListClustersRequest{
 		ProjectId: s.Project,
@@ -232,11 +221,7 @@ func ToClusters(clusterPbs []*dataprocpb.Cluster, region string) ([]Cluster, err
 
 // GetCluster gets a single cluster.
 func (s *Source) GetCluster(ctx context.Context, clusterName string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	client := cs.client
+	client := s.GetClusterControllerClient()
 
 	req := &dataprocpb.GetClusterRequest{
 		ProjectId:   s.Project,
@@ -291,11 +276,7 @@ type Job struct {
 
 // ListJobs executes the list jobs operation.
 func (s *Source) ListJobs(ctx context.Context, pageSize *int, pageToken, filter, jobStateMatcher string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	client := cs.jobClient
+	client := s.GetJobControllerClient()
 
 	req := &dataprocpb.ListJobsRequest{
 		ProjectId: s.Project,
@@ -406,11 +387,7 @@ func ToJobs(jobPbs []*dataprocpb.Job, region string) ([]Job, error) {
 
 // GetJob gets a single job.
 func (s *Source) GetJob(ctx context.Context, jobId string) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-	client := cs.jobClient
+	client := s.GetJobControllerClient()
 
 	req := &dataprocpb.GetJobRequest{
 		ProjectId: s.Project,

@@ -63,20 +63,38 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
-	// Pure config validation, so it stays at startup for both paths.
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+
 	if r.UseClientOAuth && r.ImpersonateServiceAccount != "" {
 		return nil, fmt.Errorf("useClientOAuth cannot be used with impersonateServiceAccount")
 	}
+
+	var client *logadmin.Client
+	var tokenSource oauth2.TokenSource
+	var clientCreator LogAdminClientCreator
+	var err error
+
 	s := &Source{
-		Config: r,
-		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
+		Config:        r,
+		Client:        client,
+		TokenSource:   tokenSource,
+		ClientCreator: clientCreator,
 	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.clients(ctx); err != nil {
-		return nil, err
+
+	if r.UseClientOAuth {
+		// use client OAuth
+		baseClientCreator, err := newLogAdminClientCreator(ctx, tracer, r.Project, r.Name)
+		if err != nil {
+			return nil, fmt.Errorf("error constructing client creator: %w", err)
+		}
+		setupClientCaching(s, baseClientCreator)
+	} else {
+		client, tokenSource, err = initLogAdminConnection(ctx, tracer, r.Name, r.Project, r.ImpersonateServiceAccount)
+		if err != nil {
+			return nil, fmt.Errorf("error creating client from ADC %w", err)
+		}
+		s.Client = client
+		s.TokenSource = tokenSource
 	}
 	return s, nil
 }
@@ -85,40 +103,14 @@ var _ sources.Source = &Source{}
 
 type LogAdminClientCreator func(tokenString string) (*logadmin.Client, error)
 
-// clientSet holds the ADC client or, under client OAuth, the per-token clientCreator.
-type clientSet struct {
-	client        *logadmin.Client
-	tokenSource   oauth2.TokenSource
-	clientCreator LogAdminClientCreator
-
-	// Cache for OAuth clients
-	logadminClientCache *sources.Cache
-}
-
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*clientSet]
-}
+	Client        *logadmin.Client
+	TokenSource   oauth2.TokenSource
+	ClientCreator LogAdminClientCreator
 
-func (s *Source) clients(ctx context.Context) (*clientSet, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
-		r := s.Config
-		if r.UseClientOAuth {
-			// use client OAuth
-			baseClientCreator, err := newLogAdminClientCreator(ctx, s.conn.Tracer(), r.Project, r.Name)
-			if err != nil {
-				return nil, fmt.Errorf("error constructing client creator: %w", err)
-			}
-			cs := &clientSet{}
-			setupClientCaching(cs, baseClientCreator)
-			return cs, nil
-		}
-		client, tokenSource, err := initLogAdminConnection(ctx, r.Project, r.ImpersonateServiceAccount)
-		if err != nil {
-			return nil, fmt.Errorf("error creating client from ADC %w", err)
-		}
-		return &clientSet{client: client, tokenSource: tokenSource}, nil
-	})
+	// Caches for OAuth clients
+	logadminClientCache *sources.Cache
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -138,31 +130,39 @@ func (s *Source) UseClientAuthorization() bool {
 	return s.UseClientOAuth
 }
 
+func (s *Source) LogAdminClient() *logadmin.Client {
+	return s.Client
+}
+
+func (s *Source) LogAdminTokenSource() oauth2.TokenSource {
+	return s.TokenSource
+}
+
+func (s *Source) LogAdminClientCreator() LogAdminClientCreator {
+	return s.ClientCreator
+}
+
 func (s *Source) GetProject() string {
 	return s.Project
 }
 
-// getClient returns the client for the configured authentication mode, connecting on first use.
-func (s *Source) getClient(ctx context.Context, accessToken string) (*logadmin.Client, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
+// getClient returns the appropriate client based on authentication mode
+func (s *Source) getClient(accessToken string) (*logadmin.Client, error) {
 	if s.UseClientOAuth {
-		if cs.clientCreator == nil {
+		if s.ClientCreator == nil {
 			return nil, fmt.Errorf("client creator is not initialized")
 		}
-		return cs.clientCreator(accessToken)
+		return s.ClientCreator(accessToken)
 	}
-	if cs.client == nil {
+	if s.Client == nil {
 		return nil, fmt.Errorf("source client is not initialized")
 	}
-	return cs.client, nil
+	return s.Client, nil
 }
 
 // ListLogNames lists all log names in the project
 func (s *Source) ListLogNames(ctx context.Context, limit int, accessToken string) ([]string, error) {
-	client, err := s.getClient(ctx, accessToken)
+	client, err := s.getClient(accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (s *Source) ListLogNames(ctx context.Context, limit int, accessToken string
 
 // ListResourceTypes lists all resource types in the project
 func (s *Source) ListResourceTypes(ctx context.Context, accessToken string) ([]string, error) {
-	client, err := s.getClient(ctx, accessToken)
+	client, err := s.getClient(accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ type QueryLogsParams struct {
 
 // QueryLogs queries log entries based on the provided parameters
 func (s *Source) QueryLogs(ctx context.Context, params QueryLogsParams, accessToken string) ([]map[string]any, error) {
-	client, err := s.getClient(ctx, accessToken)
+	client, err := s.getClient(accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -328,17 +328,17 @@ func (s *Source) QueryLogs(ctx context.Context, params QueryLogsParams, accessTo
 	return results, nil
 }
 
-func setupClientCaching(cs *clientSet, baseCreator LogAdminClientCreator) {
+func setupClientCaching(s *Source, baseCreator LogAdminClientCreator) {
 	onEvict := func(key string, value interface{}) {
 		if client, ok := value.(*logadmin.Client); ok && client != nil {
 			client.Close()
 		}
 	}
 
-	cs.logadminClientCache = sources.NewCache(onEvict)
+	s.logadminClientCache = sources.NewCache(onEvict)
 
-	cs.clientCreator = func(tokenString string) (*logadmin.Client, error) {
-		if val, found := cs.logadminClientCache.Get(tokenString); found {
+	s.ClientCreator = func(tokenString string) (*logadmin.Client, error) {
+		if val, found := s.logadminClientCache.Get(tokenString); found {
 			return val.(*logadmin.Client), nil
 		}
 
@@ -346,16 +346,21 @@ func setupClientCaching(cs *clientSet, baseCreator LogAdminClientCreator) {
 		if err != nil {
 			return nil, err
 		}
-		cs.logadminClientCache.Set(tokenString, client)
+		s.logadminClientCache.Set(tokenString, client)
 		return client, nil
 	}
 }
 
 func initLogAdminConnection(
 	ctx context.Context,
+	tracer trace.Tracer,
+	name string,
 	project string,
 	impersonateServiceAccount string,
 ) (*logadmin.Client, oauth2.TokenSource, error) {
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -432,10 +437,7 @@ func newLogAdminClientCreator(
 		return nil, err
 	}
 
-	// The creator outlives this call, so it must not capture the connect's
-	// cancellation, nor the span of whichever caller happened to trigger it.
-	creatorCtx := trace.ContextWithSpanContext(context.WithoutCancel(ctx), trace.SpanContext{})
 	return func(tokenString string) (*logadmin.Client, error) {
-		return initLogAdminConnectionWithOAuthToken(creatorCtx, tracer, project, name, userAgent, tokenString)
+		return initLogAdminConnectionWithOAuthToken(ctx, tracer, project, name, userAgent, tokenString)
 	}, nil
 }

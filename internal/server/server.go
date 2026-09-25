@@ -117,7 +117,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 				trace.WithAttributes(attribute.String("source_name", name)),
 			)
 			defer span.End()
-			s, err := sc.Initialize(childCtx, instrumentation.Tracer, cfg.DeferSourceConnect)
+			s, err := sc.Initialize(childCtx, instrumentation.Tracer)
 			if err != nil {
 				return nil, fmt.Errorf("unable to initialize source %q: %w", name, err)
 			}
@@ -133,9 +133,6 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		sourceNames = append(sourceNames, name)
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d sources: %s", len(sourcesMap), strings.Join(sourceNames, ", ")))
-	if cfg.DeferSourceConnect {
-		l.InfoContext(ctx, "Source connections are deferred; each source connects on first use.")
-	}
 
 	// initialize and validate the auth services from configs
 	authServicesMap := make(map[string]auth.AuthService)
