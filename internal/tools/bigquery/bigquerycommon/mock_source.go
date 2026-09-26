@@ -32,12 +32,17 @@ type MockSource struct {
 	Client          *bigqueryapi.Client
 	Service         *bigqueryrestapi.Service
 	AllowedDatasets []string
+	Project         string
 	RunSQLResult    any
 	RunSQLError     error
 }
 
 func (m *MockSource) BigQueryClient() *bigqueryapi.Client {
 	return m.Client
+}
+
+func (m *MockSource) BigQueryProject() string {
+	return m.Project
 }
 
 func (m *MockSource) UseClientAuthorization() bool {
