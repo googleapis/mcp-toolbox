@@ -174,6 +174,31 @@ func TestInitialize_Validation(t *testing.T) {
 			wantError: true,
 			errString: "`scopesRequired` is not allowed when `mcpEnabled` is false",
 		},
+		{
+			name: "forceIntrospection disallowed with mcpEnabled false",
+			config: Config{
+				Name:                "generic-auth",
+				Type:                "generic",
+				Audience:            "my-audience",
+				AuthorizationServer: mockOIDC.URL,
+				McpEnabled:          false,
+				ForceIntrospection:  true,
+			},
+			wantError: true,
+			errString: "`forceIntrospection` is not allowed when `mcpEnabled` is false",
+		},
+		{
+			name: "forceIntrospection allowed with mcpEnabled true",
+			config: Config{
+				Name:                "generic-auth",
+				Type:                "generic",
+				Audience:            "my-audience",
+				AuthorizationServer: mockOIDC.URL,
+				McpEnabled:          true,
+				ForceIntrospection:  true,
+			},
+			wantError: false,
+		},
 	}
 
 	for _, tc := range tests {
@@ -941,4 +966,199 @@ func TestIsJWTFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestForceIntrospection(t *testing.T) {
+	const jwtToken = "eyJhbGciOiJSUzI1NiJ9.payload.signature"
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 "https://example.com",
+				"jwks_uri":               "http://" + r.Host + "/jwks",
+				"introspection_endpoint": "http://" + r.Host + "/introspect",
+			})
+		case "/jwks":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{}})
+		case "/introspect":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"active": true,
+				"scope":  "read:files",
+				"aud":    "my-audience",
+				"exp":    time.Now().Add(time.Hour).Unix(),
+				"iss":    "https://example.com",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	logger, err := log.NewLogger("standard", log.Debug, &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+jwtToken)
+
+	t.Run("force introspection with JWT token", func(t *testing.T) {
+		cfg := Config{
+			Name:                "test-generic-auth",
+			Type:                "generic",
+			Audience:            "my-audience",
+			AuthorizationServer: server.URL,
+			McpEnabled:          true,
+			ScopesRequired:      []string{"read:files"},
+			ForceIntrospection:  true,
+		}
+		authService, err := cfg.Initialize()
+		if err != nil {
+			t.Fatalf("failed to initialize auth service: %v", err)
+		}
+		genericAuth := authService.(*AuthService)
+
+		claims, err := genericAuth.ValidateMCPAuth(ctx, header)
+		if err != nil {
+			t.Fatalf("expected success via introspection, got error: %v", err)
+		}
+		if claims["iss"] != "https://example.com" {
+			t.Errorf("expected claims from introspection, got %v", claims)
+		}
+	})
+}
+
+func TestIntrospectionClientAuth(t *testing.T) {
+	var gotUser, gotPass string
+	var gotOK bool
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 "https://example.com",
+				"jwks_uri":               "http://" + r.Host + "/jwks",
+				"introspection_endpoint": "http://" + r.Host + "/introspect",
+			})
+		case "/jwks":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{}})
+		case "/introspect":
+			gotUser, gotPass, gotOK = r.BasicAuth()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"active": true,
+				"scope":  "read:files",
+				"aud":    "my-audience",
+				"exp":    time.Now().Add(time.Hour).Unix(),
+				"iss":    "https://example.com",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	logger, err := log.NewLogger("standard", log.Debug, &bytes.Buffer{}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	t.Run("only client ID set is treated as unconfigured, not an error", func(t *testing.T) {
+		t.Setenv(IntrospectionClientIDEnvVar, "my-client")
+		t.Setenv(IntrospectionClientSecretEnvVar, "")
+		gotOK = false
+
+		cfg := Config{
+			Name:                "test-generic-auth",
+			Type:                "generic",
+			Audience:            "my-audience",
+			AuthorizationServer: server.URL,
+			McpEnabled:          true,
+			ForceIntrospection:  true,
+		}
+		authService, err := cfg.Initialize()
+		if err != nil {
+			t.Fatalf("expected partial env config to be tolerated, got error: %v", err)
+		}
+		genericAuth := authService.(*AuthService)
+
+		header := http.Header{}
+		header.Set("Authorization", "Bearer opaque-token")
+		if _, err := genericAuth.ValidateMCPAuth(ctx, header); err != nil {
+			t.Fatalf("expected success via introspection, got error: %v", err)
+		}
+		if gotOK {
+			t.Errorf("expected no basic auth to be sent, but got user=%q, pass=%q", gotUser, gotPass)
+		}
+	})
+
+	t.Run("client ID and secret are sent via basic auth", func(t *testing.T) {
+		t.Setenv(IntrospectionClientIDEnvVar, "my-client")
+		t.Setenv(IntrospectionClientSecretEnvVar, "my-secret")
+
+		cfg := Config{
+			Name:                "test-generic-auth",
+			Type:                "generic",
+			Audience:            "my-audience",
+			AuthorizationServer: server.URL,
+			McpEnabled:          true,
+			ForceIntrospection:  true,
+		}
+		authService, err := cfg.Initialize()
+		if err != nil {
+			t.Fatalf("failed to initialize auth service: %v", err)
+		}
+		genericAuth := authService.(*AuthService)
+
+		header := http.Header{}
+		header.Set("Authorization", "Bearer opaque-token")
+		if _, err := genericAuth.ValidateMCPAuth(ctx, header); err != nil {
+			t.Fatalf("expected success via introspection, got error: %v", err)
+		}
+
+		if !gotOK {
+			t.Errorf("expected basic auth to be sent, but got none")
+		}
+		if gotUser != "my-client" || gotPass != "my-secret" {
+			t.Errorf("expected basic auth user=my-client, pass=my-secret, got user=%q, pass=%q", gotUser, gotPass)
+		}
+	})
+
+	t.Run("no client ID or secret are sent via basic auth", func(t *testing.T) {
+		t.Setenv(IntrospectionClientIDEnvVar, "")
+		t.Setenv(IntrospectionClientSecretEnvVar, "")
+
+		cfg := Config{
+			Name:                "test-generic-auth",
+			Type:                "generic",
+			Audience:            "my-audience",
+			AuthorizationServer: server.URL,
+			McpEnabled:          true,
+			ForceIntrospection:  true,
+		}
+		authService, err := cfg.Initialize()
+		if err != nil {
+			t.Fatalf("failed to initialize auth service: %v", err)
+		}
+		genericAuth := authService.(*AuthService)
+
+		header := http.Header{}
+		header.Set("Authorization", "Bearer opaque-token")
+		if _, err := genericAuth.ValidateMCPAuth(ctx, header); err != nil {
+			t.Fatalf("expected success via introspection, got error: %v", err)
+		}
+		if gotOK {
+			t.Errorf("expected no basic auth to be sent, but got user=%q, pass=%q", gotUser, gotPass)
+		}
+	})
 }
