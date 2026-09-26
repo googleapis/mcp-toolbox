@@ -118,7 +118,7 @@ Oracle Wallet allows you to store credentails used for database connection. Depe
 
 #### Pure Go Driver (`useOCI: false`) - Oracle Wallet
 
-The `go-ora` driver uses the `walletLocation` field to connect to a database secured with an Oracle Wallet without standard username and password.
+The `go-ora` driver uses the `walletLocation` field to connect to a database secured with an Oracle Wallet for SSL/TLS transport encryption. Note that standard username and password authentication is still required.
 
 ```yaml
 kind: source
@@ -134,17 +134,29 @@ walletLocation: "/path/to/my/wallet/directory"
 
 #### OCI-Based Driver (`useOCI: true`) - Oracle Wallet
 
-For the OCI-based driver, wallet authentication is triggered by setting tnsAdmin to the wallet directory and connecting via a tnsAlias. 
+For the OCI-based driver, wallet authentication is triggered by setting `tnsAdmin` to the wallet directory and connecting via a `tnsAlias`. 
+
+If the wallet is configured as a Secure External Password Store (SEPS) or uses SSL client certificates for database login (External Authentication), `user` and `password` are optional and can be omitted:
+
+```yaml
+kind: source
+name: oci-wallet-passwordless
+type: oracle
+tnsAlias: "WALLET_DB_ALIAS"
+tnsAdmin: "/opt/oracle/wallet" # Directory containing tnsnames.ora, sqlnet.ora, and wallet files
+useOCI: true
+```
+
+If the wallet is only used for transport encryption (SSL/TLS) and the database still requires explicit credential validation, you must provide both `user` and `password`:
 
 ```yaml
 kind: source
 name: oci-wallet
 type: oracle
-connectionString: "127.0.0.1:1521/XEPDB1"
+tnsAlias: "WALLET_DB_ALIAS"
+tnsAdmin: "/opt/oracle/wallet"
 user: ${USER_NAME}
 password: ${PASSWORD}
-tnsAlias: "WALLET_DB_ALIAS"
-tnsAdmin: "/opt/oracle/wallet" # Directory containing tnsnames.ora, sqlnet.ora, and wallet files
 useOCI: true
 ```
 
@@ -155,11 +167,11 @@ instead of hardcoding your secrets into the configuration file.
 
 ## Reference
 
-| **field**        | **type** | **required** | **description**                                                                                                                                                                         |
-|------------------|:--------:|:------------:|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| type             |  string  |     true     | Must be "oracle".                                                                                                                                                                       |
-| user             |  string  |     true     | Name of the Oracle user to connect as (e.g. "my-oracle-user").                                                                                                                          |
-| password         |  string  |     true     | Password of the Oracle user (e.g. "my-password").                                                                                                                                       |
+| **field**        | **type** | **required**  | **description**                                                                                                                                                                         |
+|------------------|:--------:|:-------------:|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| type             |  string  |     true      | Must be "oracle".                                                                                                                                                                       |
+| user             |  string  |  conditional  | Name of the Oracle user to connect as. Required unless using the OCI driver (useOCI: true) with a wallet (tnsAdmin) for passwordless authentication.                                                 |
+| password         |  string  |  conditional  | Password of the Oracle user. Required unless using the OCI driver (useOCI: true) with a wallet (tnsAdmin) for passwordless authentication.                                                           |
 | host             |  string  |    false     | IP address or hostname to connect to (e.g. "127.0.0.1"). Required if not using `connectionString` or `tnsAlias`.                                                                        |
 | port             | integer  |    false     | Port to connect to (e.g. "1521"). Required if not using `connectionString` or `tnsAlias`.                                                                                               |
 | serviceName      |  string  |    false     | The Oracle service name of the database to connect to. Required if not using `connectionString` or `tnsAlias`.                                                                          |
