@@ -82,17 +82,22 @@ func initFirebirdConnection(host, port, user, pass, dbname string) (*sql.DB, err
 }
 
 func TestFirebirdToolEndpoints(t *testing.T) {
+	tableName := setupFirebirdTest(t, "--enable-api")
+	tests.RunToolGetTest(t)
+	runFirebirdCallTests(t, tableName, nil, nil, nil)
+}
+
+func setupFirebirdTest(t *testing.T, args ...string) string {
+	t.Helper()
 	sourceConfig := getFirebirdVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
+	t.Cleanup(cancel)
 
 	db, err := initFirebirdConnection(FirebirdHost, FirebirdPort, FirebirdUser, FirebirdPass, FirebirdDatabase)
 	if err != nil {
 		t.Fatalf("unable to create firebird connection pool: %s", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { db.Close() })
 
 	shortUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	tableNameParam := fmt.Sprintf("param_table_%s", shortUUID)
@@ -101,11 +106,11 @@ func TestFirebirdToolEndpoints(t *testing.T) {
 
 	createParamTableStmts, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getFirebirdParamToolInfo(tableNameParam)
 	teardownTable1 := setupFirebirdTable(t, ctx, db, createParamTableStmts, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	t.Cleanup(func() { teardownTable1(t) })
 
 	createAuthTableStmts, insertAuthTableStmt, authToolStmt, authTestParams := getFirebirdAuthToolInfo(tableNameAuth)
 	teardownTable2 := setupFirebirdTable(t, ctx, db, createAuthTableStmts, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	t.Cleanup(func() { teardownTable2(t) })
 
 	toolsFile := getFirebirdToolsConfig(sourceConfig, FirebirdToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
 	toolsFile = addFirebirdExecuteSqlConfig(t, toolsFile)
@@ -116,7 +121,16 @@ func TestFirebirdToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelWait()
@@ -126,21 +140,26 @@ func TestFirebirdToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
-	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := getFirebirdWants()
-	nullWant := `[{"id":4,"name":null}]`
-	select1Statement := `SELECT 1 AS "constant" FROM RDB$DATABASE;`
-	templateParamCreateColArray := `["id INTEGER","name VARCHAR(255)","age INTEGER"]`
+	return tableNameTemplateParam
+}
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want,
-		tests.WithNullWant(nullWant),
-		tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, tests.WithSelect1Statement(select1Statement))
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
-		tests.WithCreateColArray(templateParamCreateColArray))
+func runFirebirdCallTests(t *testing.T, tableName string, invokeOptions []tests.InvokeTestOption, sqlOptions []tests.ExecuteSqlOption, templateOptions []tests.TemplateParamOption) {
+	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := getFirebirdWants()
+	t.Run("invoke", func(t *testing.T) {
+		opts := []tests.InvokeTestOption{tests.WithNullWant(`[{"id":4,"name":null}]`), tests.DisableArrayTest()}
+		tests.RunToolInvokeTest(t, select1Want, append(opts, invokeOptions...)...)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("execute_sql", func(t *testing.T) {
+		opts := []tests.ExecuteSqlOption{tests.WithSelect1Statement(`SELECT 1 AS "constant" FROM RDB$DATABASE;`)}
+		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, append(opts, sqlOptions...)...)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		opts := []tests.TemplateParamOption{tests.WithCreateColArray(`["id INTEGER","name VARCHAR(255)","age INTEGER"]`)}
+		tests.RunToolInvokeWithTemplateParameters(t, tableName, append(opts, templateOptions...)...)
+	})
 }
 
 func setupFirebirdTable(t *testing.T, ctx context.Context, db *sql.DB, createStatements []string, insertStatement, tableName string, params []any) func(*testing.T) {
