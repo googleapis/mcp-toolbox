@@ -45,7 +45,7 @@ description: |
   The output provides details like the explore's `name` and `label`.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
 ```
 
 ## Reference
