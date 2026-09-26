@@ -511,9 +511,14 @@ func TestParseFromYamlMultipleQueryTools(t *testing.T) {
 // collection-path validation without a Firestore emulator. Collection-path
 // validation runs before BuildQuery, so the Firestore client is never used.
 type mockQuerySource struct {
-	sources.Source
 	buildQueryCalled bool
 }
+
+func (m *mockQuerySource) SourceType() string { return "firestore" }
+
+func (m *mockQuerySource) ToConfig() sources.SourceConfig { return nil }
+
+func (m *mockQuerySource) IsReadOnly() bool { return false }
 
 func (m *mockQuerySource) FirestoreClient() *firestoreapi.Client { return nil }
 
