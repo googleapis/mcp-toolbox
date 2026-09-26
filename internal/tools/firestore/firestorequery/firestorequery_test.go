@@ -15,10 +15,13 @@
 package firestorequery_test
 
 import (
+	"context"
 	"testing"
 
+	firestoreapi "cloud.google.com/go/firestore"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/firestore/firestorequery"
@@ -501,5 +504,86 @@ func TestParseFromYamlMultipleQueryTools(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("incorrect parse: diff %v", diff)
+	}
+}
+
+// mockQuerySource is a minimal compatibleSource used to exercise Invoke's
+// collection-path validation without a Firestore emulator. Collection-path
+// validation runs before BuildQuery, so the Firestore client is never used.
+type mockQuerySource struct {
+	sources.Source
+	buildQueryCalled bool
+}
+
+func (m *mockQuerySource) FirestoreClient() *firestoreapi.Client { return nil }
+
+func (m *mockQuerySource) BuildQuery(string, firestoreapi.EntityFilter, []string, string, firestoreapi.Direction, int, bool) (*firestoreapi.Query, error) {
+	m.buildQueryCalled = true
+	return nil, nil
+}
+
+func (m *mockQuerySource) ExecuteQuery(context.Context, *firestoreapi.Query, bool) (any, error) {
+	return nil, nil
+}
+
+func TestInvokeValidatesCollectionPath(t *testing.T) {
+	ctx := context.Background()
+	tcs := []struct {
+		desc      string
+		pathParam string
+		wantErr   bool
+	}{
+		{
+			desc:      "absolute path is rejected",
+			pathParam: "projects/p/databases/d/documents/users",
+			wantErr:   true,
+		},
+		{
+			desc:      "even number of segments is rejected",
+			pathParam: "users/123",
+			wantErr:   true,
+		},
+		{
+			desc:      "valid relative collection path is accepted",
+			pathParam: "users",
+			wantErr:   false,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := firestorequery.Config{
+				ConfigBase: tools.ConfigBase{
+					Name:        "query_tool",
+					Description: "query with parameterized collection path",
+				},
+				Type:           "firestore-query",
+				Source:         "my-firestore-instance",
+				CollectionPath: "{{.path}}",
+			}
+			tool, err := cfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("failed to initialize tool: %v", err)
+			}
+			src := &mockQuerySource{}
+			params := parameters.ParamValues{
+				{Name: "path", Value: tc.pathParam},
+			}
+			_, tErr := tool.Invoke(ctx, src, params, "")
+			if tc.wantErr {
+				if tErr == nil {
+					t.Fatalf("expected error for collection path %q, got nil", tc.pathParam)
+				}
+				if src.buildQueryCalled {
+					t.Fatalf("expected path %q to be rejected before BuildQuery, but BuildQuery was called", tc.pathParam)
+				}
+				return
+			}
+			if tErr != nil {
+				t.Fatalf("unexpected error for valid path %q: %v", tc.pathParam, tErr)
+			}
+			if !src.buildQueryCalled {
+				t.Fatalf("expected BuildQuery to be called for valid path %q", tc.pathParam)
+			}
+		})
 	}
 }
