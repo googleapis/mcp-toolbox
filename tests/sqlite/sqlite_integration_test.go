@@ -15,10 +15,11 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -26,7 +27,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
+	v20251125 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20251125"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 )
@@ -109,19 +112,25 @@ func getSQLiteTmplToolStatement() (string, string) {
 }
 
 func TestSQLiteToolEndpoint(t *testing.T) {
+	tableName := setupSQLiteTest(t, "--enable-api")
+	tests.RunToolGetTest(t)
+	runSQLiteCallTests(t, tableName, nil, nil)
+}
+
+func setupSQLiteTest(t *testing.T, args ...string) string {
+	t.Helper()
+
 	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer teardownDb(t)
-	defer db.Close()
+	t.Cleanup(func() { teardownDb(t) })
+	t.Cleanup(func() { db.Close() })
 
 	sourceConfig := getSQLiteVars(t)
 	sourceConfig["database"] = sqliteDb
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
+	t.Cleanup(cancel)
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -145,7 +154,16 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -155,30 +173,46 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
+	return tableNameTemplateParam
+}
+
+func runSQLiteCallTests(t *testing.T, tableName string, invokeOptions []tests.InvokeTestOption, templateOptions []tests.TemplateParamOption) {
+
 	select1Want := "[{\"1\":1}]"
 	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: SQL logic error: near \"SELEC\": syntax error (1)"}],"isError":true}}`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"1\":1}"}]}}`
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	t.Run("invoke", func(t *testing.T) {
+		opts := append([]tests.InvokeTestOption{tests.DisableArrayTest()}, invokeOptions...)
+		tests.RunToolInvokeTest(t, select1Want, opts...)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, tableName, templateOptions...)
+	})
 }
 
 func TestSQLiteExecuteSqlTool(t *testing.T) {
+	tableName := setupSQLiteExecuteSQLTest(t, "--enable-api")
+	runSQLiteExecuteSQLTests(t, tableName)
+}
+
+func setupSQLiteExecuteSQLTest(t *testing.T, args ...string) string {
+	t.Helper()
+
 	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer teardownDb(t)
-	defer db.Close()
+	t.Cleanup(func() { teardownDb(t) })
+	t.Cleanup(func() { db.Close() })
 
 	sourceConfig := getSQLiteVars(t)
 	sourceConfig["database"] = sqliteDb
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	// Create a table and insert data
 	tableName := "exec_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -201,12 +235,20 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolConfig, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -216,56 +258,112 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
+	return tableName
+}
+
+func runSQLiteExecuteSQLTests(t *testing.T, tableName string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	// Table-driven test cases
 	testCases := []struct {
-		name       string
-		sql        string
-		wantStatus int
-		wantBody   string
+		name        string
+		arguments   map[string]any
+		wantContent []v20251125.TextContent
+		wantError   string
 	}{
 		{
-			name:       "select existing row",
-			sql:        fmt.Sprintf("SELECT name FROM %s WHERE id = 1", tableName),
-			wantStatus: 200,
-			wantBody:   "Bob",
+			name:        "select existing row",
+			arguments:   map[string]any{"sql": fmt.Sprintf("SELECT name FROM %s WHERE id = 1", tableName)},
+			wantContent: []v20251125.TextContent{{Type: "text", Text: `{"name":"Bob"}`}},
 		},
 		{
-			name:       "select no rows",
-			sql:        fmt.Sprintf("SELECT name FROM %s WHERE id = 999", tableName),
-			wantStatus: 200,
-			wantBody:   "[]",
+			name:        "select no rows",
+			arguments:   map[string]any{"sql": fmt.Sprintf("SELECT name FROM %s WHERE id = 999", tableName)},
+			wantContent: []v20251125.TextContent{},
 		},
 		{
-			name:       "invalid SQL",
-			sql:        "SELEC name FROM not_a_table",
-			wantStatus: 200,
-			wantBody:   "error processing request: unable to execute query: SQL logic error",
+			name:      "invalid SQL",
+			arguments: map[string]any{"sql": "SELEC name FROM not_a_table"},
+			wantError: "error processing request: unable to execute query: SQL logic error",
+		},
+		{
+			name:      "missing SQL",
+			arguments: map[string]any{},
+			wantError: `parameter "sql" is required`,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			api := "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke"
-			reqBody := strings.NewReader(fmt.Sprintf(`{"sql":"%s"}`, tc.sql))
-			req, err := http.NewRequest("POST", api, reqBody)
+			if !config.IsMCP() {
+				args, err := json.Marshal(tc.arguments)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, body := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke", bytes.NewReader(args), nil)
+				wantStatus := http.StatusOK
+				if response.StatusCode != wantStatus {
+					t.Fatalf("unexpected HTTP status: got %d, want %d; body: %s", response.StatusCode, wantStatus, body)
+				}
+				if tc.wantError != "" {
+					var wrapper struct {
+						Result string `json:"result"`
+					}
+					if err := json.Unmarshal(body, &wrapper); err != nil {
+						t.Fatal(err)
+					}
+					var failure struct {
+						Error string `json:"error"`
+					}
+					if err := json.Unmarshal([]byte(wrapper.Result), &failure); err != nil {
+						t.Fatal(err)
+					}
+					if !strings.Contains(failure.Error, tc.wantError) {
+						t.Fatalf("expected error %q, got %s", tc.wantError, body)
+					}
+					return
+				}
+				var result struct {
+					Result string `json:"result"`
+				}
+				if err := json.Unmarshal(body, &result); err != nil {
+					t.Fatal(err)
+				}
+				var rows []json.RawMessage
+				if err := json.Unmarshal([]byte(result.Result), &rows); err != nil {
+					t.Fatal(err)
+				}
+				content := make([]v20251125.TextContent, 0, len(rows))
+				for _, row := range rows {
+					content = append(content, v20251125.TextContent{Type: "text", Text: string(row)})
+				}
+				if diff := cmp.Diff(tc.wantContent, content); diff != "" {
+					t.Fatalf("unexpected API rows (-want +got):\n%s", diff)
+				}
+				return
+			}
+			status, resp, err := tests.InvokeMCPTool(t, "my-exec-sql-tool", tc.arguments, nil)
 			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
+				t.Fatalf("unable to invoke tool: %s", err)
 			}
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
+			if status != http.StatusOK {
+				t.Fatalf("unexpected HTTP status: got %d, want %d", status, http.StatusOK)
 			}
-			defer resp.Body.Close()
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("unable to read response: %s", err)
+			if resp.Error != nil {
+				t.Fatalf("unexpected JSON-RPC error: %+v", resp.Error)
 			}
-			if resp.StatusCode != tc.wantStatus {
-				t.Fatalf("unexpected status: %d, body: %s", resp.StatusCode, string(bodyBytes))
+			if got, want := resp.Result.IsError, tc.wantError != ""; got != want {
+				t.Fatalf("unexpected isError: got %t, want %t; content: %+v", got, want, resp.Result.Content)
 			}
-			if tc.wantBody != "" && !strings.Contains(string(bodyBytes), tc.wantBody) {
-				t.Fatalf("expected body to contain %q, got: %s", tc.wantBody, string(bodyBytes))
+			if tc.wantError != "" {
+				tests.AssertMCPError(t, resp, tc.wantError)
+				return
+			}
+			if diff := cmp.Diff(tc.wantContent, resp.Result.Content); diff != "" {
+				t.Fatalf("unexpected MCP content (-want +got):\n%s", diff)
 			}
 		})
 	}
