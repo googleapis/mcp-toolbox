@@ -46,6 +46,13 @@ var (
 
 const orphanedResourceTTL = 2 * time.Hour
 
+var integrationTablePrefixes = []string{
+	"admin_test_table_",
+	"auth_table_",
+	"param_table_",
+	"tmpl_param_table_",
+}
+
 func TestMain(m *testing.M) {
 	if BigtableProject != "" && BigtableInstance != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -78,7 +85,7 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable logical views: %v", err)
 	} else {
 		for _, view := range views {
-			if shouldCleanupBigtableResource(view.LogicalViewID, "admin_test_view_", now) {
+			if shouldCleanupBigtableResource(view.LogicalViewID, now, "admin_test_view_") {
 				log.Printf("INTEGRATION CLEANUP: Deleting orphaned logical view %s", view.LogicalViewID)
 				if err := instanceAdminClient.DeleteLogicalView(ctx, BigtableInstance, view.LogicalViewID); err != nil {
 					log.Printf("INTEGRATION CLEANUP: Failed to delete logical view %s: %v", view.LogicalViewID, err)
@@ -92,7 +99,7 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable tables: %v", err)
 	} else {
 		for _, table := range tables {
-			if shouldCleanupBigtableResource(table, "admin_test_table_", now) {
+			if shouldCleanupBigtableResource(table, now, integrationTablePrefixes...) {
 				log.Printf("INTEGRATION CLEANUP: Deleting orphaned table %s", table)
 				if err := adminClient.DeleteTable(ctx, table); err != nil {
 					log.Printf("INTEGRATION CLEANUP: Failed to delete table %s: %v", table, err)
@@ -106,33 +113,40 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable instances: %v", err)
 	}
 	for _, instance := range instances {
-		if shouldCleanupBigtableResource(instance.Name, "testi-", now) {
-			log.Printf("INTEGRATION CLEANUP: Deleting orphaned instance %s", instance.Name)
-			if err := instanceAdminClient.DeleteInstance(ctx, instance.Name); err != nil {
-				log.Printf("INTEGRATION CLEANUP: Failed to delete instance %s: %v", instance.Name, err)
+		instanceID := instance.Name
+		if idx := strings.LastIndex(instanceID, "/"); idx >= 0 {
+			instanceID = instanceID[idx+1:]
+		}
+		if shouldCleanupBigtableResource(instanceID, now, "testi-") {
+			log.Printf("INTEGRATION CLEANUP: Deleting orphaned instance %s", instanceID)
+			if err := instanceAdminClient.DeleteInstance(ctx, instanceID); err != nil {
+				log.Printf("INTEGRATION CLEANUP: Failed to delete instance %s: %v", instanceID, err)
 			}
 		}
 	}
 }
 
-func shouldCleanupBigtableResource(name, prefix string, now time.Time) bool {
-	if !strings.HasPrefix(name, prefix) {
-		return false
-	}
+func shouldCleanupBigtableResource(name string, now time.Time, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
 
-	suffix := strings.TrimPrefix(name, prefix)
-	separator := strings.IndexAny(suffix, "_-")
-	if separator < 0 {
-		// Resources created before timestamps were added are already orphaned.
-		return true
+		suffix := strings.TrimPrefix(name, prefix)
+		separator := strings.IndexAny(suffix, "_-")
+		if separator < 0 {
+			// Resources created before timestamps were added are already orphaned.
+			return true
+		}
+		createdAt, err := strconv.ParseInt(suffix[:separator], 10, 64)
+		if err != nil {
+			// Clean up legacy integration-test resources whose UUID immediately
+			// followed the prefix and therefore cannot be age checked.
+			return true
+		}
+		return now.Sub(time.Unix(createdAt, 0)) > orphanedResourceTTL
 	}
-	createdAt, err := strconv.ParseInt(suffix[:separator], 10, 64)
-	if err != nil {
-		// Clean up legacy integration-test resources whose UUID immediately
-		// followed the prefix and therefore cannot be age checked.
-		return true
-	}
-	return now.Sub(time.Unix(createdAt, 0)) > orphanedResourceTTL
+	return false
 }
 
 func getBigtableVars(t *testing.T) map[string]any {
@@ -159,8 +173,9 @@ type TestRow struct {
 func TestBigtableToolEndpoints(t *testing.T) {
 	sourceConfig := getBigtableVars(t)
 
-	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
-	t.Logf("Starting Bigtable test with uniqueID: %s", uniqueID)
+	resourceID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	createdAt := strconv.FormatInt(time.Now().Unix(), 10)
+	t.Logf("Starting Bigtable test with resourceID: %s", resourceID)
 
 	args := []string{"--enable-api"}
 
@@ -183,16 +198,16 @@ func TestBigtableToolEndpoints(t *testing.T) {
 	})
 
 	t.Cleanup(func() {
-		t.Logf("Running global cleanup for uniqueID: %s", uniqueID)
-		tests.CleanupBigtableTables(t, context.Background(), adminClient, uniqueID)
+		t.Logf("Running global cleanup for resourceID: %s", resourceID)
+		tests.CleanupBigtableTables(t, context.Background(), adminClient, resourceID)
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
 	defer cancel()
 
-	tableName := "param_table_" + uniqueID
-	tableNameAuth := "auth_table_" + uniqueID
-	tableNameTemplateParam := "tmpl_param_table_" + uniqueID
+	tableName := "param_table_" + createdAt + "_" + resourceID
+	tableNameAuth := "auth_table_" + createdAt + "_" + resourceID
+	tableNameTemplateParam := "tmpl_param_table_" + createdAt + "_" + resourceID
 
 	columnFamilyName := "cf"
 	muts, rowKeys := getTestData(columnFamilyName)
