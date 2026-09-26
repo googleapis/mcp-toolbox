@@ -20,7 +20,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -81,17 +80,58 @@ func initMariaDB(host, port, user, pass, dbname string) (*sql.DB, error) {
 	return pool, nil
 }
 
+type mariaDBTestFixture struct {
+	ctx                                  context.Context
+	pool                                 *sql.DB
+	paramTable, authTable, templateTable string
+}
+
 func TestMySQLToolEndpoints(t *testing.T) {
+	fixture := setupMariaDBTest(t, "--enable-api")
+	tests.RunToolGetTest(t)
+
+	// Get configs for tests
+	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := GetMariaDBWants()
+
+	t.Run("invoke", func(t *testing.T) {
+		tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("execute_sql", func(t *testing.T) {
+		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, fixture.templateTable)
+	})
+	t.Run("list_tables", func(t *testing.T) {
+		RunMariDBListTablesTest(t, MariaDBDatabase, fixture.paramTable, fixture.authTable)
+	})
+	t.Run("list_active_queries", func(t *testing.T) {
+		tests.RunMySQLListActiveQueriesTest(t, fixture.ctx, fixture.pool)
+	})
+	t.Run("list_tables_missing_unique_indexes", func(t *testing.T) {
+		tests.RunMySQLListTablesMissingUniqueIndexes(t, fixture.ctx, fixture.pool, MariaDBDatabase)
+	})
+	t.Run("list_table_fragmentation", func(t *testing.T) {
+		tests.RunMySQLListTableFragmentationTest(t, MariaDBDatabase, fixture.paramTable, fixture.authTable)
+	})
+}
+
+func setupMariaDBTest(t *testing.T, args ...string) mariaDBTestFixture {
+	t.Helper()
+
 	sourceConfig := getMariaDBVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
+	t.Cleanup(cancel)
 
 	pool, err := initMariaDB(MariaDBHost, MariaDBPort, MariaDBUser, MariaDBPass, MariaDBDatabase)
 	if err != nil {
 		t.Fatalf("unable to create MySQL connection pool: %s", err)
 	}
+
+	t.Cleanup(func() { pool.Close() })
 
 	// cleanup test environment
 	tests.CleanupMySQLTables(t, ctx, pool)
@@ -104,12 +144,12 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMySQLParamToolInfo(tableNameParam)
 	teardownTable1 := tests.SetupMySQLTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	t.Cleanup(func() { teardownTable1(t) })
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := tests.GetMySQLAuthToolInfo(tableNameAuth)
 	teardownTable2 := tests.SetupMySQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	t.Cleanup(func() { teardownTable2(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, MariaDBToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -123,7 +163,16 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -133,25 +182,15 @@ func TestMySQLToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
-	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := GetMariaDBWants()
-
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
-
-	// Run specific MySQL tool tests
-	RunMariDBListTablesTest(t, MariaDBDatabase, tableNameParam, tableNameAuth)
-	tests.RunMySQLListActiveQueriesTest(t, ctx, pool)
-	tests.RunMySQLListTablesMissingUniqueIndexes(t, ctx, pool, MariaDBDatabase)
-	tests.RunMySQLListTableFragmentationTest(t, MariaDBDatabase, tableNameParam, tableNameAuth)
+	return mariaDBTestFixture{ctx, pool, tableNameParam, tableNameAuth, tableNameTemplateParam}
 }
 
 // RunMariDBListTablesTest run tests against the mysql-list-tables tool
-func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNameAuth string) {
+func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNameAuth string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
 	type tableInfo struct {
 		ObjectName    string `json:"object_name"`
 		SchemaName    string `json:"schema_name"`
@@ -208,7 +247,7 @@ func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNa
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		arguments      map[string]any
 		wantStatusCode int
 		want           any
 		isSimple       bool
@@ -216,72 +255,97 @@ func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNa
 	}{
 		{
 			name:           "invoke list_tables for all tables detailed output",
-			requestBody:    bytes.NewBufferString(`{"table_names":""}`),
+			arguments:      map[string]any{"table_names": ""},
 			wantStatusCode: http.StatusOK,
 			want:           []objectDetails{authTableWant, paramTableWant},
 			isAllTables:    true,
 		},
 		{
 			name:           "invoke list_tables detailed output",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_names": "%s"}`, tableNameAuth)),
+			arguments:      map[string]any{"table_names": tableNameAuth},
 			wantStatusCode: http.StatusOK,
 			want:           []objectDetails{authTableWant},
 		},
 		{
 			name:           "invoke list_tables simple output",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_names": "%s", "output_format": "simple"}`, tableNameAuth)),
+			arguments:      map[string]any{"table_names": tableNameAuth, "output_format": "simple"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{{"name": tableNameAuth}},
 			isSimple:       true,
 		},
 		{
 			name:           "invoke list_tables with multiple table names",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_names": "%s,%s"}`, tableNameParam, tableNameAuth)),
+			arguments:      map[string]any{"table_names": tableNameParam + "," + tableNameAuth},
 			wantStatusCode: http.StatusOK,
 			want:           []objectDetails{authTableWant, paramTableWant},
 		},
 		{
 			name:           "invoke list_tables with one existing and one non-existent table",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_names": "%s,non_existent_table"}`, tableNameAuth)),
+			arguments:      map[string]any{"table_names": tableNameAuth + ",non_existent_table"},
 			wantStatusCode: http.StatusOK,
 			want:           []objectDetails{authTableWant},
 		},
 		{
 			name:           "invoke list_tables with non-existent table",
-			requestBody:    bytes.NewBufferString(`{"table_names": "non_existent_table"}`),
+			arguments:      map[string]any{"table_names": "non_existent_table"},
 			wantStatusCode: http.StatusOK,
 			want:           []objectDetails{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_tables/invoke"
-			resp, body := tests.RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(body))
-			}
-			if tc.wantStatusCode != http.StatusOK {
-				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(body, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
+			var tables []tableInfo
+			if config.IsMCP() {
+				status, response, err := tests.InvokeMCPTool(t, "list_tables", tc.arguments, nil)
+				if err != nil {
+					t.Fatalf("list_tables request failed: %v", err)
+				}
+				if status != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d", status, tc.wantStatusCode)
+				}
+				if response.Error != nil || response.Result.IsError {
+					t.Fatalf("list_tables returned an error: %+v", response)
+				}
+				if response.Result.Content == nil {
+					t.Fatal("list_tables response is missing the content array")
+				}
+				tables = make([]tableInfo, 0, len(response.Result.Content))
+				for _, content := range response.Result.Content {
+					if content.Type != "text" {
+						t.Fatalf("unexpected content type: %q", content.Type)
+					}
+					var table tableInfo
+					if err := json.Unmarshal([]byte(content.Text), &table); err != nil {
+						t.Fatalf("failed to decode table content: %v", err)
+					}
+					tables = append(tables, table)
+				}
+			} else {
+				args, err := json.Marshal(tc.arguments)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, body := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/list_tables/invoke", bytes.NewReader(args), nil)
+				if response.StatusCode != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d; body: %s", response.StatusCode, tc.wantStatusCode, body)
+				}
+				var wrapper struct {
+					Result json.RawMessage `json:"result"`
+				}
+				if err := json.Unmarshal(body, &wrapper); err != nil {
+					t.Fatal(err)
+				}
+				var result string
+				if err := json.Unmarshal(wrapper.Result, &result); err != nil {
+					result = string(wrapper.Result)
+				}
+				if err := json.Unmarshal([]byte(result), &tables); err != nil {
+					t.Fatalf("failed to decode tables: %v", err)
+				}
 			}
 
 			var got any
 			if tc.isSimple {
-				var tables []tableInfo
-				if err := json.Unmarshal([]byte(resultString), &tables); err != nil {
-					t.Fatalf("failed to unmarshal outer JSON array into []tableInfo: %v", err)
-				}
 				details := []map[string]any{}
 				for _, table := range tables {
 					var d map[string]any
@@ -292,10 +356,6 @@ func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNa
 				}
 				got = details
 			} else {
-				var tables []tableInfo
-				if err := json.Unmarshal([]byte(resultString), &tables); err != nil {
-					t.Fatalf("failed to unmarshal outer JSON array into []tableInfo: %v", err)
-				}
 				details := []objectDetails{}
 				for _, table := range tables {
 					var d objectDetails
