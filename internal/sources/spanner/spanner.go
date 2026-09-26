@@ -21,6 +21,8 @@ import (
 
 	dataplexapi "cloud.google.com/go/dataplex/apiv1"
 	"cloud.google.com/go/spanner"
+	databaseapi "cloud.google.com/go/spanner/admin/database/apiv1"
+	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/dataplex/searchcatalog"
@@ -42,7 +44,7 @@ func init() {
 }
 
 func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (sources.SourceConfig, error) {
-	actual := Config{Name: name, Dialect: "googlesql"} // Default dialect
+	actual := Config{Name: name}
 	if err := decoder.DecodeContext(ctx, &actual); err != nil {
 		return nil, err
 	}
@@ -54,7 +56,7 @@ type Config struct {
 	Type           string          `yaml:"type" validate:"required"`
 	Project        string          `yaml:"project" validate:"required"`
 	Instance       string          `yaml:"instance" validate:"required"`
-	Dialect        sources.Dialect `yaml:"dialect" validate:"required"`
+	Dialect        sources.Dialect `yaml:"dialect"`
 	Database       string          `yaml:"database" validate:"required"`
 	UseClientOAuth bool            `yaml:"useClientOAuth"`
 }
@@ -67,6 +69,15 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	client, err := initSpannerClient(ctx, tracer, r.Name, r.Project, r.Instance, r.Database)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create client: %w", err)
+	}
+
+	if r.Dialect == "" {
+		dialect, err := getDatabaseDialect(ctx, r.Project, r.Instance, r.Database)
+		if err != nil {
+			client.Close()
+			return nil, fmt.Errorf("unable to auto-detect database dialect (set `dialect` explicitly in the source config to skip detection): %w", err)
+		}
+		r.Dialect = dialect
 	}
 
 	onDataplexEvict := func(key string, value interface{}) {
@@ -218,6 +229,30 @@ func initSpannerClient(ctx context.Context, tracer trace.Tracer, name, project, 
 	}
 
 	return client, nil
+}
+
+// getDatabaseDialect fetches the database dialect via the Spanner Admin API.
+// It is a variable so tests can substitute the Admin API call.
+var getDatabaseDialect = func(ctx context.Context, project, instance, database string) (sources.Dialect, error) {
+	adminClient, err := databaseapi.NewDatabaseAdminClient(ctx)
+	if err != nil {
+		return "", fmt.Errorf("unable to create database admin client: %w", err)
+	}
+	defer adminClient.Close()
+
+	db, err := adminClient.GetDatabase(ctx, &databasepb.GetDatabaseRequest{
+		Name: fmt.Sprintf("projects/%s/instances/%s/databases/%s", project, instance, database),
+	})
+	if err != nil {
+		return "", fmt.Errorf("unable to get database metadata: %w", err)
+	}
+
+	switch db.DatabaseDialect {
+	case databasepb.DatabaseDialect_POSTGRESQL:
+		return "postgresql", nil
+	default:
+		return "googlesql", nil
+	}
 }
 
 func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any, tokenStr string) ([]searchcatalog.DataplexSearchResponse, error) {

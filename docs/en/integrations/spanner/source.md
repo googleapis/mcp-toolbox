@@ -74,4 +74,4 @@ database: "my_db"
 | project   |  string  |     true     | Id of the GCP project that the cluster was created in (e.g. "my-project-id").                                       |
 | instance  |  string  |     true     | Name of the Spanner instance.                                                                                       |
 | database  |  string  |     true     | Name of the database on the Spanner instance                                                                        |
-| dialect   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. Default: `googlesql`. |
+| dialect   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. If omitted, the dialect is auto-detected from the database metadata via the Spanner Admin API (requires the `spanner.databases.get` permission). |
