@@ -141,6 +141,33 @@ func TestParseFromYamlHTTP(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "sendGoogleAccessToken example",
+			in: `
+			kind: tool
+			name: example_tool
+			type: http
+			source: my-instance
+			method: GET
+			description: some description
+			path: search
+			sendGoogleAccessToken: true
+			`,
+			want: server.ToolConfigs{
+				"example_tool": http.Config{
+					ConfigBase: tools.ConfigBase{
+						Name:         "example_tool",
+						Description:  "some description",
+						AuthRequired: []string{},
+					},
+					Type:                  "http",
+					Source:                "my-instance",
+					Method:                "GET",
+					Path:                  "search",
+					SendGoogleAccessToken: true,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
