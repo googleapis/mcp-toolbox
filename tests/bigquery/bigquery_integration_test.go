@@ -1051,7 +1051,7 @@ func addBigQuerySqlToolConfig(t *testing.T, config map[string]any, toolStatement
 	return config
 }
 
-func runBigQueryExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWant, tableNameParam, ddlWant string) {
+func runBigQueryExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWant, tableNameParam, ddlWant string, opts ...tests.ToolExecOption) {
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
@@ -1065,375 +1065,199 @@ func runBigQueryExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamW
 	}
 	accessToken = "Bearer " + accessToken
 
+	unqualifiedTableErr := `error processing GCP request: failed to insert dry run job: googleapi: Error 400: Table "t" must be qualified with a dataset (e.g. dataset.table)., invalid`
+
 	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-exec-sql-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			want:          `{"error":"parameter \"sql\" is required"}`,
-			isErr:         false,
+			name:     "invoke my-exec-sql-tool without body",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{},
+			wantErr:  `parameter "sql" is required`,
 		},
 		{
-			name:          "invoke my-exec-sql-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			want:          select1Want,
-			isErr:         false,
+			name:     "invoke my-exec-sql-tool",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": "SELECT 1"},
+			want:     select1Want,
 		},
 		{
-			name:          "invoke my-exec-sql-tool create table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"}`)),
-			want:          `{"error":"error processing GCP request: failed to insert dry run job: googleapi: Error 400: Table \"t\" must be qualified with a dataset (e.g. dataset.table)., invalid"}`,
+			name:     "invoke my-exec-sql-tool create table",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": "CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"},
+			wantErr:  unqualifiedTableErr,
 		},
 		{
-			name:          "invoke my-exec-sql-tool with data present in table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"SELECT id, name FROM %s WHERE id = 3 OR name = 'Alice' ORDER BY id\"}", tableNameParam))),
-			want:          invokeParamWant,
-			isErr:         false,
+			name:     "invoke my-exec-sql-tool with data present in table",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("SELECT id, name FROM %s WHERE id = 3 OR name = 'Alice' ORDER BY id", tableNameParam)},
+			want:     invokeParamWant,
 		},
 		{
-			name:          "invoke my-exec-sql-tool with no matching rows",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"SELECT * FROM %s WHERE id = 999\"}", tableNameParam))),
-			want:          `"The query returned 0 rows."`,
-			isErr:         false,
+			name:     "invoke my-exec-sql-tool with no matching rows",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("SELECT * FROM %s WHERE id = 999", tableNameParam)},
+			want:     `"The query returned 0 rows."`,
+			wantMCP:  `["The query returned 0 rows."]`,
 		},
 		{
-			name:          "invoke my-exec-sql-tool drop table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"DROP TABLE t"}`)),
-			want:          `{"error":"error processing GCP request: failed to insert dry run job: googleapi: Error 400: Table \"t\" must be qualified with a dataset (e.g. dataset.table)., invalid"}`,
+			name:     "invoke my-exec-sql-tool drop table",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": "DROP TABLE t"},
+			wantErr:  unqualifiedTableErr,
 		},
 		{
-			name:          "invoke my-exec-sql-tool insert entry",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"INSERT INTO %s (id, name) VALUES (4, 'test_name')\"}", tableNameParam))),
-			want:          ddlWant,
-			isErr:         false,
+			name:     "invoke my-exec-sql-tool insert entry",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("INSERT INTO %s (id, name) VALUES (4, 'test_name')", tableNameParam)},
+			want:     ddlWant,
+			wantMCP:  "[" + ddlWant + "]",
 		},
 		{
-			name:          "invoke my-exec-sql-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			want:          `{"error":"parameter \"sql\" is required"}`,
-			isErr:         true,
+			name:     "invoke my-exec-sql-tool without body",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			toolName:      "my-auth-exec-sql-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			isErr:         false,
+			args:          map[string]any{"sql": "SELECT 1"},
 			want:          select1Want,
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			toolName:      "my-auth-exec-sql-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          map[string]any{"sql": "SELECT 1"},
 			isErr:         true,
 		},
 		{
-			name:          "Invoke my-auth-exec-sql-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			isErr:         true,
+			name:     "Invoke my-auth-exec-sql-tool without auth token",
+			toolName: "my-auth-exec-sql-tool",
+			args:     map[string]any{"sql": "SELECT 1"},
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-client-auth-exec-sql-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-exec-sql-tool/invoke",
+			toolName:      "my-client-auth-exec-sql-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          map[string]any{"sql": "SELECT 1"},
 			want:          "[{\"f0_\":1}]",
-			isErr:         false,
 		},
 		{
-			name:          "Invoke my-client-auth-exec-sql-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			isErr:         true,
+			name:     "Invoke my-client-auth-exec-sql-tool without auth token",
+			toolName: "my-client-auth-exec-sql-tool",
+			args:     map[string]any{"sql": "SELECT 1"},
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-exec-sql-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-exec-sql-tool/invoke",
+			toolName:      "my-client-auth-exec-sql-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          map[string]any{"sql": "SELECT 1"},
 			isErr:         true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-// runInvokeRequest sends a POST request to the given API endpoint and returns the response and parsed JSON body.
-func runInvokeRequest(t *testing.T, api, body string, headers map[string]string) (*http.Response, map[string]interface{}) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, api, bytes.NewBufferString(body))
-	if err != nil {
-		t.Fatalf("failed to create request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range headers {
-		req.Header.Add(k, v)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("failed to send request: %v", err)
-	}
-
-	var result map[string]interface{}
-	// Use a TeeReader to be able to read the body multiple times (for logging on failure)
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read response body: %v", err)
-	}
-	resp.Body.Close()                                    // Close original body
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Replace with a new reader
-
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		t.Logf("Failed to decode response body: %s", string(bodyBytes))
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	return resp, result
+func runBigQueryWriteModeAllowedTest(t *testing.T, datasetName string, opts ...tests.ToolExecOption) {
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
+		{
+			name:     "CREATE TABLE should succeed",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("CREATE TABLE %s.new_table (x INT64)", datasetName)},
+			want:     `"Query executed successfully and returned no content."`,
+			wantMCP:  `["Query executed successfully and returned no content."]`,
+		},
+	}, opts...)
 }
 
-func runBigQueryWriteModeAllowedTest(t *testing.T, datasetName string) {
-	t.Run("CREATE TABLE should succeed", func(t *testing.T) {
-		sql := fmt.Sprintf("CREATE TABLE %s.new_table (x INT64)", datasetName)
-		body := fmt.Sprintf(`{"sql": "%s"}`, sql)
-		resp, result := runInvokeRequest(t, "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke", body, nil)
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
-		}
-
-		resStr, ok := result["result"].(string)
-		if !ok {
-			t.Fatalf("expected 'result' field in response, got %v", result)
-		}
-		if resStr != `"Query executed successfully and returned no content."` {
-			t.Errorf("unexpected result: got %q, want %q", resStr, `"Query executed successfully and returned no content."`)
-		}
-	})
+func runBigQueryWriteModeBlockedTest(t *testing.T, tableNameParam, datasetName string, opts ...tests.ToolExecOption) {
+	blockedErr := "write mode is 'blocked', only SELECT statements are allowed"
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
+		{
+			name:     "SELECT statement should succeed",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("SELECT id, name FROM %s WHERE id = 1", tableNameParam)},
+			want:     `[{"id":1,"name":"Alice"}]`,
+		},
+		{
+			name:     "INSERT statement should fail",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("INSERT INTO %s (id, name) VALUES (10, 'test')", tableNameParam)},
+			wantErr:  blockedErr,
+		},
+		{
+			name:     "CREATE TABLE statement should fail",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("CREATE TABLE %s.new_table (x INT64)", datasetName)},
+			wantErr:  blockedErr,
+		},
+	}, opts...)
 }
 
-func runBigQueryWriteModeBlockedTest(t *testing.T, tableNameParam, datasetName string) {
-	testCases := []struct {
-		name           string
-		sql            string
-		wantStatusCode int
-		wantResult     string
-	}{
-		{"SELECT statement should succeed", fmt.Sprintf("SELECT id, name FROM %s WHERE id = 1", tableNameParam), http.StatusOK, `[{"id":1,"name":"Alice"}]`},
-		{"INSERT statement should fail", fmt.Sprintf("INSERT INTO %s (id, name) VALUES (10, 'test')", tableNameParam), http.StatusOK, "{\"error\":\"write mode is 'blocked', only SELECT statements are allowed\"}"},
-		{"CREATE TABLE statement should fail", fmt.Sprintf("CREATE TABLE %s.new_table (x INT64)", datasetName), http.StatusOK, "{\"error\":\"write mode is 'blocked', only SELECT statements are allowed\"}"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			body := fmt.Sprintf(`{"sql": "%s"}`, tc.sql)
-			resp, result := runInvokeRequest(t, "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke", body, nil)
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatusCode {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantResult != "" {
-				resStr, ok := result["result"].(string)
-				if !ok {
-					t.Fatalf("expected 'result' field in response, got %v", result)
-				}
-				if resStr != tc.wantResult {
-					t.Fatalf("unexpected result: got %q, want %q", resStr, tc.wantResult)
-				}
-			}
-		})
-	}
+func runBigQueryWriteModeProtectedTest(t *testing.T, permanentDatasetName string, opts ...tests.ToolExecOption) {
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
+		{
+			name:     "CREATE TABLE to permanent dataset should fail",
+			toolName: "my-exec-sql-tool",
+			args:     map[string]any{"sql": fmt.Sprintf("CREATE TABLE %s.new_table (x INT64)", permanentDatasetName)},
+			wantErr:  "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
+		},
+		{
+			name:         "CREATE TEMP TABLE should succeed",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": "CREATE TEMP TABLE my_shared_temp_table (x INT64)"},
+			wantContains: `"Query executed successfully and returned no content."`,
+		},
+		{
+			name:         "INSERT into TEMP TABLE should succeed",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": "INSERT INTO my_shared_temp_table (x) VALUES (42)"},
+			wantContains: `"Query executed successfully and returned no content."`,
+		},
+		{
+			name:         "SELECT from TEMP TABLE with exec-sql should succeed",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": "SELECT * FROM my_shared_temp_table"},
+			wantContains: `[{"x":42}]`,
+		},
+		{
+			name:         "SELECT from TEMP TABLE with sql-tool should succeed",
+			toolName:     "my-sql-tool-protected",
+			args:         map[string]any{},
+			wantContains: `[{"x":42}]`,
+		},
+		{
+			name:         "CREATE TEMP TABLE for forecast should succeed",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": "CREATE TEMP TABLE forecast_temp_table (ts TIMESTAMP, data FLOAT64) AS SELECT TIMESTAMP('2025-01-01T00:00:00Z') AS ts, 10.0 AS data UNION ALL SELECT TIMESTAMP('2025-01-01T01:00:00Z'), 11.0 UNION ALL SELECT TIMESTAMP('2025-01-01T02:00:00Z'), 12.0 UNION ALL SELECT TIMESTAMP('2025-01-01T03:00:00Z'), 13.0"},
+			wantContains: `"Query executed successfully and returned no content."`,
+		},
+		{
+			name:         "Forecast from TEMP TABLE should succeed",
+			toolName:     "my-forecast-tool-protected",
+			args:         map[string]any{"history_data": "SELECT * FROM forecast_temp_table", "timestamp_col": "ts", "data_col": "data", "horizon": 1},
+			wantContains: `"forecast_timestamp"`,
+		},
+		{
+			name:         "CREATE TEMP TABLE for contribution analysis should succeed",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": "CREATE TEMP TABLE contribution_temp_table (dim1 STRING, is_test BOOL, metric FLOAT64) AS SELECT 'a' as dim1, true as is_test, 100.0 as metric UNION ALL SELECT 'b', false, 120.0"},
+			wantContains: `"Query executed successfully and returned no content."`,
+		},
+		{
+			name:         "Analyze contribution from TEMP TABLE should succeed",
+			toolName:     "my-analyze-contribution-tool-protected",
+			args:         map[string]any{"input_data": "SELECT * FROM contribution_temp_table", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": []any{"dim1"}},
+			wantContains: `"relative_difference"`,
+		},
+	}, opts...)
 }
 
-func runBigQueryWriteModeProtectedTest(t *testing.T, permanentDatasetName string) {
-	testCases := []struct {
-		name           string
-		toolName       string
-		requestBody    string
-		wantStatusCode int
-		wantInError    string
-		wantResult     string
-	}{
-		{
-			name:           "CREATE TABLE to permanent dataset should fail",
-			toolName:       "my-exec-sql-tool",
-			requestBody:    fmt.Sprintf(`{"sql": "CREATE TABLE %s.new_table (x INT64)"}`, permanentDatasetName),
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
-		},
-		{
-			name:           "CREATE TEMP TABLE should succeed",
-			toolName:       "my-exec-sql-tool",
-			requestBody:    `{"sql": "CREATE TEMP TABLE my_shared_temp_table (x INT64)"}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `"Query executed successfully and returned no content."`,
-		},
-		{
-			name:           "INSERT into TEMP TABLE should succeed",
-			toolName:       "my-exec-sql-tool",
-			requestBody:    `{"sql": "INSERT INTO my_shared_temp_table (x) VALUES (42)"}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `"Query executed successfully and returned no content."`,
-		},
-		{
-			name:           "SELECT from TEMP TABLE with exec-sql should succeed",
-			toolName:       "my-exec-sql-tool",
-			requestBody:    `{"sql": "SELECT * FROM my_shared_temp_table"}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `[{"x":42}]`,
-		},
-		{
-			name:           "SELECT from TEMP TABLE with sql-tool should succeed",
-			toolName:       "my-sql-tool-protected",
-			requestBody:    `{}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `[{"x":42}]`,
-		},
-		{
-			name:           "CREATE TEMP TABLE for forecast should succeed",
-			toolName:       "my-exec-sql-tool",
-			requestBody:    `{"sql": "CREATE TEMP TABLE forecast_temp_table (ts TIMESTAMP, data FLOAT64) AS SELECT TIMESTAMP('2025-01-01T00:00:00Z') AS ts, 10.0 AS data UNION ALL SELECT TIMESTAMP('2025-01-01T01:00:00Z'), 11.0 UNION ALL SELECT TIMESTAMP('2025-01-01T02:00:00Z'), 12.0 UNION ALL SELECT TIMESTAMP('2025-01-01T03:00:00Z'), 13.0"}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `"Query executed successfully and returned no content."`,
-		},
-		{
-			name:           "Forecast from TEMP TABLE should succeed",
-			toolName:       "my-forecast-tool-protected",
-			requestBody:    `{"history_data": "SELECT * FROM forecast_temp_table", "timestamp_col": "ts", "data_col": "data", "horizon": 1}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `"forecast_timestamp"`,
-		},
-		{
-			name:           "CREATE TEMP TABLE for contribution analysis should succeed",
-			toolName:       "my-exec-sql-tool",
-			requestBody:    `{"sql": "CREATE TEMP TABLE contribution_temp_table (dim1 STRING, is_test BOOL, metric FLOAT64) AS SELECT 'a' as dim1, true as is_test, 100.0 as metric UNION ALL SELECT 'b', false, 120.0"}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `"Query executed successfully and returned no content."`,
-		},
-		{
-			name:           "Analyze contribution from TEMP TABLE should succeed",
-			toolName:       "my-analyze-contribution-tool-protected",
-			requestBody:    `{"input_data": "SELECT * FROM contribution_temp_table", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": ["dim1"]}`,
-			wantStatusCode: http.StatusOK,
-			wantInError:    "",
-			wantResult:     `"relative_difference"`,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
-			resp, result := runInvokeRequest(t, api, tc.requestBody, nil)
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatusCode {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantInError != "" {
-				errStr, ok := result["error"].(string)
-				if !ok {
-					t.Fatalf("expected 'error' field in response, got %v", result)
-				}
-				if !strings.Contains(errStr, tc.wantInError) {
-					t.Fatalf("expected error message to contain %q, but got %q", tc.wantInError, errStr)
-				}
-			}
-
-			if tc.wantResult != "" {
-				resStr, ok := result["result"].(string)
-				if !ok {
-					t.Fatalf("expected 'result' field in response, got %v", result)
-				}
-				if !strings.Contains(resStr, tc.wantResult) {
-					t.Fatalf("expected %q to contain %q, but it did not", resStr, tc.wantResult)
-				}
-			}
-		})
-	}
-}
-
-func runBigQueryExecuteSqlToolInvokeDryRunTest(t *testing.T, datasetName string) {
+func runBigQueryExecuteSqlToolInvokeDryRunTest(t *testing.T, datasetName string, opts ...tests.ToolExecOption) {
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
@@ -1443,106 +1267,49 @@ func runBigQueryExecuteSqlToolInvokeDryRunTest(t *testing.T, datasetName string)
 	newTableName := fmt.Sprintf("%s.new_dry_run_table_%s", datasetName, strings.ReplaceAll(uuid.New().String(), "-", ""))
 
 	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-exec-sql-tool with dryRun",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1", "dry_run": true}`)),
-			want:          `\"statementType\": \"SELECT\"`,
-			isErr:         false,
+			name:         "invoke my-exec-sql-tool with dryRun",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": "SELECT 1", "dry_run": true},
+			wantContains: `\"statementType\": \"SELECT\"`,
 		},
 		{
-			name:          "invoke my-exec-sql-tool with dryRun create table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"sql":"CREATE TABLE %s (id INT64, name STRING)", "dry_run": true}`, newTableName))),
-			want:          `\"statementType\": \"CREATE_TABLE\"`,
-			isErr:         false,
+			name:         "invoke my-exec-sql-tool with dryRun create table",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING)", newTableName), "dry_run": true},
+			wantContains: `\"statementType\": \"CREATE_TABLE\"`,
 		},
 		{
-			name:          "invoke my-exec-sql-tool with dryRun execute immediate",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"sql":"EXECUTE IMMEDIATE \"CREATE TABLE %s (id INT64, name STRING)\"", "dry_run": true}`, newTableName))),
-			want:          `\"statementType\": \"SCRIPT\"`,
-			isErr:         false,
+			name:         "invoke my-exec-sql-tool with dryRun execute immediate",
+			toolName:     "my-exec-sql-tool",
+			args:         map[string]any{"sql": fmt.Sprintf(`EXECUTE IMMEDIATE "CREATE TABLE %s (id INT64, name STRING)"`, newTableName), "dry_run": true},
+			wantContains: `\"statementType\": \"SCRIPT\"`,
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with dryRun and auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			toolName:      "my-auth-exec-sql-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1", "dry_run": true}`)),
-			isErr:         false,
-			want:          `\"statementType\": \"SELECT\"`,
+			args:          map[string]any{"sql": "SELECT 1", "dry_run": true},
+			wantContains:  `\"statementType\": \"SELECT\"`,
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with dryRun and invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			toolName:      "my-auth-exec-sql-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1","dry_run": true}`)),
+			args:          map[string]any{"sql": "SELECT 1", "dry_run": true},
 			isErr:         true,
 		},
 		{
-			name:          "Invoke my-auth-exec-sql-tool with dryRun and without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1", "dry_run": true}`)),
-			isErr:         true,
+			name:     "Invoke my-auth-exec-sql-tool with dryRun and without auth token",
+			toolName: "my-auth-exec-sql-tool",
+			args:     map[string]any{"sql": "SELECT 1", "dry_run": true},
+			isErr:    true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryForecastToolInvokeTest(t *testing.T, tableName string) {
+func runBigQueryForecastToolInvokeTest(t *testing.T, tableName string, opts ...tests.ToolExecOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1557,130 +1324,73 @@ func runBigQueryForecastToolInvokeTest(t *testing.T, tableName string) {
 
 	historyDataTable := strings.ReplaceAll(tableName, "`", "")
 	historyDataQuery := fmt.Sprintf("SELECT ts, data, id FROM %s", tableName)
+	forecastArgs := func() map[string]any {
+		return map[string]any{"history_data": historyDataTable, "timestamp_col": "ts", "data_col": "data"}
+	}
 
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-forecast-tool without required params",
-			api:           "http://127.0.0.1:5000/api/tool/my-forecast-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s"}`, historyDataTable))),
-			isErr:         true,
+			name:     "invoke my-forecast-tool without required params",
+			toolName: "my-forecast-tool",
+			args:     map[string]any{"history_data": historyDataTable},
+			isErr:    true,
 		},
 		{
-			name:          "invoke my-forecast-tool with table",
-			api:           "http://127.0.0.1:5000/api/tool/my-forecast-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data"}`, historyDataTable))),
-			want:          `"forecast_timestamp"`,
-			isErr:         false,
+			name:         "invoke my-forecast-tool with table",
+			toolName:     "my-forecast-tool",
+			args:         forecastArgs(),
+			wantContains: `"forecast_timestamp"`,
 		},
 		{
-			name:          "invoke my-forecast-tool with query and horizon",
-			api:           "http://127.0.0.1:5000/api/tool/my-forecast-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data", "horizon": 5}`, historyDataQuery))),
-			want:          `"forecast_timestamp"`,
-			isErr:         false,
+			name:         "invoke my-forecast-tool with query and horizon",
+			toolName:     "my-forecast-tool",
+			args:         map[string]any{"history_data": historyDataQuery, "timestamp_col": "ts", "data_col": "data", "horizon": 5},
+			wantContains: `"forecast_timestamp"`,
 		},
 		{
-			name:          "invoke my-forecast-tool with id_cols",
-			api:           "http://127.0.0.1:5000/api/tool/my-forecast-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data", "id_cols": ["id"]}`, historyDataTable))),
-			want:          `"id"`,
-			isErr:         false,
+			name:         "invoke my-forecast-tool with id_cols",
+			toolName:     "my-forecast-tool",
+			args:         map[string]any{"history_data": historyDataTable, "timestamp_col": "ts", "data_col": "data", "id_cols": []any{"id"}},
+			wantContains: `"id"`,
 		},
 		{
 			name:          "invoke my-auth-forecast-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-forecast-tool/invoke",
+			toolName:      "my-auth-forecast-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data"}`, historyDataTable))),
-			want:          `"forecast_timestamp"`,
-			isErr:         false,
+			args:          forecastArgs(),
+			wantContains:  `"forecast_timestamp"`,
 		},
 		{
 			name:          "invoke my-auth-forecast-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-forecast-tool/invoke",
+			toolName:      "my-auth-forecast-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data"}`, historyDataTable))),
+			args:          forecastArgs(),
 			isErr:         true,
 		},
 		{
 			name:          "Invoke my-client-auth-forecast-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-forecast-tool/invoke",
+			toolName:      "my-client-auth-forecast-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data"}`, historyDataTable))),
-			want:          `"forecast_timestamp"`,
-			isErr:         false,
+			args:          forecastArgs(),
+			wantContains:  `"forecast_timestamp"`,
 		},
 		{
-			name:          "Invoke my-client-auth-forecast-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-forecast-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data"}`, historyDataTable))),
-			isErr:         true,
+			name:     "Invoke my-client-auth-forecast-tool without auth token",
+			toolName: "my-client-auth-forecast-tool",
+			args:     forecastArgs(),
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-forecast-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-forecast-tool/invoke",
+			toolName:      "my-client-auth-forecast-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"history_data": "%s", "timestamp_col": "ts", "data_col": "data"}`, historyDataTable))),
+			args:          forecastArgs(),
 			isErr:         true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryAnalyzeContributionToolInvokeTest(t *testing.T, tableName string) {
+func runBigQueryAnalyzeContributionToolInvokeTest(t *testing.T, tableName string, opts ...tests.ToolExecOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1694,193 +1404,85 @@ func runBigQueryAnalyzeContributionToolInvokeTest(t *testing.T, tableName string
 	accessToken = "Bearer " + accessToken
 
 	dataTable := strings.ReplaceAll(tableName, "`", "")
+	contributionArgs := func() map[string]any {
+		return map[string]any{"input_data": dataTable, "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": []any{"dim1", "dim2"}}
+	}
 
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-analyze-contribution-tool without required params",
-			api:           "http://127.0.0.1:5000/api/tool/my-analyze-contribution-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"input_data": "%s"}`, dataTable))),
-			isErr:         true,
+			name:     "invoke my-analyze-contribution-tool without required params",
+			toolName: "my-analyze-contribution-tool",
+			args:     map[string]any{"input_data": dataTable},
+			isErr:    true,
 		},
 		{
-			name:          "invoke my-analyze-contribution-tool with table",
-			api:           "http://127.0.0.1:5000/api/tool/my-analyze-contribution-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"input_data": "%s", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": ["dim1", "dim2"]}`, dataTable))),
-			want:          `"relative_difference"`,
-			isErr:         false,
+			name:         "invoke my-analyze-contribution-tool with table",
+			toolName:     "my-analyze-contribution-tool",
+			args:         contributionArgs(),
+			wantContains: `"relative_difference"`,
 		},
 		{
 			name:          "invoke my-auth-analyze-contribution-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-analyze-contribution-tool/invoke",
+			toolName:      "my-auth-analyze-contribution-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"input_data": "%s", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": ["dim1", "dim2"]}`, dataTable))),
-			want:          `"relative_difference"`,
-			isErr:         false,
+			args:          contributionArgs(),
+			wantContains:  `"relative_difference"`,
 		},
 		{
 			name:          "invoke my-auth-analyze-contribution-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-analyze-contribution-tool/invoke",
+			toolName:      "my-auth-analyze-contribution-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"input_data": "%s", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": ["dim1", "dim2"]}`, dataTable))),
+			args:          contributionArgs(),
 			isErr:         true,
 		},
 		{
 			name:          "Invoke my-client-auth-analyze-contribution-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-analyze-contribution-tool/invoke",
+			toolName:      "my-client-auth-analyze-contribution-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"input_data": "%s", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": ["dim1", "dim2"]}`, dataTable))),
-			want:          `"relative_difference"`,
-			isErr:         false,
+			args:          contributionArgs(),
+			wantContains:  `"relative_difference"`,
 		},
 		{
-			name:          "Invoke my-client-auth-analyze-contribution-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-analyze-contribution-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"input_data": "%s", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": ["dim1", "dim2"]}`, dataTable))),
-			isErr:         true,
+			name:     "Invoke my-client-auth-analyze-contribution-tool without auth token",
+			toolName: "my-client-auth-analyze-contribution-tool",
+			args:     contributionArgs(),
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-analyze-contribution-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-analyze-contribution-tool/invoke",
+			toolName:      "my-client-auth-analyze-contribution-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"input_data": "%s", "contribution_metric": "SUM(metric)", "is_test_col": "is_test", "dimension_id_cols": ["dim1", "dim2"]}`, dataTable))),
+			args:          contributionArgs(),
 			isErr:         true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryDataTypeTests(t *testing.T) {
+func runBigQueryDataTypeTests(t *testing.T, opts ...tests.ToolExecOption) {
 	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-scalar-datatype-tool with values",
-			api:           "http://127.0.0.1:5000/api/tool/my-scalar-datatype-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"int_val": 123, "string_val": "hello", "float_val": 3.14, "bool_val": true}`)),
-			want:          `[{"id":1,"int_val":123,"string_val":"hello","float_val":3.14,"bool_val":true}]`,
-			isErr:         false,
+			name:     "invoke my-scalar-datatype-tool with values",
+			toolName: "my-scalar-datatype-tool",
+			args:     map[string]any{"int_val": 123, "string_val": "hello", "float_val": 3.14, "bool_val": true},
+			want:     `[{"id":1,"int_val":123,"string_val":"hello","float_val":3.14,"bool_val":true}]`,
 		},
 		{
-			name:          "invoke my-scalar-datatype-tool with missing params",
-			api:           "http://127.0.0.1:5000/api/tool/my-scalar-datatype-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"int_val": 123}`)),
-			want:          `{"error":"parameter \"string_val\" is required"}`,
-			isErr:         false,
+			name:     "invoke my-scalar-datatype-tool with missing params",
+			toolName: "my-scalar-datatype-tool",
+			args:     map[string]any{"int_val": 123},
+			wantErr:  `parameter "string_val" is required`,
 		},
 		{
-			name:          "invoke my-array-datatype-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-array-datatype-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"int_array": [123, 789], "string_array": ["hello", "test"], "float_array": [3.14, 100.1], "bool_array": [true]}`)),
-			want:          `[{"id":1,"int_val":123,"string_val":"hello","float_val":3.14,"bool_val":true},{"id":3,"int_val":789,"string_val":"test","float_val":100.1,"bool_val":true}]`,
-			isErr:         false,
+			name:     "invoke my-array-datatype-tool",
+			toolName: "my-array-datatype-tool",
+			args:     map[string]any{"int_array": []any{123, 789}, "string_array": []any{"hello", "test"}, "float_array": []any{3.14, 100.1}, "bool_array": []any{true}},
+			want:     `[{"id":1,"int_val":123,"string_val":"hello","float_val":3.14,"bool_val":true},{"id":3,"int_val":789,"string_val":"test","float_val":100.1,"bool_val":true}]`,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryListDatasetToolInvokeTest(t *testing.T, datasetWant string) {
+func runBigQueryListDatasetToolInvokeTest(t *testing.T, datasetWant string, opts ...tests.ToolExecOption) {
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
@@ -1895,114 +1497,58 @@ func runBigQueryListDatasetToolInvokeTest(t *testing.T, datasetWant string) {
 	accessToken = "Bearer " + accessToken
 
 	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-list-dataset-ids-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-list-dataset-ids-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         false,
-			want:          datasetWant,
+			name:         "invoke my-list-dataset-ids-tool",
+			toolName:     "my-list-dataset-ids-tool",
+			args:         map[string]any{},
+			wantContains: datasetWant,
 		},
 		{
 			name:          "invoke my-list-dataset-ids-tool with project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-dataset-ids-tool/invoke",
+			toolName:      "my-auth-list-dataset-ids-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s\"}", BigqueryProject))),
-			isErr:         false,
-			want:          datasetWant,
+			args:          map[string]any{"project": BigqueryProject},
+			wantContains:  datasetWant,
 		},
 		{
 			name:          "invoke my-list-dataset-ids-tool with non-existent project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-dataset-ids-tool/invoke",
+			toolName:      "my-auth-list-dataset-ids-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s-%s\"}", BigqueryProject, uuid.NewString()))),
+			args:          map[string]any{"project": fmt.Sprintf("%s-%s", BigqueryProject, uuid.NewString())},
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-auth-list-dataset-ids-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-dataset-ids-tool/invoke",
+			toolName:      "my-auth-list-dataset-ids-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         false,
-			want:          datasetWant,
+			args:          map[string]any{},
+			wantContains:  datasetWant,
 		},
 		{
 			name:          "Invoke my-client-auth-list-dataset-ids-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-dataset-ids-tool/invoke",
+			toolName:      "my-client-auth-list-dataset-ids-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         false,
-			want:          datasetWant,
+			args:          map[string]any{},
+			wantContains:  datasetWant,
 		},
 		{
-			name:          "Invoke my-client-auth-list-dataset-ids-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-dataset-ids-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:     "Invoke my-client-auth-list-dataset-ids-tool without auth token",
+			toolName: "my-client-auth-list-dataset-ids-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-list-dataset-ids-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-dataset-ids-tool/invoke",
+			toolName:      "my-client-auth-list-dataset-ids-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
+			args:          map[string]any{},
 			isErr:         true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryGetDatasetInfoToolInvokeTest(t *testing.T, datasetName, datasetInfoWant string) {
+func runBigQueryGetDatasetInfoToolInvokeTest(t *testing.T, datasetName, datasetInfoWant string, opts ...tests.ToolExecOption) {
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
@@ -2016,143 +1562,88 @@ func runBigQueryGetDatasetInfoToolInvokeTest(t *testing.T, datasetName, datasetI
 	}
 	accessToken = "Bearer " + accessToken
 
+	datasetArgs := func() map[string]any {
+		return map[string]any{"dataset": datasetName}
+	}
+
 	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-get-dataset-info-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-get-dataset-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:     "invoke my-get-dataset-info-tool without body",
+			toolName: "my-get-dataset-info-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
-			name:          "invoke my-get-dataset-info-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-get-dataset-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			want:          datasetInfoWant,
-			isErr:         false,
+			name:         "invoke my-get-dataset-info-tool",
+			toolName:     "my-get-dataset-info-tool",
+			args:         datasetArgs(),
+			wantContains: datasetInfoWant,
 		},
 		{
 			name:          "Invoke my-auth-get-dataset-info-tool with correct project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-dataset-info-tool/invoke",
+			toolName:      "my-auth-get-dataset-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s\", \"dataset\":\"%s\"}", BigqueryProject, datasetName))),
-			want:          datasetInfoWant,
-			isErr:         false,
+			args:          map[string]any{"project": BigqueryProject, "dataset": datasetName},
+			wantContains:  datasetInfoWant,
 		},
 		{
 			name:          "Invoke my-auth-get-dataset-info-tool with non-existent project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-dataset-info-tool/invoke",
+			toolName:      "my-auth-get-dataset-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s-%s\", \"dataset\":\"%s\"}", BigqueryProject, uuid.NewString(), datasetName))),
+			args:          map[string]any{"project": fmt.Sprintf("%s-%s", BigqueryProject, uuid.NewString()), "dataset": datasetName},
 			isErr:         true,
 		},
 		{
-			name:          "invoke my-auth-get-dataset-info-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-get-dataset-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:     "invoke my-auth-get-dataset-info-tool without body",
+			toolName: "my-get-dataset-info-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-auth-get-dataset-info-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-dataset-info-tool/invoke",
+			toolName:      "my-auth-get-dataset-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			want:          datasetInfoWant,
-			isErr:         false,
+			args:          datasetArgs(),
+			wantContains:  datasetInfoWant,
 		},
 		{
 			name:          "Invoke my-auth-get-dataset-info-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-dataset-info-tool/invoke",
+			toolName:      "my-auth-get-dataset-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
+			args:          datasetArgs(),
 			isErr:         true,
 		},
 		{
-			name:          "Invoke my-auth-get-dataset-info-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-dataset-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			isErr:         true,
+			name:     "Invoke my-auth-get-dataset-info-tool without auth token",
+			toolName: "my-auth-get-dataset-info-tool",
+			args:     datasetArgs(),
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-client-auth-get-dataset-info-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-dataset-info-tool/invoke",
+			toolName:      "my-client-auth-get-dataset-info-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			want:          datasetInfoWant,
-			isErr:         false,
+			args:          datasetArgs(),
+			wantContains:  datasetInfoWant,
 		},
 		{
-			name:          "Invoke my-client-auth-get-dataset-info-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-dataset-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			isErr:         true,
+			name:     "Invoke my-client-auth-get-dataset-info-tool without auth token",
+			toolName: "my-client-auth-get-dataset-info-tool",
+			args:     datasetArgs(),
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-get-dataset-info-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-dataset-info-tool/invoke",
+			toolName:      "my-client-auth-get-dataset-info-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
+			args:          datasetArgs(),
 			isErr:         true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryListTableIdsToolInvokeTest(t *testing.T, datasetName, tablename_want string) {
+func runBigQueryListTableIdsToolInvokeTest(t *testing.T, datasetName, tablename_want string, opts ...tests.ToolExecOption) {
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
@@ -2166,143 +1657,88 @@ func runBigQueryListTableIdsToolInvokeTest(t *testing.T, datasetName, tablename_
 	}
 	accessToken = "Bearer " + accessToken
 
+	datasetArgs := func() map[string]any {
+		return map[string]any{"dataset": datasetName}
+	}
+
 	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-list-table-ids-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-list-table-ids-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:     "invoke my-list-table-ids-tool without body",
+			toolName: "my-list-table-ids-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
-			name:          "invoke my-list-table-ids-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-list-table-ids-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			want:          tablename_want,
-			isErr:         false,
+			name:         "invoke my-list-table-ids-tool",
+			toolName:     "my-list-table-ids-tool",
+			args:         datasetArgs(),
+			wantContains: tablename_want,
 		},
 		{
-			name:          "invoke my-list-table-ids-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-list-table-ids-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:     "invoke my-list-table-ids-tool without body",
+			toolName: "my-list-table-ids-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-auth-list-table-ids-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-table-ids-tool/invoke",
+			toolName:      "my-auth-list-table-ids-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			want:          tablename_want,
-			isErr:         false,
+			args:          datasetArgs(),
+			wantContains:  tablename_want,
 		},
 		{
 			name:          "Invoke my-auth-list-table-ids-tool with correct project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-table-ids-tool/invoke",
+			toolName:      "my-auth-list-table-ids-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s\", \"dataset\":\"%s\"}", BigqueryProject, datasetName))),
-			want:          tablename_want,
-			isErr:         false,
+			args:          map[string]any{"project": BigqueryProject, "dataset": datasetName},
+			wantContains:  tablename_want,
 		},
 		{
 			name:          "Invoke my-auth-list-table-ids-tool with non-existent project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-table-ids-tool/invoke",
+			toolName:      "my-auth-list-table-ids-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s-%s\", \"dataset\":\"%s\"}", BigqueryProject, uuid.NewString(), datasetName))),
+			args:          map[string]any{"project": fmt.Sprintf("%s-%s", BigqueryProject, uuid.NewString()), "dataset": datasetName},
 			isErr:         true,
 		},
 		{
 			name:          "Invoke my-auth-list-table-ids-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-table-ids-tool/invoke",
+			toolName:      "my-auth-list-table-ids-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
+			args:          datasetArgs(),
 			isErr:         true,
 		},
 		{
-			name:          "Invoke my-auth-list-table-ids-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-table-ids-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			isErr:         true,
+			name:     "Invoke my-auth-list-table-ids-tool without auth token",
+			toolName: "my-auth-list-table-ids-tool",
+			args:     datasetArgs(),
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-client-auth-list-table-ids-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-table-ids-tool/invoke",
+			toolName:      "my-client-auth-list-table-ids-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			want:          tablename_want,
-			isErr:         false,
+			args:          datasetArgs(),
+			wantContains:  tablename_want,
 		},
 		{
-			name:          "Invoke my-client-auth-list-table-ids-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-table-ids-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
-			isErr:         true,
+			name:     "Invoke my-client-auth-list-table-ids-tool without auth token",
+			toolName: "my-client-auth-list-table-ids-tool",
+			args:     datasetArgs(),
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-list-table-ids-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-table-ids-tool/invoke",
+			toolName:      "my-client-auth-list-table-ids-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\"}", datasetName))),
+			args:          datasetArgs(),
 			isErr:         true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryGetTableInfoToolInvokeTest(t *testing.T, datasetName, tableName, tableInfoWant string) {
+func runBigQueryGetTableInfoToolInvokeTest(t *testing.T, datasetName, tableName, tableInfoWant string, opts ...tests.ToolExecOption) {
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
@@ -2316,143 +1752,95 @@ func runBigQueryGetTableInfoToolInvokeTest(t *testing.T, datasetName, tableName,
 	}
 	accessToken = "Bearer " + accessToken
 
+	tableArgs := func() map[string]any {
+		return map[string]any{"dataset": datasetName, "table": tableName}
+	}
+
 	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-get-table-info-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-get-table-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:     "invoke my-get-table-info-tool without body",
+			toolName: "my-get-table-info-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
-			name:          "invoke my-get-table-info-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-get-table-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\", \"table\":\"%s\"}", datasetName, tableName))),
-			want:          tableInfoWant,
-			isErr:         false,
+			name:         "invoke my-get-table-info-tool",
+			toolName:     "my-get-table-info-tool",
+			args:         tableArgs(),
+			wantContains: tableInfoWant,
 		},
 		{
-			name:          "invoke my-auth-get-table-info-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-get-table-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:     "invoke my-auth-get-table-info-tool without body",
+			toolName: "my-get-table-info-tool",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-auth-get-table-info-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-table-info-tool/invoke",
+			toolName:      "my-auth-get-table-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\", \"table\":\"%s\"}", datasetName, tableName))),
-			want:          tableInfoWant,
-			isErr:         false,
+			args:          tableArgs(),
+			wantContains:  tableInfoWant,
 		},
 		{
 			name:          "Invoke my-auth-get-table-info-tool with correct project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-table-info-tool/invoke",
+			toolName:      "my-auth-get-table-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s\", \"dataset\":\"%s\", \"table\":\"%s\"}", BigqueryProject, datasetName, tableName))),
-			want:          tableInfoWant,
-			isErr:         false,
+			args:          map[string]any{"project": BigqueryProject, "dataset": datasetName, "table": tableName},
+			wantContains:  tableInfoWant,
 		},
 		{
 			name:          "Invoke my-auth-get-table-info-tool with non-existent project",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-table-info-tool/invoke",
+			toolName:      "my-auth-get-table-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"project\":\"%s-%s\", \"dataset\":\"%s\", \"table\":\"%s\"}", BigqueryProject, uuid.NewString(), datasetName, tableName))),
+			args:          map[string]any{"project": fmt.Sprintf("%s-%s", BigqueryProject, uuid.NewString()), "dataset": datasetName, "table": tableName},
 			isErr:         true,
 		},
 		{
 			name:          "Invoke my-auth-get-table-info-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-table-info-tool/invoke",
+			toolName:      "my-auth-get-table-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\", \"table\":\"%s\"}", datasetName, tableName))),
+			args:          tableArgs(),
 			isErr:         true,
 		},
 		{
-			name:          "Invoke my-auth-get-table-info-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-table-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\", \"table\":\"%s\"}", datasetName, tableName))),
-			isErr:         true,
+			name:     "Invoke my-auth-get-table-info-tool without auth token",
+			toolName: "my-auth-get-table-info-tool",
+			args:     tableArgs(),
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-client-auth-get-table-info-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-table-info-tool/invoke",
+			toolName:      "my-client-auth-get-table-info-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\", \"table\":\"%s\"}", datasetName, tableName))),
-			want:          tableInfoWant,
-			isErr:         false,
+			args:          tableArgs(),
+			wantContains:  tableInfoWant,
 		},
 		{
-			name:          "Invoke my-client-auth-get-table-info-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-table-info-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\", \"table\":\"%s\"}", datasetName, tableName))),
-			isErr:         true,
+			name:     "Invoke my-client-auth-get-table-info-tool without auth token",
+			toolName: "my-client-auth-get-table-info-tool",
+			args:     tableArgs(),
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-get-table-info-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-table-info-tool/invoke",
+			toolName:      "my-client-auth-get-table-info-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"dataset\":\"%s\", \"table\":\"%s\"}", datasetName, tableName))),
+			args:          tableArgs(),
 			isErr:         true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if !strings.Contains(got, tc.want) {
-				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runBigQueryConversationalAnalyticsInvokeTest(t *testing.T, datasetName, tableName, dataInsightsWant string) {
+// runBigQueryConversationalAnalyticsInvokeTest runs the conversational analytics cases.
+// By default they run against the legacy /api endpoint; pass tests.WithMCPExec() to run them over MCP.
+func runBigQueryConversationalAnalyticsInvokeTest(t *testing.T, datasetName, tableName, dataInsightsWant string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	// Each test is expected to complete in under 10s, we set a 25s timeout with retries to avoid flaky tests.
 	const maxRetries = 3
 	const requestTimeout = 340 * time.Second
@@ -2470,117 +1858,117 @@ func runBigQueryConversationalAnalyticsInvokeTest(t *testing.T, datasetName, tab
 	accessToken = "Bearer " + accessToken
 
 	tableRefsJSON := fmt.Sprintf(`[{"projectId":"%s","datasetId":"%s","tableId":"%s"}]`, BigqueryProject, datasetName, tableName)
+	askArgs := func() map[string]any {
+		return map[string]any{"user_query_with_context": "What are the names in the table?", "table_references": tableRefsJSON}
+	}
 
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	invokeTcs := []bigQueryInvokeTestCase{
 		{
-			name:          "invoke my-conversational-analytics-tool successfully",
-			api:           "http://127.0.0.1:5000/api/tool/my-conversational-analytics-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(
-				`{"user_query_with_context": "What are the names in the table?", "table_references": %q}`,
-				tableRefsJSON,
-			))),
-			want:  dataInsightsWant,
-			isErr: false,
+			name:     "invoke my-conversational-analytics-tool successfully",
+			toolName: "my-conversational-analytics-tool",
+			args:     askArgs(),
+			want:     dataInsightsWant,
 		},
 		{
 			name:          "invoke my-auth-conversational-analytics-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-conversational-analytics-tool/invoke",
+			toolName:      "my-auth-conversational-analytics-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(
-				`{"user_query_with_context": "What are the names in the table?", "table_references": %q}`,
-				tableRefsJSON,
-			))),
-			want:  dataInsightsWant,
-			isErr: false,
+			args:          askArgs(),
+			want:          dataInsightsWant,
 		},
 		{
-			name:          "invoke my-auth-conversational-analytics-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-conversational-analytics-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"user_query_with_context": "What are the names in the table?"}`)),
-			isErr:         true,
+			name:     "invoke my-auth-conversational-analytics-tool without auth token",
+			toolName: "my-auth-conversational-analytics-tool",
+			args:     map[string]any{"user_query_with_context": "What are the names in the table?"},
+			isErr:    true,
 		},
 		{
 			name:          "Invoke my-client-auth-conversational-analytics-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-conversational-analytics-tool/invoke",
+			toolName:      "my-client-auth-conversational-analytics-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(
-				`{"user_query_with_context": "What are the names in the table?", "table_references": %q}`,
-				tableRefsJSON,
-			))),
-			want:  dataInsightsWant,
-			isErr: false,
+			args:          askArgs(),
+			want:          dataInsightsWant,
 		},
 		{
-			name:          "Invoke my-client-auth-conversational-analytics-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-conversational-analytics-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(
-				`{"user_query_with_context": "What are the names in the table?", "table_references": %q}`,
-				tableRefsJSON,
-			))),
-			isErr: true,
+			name:     "Invoke my-client-auth-conversational-analytics-tool without auth token",
+			toolName: "my-client-auth-conversational-analytics-tool",
+			args:     askArgs(),
+			isErr:    true,
 		},
 		{
-
 			name:          "Invoke my-client-auth-conversational-analytics-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-conversational-analytics-tool/invoke",
+			toolName:      "my-client-auth-conversational-analytics-tool",
 			requestHeader: map[string]string{"Authorization": "Bearer invalid-token"},
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(
-				`{"user_query_with_context": "What are the names in the table?", "table_references": %q}`,
-				tableRefsJSON,
-			))),
-			isErr: true,
+			args:          askArgs(),
+			isErr:         true,
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			var resp *http.Response
-			var err error
-
-			bodyBytes, err := io.ReadAll(tc.requestBody)
-			if err != nil {
-				t.Fatalf("failed to read request body: %v", err)
-			}
-
-			req, err := http.NewRequest(http.MethodPost, tc.api, nil)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Set("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
+			var failed bool
+			var errText, got, describe string
 
 			for i := 0; i < maxRetries; i++ {
-				ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-				defer cancel()
+				ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
+				statusCode, timedOut := 0, false
 
-				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-				req.GetBody = func() (io.ReadCloser, error) {
-					return io.NopCloser(bytes.NewReader(bodyBytes)), nil
-				}
-				reqWithCtx := req.WithContext(ctx)
-
-				resp, err = http.DefaultClient.Do(reqWithCtx)
-				if err != nil {
-					// Retry on time out.
-					if os.IsTimeout(err) {
-						t.Logf("Request timed out (attempt %d/%d), retrying...", i+1, maxRetries)
-						time.Sleep(5 * time.Second)
-						continue
+				if config.IsMCP() {
+					result := callMCPTool(t, ctx, mcpEndpoint, tc.toolName, tc.args, tc.requestHeader)
+					cancel()
+					statusCode, timedOut = result.statusCode, result.resp == nil && os.IsTimeout(result.err)
+					failed, errText, got, describe = result.failed(), result.errorText(), result.resultJSON(), result.String()
+					if !timedOut && statusCode == 0 {
+						t.Fatalf("unable to send request: %v", result.err)
 					}
-					t.Fatalf("unable to send request: %s", err)
+				} else {
+					api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+					reqBytes, err := json.Marshal(tc.args)
+					if err != nil {
+						cancel()
+						t.Fatalf("error marshalling request body: %v", err)
+					}
+					req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBuffer(reqBytes))
+					if err != nil {
+						cancel()
+						t.Fatalf("unable to create request: %s", err)
+					}
+					req.Header.Set("Content-type", "application/json")
+					for k, v := range tc.requestHeader {
+						req.Header.Add(k, v)
+					}
+					resp, err := http.DefaultClient.Do(req)
+					cancel()
+					if err != nil {
+						if os.IsTimeout(err) {
+							timedOut = true
+						} else {
+							t.Fatalf("unable to send request: %s", err)
+						}
+					} else {
+						statusCode = resp.StatusCode
+						bodyBytes, readErr := io.ReadAll(resp.Body)
+						resp.Body.Close()
+						if readErr != nil {
+							t.Fatalf("unable to read response: %s", readErr)
+						}
+						var body map[string]any
+						if statusCode == http.StatusOK {
+							if err := json.Unmarshal(bodyBytes, &body); err != nil {
+								t.Fatalf("error parsing response body: %v", err)
+							}
+						}
+						got, _ = body["result"].(string)
+						failed = statusCode != http.StatusOK || strings.Contains(got, `{"error":`)
+						errText, describe = string(bodyBytes), string(bodyBytes)
+					}
 				}
-				if resp.StatusCode == http.StatusServiceUnavailable {
+
+				if timedOut {
+					t.Logf("Request timed out (attempt %d/%d), retrying...", i+1, maxRetries)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				if statusCode == http.StatusServiceUnavailable {
 					t.Logf("Received 503 Service Unavailable (attempt %d/%d), retrying...", i+1, maxRetries)
 					time.Sleep(15 * time.Second)
 					continue
@@ -2588,47 +1976,36 @@ func runBigQueryConversationalAnalyticsInvokeTest(t *testing.T, datasetName, tab
 				break
 			}
 
-			if err != nil {
-				t.Fatalf("Request failed after %d retries: %v", maxRetries, err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
+			if tc.isErr {
+				if !failed {
+					t.Fatalf("expected %s to fail, got %s", tc.toolName, describe)
 				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+				return
 			}
-
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body: %v", err)
+			if failed {
+				t.Fatalf("%s failed: %s", tc.toolName, errText)
 			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			wantPattern := regexp.MustCompile(tc.want)
-			if !wantPattern.MatchString(got) {
+			if !regexp.MustCompile(tc.want).MatchString(got) {
 				t.Fatalf("response did not match the expected pattern.\nFull response:\n%s", got)
 			}
 		})
 	}
 }
 
-func runListDatasetIdsWithRestriction(t *testing.T, allowedDatasetName1, allowedDatasetName2 string) {
+// runListDatasetIdsWithRestriction verifies that only the allowed datasets are listed.
+// By default it runs against the legacy /api endpoint; pass tests.WithMCPExec() to run it over MCP.
+func runListDatasetIdsWithRestriction(t *testing.T, allowedDatasetName1, allowedDatasetName2 string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	testCases := []struct {
-		name           string
-		wantStatusCode int
-		wantElements   []string
+		name         string
+		wantElements []string
 	}{
 		{
-			name:           "invoke list-dataset-ids with restriction",
-			wantStatusCode: http.StatusOK,
+			name: "invoke list-dataset-ids with restriction",
 			wantElements: []string{
 				fmt.Sprintf("%s.%s", BigqueryProject, allowedDatasetName1),
 				fmt.Sprintf("%s.%s", BigqueryProject, allowedDatasetName2),
@@ -2638,24 +2015,31 @@ func runListDatasetIdsWithRestriction(t *testing.T, allowedDatasetName1, allowed
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			body := bytes.NewBuffer([]byte(`{}`))
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/list-dataset-ids-restricted/invoke", body, nil)
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
+			var gotJSON string
+			if config.IsMCP() {
+				result := invokeMCPTool(t, "list-dataset-ids-restricted", map[string]any{}, nil)
+				if result.failed() {
+					t.Fatalf("list-dataset-ids-restricted failed: %s", result)
+				}
+				gotJSON = result.resultJSON()
+			} else {
+				body := bytes.NewBuffer([]byte(`{}`))
+				resp, bodyBytes := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/list-dataset-ids-restricted/invoke", body, nil)
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+				}
+				var respBody map[string]interface{}
+				if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
+					t.Fatalf("error parsing response body: %v", err)
+				}
+				str, ok := respBody["result"].(string)
+				if !ok {
+					t.Fatalf("unable to find 'result' as a string in response body: %s", string(bodyBytes))
+				}
+				gotJSON = str
 			}
 
-			var respBody map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
-				t.Fatalf("error parsing response body: %v", err)
-			}
-
-			gotJSON, ok := respBody["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find 'result' as a string in response body: %s", string(bodyBytes))
-			}
-
-			// Unmarshal the result string into a slice to compare contents.
+			// Unmarshal the result into a slice to compare contents.
 			var gotElements []string
 			if err := json.Unmarshal([]byte(gotJSON), &gotElements); err != nil {
 				t.Fatalf("error parsing result field JSON %q: %v", gotJSON, err)
@@ -2670,7 +2054,19 @@ func runListDatasetIdsWithRestriction(t *testing.T, allowedDatasetName1, allowed
 	}
 }
 
+// runListTableIdsWithRestriction verifies that only tables in allowed datasets are listed.
+// By default it runs against the legacy /api endpoint; pass tests.WithMCPExec() to run it over MCP.
 func runListTableIdsWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName string, allowedTableNames ...string) {
+	runListTableIdsWithRestrictionOpts(t, allowedDatasetName, disallowedDatasetName, nil, allowedTableNames...)
+}
+
+// runListTableIdsWithRestrictionOpts is runListTableIdsWithRestriction with endpoint options.
+func runListTableIdsWithRestrictionOpts(t *testing.T, allowedDatasetName, disallowedDatasetName string, opts []tests.ToolExecOption, allowedTableNames ...string) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	sort.Strings(allowedTableNames)
 	var quotedNames []string
 	for _, name := range allowedTableNames {
@@ -2679,605 +2075,263 @@ func runListTableIdsWithRestriction(t *testing.T, allowedDatasetName, disallowed
 	wantResult := fmt.Sprintf(`[%s]`, strings.Join(quotedNames, ","))
 
 	testCases := []struct {
-		name           string
-		dataset        string
-		wantStatusCode int
-		wantInResult   string
-		wantInError    string
+		name         string
+		dataset      string
+		wantInResult string
+		wantInError  string
 	}{
 		{
-			name:           "invoke on allowed dataset",
-			dataset:        allowedDatasetName,
-			wantStatusCode: http.StatusOK,
-			wantInResult:   wantResult,
+			name:         "invoke on allowed dataset",
+			dataset:      allowedDatasetName,
+			wantInResult: wantResult,
 		},
 		{
-			name:           "invoke on disallowed dataset",
-			dataset:        disallowedDatasetName,
-			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("access denied to dataset '%s'", disallowedDatasetName),
+			name:        "invoke on disallowed dataset",
+			dataset:     disallowedDatasetName,
+			wantInError: fmt.Sprintf("access denied to dataset '%s'", disallowedDatasetName),
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			body := bytes.NewBuffer([]byte(fmt.Sprintf(`{"dataset":"%s"}`, tc.dataset)))
-			req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:5000/api/tool/list-table-ids-restricted/invoke", body)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatusCode {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantInResult != "" {
+			var gotJSON, errText string
+			var failed bool
+			if config.IsMCP() {
+				result := invokeMCPTool(t, "list-table-ids-restricted", map[string]any{"dataset": tc.dataset}, nil)
+				failed, errText, gotJSON = result.failed(), result.errorText(), result.resultJSON()
+			} else {
+				body := bytes.NewBuffer([]byte(fmt.Sprintf(`{"dataset":"%s"}`, tc.dataset)))
+				resp, bodyBytes := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/list-table-ids-restricted/invoke", body, nil)
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+				}
 				var respBody map[string]interface{}
-				if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+				if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
 					t.Fatalf("error parsing response body: %v", err)
 				}
-				got, ok := respBody["result"].(string)
-				if !ok {
-					t.Fatalf("unable to find result in response body")
-				}
-
-				var gotSlice []string
-				if err := json.Unmarshal([]byte(got), &gotSlice); err != nil {
-					t.Fatalf("error unmarshalling result: %v", err)
-				}
-				sort.Strings(gotSlice)
-				sortedGotBytes, err := json.Marshal(gotSlice)
-				if err != nil {
-					t.Fatalf("error marshalling sorted result: %v", err)
-				}
-
-				if string(sortedGotBytes) != tc.wantInResult {
-					t.Errorf("unexpected result: got %q, want %q", string(sortedGotBytes), tc.wantInResult)
-				}
+				gotJSON, _ = respBody["result"].(string)
+				errText = string(bodyBytes)
+				failed = strings.Contains(gotJSON, `{"error":`)
 			}
 
 			if tc.wantInError != "" {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				if !strings.Contains(string(bodyBytes), tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", string(bodyBytes), tc.wantInError)
+				if !failed || !strings.Contains(errText, tc.wantInError) {
+					t.Errorf("unexpected error message: got %q, want to contain %q", errText, tc.wantInError)
 				}
+				return
+			}
+
+			if failed {
+				t.Fatalf("list-table-ids-restricted failed: %s", errText)
+			}
+			var gotSlice []string
+			if err := json.Unmarshal([]byte(gotJSON), &gotSlice); err != nil {
+				t.Fatalf("error unmarshalling result: %v", err)
+			}
+			sort.Strings(gotSlice)
+			sortedGotBytes, err := json.Marshal(gotSlice)
+			if err != nil {
+				t.Fatalf("error marshalling sorted result: %v", err)
+			}
+
+			if string(sortedGotBytes) != tc.wantInResult {
+				t.Errorf("unexpected result: got %q, want %q", string(sortedGotBytes), tc.wantInResult)
 			}
 		})
 	}
 }
 
-func runGetDatasetInfoWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName string) {
-	testCases := []struct {
-		name           string
-		dataset        string
-		wantStatusCode int
-		wantInError    string
-	}{
+func runGetDatasetInfoWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName string, opts ...tests.ToolExecOption) {
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:           "invoke on allowed dataset",
-			dataset:        allowedDatasetName,
-			wantStatusCode: http.StatusOK,
+			name:     "invoke on allowed dataset",
+			toolName: "get-dataset-info-restricted",
+			args:     map[string]any{"dataset": allowedDatasetName},
 		},
 		{
-			name:           "invoke on disallowed dataset",
-			dataset:        disallowedDatasetName,
-			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("access denied to dataset '%s'", disallowedDatasetName),
+			name:     "invoke on disallowed dataset",
+			toolName: "get-dataset-info-restricted",
+			args:     map[string]any{"dataset": disallowedDatasetName},
+			wantErr:  fmt.Sprintf("access denied to dataset '%s'", disallowedDatasetName),
 		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			body := bytes.NewBuffer([]byte(fmt.Sprintf(`{"dataset":"%s"}`, tc.dataset)))
-			req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:5000/api/tool/get-dataset-info-restricted/invoke", body)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatusCode {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantInError != "" {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				if !strings.Contains(string(bodyBytes), tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", string(bodyBytes), tc.wantInError)
-				}
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runGetTableInfoWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName, allowedTableName, disallowedTableName string) {
-	testCases := []struct {
-		name           string
-		dataset        string
-		table          string
-		wantStatusCode int
-		wantInError    string
-	}{
+func runGetTableInfoWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName, allowedTableName, disallowedTableName string, opts ...tests.ToolExecOption) {
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:           "invoke on allowed table",
-			dataset:        allowedDatasetName,
-			table:          allowedTableName,
-			wantStatusCode: http.StatusOK,
+			name:     "invoke on allowed table",
+			toolName: "get-table-info-restricted",
+			args:     map[string]any{"dataset": allowedDatasetName, "table": allowedTableName},
 		},
 		{
-			name:           "invoke on disallowed table",
-			dataset:        disallowedDatasetName,
-			table:          disallowedTableName,
-			wantStatusCode: http.StatusOK,
+			name:     "invoke on disallowed table",
+			toolName: "get-table-info-restricted",
+			args:     map[string]any{"dataset": disallowedDatasetName, "table": disallowedTableName},
+			wantErr:  fmt.Sprintf("access denied to dataset '%s'", disallowedDatasetName),
 		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			body := bytes.NewBuffer([]byte(fmt.Sprintf(`{"dataset":"%s", "table":"%s"}`, tc.dataset, tc.table)))
-			req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:5000/api/tool/get-table-info-restricted/invoke", body)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatusCode {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantInError != "" {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				if !strings.Contains(string(bodyBytes), tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", string(bodyBytes), tc.wantInError)
-				}
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runExecuteSqlWithRestriction(t *testing.T, allowedTableFullName, disallowedTableFullName string) {
+func runExecuteSqlWithRestriction(t *testing.T, allowedTableFullName, disallowedTableFullName string, opts ...tests.ToolExecOption) {
 	allowedTableParts := strings.Split(strings.Trim(allowedTableFullName, "`"), ".")
 	if len(allowedTableParts) != 3 {
 		t.Fatalf("invalid allowed table name format: %s", allowedTableFullName)
 	}
 	allowedDatasetID := allowedTableParts[1]
 
-	testCases := []struct {
-		name           string
-		sql            string
-		wantStatusCode int
-		wantInError    string
-	}{
-		{
-			name:           "invoke on allowed table",
-			sql:            fmt.Sprintf("SELECT * FROM %s", allowedTableFullName),
-			wantStatusCode: http.StatusOK,
-		},
-		{
-			name:           "invoke on disallowed table",
-			sql:            fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName),
-			wantStatusCode: http.StatusOK,
-			wantInError: fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list",
+	sqlCase := func(name, sql, wantErr string) bigQueryInvokeTestCase {
+		return bigQueryInvokeTestCase{name: name, toolName: "execute-sql-restricted", args: map[string]any{"sql": sql}, wantErr: wantErr}
+	}
+
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
+		sqlCase("invoke on allowed table", fmt.Sprintf("SELECT * FROM %s", allowedTableFullName), ""),
+		sqlCase("invoke on disallowed table", fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName),
+			fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list",
 				strings.Join(
 					strings.Split(strings.Trim(disallowedTableFullName, "`"), ".")[0:2],
-					".")),
-		},
-		{
-			name:           "disallowed create schema",
-			sql:            "CREATE SCHEMA another_dataset",
-			wantStatusCode: http.StatusOK,
-			wantInError:    "dataset-level operations like 'CREATE_SCHEMA' are not allowed",
-		},
-		{
-			name:           "disallowed alter schema",
-			sql:            fmt.Sprintf("ALTER SCHEMA %s SET OPTIONS(description='new one')", allowedDatasetID),
-			wantStatusCode: http.StatusOK,
-			wantInError:    "dataset-level operations like 'ALTER_SCHEMA' are not allowed",
-		},
-		{
-			name:           "disallowed create function",
-			sql:            fmt.Sprintf("CREATE FUNCTION %s.my_func() RETURNS INT64 AS (1)", allowedDatasetID),
-			wantStatusCode: http.StatusOK,
-			wantInError:    "creating stored routines ('CREATE_FUNCTION') is not allowed",
-		},
-		{
-			name:           "disallowed create procedure",
-			sql:            fmt.Sprintf("CREATE PROCEDURE %s.my_proc() BEGIN SELECT 1; END", allowedDatasetID),
-			wantStatusCode: http.StatusOK,
-			wantInError:    "unanalyzable statements like 'CREATE PROCEDURE' are not allowed",
-		},
-		{
-			name:           "disallowed execute immediate",
-			sql:            "EXECUTE IMMEDIATE 'SELECT 1'",
-			wantStatusCode: http.StatusOK,
-			wantInError:    "EXECUTE IMMEDIATE is not allowed when dataset restrictions are in place",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			body := bytes.NewBuffer([]byte(fmt.Sprintf(`{"sql":"%s"}`, tc.sql)))
-			req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:5000/api/tool/execute-sql-restricted/invoke", body)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatusCode {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantInError != "" {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				if !strings.Contains(string(bodyBytes), tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", string(bodyBytes), tc.wantInError)
-				}
-			}
-		})
-	}
+					"."))),
+		sqlCase("disallowed create schema", "CREATE SCHEMA another_dataset",
+			"dataset-level operations like 'CREATE_SCHEMA' are not allowed"),
+		sqlCase("disallowed alter schema", fmt.Sprintf("ALTER SCHEMA %s SET OPTIONS(description='new one')", allowedDatasetID),
+			"dataset-level operations like 'ALTER_SCHEMA' are not allowed"),
+		sqlCase("disallowed create function", fmt.Sprintf("CREATE FUNCTION %s.my_func() RETURNS INT64 AS (1)", allowedDatasetID),
+			"creating stored routines ('CREATE_FUNCTION') is not allowed"),
+		sqlCase("disallowed create procedure", fmt.Sprintf("CREATE PROCEDURE %s.my_proc() BEGIN SELECT 1; END", allowedDatasetID),
+			"unanalyzable statements like 'CREATE PROCEDURE' are not allowed"),
+		sqlCase("disallowed execute immediate", "EXECUTE IMMEDIATE 'SELECT 1'",
+			"EXECUTE IMMEDIATE is not allowed when dataset restrictions are in place"),
+	}, opts...)
 }
 
-func runConversationalAnalyticsWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName, allowedTableName, disallowedTableName string) {
+func runConversationalAnalyticsWithRestriction(t *testing.T, allowedDatasetName, disallowedDatasetName, allowedTableName, disallowedTableName string, opts ...tests.ToolExecOption) {
 	allowedTableRefsJSON := fmt.Sprintf(`[{"projectId":"%s","datasetId":"%s","tableId":"%s"}]`, BigqueryProject, allowedDatasetName, allowedTableName)
 	disallowedTableRefsJSON := fmt.Sprintf(`[{"projectId":"%s","datasetId":"%s","tableId":"%s"}]`, BigqueryProject, disallowedDatasetName, disallowedTableName)
 
-	testCases := []struct {
-		name           string
-		tableRefs      string
-		wantStatusCode int
-		wantInResult   string
-		wantInError    string
-	}{
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
 		{
-			name:           "invoke with allowed table",
-			tableRefs:      allowedTableRefsJSON,
-			wantStatusCode: http.StatusOK,
-			wantInResult:   `FINAL_RESPONSE`,
+			name:         "invoke with allowed table",
+			toolName:     "conversational-analytics-restricted",
+			args:         map[string]any{"user_query_with_context": "What is in the table?", "table_references": allowedTableRefsJSON},
+			wantContains: `FINAL_RESPONSE`,
 		},
 		{
-			name:           "invoke with disallowed table",
-			tableRefs:      disallowedTableRefsJSON,
-			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("access to dataset '%s.%s' (from table '%s') is not allowed", BigqueryProject, disallowedDatasetName, disallowedTableName),
+			name:     "invoke with disallowed table",
+			toolName: "conversational-analytics-restricted",
+			args:     map[string]any{"user_query_with_context": "What is in the table?", "table_references": disallowedTableRefsJSON},
+			wantErr:  fmt.Sprintf("access to dataset '%s.%s' (from table '%s') is not allowed", BigqueryProject, disallowedDatasetName, disallowedTableName),
 		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			requestBodyMap := map[string]any{
-				"user_query_with_context": "What is in the table?",
-				"table_references":        tc.tableRefs,
-			}
-			bodyBytes, err := json.Marshal(requestBodyMap)
-			if err != nil {
-				t.Fatalf("failed to marshal request body: %v", err)
-			}
-			body := bytes.NewBuffer(bodyBytes)
-
-			req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:5000/api/tool/conversational-analytics-restricted/invoke", body)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatusCode {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			if tc.wantInResult != "" {
-				var respBody map[string]interface{}
-				if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
-					t.Fatalf("error parsing response body: %v", err)
-				}
-				got, ok := respBody["result"].(string)
-				if !ok {
-					t.Fatalf("unable to find result in response body")
-				}
-				if !strings.Contains(got, tc.wantInResult) {
-					t.Errorf("unexpected result: got %q, want to contain %q", got, tc.wantInResult)
-				}
-			}
-
-			if tc.wantInError != "" {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				if !strings.Contains(string(bodyBytes), tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", string(bodyBytes), tc.wantInError)
-				}
-			}
-		})
-	}
+	}, opts...)
 }
 
-func runForecastWithRestriction(t *testing.T, allowedTableFullName, disallowedTableFullName string) {
+func runForecastWithRestriction(t *testing.T, allowedTableFullName, disallowedTableFullName string, opts ...tests.ToolExecOption) {
 	allowedTableUnquoted := strings.ReplaceAll(allowedTableFullName, "`", "")
 	disallowedTableUnquoted := strings.ReplaceAll(disallowedTableFullName, "`", "")
 	disallowedDatasetFQN := strings.Join(strings.Split(disallowedTableUnquoted, ".")[0:2], ".")
 
-	testCases := []struct {
-		name           string
-		historyData    string
-		timestampCol   string
-		dataCol        string
-		wantStatusCode int
-		wantInResult   string
-		wantInError    string
-	}{
-		{
-			name:           "invoke with allowed table name",
-			historyData:    allowedTableUnquoted,
-			wantStatusCode: http.StatusOK,
-			wantInResult:   `"forecast_timestamp"`,
-		},
-		{
-			name:           "invoke with disallowed table name",
-			historyData:    disallowedTableUnquoted,
-			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("access to dataset '%s' (from table '%s') is not allowed", disallowedDatasetFQN, disallowedTableUnquoted),
-		},
-		{
-			name:           "invoke with query on allowed table",
-			historyData:    fmt.Sprintf("SELECT * FROM %s", allowedTableFullName),
-			wantStatusCode: http.StatusOK,
-			wantInResult:   `"forecast_timestamp"`,
-		},
-		{
-			name:           "invoke with query on disallowed table",
-			historyData:    fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName),
-			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list", disallowedDatasetFQN),
-		},
-		{
-			name:           "invoke with SQL injection in timestamp_col",
-			historyData:    allowedTableUnquoted,
-			timestampCol:   "ts', horizon => 5) --",
-			wantStatusCode: http.StatusOK,
-			wantInError:    `invalid column name for 'timestamp_col': "'ts'', horizon => 5) --'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
-		},
-		{
-			name:           "invoke with SQL injection in data_col",
-			historyData:    allowedTableUnquoted,
-			dataCol:        "data', horizon => 5) --",
-			wantStatusCode: http.StatusOK,
-			wantInError:    `invalid column name for 'data_col': "'data'', horizon => 5) --'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
-		},
+	forecastArgs := func(historyData, timestampCol, dataCol string) map[string]any {
+		return map[string]any{"history_data": historyData, "timestamp_col": timestampCol, "data_col": dataCol}
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			tCol := tc.timestampCol
-			if tCol == "" {
-				tCol = "ts"
-			}
-			dCol := tc.dataCol
-			if dCol == "" {
-				dCol = "data"
-			}
-			requestBodyMap := map[string]any{
-				"history_data":  tc.historyData,
-				"timestamp_col": tCol,
-				"data_col":      dCol,
-			}
-			bodyBytes, err := json.Marshal(requestBodyMap)
-			if err != nil {
-				t.Fatalf("failed to marshal request body: %v", err)
-			}
-			body := bytes.NewBuffer(bodyBytes)
-
-			req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:5000/api/tool/forecast-restricted/invoke", body)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			bodyBytes, err = io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("failed to read response body: %v", err)
-			}
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			var respBody map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
-				t.Fatalf("error parsing response body: %v", err)
-			}
-			got, ok := respBody["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body. Body: %s", string(bodyBytes))
-			}
-
-			var gotError string
-			var innerMap map[string]any
-			if err := json.Unmarshal([]byte(got), &innerMap); err == nil {
-				if errMsg, ok := innerMap["error"].(string); ok {
-					gotError = errMsg
-				}
-			}
-
-			if tc.wantInResult != "" {
-				if !strings.Contains(got, tc.wantInResult) {
-					t.Errorf("unexpected result: got %q, want to contain %q", got, tc.wantInResult)
-				}
-			}
-
-			if tc.wantInError != "" {
-				checkStr := got
-				if gotError != "" {
-					checkStr = gotError
-				}
-				if !strings.Contains(checkStr, tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", checkStr, tc.wantInError)
-				}
-			}
-		})
-	}
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
+		{
+			name:         "invoke with allowed table name",
+			toolName:     "forecast-restricted",
+			args:         forecastArgs(allowedTableUnquoted, "ts", "data"),
+			wantContains: `"forecast_timestamp"`,
+		},
+		{
+			name:     "invoke with disallowed table name",
+			toolName: "forecast-restricted",
+			args:     forecastArgs(disallowedTableUnquoted, "ts", "data"),
+			wantErr:  fmt.Sprintf("access to dataset '%s' (from table '%s') is not allowed", disallowedDatasetFQN, disallowedTableUnquoted),
+		},
+		{
+			name:         "invoke with query on allowed table",
+			toolName:     "forecast-restricted",
+			args:         forecastArgs(fmt.Sprintf("SELECT * FROM %s", allowedTableFullName), "ts", "data"),
+			wantContains: `"forecast_timestamp"`,
+		},
+		{
+			name:     "invoke with query on disallowed table",
+			toolName: "forecast-restricted",
+			args:     forecastArgs(fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName), "ts", "data"),
+			wantErr:  fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list", disallowedDatasetFQN),
+		},
+		{
+			name:     "invoke with SQL injection in timestamp_col",
+			toolName: "forecast-restricted",
+			args:     forecastArgs(allowedTableUnquoted, "ts', horizon => 5) --", "data"),
+			wantErr:  `invalid column name for 'timestamp_col': "'ts'', horizon => 5) --'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
+		},
+		{
+			name:     "invoke with SQL injection in data_col",
+			toolName: "forecast-restricted",
+			args:     forecastArgs(allowedTableUnquoted, "ts", "data', horizon => 5) --"),
+			wantErr:  `invalid column name for 'data_col': "'data'', horizon => 5) --'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
+		},
+	}, opts...)
 }
 
-func runAnalyzeContributionWithRestriction(t *testing.T, allowedTableFullName, disallowedTableFullName string) {
+func runAnalyzeContributionWithRestriction(t *testing.T, allowedTableFullName, disallowedTableFullName string, opts ...tests.ToolExecOption) {
 	allowedTableUnquoted := strings.ReplaceAll(allowedTableFullName, "`", "")
 	disallowedTableUnquoted := strings.ReplaceAll(disallowedTableFullName, "`", "")
 	disallowedDatasetFQN := strings.Join(strings.Split(disallowedTableUnquoted, ".")[0:2], ".")
 
-	testCases := []struct {
-		name               string
-		inputData          string
-		contributionMetric string
-		isTestCol          string
-		dimensionIdCols    []string
-		wantStatusCode     int
-		wantInResult       string
-		wantInError        string
-	}{
-		{
-			name:           "invoke with allowed table name",
-			inputData:      allowedTableUnquoted,
-			wantStatusCode: http.StatusOK,
-			wantInResult:   `"relative_difference"`,
-		},
-		{
-			name:           "invoke with disallowed table name",
-			inputData:      disallowedTableUnquoted,
-			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("access to dataset '%s' (from table '%s') is not allowed", disallowedDatasetFQN, disallowedTableUnquoted),
-		},
-		{
-			name:           "invoke with query on allowed table",
-			inputData:      fmt.Sprintf("SELECT * FROM %s", allowedTableFullName),
-			wantStatusCode: http.StatusOK,
-			wantInResult:   `"relative_difference"`,
-		},
-		{
-			name:           "invoke with query on disallowed table",
-			inputData:      fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName),
-			wantStatusCode: http.StatusOK,
-			wantInError:    fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list", disallowedDatasetFQN),
-		},
-		{
-			name:           "invoke with SQL injection in is_test_col",
-			inputData:      allowedTableUnquoted,
-			isTestCol:      "is_test; drop table x",
-			wantStatusCode: http.StatusOK,
-			wantInError:    `invalid column name for 'is_test_col': "'is_test; drop table x'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
-		},
-		{
-			name:            "invoke with SQL injection in dimension_id_cols",
-			inputData:       allowedTableUnquoted,
-			dimensionIdCols: []string{"dim1", "dim2; drop table x"},
-			wantStatusCode:  http.StatusOK,
-			wantInError:     `invalid column name in 'dimension_id_cols': "'dim2; drop table x'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
-		},
-		{
-			name:               "invoke with single quote in contribution_metric",
-			inputData:          allowedTableUnquoted,
-			contributionMetric: "SUM('metric')",
-			wantStatusCode:     http.StatusOK,
-			wantInError:        `invalid 'contribution_metric': must not contain single quotes`,
-		},
+	contributionArgs := func(inputData, contributionMetric, isTestCol string, dimensionIdCols []any) map[string]any {
+		return map[string]any{
+			"input_data":          inputData,
+			"contribution_metric": contributionMetric,
+			"is_test_col":         isTestCol,
+			"dimension_id_cols":   dimensionIdCols,
+		}
 	}
+	defaultDims := []any{"dim1", "dim2"}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			cMetric := tc.contributionMetric
-			if cMetric == "" {
-				cMetric = "SUM(metric)"
-			}
-			tCol := tc.isTestCol
-			if tCol == "" {
-				tCol = "is_test"
-			}
-			dCols := tc.dimensionIdCols
-			if dCols == nil {
-				dCols = []string{"dim1", "dim2"}
-			}
-
-			requestBodyMap := map[string]any{
-				"input_data":          tc.inputData,
-				"contribution_metric": cMetric,
-				"is_test_col":         tCol,
-				"dimension_id_cols":   dCols,
-			}
-			bodyBytes, err := json.Marshal(requestBodyMap)
-			if err != nil {
-				t.Fatalf("failed to marshal request body: %v", err)
-			}
-			body := bytes.NewBuffer(bodyBytes)
-
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/analyze-contribution-restricted/invoke", body, nil)
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
-			var respBody map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
-				t.Fatalf("error parsing response body: %v", err)
-			}
-			got, ok := respBody["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body. Body: %s", string(bodyBytes))
-			}
-
-			var gotError string
-			var innerMap map[string]any
-			if err := json.Unmarshal([]byte(got), &innerMap); err == nil {
-				if errMsg, ok := innerMap["error"].(string); ok {
-					gotError = errMsg
-				}
-			}
-
-			if tc.wantInResult != "" {
-				if !strings.Contains(got, tc.wantInResult) {
-					t.Errorf("unexpected result: got %q, want to contain %q", got, tc.wantInResult)
-				}
-			}
-
-			if tc.wantInError != "" {
-				checkStr := got
-				if gotError != "" {
-					checkStr = gotError
-				}
-				if !strings.Contains(checkStr, tc.wantInError) {
-					t.Errorf("unexpected error message: got %q, want to contain %q", checkStr, tc.wantInError)
-				}
-			}
-		})
-	}
+	runBigQueryInvokeTestCases(t, []bigQueryInvokeTestCase{
+		{
+			name:         "invoke with allowed table name",
+			toolName:     "analyze-contribution-restricted",
+			args:         contributionArgs(allowedTableUnquoted, "SUM(metric)", "is_test", defaultDims),
+			wantContains: `"relative_difference"`,
+		},
+		{
+			name:     "invoke with disallowed table name",
+			toolName: "analyze-contribution-restricted",
+			args:     contributionArgs(disallowedTableUnquoted, "SUM(metric)", "is_test", defaultDims),
+			wantErr:  fmt.Sprintf("access to dataset '%s' (from table '%s') is not allowed", disallowedDatasetFQN, disallowedTableUnquoted),
+		},
+		{
+			name:         "invoke with query on allowed table",
+			toolName:     "analyze-contribution-restricted",
+			args:         contributionArgs(fmt.Sprintf("SELECT * FROM %s", allowedTableFullName), "SUM(metric)", "is_test", defaultDims),
+			wantContains: `"relative_difference"`,
+		},
+		{
+			name:     "invoke with query on disallowed table",
+			toolName: "analyze-contribution-restricted",
+			args:     contributionArgs(fmt.Sprintf("SELECT * FROM %s", disallowedTableFullName), "SUM(metric)", "is_test", defaultDims),
+			wantErr:  fmt.Sprintf("query accesses dataset '%s', which is not in the allowed list", disallowedDatasetFQN),
+		},
+		{
+			name:     "invoke with SQL injection in is_test_col",
+			toolName: "analyze-contribution-restricted",
+			args:     contributionArgs(allowedTableUnquoted, "SUM(metric)", "is_test; drop table x", defaultDims),
+			wantErr:  `invalid column name for 'is_test_col': "'is_test; drop table x'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
+		},
+		{
+			name:     "invoke with SQL injection in dimension_id_cols",
+			toolName: "analyze-contribution-restricted",
+			args:     contributionArgs(allowedTableUnquoted, "SUM(metric)", "is_test", []any{"dim1", "dim2; drop table x"}),
+			wantErr:  `invalid column name in 'dimension_id_cols': "'dim2; drop table x'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
+		},
+		{
+			name:     "invoke with single quote in contribution_metric",
+			toolName: "analyze-contribution-restricted",
+			args:     contributionArgs(allowedTableUnquoted, "SUM('metric')", "is_test", defaultDims),
+			wantErr:  `invalid 'contribution_metric': must not contain single quotes`,
+		},
+	}, opts...)
 }
 
 // setupBigQueryVectorTable creates a vector table in BigQuery for semantic search testing
