@@ -74,6 +74,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	if r.Dialect == "" {
 		dialect, err := getDatabaseDialect(ctx, r.Project, r.Instance, r.Database)
 		if err != nil {
+			client.Close()
 			return nil, fmt.Errorf("unable to auto-detect database dialect (set `dialect` explicitly in the source config to skip detection): %w", err)
 		}
 		r.Dialect = dialect
