@@ -65,20 +65,28 @@ func initRedisClient(ctx context.Context, address, pass string) (*redis.Client, 
 }
 
 func TestRedisToolEndpoints(t *testing.T) {
+	setupRedisTest(t, "--enable-api")
+	tests.RunToolGetTest(t)
+	runRedisCallTests(t)
+}
+
+func setupRedisTest(t *testing.T, args ...string) {
+	t.Helper()
+
 	sourceConfig := getRedisVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
+	t.Cleanup(cancel)
 
 	client, err := initRedisClient(ctx, RedisAddress, RedisPass)
 	if err != nil {
 		t.Fatalf("unable to create Redis connection: %s", err)
 	}
 
+	t.Cleanup(func() { client.Close() })
+
 	// set up data for param tool
 	teardownDB := setupRedisDB(t, ctx, client)
-	defer teardownDB(t)
+	t.Cleanup(func() { teardownDB(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetRedisValkeyToolsConfig(sourceConfig, RedisToolType)
@@ -87,7 +95,16 @@ func TestRedisToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -97,21 +114,21 @@ func TestRedisToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
-	select1Want, mcpMyFailToolWant, invokeParamWant, invokeIdNullWant, nullWant, mcpSelect1Want, mcpInvokeParamWant := tests.GetRedisValkeyWants()
+}
 
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want,
-		tests.WithMyToolId3NameAliceWant(invokeParamWant),
-		tests.WithMyArrayToolWant(invokeParamWant),
-		tests.WithMyToolById4Want(invokeIdNullWant),
-		tests.WithNullWant(nullWant),
-	)
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
-		tests.WithMcpMyToolId3NameAliceWant(mcpInvokeParamWant),
-		tests.WithMcpMySecureToolWant(invokeParamWant),
-	)
+func runRedisCallTests(t *testing.T, options ...tests.InvokeTestOption) {
+	select1Want, mcpMyFailToolWant, invokeParamWant, invokeIdNullWant, nullWant, mcpSelect1Want, mcpInvokeParamWant := tests.GetRedisValkeyWants()
+	t.Run("invoke", func(t *testing.T) {
+		opts := []tests.InvokeTestOption{
+			tests.WithMyToolId3NameAliceWant(invokeParamWant), tests.WithMyArrayToolWant(invokeParamWant),
+			tests.WithMyToolById4Want(invokeIdNullWant), tests.WithNullWant(nullWant),
+		}
+		tests.RunToolInvokeTest(t, select1Want, append(opts, options...)...)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
+			tests.WithMcpMyToolId3NameAliceWant(mcpInvokeParamWant), tests.WithMcpMySecureToolWant(invokeParamWant))
+	})
 }
 
 func setupRedisDB(t *testing.T, ctx context.Context, client *redis.Client) func(*testing.T) {
