@@ -55,13 +55,13 @@ should work for macOS with small changes.
 1. Download zig for your platform.
     ```bash
     cd $HOME
-    curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz
+    curl -fL "https://storage.googleapis.com/toolbox-build-assets/zig/zig.tar.xz" -o zig.tar.xz
     tar xf zig.tar.xz
     ```
     This will create the directory $HOME/zig-x86_64-linux-0.15.2. You only need to do this once.
 
-    If you are on macOS curl from https://ziglang.org/download/0.15.2/zig-x86_64-macos-0.15.2.tar.xz
-    or https://ziglang.org/download/0.15.2/zig-aarch64-macos-0.15.2.tar.xz.
+    If you are on macOS curl from https://storage.googleapis.com/toolbox-build-assets/zig/zig-x86_64-macos-0.15.2.tar.xz
+    or https://storage.googleapis.com/toolbox-build-assets/zig/zig-aarch64-macos-0.15.2.tar.xz.
 
 2. Change to your MCP Toolbox directory and run the following:
     ```bash
