@@ -15,13 +15,17 @@
 package mysqllisttables_test
 
 import (
+	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	mysqllisttables "github.com/googleapis/mcp-toolbox/internal/tools/mysql/mysqllisttables"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
 func TestParseFromYamlMySQLListTables(t *testing.T) {
@@ -70,5 +74,81 @@ func TestParseFromYamlMySQLListTables(t *testing.T) {
 				t.Fatalf("incorrect parse: diff %v", diff)
 			}
 		})
+	}
+}
+
+type mockMySQLSource struct {
+	sources.Source
+	database string
+	params   []any
+}
+
+func (m *mockMySQLSource) MySQLPool() *sql.DB {
+	return nil
+}
+
+func (m *mockMySQLSource) MySQLDatabase() string {
+	return m.database
+}
+
+func (m *mockMySQLSource) RunSQL(_ context.Context, _ string, params []any) (any, error) {
+	m.params = params
+	return []any{}, nil
+}
+
+func TestInvokeScopesListTablesToConfiguredDatabase(t *testing.T) {
+	cfg := mysqllisttables.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "example_tool",
+			Description: "some description",
+		},
+		Type:   "mysql-list-tables",
+		Source: "my-mysql-instance",
+	}
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("unable to initialize tool: %s", err)
+	}
+
+	source := &mockMySQLSource{database: "app_db"}
+	got, invokeErr := tool.Invoke(context.Background(), source, parameters.ParamValues{
+		{Name: "table_names", Value: ""},
+		{Name: "output_format", Value: "detailed"},
+	}, "")
+	if invokeErr != nil {
+		t.Fatalf("unexpected invoke error: %s", invokeErr)
+	}
+	if diff := cmp.Diff([]any{}, got); diff != "" {
+		t.Fatalf("unexpected invoke response diff (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]any{"", "detailed", "app_db"}, source.params); diff != "" {
+		t.Fatalf("incorrect SQL params diff (-want +got):\n%s", diff)
+	}
+}
+
+func TestInvokePreservesUnscopedBehaviorWithoutConfiguredDatabase(t *testing.T) {
+	cfg := mysqllisttables.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "example_tool",
+			Description: "some description",
+		},
+		Type:   "mysql-list-tables",
+		Source: "my-mysql-instance",
+	}
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("unable to initialize tool: %s", err)
+	}
+
+	source := &mockMySQLSource{}
+	_, invokeErr := tool.Invoke(context.Background(), source, parameters.ParamValues{
+		{Name: "table_names", Value: "orders"},
+		{Name: "output_format", Value: "simple"},
+	}, "")
+	if invokeErr != nil {
+		t.Fatalf("unexpected invoke error: %s", invokeErr)
+	}
+	if diff := cmp.Diff([]any{"orders", "simple", ""}, source.params); diff != "" {
+		t.Fatalf("incorrect SQL params diff (-want +got):\n%s", diff)
 	}
 }
