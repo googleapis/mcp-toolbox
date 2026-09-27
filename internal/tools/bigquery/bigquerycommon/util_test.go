@@ -41,7 +41,9 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 		name             string
 		sql              string
 		referencedTables []*bigquery.TableReference
+		ddlTargetTable   *bigquery.TableReference
 		statementType    string
+		opts             []bigquerycommon.ValidateOption
 		wantErr          bool
 		wantErrSubs      []string
 	}{
@@ -188,6 +190,109 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 			wantErr:          true,
 			wantErrSubs:      []string{"session variable assignment ('SET') is not allowed"},
 		},
+		{
+			name: "CREATE TEMP MODEL over allowed table with session temp object option",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_anon_session_ds",
+				TableId:   "contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "CREATE TEMP MODEL over authorized view with session temp object option",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS (SELECT * FROM `proj.allowed_ds.v`)",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_anon_session_ds",
+				TableId:   "contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "CREATE TEMP MODEL without session temp object option fails on unqualified model name",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_anon_session_ds",
+				TableId:   "contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			wantErr:       true,
+			wantErrSubs:   []string{"query references table \"contribution_analysis_model_123\" without a dataset qualifier"},
+		},
+		{
+			name: "CREATE TEMP MODEL with session temp object option still rejects unqualified table in body",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS (SELECT * FROM secret_table)",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret_table"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_anon_session_ds",
+				TableId:   "contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr:     true,
+			wantErrSubs: []string{"query references table \"secret_table\" without a dataset qualifier"},
+		},
+		{
+			name: "CREATE TEMP MODEL with session temp object option still rejects forbidden dataset in body",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.forbidden_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_anon_session_ds",
+				TableId:   "contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr:     true,
+			wantErrSubs: []string{"access to dataset 'proj.forbidden_ds' is not allowed"},
+		},
+		{
+			name: "CREATE TEMP MODEL with mismatched session temp object option fails",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_anon_session_ds",
+				TableId:   "contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_other"),
+			},
+			wantErr:     true,
+			wantErrSubs: []string{"query references table \"contribution_analysis_model_123\" without a dataset qualifier"},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -197,6 +302,7 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 					Statistics: &bigquery.JobStatistics{
 						Query: &bigquery.JobStatistics2{
 							ReferencedTables: tc.referencedTables,
+							DdlTargetTable:   tc.ddlTargetTable,
 							StatementType:    tc.statementType,
 						},
 					},
@@ -223,6 +329,7 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 				mockDatasetValidator{},
 				0,
 				false,
+				tc.opts...,
 			)
 
 			if tc.wantErr {

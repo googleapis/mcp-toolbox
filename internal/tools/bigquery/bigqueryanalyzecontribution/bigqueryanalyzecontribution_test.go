@@ -440,6 +440,32 @@ func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
 						}
 					}
 
+					q := body.Configuration.Query.Query
+					refDataset := "allowed_dataset"
+					if strings.Contains(q, "authorized_view") {
+						refDataset = "restricted_base_dataset"
+					}
+					queryStats := map[string]any{
+						"statementType": "SELECT",
+						"referencedTables": []map[string]any{
+							{
+								"projectId": "test-project",
+								"datasetId": refDataset,
+								"tableId":   "my_table",
+							},
+						},
+					}
+					if strings.HasPrefix(q, "CREATE TEMP MODEL ") {
+						fields := strings.Fields(q)
+						modelName := fields[3]
+						queryStats["statementType"] = "CREATE_MODEL"
+						queryStats["ddlTargetTable"] = map[string]any{
+							"projectId": "test-project",
+							"datasetId": "_anon_session_dataset",
+							"tableId":   modelName,
+						}
+					}
+
 					resp := map[string]any{
 						"kind": "bigquery#job",
 						"jobReference": map[string]string{
@@ -451,19 +477,11 @@ func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
 						},
 						"configuration": map[string]any{
 							"query": map[string]any{
-								"query": body.Configuration.Query.Query,
+								"query": q,
 							},
 						},
 						"statistics": map[string]any{
-							"query": map[string]any{
-								"referencedTables": []map[string]any{
-									{
-										"projectId": "test-project",
-										"datasetId": "allowed_dataset",
-										"tableId":   "my_table",
-									},
-								},
-							},
+							"query": queryStats,
 						},
 					}
 					w.Header().Set("Content-Type", "application/json")
@@ -532,31 +550,60 @@ func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
 		t.Fatalf("expected bigqueryanalyzecontribution.Tool, got %T", tool)
 	}
 
-	data := map[string]any{
-		"input_data":          "allowed_dataset.my_table",
-		"contribution_metric": "SUM(metric)",
-		"is_test_col":         "is_test",
-		"dimension_id_cols":   []any{"dim1"},
+	inputs := []struct {
+		name      string
+		inputData string
+	}{
+		{
+			name:      "allowed table ID",
+			inputData: "allowed_dataset.my_table",
+		},
+		{
+			name:      "authorized view table ID",
+			inputData: "allowed_dataset.authorized_view",
+		},
+		{
+			name:      "query on allowed table",
+			inputData: "SELECT * FROM allowed_dataset.my_table",
+		},
+		{
+			name:      "query on authorized view",
+			inputData: "SELECT * FROM allowed_dataset.authorized_view",
+		},
 	}
 
-	params, err := analyzeContributionTool.GetParameters(testSrc)
-	if err != nil {
-		t.Fatalf("failed to get parameters: %v", err)
-	}
-	paramVals, err := parameters.ParseParams(params, data, nil)
-	if err != nil {
-		t.Fatalf("unexpected error parsing parameters: %v", err)
-	}
+	for _, tc := range inputs {
+		t.Run(tc.name, func(t *testing.T) {
+			dryRunReceivedCreateSession = false
+			dryRunReceivedSessionID = false
 
-	_, err = tool.Invoke(ctx, testSrc, paramVals, "")
-	if err != nil {
-		t.Fatalf("unexpected error invoking tool: %v", err)
-	}
+			data := map[string]any{
+				"input_data":          tc.inputData,
+				"contribution_metric": "SUM(metric)",
+				"is_test_col":         "is_test",
+				"dimension_id_cols":   []any{"dim1"},
+			}
 
-	if dryRunReceivedCreateSession {
-		t.Errorf("expected dry-run query createSession to be false in protected mode, got true")
-	}
-	if !dryRunReceivedSessionID {
-		t.Errorf("expected dry-run query to include session_id connection property in protected mode")
+			params, err := analyzeContributionTool.GetParameters(testSrc)
+			if err != nil {
+				t.Fatalf("failed to get parameters: %v", err)
+			}
+			paramVals, err := parameters.ParseParams(params, data, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing parameters: %v", err)
+			}
+
+			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
+			if err != nil {
+				t.Fatalf("unexpected error invoking tool: %v", err)
+			}
+
+			if dryRunReceivedCreateSession {
+				t.Errorf("expected dry-run query createSession to be false in protected mode, got true")
+			}
+			if !dryRunReceivedSessionID {
+				t.Errorf("expected dry-run query to include session_id connection property in protected mode")
+			}
+		})
 	}
 }

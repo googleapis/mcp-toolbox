@@ -254,7 +254,19 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 
 	if len(source.BigQueryAllowedDatasets()) > 0 {
-		_, validationErr := bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, createModelSQL, nil, createModelQuery.ConnectionProperties, source, source.GetMaximumBytesBilled(), createModelQuery.CreateSession)
+		_, validationErr := bqutil.ValidateQueryAgainstAllowedDatasets(
+			ctx,
+			restService,
+			bqClient.Project(),
+			bqClient.Location,
+			createModelSQL,
+			nil,
+			createModelQuery.ConnectionProperties,
+			source,
+			source.GetMaximumBytesBilled(),
+			createModelQuery.CreateSession,
+			bqutil.WithSessionTempObject(modelID),
+		)
 		if validationErr != nil {
 			return nil, validationErr
 		}

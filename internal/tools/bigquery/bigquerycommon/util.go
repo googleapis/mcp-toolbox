@@ -129,6 +129,34 @@ type tableReference struct {
 	TableID   string
 }
 
+// ValidateOption configures optional behavior for ValidateQueryAgainstAllowedDatasets.
+type ValidateOption func(*validateOptions)
+
+type validateOptions struct {
+	sessionTempObjects []string
+}
+
+// WithSessionTempObject exempts a server-generated session temporary object name
+// (such as a CREATE TEMP MODEL target) from dataset allowlist checks on dry-run
+// target tables and from unqualified table reference checks.
+// Only pass server-generated identifiers that cannot be controlled by user input.
+func WithSessionTempObject(name string) ValidateOption {
+	return func(o *validateOptions) {
+		if name != "" {
+			o.sessionTempObjects = append(o.sessionTempObjects, name)
+		}
+	}
+}
+
+func (o *validateOptions) isSessionTempObject(name string) bool {
+	for _, tempName := range o.sessionTempObjects {
+		if strings.EqualFold(tempName, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateQueryAgainstAllowedDatasets validates a SQL query against a list of allowed datasets.
 //
 // Why custom SQL parsing (TableParserDetailed & IsAnyTableExplicitlyReferenced) is needed
@@ -167,7 +195,15 @@ func ValidateQueryAgainstAllowedDatasets(
 	validator DatasetValidator,
 	maximumBytesBilled int64,
 	createSession bool,
+	opts ...ValidateOption,
 ) (*bigqueryrestapi.Job, util.ToolboxError) {
+	var vOpts validateOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&vOpts)
+		}
+	}
+
 	dryRunJob, err := DryRunQuery(ctx, restService, projectID, location, sql, params, connProps, maximumBytesBilled, createSession)
 	if err != nil {
 		var gErr *googleapi.Error
@@ -240,6 +276,11 @@ func ValidateQueryAgainstAllowedDatasets(
 		if IsSystemResource(ref.DatasetID, ref.TableID) {
 			continue
 		}
+		// Skip server-generated session temporary objects (e.g. CREATE TEMP MODEL targets),
+		// which BigQuery places in an anonymous session dataset (_<hex>).
+		if vOpts.isSessionTempObject(ref.TableID) {
+			continue
+		}
 		if !validator.IsDatasetAllowed(ref.ProjectID, ref.DatasetID) {
 			violatingTables = append(violatingTables, fmt.Sprintf("%s.%s.%s", ref.ProjectID, ref.DatasetID, ref.TableID))
 			violatingRefs = append(violatingRefs, ref)
@@ -297,11 +338,14 @@ func ValidateQueryAgainstAllowedDatasets(
 
 		// Only when all table references in the query are explicit and fully-qualified
 		// do we consider this an authorized view and grant exemption.
-		if len(parsed.UnqualifiedRefs) > 0 {
+		for _, unqualRef := range parsed.UnqualifiedRefs {
+			if vOpts.isSessionTempObject(unqualRef) {
+				continue
+			}
 			return nil, util.NewAgentError(fmt.Sprintf(
 				"query references table %q without a dataset qualifier; "+
 					"fully qualify all table names (dataset.table) when dataset restrictions are in place",
-				parsed.UnqualifiedRefs[0]), nil)
+				unqualRef), nil)
 		}
 	}
 
