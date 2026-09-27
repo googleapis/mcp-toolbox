@@ -61,66 +61,30 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
-	queryTimeout, err := r.queryTimeout()
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	pool, err := initMindsDBConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryTimeout)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
-	// The ping honours queryTimeout as the read timeout, so the connect must not
-	// be capped tighter than the config allows.
-	var opts []sources.Option
-	if queryTimeout > 0 {
-		opts = append(opts, sources.WithMinConnectTimeout(queryTimeout))
+
+	err = pool.PingContext(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
+
 	s := &Source{
-		Config:       r,
-		queryTimeout: queryTimeout,
-		conn:         sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer, opts...),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.MindsDBPoolContext(ctx); err != nil {
-		return nil, err
+		Config: r,
+		Pool:   pool,
 	}
 	return s, nil
-}
-
-// queryTimeout needs no network to validate, so it is resolved at startup.
-func (r Config) queryTimeout() (time.Duration, error) {
-	if r.QueryTimeout == "" {
-		return 0, nil
-	}
-	timeout, err := time.ParseDuration(r.QueryTimeout)
-	if err != nil {
-		return 0, fmt.Errorf("invalid queryTimeout %q: %w", r.QueryTimeout, err)
-	}
-	return timeout, nil
 }
 
 var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	queryTimeout time.Duration
-	conn         *sources.ConnectOnce[*sql.DB]
-}
-
-// MindsDBPoolContext returns the pool, connecting on first use. It is the
-// discriminator the mindsdb tools assert on.
-func (s *Source) MindsDBPoolContext(ctx context.Context) (*sql.DB, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
-		r := s.Config
-		pool, err := initMindsDBConnectionPool(ctx, r.Host, r.Port, r.User, r.Password, r.Database, s.queryTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create pool: %w", err)
-		}
-		if err := pool.PingContext(ctx); err != nil {
-			pool.Close()
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return pool, nil
-	})
+	Pool *sql.DB
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -135,19 +99,17 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-// MySQLPoolContext returns the pool, connecting on first use. It is the
-// discriminator the mysql tools assert on.
-func (s *Source) MySQLPoolContext(ctx context.Context) (*sql.DB, error) {
-	return s.MindsDBPoolContext(ctx)
+func (s *Source) MindsDBPool() *sql.DB {
+	return s.Pool
+}
+
+func (s *Source) MySQLPool() *sql.DB {
+	return s.Pool
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	pool, err := s.MindsDBPoolContext(ctx)
-	if err != nil {
-		return nil, err
-	}
 	// MindsDB now supports MySQL prepared statements natively
-	results, err := pool.QueryContext(ctx, statement, params...)
+	results, err := s.MindsDBPool().QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -200,7 +162,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initMindsDBConnectionPool(ctx context.Context, host, port, user, pass, dbname string, queryTimeout time.Duration) (*sql.DB, error) {
+func initMindsDBConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname, queryTimeout string) (*sql.DB, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	// Configure the driver to connect to the database
 	var dsn string
 	if pass == "" {
@@ -212,8 +178,12 @@ func initMindsDBConnectionPool(ctx context.Context, host, port, user, pass, dbna
 	}
 
 	// Add query timeout to DSN if specified
-	if queryTimeout != 0 {
-		dsn += "&readTimeout=" + queryTimeout.String()
+	if queryTimeout != "" {
+		timeout, err := time.ParseDuration(queryTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("invalid queryTimeout %q: %w", queryTimeout, err)
+		}
+		dsn += "&readTimeout=" + timeout.String()
 	}
 
 	// Interact with the driver directly as you normally would

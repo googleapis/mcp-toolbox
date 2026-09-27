@@ -48,7 +48,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	HttpDefaultHeadersContext(context.Context) (map[string]string, error)
+	HttpDefaultHeaders() map[string]string
 	HttpBaseURL() string
 	HttpQueryParams() map[string]string
 	RunRequest(context.Context, *http.Request) (any, error)
@@ -274,12 +274,8 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	// Combine Source and Tool headers.
 	// In case of conflict, Tool header overrides Source header
-	defaultHeaders, err := source.HttpDefaultHeadersContext(ctx)
-	if err != nil {
-		return nil, util.ProcessGeneralError(err)
-	}
 	combinedHeaders := make(map[string]string)
-	maps.Copy(combinedHeaders, defaultHeaders)
+	maps.Copy(combinedHeaders, source.HttpDefaultHeaders())
 	maps.Copy(combinedHeaders, t.Cfg.Headers)
 
 	paramsMap := params.AsMap()

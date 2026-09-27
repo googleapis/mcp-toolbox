@@ -38,6 +38,10 @@ type MockSource struct {
 	Session         *bigqueryds.Session
 }
 
+func (m *MockSource) BigQueryClient() *bigqueryapi.Client {
+	return m.Client
+}
+
 func (m *MockSource) UseClientAuthorization() bool {
 	return false
 }
@@ -83,7 +87,7 @@ func (m *MockSource) BigQuerySession() bigqueryds.BigQuerySessionProvider {
 	}
 }
 
-func (m *MockSource) RetrieveClientAndService(context.Context, tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
+func (m *MockSource) RetrieveClientAndService(tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
 	return m.Client, m.Service, nil
 }
 
