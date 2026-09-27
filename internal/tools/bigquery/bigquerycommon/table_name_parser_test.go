@@ -1108,6 +1108,51 @@ func TestTableParserDetailed(t *testing.T) {
 			wantTableIDs:        []string{"proj.allowed_ds.v"},
 			wantUnqualifiedRefs: []string{"secret_table"},
 		},
+		{
+			name: "AI.FORECAST with SELECT subquery and named arguments",
+			sql: `SELECT * FROM AI.FORECAST(
+				(SELECT * FROM ` + "`proj.allowed_ds.v`" + `),
+				data_col => 'data',
+				timestamp_col => 'ts',
+				horizon => 3)`,
+			defaultProjectID:    "proj",
+			wantTableIDs:        []string{"proj.allowed_ds.v"},
+			wantUnqualifiedRefs: []string{},
+		},
+		{
+			name: "AI.FORECAST with nested parentheses in subquery and id_cols",
+			sql: `SELECT * FROM AI.FORECAST(
+				(SELECT ts, SUM(data) AS data, id FROM ` + "`proj.allowed_ds.v`" + ` WHERE (id = 1) GROUP BY ts, id),
+				data_col => 'data',
+				timestamp_col => 'ts',
+				id_cols => ['id'],
+				horizon => 3)`,
+			defaultProjectID:    "proj",
+			wantTableIDs:        []string{"proj.allowed_ds.v"},
+			wantUnqualifiedRefs: []string{},
+		},
+		{
+			name: "AI.FORECAST with WITH subquery",
+			sql: `SELECT * FROM AI.FORECAST(
+				(WITH c AS (SELECT * FROM ` + "`proj.allowed_ds.v`" + `) SELECT * FROM c),
+				data_col => 'data',
+				timestamp_col => 'ts',
+				horizon => 3)`,
+			defaultProjectID:    "proj",
+			wantTableIDs:        []string{"proj.allowed_ds.v"},
+			wantUnqualifiedRefs: []string{},
+		},
+		{
+			name: "AI.FORECAST with unqualified table inside subquery",
+			sql: `SELECT * FROM AI.FORECAST(
+				(SELECT * FROM secret_table),
+				data_col => 'data',
+				timestamp_col => 'ts',
+				horizon => 3)`,
+			defaultProjectID:    "proj",
+			wantTableIDs:        []string{},
+			wantUnqualifiedRefs: []string{"secret_table"},
+		},
 	}
 
 	for _, tc := range testCases {

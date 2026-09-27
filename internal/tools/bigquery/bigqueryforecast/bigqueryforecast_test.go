@@ -261,6 +261,7 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 						"startTime":    "123456789",
 						"endTime":      "123456789",
 						"query": map[string]any{
+							"statementType": "SELECT",
 							"referencedTables": []map[string]any{
 								{
 									"projectId": "test-project",
@@ -303,6 +304,7 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 		Client:          bqClient,
 		Service:         restService,
 		AllowedDatasets: []string{"allowed_dataset"}, // only "allowed_dataset" is allowed!
+		RunSQLResult:    "mocked_forecast_result",
 	}
 
 	cfg := bigqueryforecast.Config{
@@ -327,17 +329,25 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 	testCases := []struct {
 		name       string
 		input      string
+		wantErr    bool
 		wantErrSub string
 	}{
 		{
 			name:       "query referencing forbidden dataset",
 			input:      "SELECT * FROM unauthorized_dataset.some_table",
+			wantErr:    true,
 			wantErrSub: "access to dataset 'test-project.unauthorized_dataset'",
 		},
 		{
 			name:       "table id in forbidden dataset, final SQL validated",
 			input:      "unauthorized_dataset.some_table",
+			wantErr:    true,
 			wantErrSub: "access to dataset 'test-project.unauthorized_dataset'",
+		},
+		{
+			name:    "query on authorized view in allowed dataset succeeds",
+			input:   "SELECT * FROM `test-project.allowed_dataset.authorized_view`",
+			wantErr: false,
 		},
 	}
 
@@ -359,13 +369,21 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 				t.Fatalf("unexpected error parsing parameters: %v", err)
 			}
 
-			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
-			if err == nil {
-				t.Fatal("expected Invoke to return an error due to out-of-allowlist dataset reference, but got nil")
+			resp, err := tool.Invoke(ctx, testSrc, paramVals, "")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected Invoke to return an error due to out-of-allowlist dataset reference, but got nil")
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSub) {
+					t.Errorf("expected error to contain %q, got: %v", tc.wantErrSub, err)
+				}
+				return
 			}
-
-			if !strings.Contains(err.Error(), tc.wantErrSub) {
-				t.Errorf("expected error to contain %q, got: %v", tc.wantErrSub, err)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp != "mocked_forecast_result" {
+				t.Errorf("unexpected response: got %v, want mocked_forecast_result", resp)
 			}
 		})
 	}

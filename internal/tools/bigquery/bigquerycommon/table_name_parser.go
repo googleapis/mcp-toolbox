@@ -264,6 +264,7 @@ func parseSQL(
 	expectingTable, expectingAlias, expectingCTE := false, false, false
 	pendingCreate := false
 	caseDepth := 0
+	parenDepth := 0
 	var lastTableKeyword, lastToken, statementVerb string
 
 	for i := 0; i < len(runes); {
@@ -298,21 +299,32 @@ func parseSQL(
 				continue
 			}
 			if char == '(' {
-				if expectingTable || expectingCTE || lastToken == "as" {
+				wasTableOrCTE := expectingTable || expectingCTE || lastToken == "as"
+				if wasTableOrCTE || isSubqueryStart(runes, i+1) {
 					consumed, err := parseSQL(runes[i+1:], defaultProjectID, tableIDSet, unqualifiedCandidates, aliases, cteNames, true, depth+1)
 					if err != nil {
 						return 0, err
 					}
 					i += consumed + 1
-					if lastTableKeyword != "from" {
-						expectingTable = false
+					if wasTableOrCTE {
+						if lastTableKeyword != "from" {
+							expectingTable = false
+						}
+						expectingAlias = true
+						expectingCTE = false
 					}
-					expectingAlias = true
-					expectingCTE = false
 					continue
 				}
+				parenDepth++
+				i++
+				continue
 			}
 			if char == ')' {
+				if parenDepth > 0 {
+					parenDepth--
+					i++
+					continue
+				}
 				if inSubquery {
 					return i + 1, nil
 				}
@@ -326,6 +338,7 @@ func parseSQL(
 				expectingCTE = false
 				pendingCreate = false
 				caseDepth = 0
+				parenDepth = 0
 				i++
 				continue
 			}
@@ -945,4 +958,42 @@ func indexRunes(r []rune, sub string) int {
 		}
 	}
 	return -1
+}
+
+// isSubqueryStart checks if the runes starting at offset begin a subquery
+// (i.e., after skipping whitespace, SQL comments, and nested opening parentheses,
+// the first identifier is SELECT or WITH).
+func isSubqueryStart(runes []rune, offset int) bool {
+	i := offset
+	for i < len(runes) {
+		original := i
+		for i < len(runes) && (unicode.IsSpace(runes[i]) || runes[i] == '(') {
+			i++
+		}
+		if hasPrefix(runes, i, "/*") {
+			endIdx := indexRunes(runes[i:], "*/")
+			if endIdx == -1 {
+				return false
+			}
+			i += endIdx + 2
+		} else if hasPrefix(runes, i, "--") || (i < len(runes) && runes[i] == '#') {
+			endIdx := indexRunes(runes[i:], "\n")
+			if endIdx == -1 {
+				return false
+			}
+			i += endIdx + 1
+		}
+		if i == original {
+			break
+		}
+	}
+	if i >= len(runes) {
+		return false
+	}
+	parts, consumed, err := parseIdentifierSequence(runes[i:])
+	if err != nil || consumed == 0 || len(parts) != 1 {
+		return false
+	}
+	kw := strings.ToLower(parts[0])
+	return kw == "select" || kw == "with"
 }

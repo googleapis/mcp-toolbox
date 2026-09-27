@@ -2965,7 +2965,7 @@ func runExecuteSqlWithRestriction(t *testing.T, allowedTableFullName, disallowed
 			name:           "disallowed create procedure",
 			sql:            fmt.Sprintf("CREATE PROCEDURE %s.my_proc() BEGIN SELECT 1; END", allowedDatasetID),
 			wantStatusCode: http.StatusOK,
-			wantInError:    "creating stored routines ('CREATE_PROCEDURE') is not allowed",
+			wantInError:    "unanalyzable statements like 'CREATE PROCEDURE' are not allowed",
 		},
 		{
 			name:           "disallowed create table function",
