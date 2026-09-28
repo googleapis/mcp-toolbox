@@ -43,6 +43,12 @@ type: postgres-update-memory
 source: alloydb-pg-source
 defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
 ---
+kind: tool
+name: delete_memory
+type: postgres-delete-memory
+source: alloydb-pg-source
+defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
+---
 kind: group
 name: memory
 description: Use these tools to persist, query, and manage long-term agent memories across sessions.
@@ -50,3 +56,4 @@ tools:
 - create_memory
 - search_memory
 - update_memory
+- delete_memory
