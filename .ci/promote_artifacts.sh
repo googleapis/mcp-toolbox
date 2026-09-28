@@ -19,24 +19,15 @@
 #
 # Usage:
 #   bash .ci/promote_artifacts.sh [PROJECT_ID] [LOCATION] [STAGING_REPO] [PROD_REPO] [PACKAGE_NAME] [VERSION]
-#   or with a single version argument:
-#   bash .ci/promote_artifacts.sh [VERSION]
 
 set -eo pipefail
 
-if [[ $# -eq 1 ]]; then
-  VERSION="$1"
-fi
-
-PROJECT_ID="${1:-${PROJECT_ID:-database-toolbox}}"
-if [[ $# -eq 1 ]]; then
-  PROJECT_ID="${PROJECT_ID_OVERRIDE:-database-toolbox}"
-fi
-LOCATION="${2:-${LOCATION:-us-central1}}"
-STAGING_REPO="${3:-${STAGING_REPO:-toolbox-containers-staging}}"
-PROD_REPO="${4:-${PROD_REPO:-toolbox}}"
-PACKAGE_NAME="${5:-${PACKAGE_NAME:-toolbox}}"
-VERSION="${6:-${VERSION:-$(jq -r '.version' server.json 2>/dev/null || cat ./cmd/version.txt)}}"
+readonly PROJECT_ID="${1:-${PROJECT_ID:?PROJECT_ID must be set}}"
+readonly LOCATION="${2:-${LOCATION:?LOCATION must be set}}"
+readonly STAGING_REPO="${3:-${STAGING_REPO:?STAGING_REPO must be set}}"
+readonly PROD_REPO="${4:-${PROD_REPO:?PROD_REPO must be set}}"
+readonly PACKAGE_NAME="${5:-${PACKAGE_NAME:?PACKAGE_NAME must be set}}"
+readonly VERSION="${6:-${VERSION:-$(cat ./cmd/version.txt)}}"
 
 STAGING_IMAGE_URI="${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${STAGING_REPO}/${PACKAGE_NAME}"
 
