@@ -51,12 +51,12 @@ func TestWithDocMetadata(t *testing.T) {
 		"docs":    textResource(t, ctx, "docs", plainURI, "unrelated"),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	found, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
 	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
+		t.Fatalf("Validate() = %v, want nil", err)
 	}
 
-	docs, err := skills.WithDocMetadata(entries, resourcesMap)
+	docs, err := skills.WithDocMetadata(found, resourcesMap)
 	if err != nil {
 		t.Fatalf("WithDocMetadata() = %v, want nil", err)
 	}
@@ -105,12 +105,12 @@ func TestWithDocMetadataMultipleSkills(t *testing.T) {
 		"beta":  textResource(t, ctx, "beta", betaURI, skillMD("beta-guide", "Summarize the warehouse")),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	found, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
 	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
+		t.Fatalf("Validate() = %v, want nil", err)
 	}
 
-	docs, err := skills.WithDocMetadata(entries, resourcesMap)
+	docs, err := skills.WithDocMetadata(found, resourcesMap)
 	if err != nil {
 		t.Fatalf("WithDocMetadata() = %v, want nil", err)
 	}
@@ -147,11 +147,11 @@ func TestWithDocMetadataForwards(t *testing.T) {
 	body := skillMD("analytics-guide", "Query and summarize the warehouse")
 	backing := textResource(t, ctx, "SKILL.md", skillURI, body)
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(map[string]resources.Resource{"guide": backing}))
+	found, err := skills.Validate(ctx, skills.NewRegistry(map[string]resources.Resource{"guide": backing}))
 	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
+		t.Fatalf("Validate() = %v, want nil", err)
 	}
-	docs, err := skills.WithDocMetadata(entries, map[string]resources.Resource{"guide": backing})
+	docs, err := skills.WithDocMetadata(found, map[string]resources.Resource{"guide": backing})
 	if err != nil {
 		t.Fatalf("WithDocMetadata() = %v, want nil", err)
 	}
@@ -184,11 +184,11 @@ func TestWithDocMetadataNoSkills(t *testing.T) {
 	resourcesMap := map[string]resources.Resource{
 		"docs": textResource(t, ctx, "docs", "file://project-docs", "unrelated"),
 	}
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	found, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
 	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
+		t.Fatalf("Validate() = %v, want nil", err)
 	}
-	docs, err := skills.WithDocMetadata(entries, resourcesMap)
+	docs, err := skills.WithDocMetadata(found, resourcesMap)
 	if err != nil {
 		t.Fatalf("WithDocMetadata() = %v, want nil", err)
 	}
@@ -197,8 +197,8 @@ func TestWithDocMetadataNoSkills(t *testing.T) {
 	}
 }
 
-// TestWithDocMetadataRejectsBadFrontmatter covers the entries Discover cannot
-// produce, since Entry.Validate rejects them first. A caller assembling entries
+// TestWithDocMetadataRejectsBadFrontmatter covers the skills Validate cannot
+// produce, since it rejects them first. A caller assembling skills
 // by hand gets an error rather than a SKILL.md silently missing from the result.
 func TestWithDocMetadataRejectsBadFrontmatter(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
@@ -240,8 +240,8 @@ func TestWithDocMetadataRejectsBadFrontmatter(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			entries := []skills.Entry{{URI: skillURI, Frontmatter: tc.frontmatter}}
-			docs, err := skills.WithDocMetadata(entries, resourcesMap)
+			found := []skills.Skill{{URI: skillURI, Frontmatter: tc.frontmatter}}
+			docs, err := skills.WithDocMetadata(found, resourcesMap)
 			if err == nil {
 				t.Fatalf("WithDocMetadata() = %v, want an error", docs)
 			}
@@ -273,11 +273,11 @@ func TestWarnOnDocNameMismatch(t *testing.T) {
 	}
 
 	reg := skills.NewRegistry(resourcesMap)
-	entries, err := skills.Discover(ctx, reg)
+	found, err := skills.Validate(ctx, reg)
 	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
+		t.Fatalf("Validate() = %v, want nil", err)
 	}
-	if err := skills.WarnOnDocNameMismatch(ctx, entries, reg); err != nil {
+	if err := skills.WarnOnDocNameMismatch(ctx, found, reg); err != nil {
 		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
 	}
 
@@ -310,11 +310,11 @@ func TestNoDocNameMismatchWarning(t *testing.T) {
 	}
 
 	reg := skills.NewRegistry(resourcesMap)
-	entries, err := skills.Discover(ctx, reg)
+	found, err := skills.Validate(ctx, reg)
 	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
+		t.Fatalf("Validate() = %v, want nil", err)
 	}
-	if err := skills.WarnOnDocNameMismatch(ctx, entries, reg); err != nil {
+	if err := skills.WarnOnDocNameMismatch(ctx, found, reg); err != nil {
 		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
 	}
 	if got := stderr.String(); strings.Contains(got, "Rename the resource") {
