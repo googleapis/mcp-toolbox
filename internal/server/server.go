@@ -261,7 +261,9 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 
 	// Validate every skill the config declares. This runs after the log above
 	// because every resource did initialize: the check is across resources.
-	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
+	// Nothing is hashed here; skills/list and skills/get compute digests per
+	// request.
+	if _, err := skills.Validate(ctx, resourcesMap); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 

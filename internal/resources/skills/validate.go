@@ -1,0 +1,109 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package skills
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+)
+
+// Skill is what startup validation learns about one skill. It carries no
+// digests or sizes: skills/list and skills/get compute those per request
+// through Discover, so nothing content-derived outlives the request.
+type Skill struct {
+	// URI addresses the skill's SKILL.md.
+	URI string
+	// Frontmatter is the SKILL.md YAML frontmatter verbatim.
+	Frontmatter map[string]any
+}
+
+// Validate checks every skill in resourcesMap so a misconfigured skill fails
+// the load instead of a later skills/list. It hashes nothing and reads only
+// each skill's SKILL.md: membership comes from URIs, and sizes come from each
+// resource's GetSize, which is a stat for a file resource.
+//
+// It applies the same rules as Discover apart from the digest format, and warns
+// once when two skills share a frontmatter name.
+func Validate(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Skill, error) {
+	roots := skillRoots(resourcesMap)
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	members := skillMembers(resourcesMap, roots)
+
+	found := make([]Skill, 0, len(roots))
+	for _, root := range roots {
+		s, err := validateSkill(ctx, root, members[root])
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, s)
+	}
+
+	if err := warnOnDuplicateNames(ctx, found); err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+// validateSkill checks one skill's limits and structure, then reads and checks
+// its SKILL.md.
+func validateSkill(ctx context.Context, root string, members []resources.Resource) (Skill, error) {
+	skillURI := root + "/" + skillFile
+	if len(members) > MaxRefs {
+		return Skill{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
+	}
+
+	refs := make([]ResourceRef, 0, len(members))
+	var doc resources.Resource
+	var total int64
+	for _, res := range members {
+		// A resource that reports no size is not counted here. Discover still
+		// enforces the limit on the bytes it reads at request time.
+		var size int64
+		if sz := res.GetSize(); sz != nil {
+			size = *sz
+		}
+		// Subtraction, not addition: a huge size would wrap the total negative.
+		if size > MaxTotalSize-total {
+			return Skill{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
+		}
+		total += size
+		refs = append(refs, ResourceRef{URI: res.GetURI(), Size: size})
+		if res.GetURI() == skillURI {
+			doc = res
+		}
+	}
+	if doc == nil {
+		return Skill{}, fmt.Errorf("skill %q: %s is not among the skill's resources", skillURI, skillFile)
+	}
+
+	content, err := readString(ctx, doc)
+	if err != nil {
+		return Skill{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	frontmatter, err := parseFrontmatter(content)
+	if err != nil {
+		return Skill{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+
+	e := Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}
+	if err := e.validate(false); err != nil {
+		return Skill{}, err
+	}
+	return Skill{URI: skillURI, Frontmatter: frontmatter}, nil
+}
