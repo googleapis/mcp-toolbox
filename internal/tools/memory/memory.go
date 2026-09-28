@@ -42,6 +42,14 @@ const (
 	DefaultUserIDField = "sub"
 )
 
+// DefaultCategories defines the allowed category values shared across memory tools.
+var DefaultCategories = []any{
+	"user_preference",
+	"coding_convention",
+	"tool_guidance",
+	"general_fact",
+}
+
 // Memory represents a stored memory entity in PostgreSQL.
 type Memory struct {
 	MemoryID       string    `json:"memory_id"`
