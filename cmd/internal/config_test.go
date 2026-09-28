@@ -41,6 +41,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressearchmemory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
+	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresupdatememory"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
@@ -2678,7 +2679,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory", "search_memory"},
+					ToolNames:   []string{"create_memory", "search_memory", "update_memory"},
 				},
 			},
 		},
@@ -2689,7 +2690,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory", "search_memory"},
+					ToolNames:   []string{"create_memory", "search_memory", "update_memory"},
 				},
 			},
 		},
@@ -2700,7 +2701,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory", "search_memory"},
+					ToolNames:   []string{"create_memory", "search_memory", "update_memory"},
 				},
 			},
 		},
@@ -3257,6 +3258,32 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 					t.Fatalf("[%s] search_memory user_id should not be exposed to agent when unauthenticated", name)
 				}
 			}
+
+			updateToolCfg, ok := parsed.Tools["update_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing update_memory tool", name)
+			}
+			updateMemCfg, ok := updateToolCfg.(postgresupdatememory.Config)
+			if !ok {
+				t.Fatalf("expected postgresupdatememory.Config, got %T", updateToolCfg)
+			}
+			if updateMemCfg.DefaultUserID != "default" {
+				t.Errorf("[%s] expected update_memory DefaultUserID 'default', got %q", name, updateMemCfg.DefaultUserID)
+			}
+
+			updateTool, err := updateMemCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize update_memory failed: %v", name, err)
+			}
+			updateParams, err := updateTool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] update_memory GetParameters failed: %v", name, err)
+			}
+			for _, param := range updateParams {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] update_memory user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
 		}
 	})
 
@@ -3323,6 +3350,32 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 			for _, param := range searchParams {
 				if param.GetName() == "user_id" {
 					t.Fatalf("[%s] search_memory user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
+
+			updateToolCfg, ok := parsed.Tools["update_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing update_memory tool", name)
+			}
+			updateMemCfg, ok := updateToolCfg.(postgresupdatememory.Config)
+			if !ok {
+				t.Fatalf("expected postgresupdatememory.Config, got %T", updateToolCfg)
+			}
+			if updateMemCfg.DefaultUserID != "alextalreja" {
+				t.Errorf("[%s] expected update_memory DefaultUserID 'alextalreja', got %q", name, updateMemCfg.DefaultUserID)
+			}
+
+			updateTool, err := updateMemCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize update_memory failed: %v", name, err)
+			}
+			updateParams, err := updateTool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] update_memory GetParameters failed: %v", name, err)
+			}
+			for _, param := range updateParams {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] update_memory user_id should not be exposed to agent when unauthenticated", name)
 				}
 			}
 		}
