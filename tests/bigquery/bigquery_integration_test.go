@@ -524,6 +524,9 @@ func TestBigQueryWriteModeProtected(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Tool to query from the session",
 				"statement":   "SELECT * FROM my_shared_temp_table",
+				"annotations": map[string]any{
+					"readOnlyHint": true,
+				},
 			},
 			"my-forecast-tool-protected": map[string]any{
 				"type":        "bigquery-forecast",
@@ -555,6 +558,87 @@ func TestBigQueryWriteModeProtected(t *testing.T) {
 	}
 
 	runBigQueryWriteModeProtectedTest(t, permanentDatasetName)
+}
+
+// TestBigQuery_ReadOnlyVulnerabilityBlock verifies that if a custom tool is falsely annotated
+// as readOnlyHint: true (thus bypassing server-level suppression) on a readOnly: true source,
+// BigQuery dry-run validation will still catch and reject write queries while allowing valid reads.
+func TestBigQuery_ReadOnlyVulnerabilityBlock(t *testing.T) {
+	sourceConfig := getBigQueryVars(t)
+	sourceConfig["readOnly"] = true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	args := []string{"--enable-api", "--port", "5002"}
+
+	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
+	datasetName := fmt.Sprintf("temp_toolbox_test_vuln_%s", uniqueID)
+	tableName := fmt.Sprintf("vulnerability_test_%s", uniqueID)
+
+	client, err := initBigQueryConnection(BigqueryProject)
+	if err != nil {
+		t.Fatalf("unable to create BigQuery connection: %s", err)
+	}
+
+	dataset := client.Dataset(datasetName)
+	if err := dataset.Create(ctx, &bigqueryapi.DatasetMetadata{Name: datasetName}); err != nil {
+		t.Fatalf("Failed to create dataset %q: %v", datasetName, err)
+	}
+	defer func() {
+		if err := dataset.DeleteWithContents(context.WithoutCancel(ctx)); err != nil {
+			t.Logf("failed to cleanup dataset %s: %v", datasetName, err)
+		}
+	}()
+
+	toolsFile := map[string]any{
+		"sources": map[string]any{
+			"my-readonly-bigquery-instance": sourceConfig,
+		},
+		"tools": map[string]any{
+			"vulnerable_write_tool": map[string]any{
+				"type":        "bigquery-execute-sql",
+				"source":      "my-readonly-bigquery-instance",
+				"description": "I am a tool that tries to write but falsely claims to be read-only!",
+				"annotations": map[string]any{
+					"readOnlyHint": true,
+				},
+			},
+		},
+	}
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+	defer cmd.Close()
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	api := "http://127.0.0.1:5002/api/tool/vulnerable_write_tool/invoke"
+
+	// 1. Verify falsely annotated DDL write is rejected by dry-run defense
+	requestBody := strings.NewReader(fmt.Sprintf(`{"sql": "CREATE TABLE %s.%s (id INT64);"}`, datasetName, tableName))
+	resp, respBody := tests.RunRequest(t, "POST", api, requestBody, map[string]string{})
+
+	bodyLower := strings.ToLower(string(respBody))
+	if !strings.Contains(bodyLower, "blocked") && !strings.Contains(bodyLower, "only select statements are allowed") {
+		t.Fatalf("Vulnerability check failed! Expected BigQuery dry-run validation to reject the write query, but got response code %d and body:\n%s", resp.StatusCode, string(respBody))
+	}
+
+	// 2. Verify valid SELECT read query succeeds on read-only source
+	readBody := strings.NewReader(`{"sql": "SELECT 1 AS result;"}`)
+	resp, respBody = tests.RunRequest(t, "POST", api, readBody, map[string]string{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected valid SELECT query to succeed on read-only source, got response code %d and body:\n%s", resp.StatusCode, string(respBody))
+	}
 }
 
 // getBigQueryParamToolInfo returns statements and param for my-tool for bigquery type

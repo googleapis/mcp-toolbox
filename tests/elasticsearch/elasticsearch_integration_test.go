@@ -308,6 +308,25 @@ func getElasticsearchToolsConfig(sourceConfig map[string]any, toolType, paramToo
 					},
 				},
 			},
+			"my-secure-tool": map[string]any{
+				"type":        toolType,
+				"source":      "my-instance",
+				"description": "Tool to test secure parameters.",
+				"query":       "FROM test-index | WHERE id == ?id OR name == ?name | SORT id ASC | KEEP id, name",
+				"parameters": []any{
+					map[string]any{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user ID",
+					},
+					map[string]any{
+						"name":        "name",
+						"type":        "string",
+						"description": "user name",
+						"secure":      true,
+					},
+				},
+			},
 			"my-tool-by-id": map[string]any{
 				"type":        toolType,
 				"source":      "my-instance",

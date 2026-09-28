@@ -18,6 +18,10 @@ import (
 	// Import prompt packages for side effect of registration
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
 
+	// Import resource packages for side effect of registration
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
+
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbadmin"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/arcadedb"
@@ -42,6 +46,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/dataproc"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/dgraph"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/elasticsearch"
+	_ "github.com/googleapis/mcp-toolbox/internal/sources/falkordb"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/firebird"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/firestore"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/http"
@@ -226,6 +231,10 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/dgraph"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/elasticsearch/elasticsearchesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/elasticsearch/elasticsearchexecuteesql"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/falkordb/falkordbcypher"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/falkordb/falkordbexecutecypher"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/falkordb/falkordblistgraphs"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/falkordb/falkordbschema"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/firebird/firebirdexecutesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/firebird/firebirdsql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/firestore/firestoreadddocuments"
@@ -237,6 +246,8 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/firestore/firestorequerycollection"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/firestore/firestoreupdatedocument"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/firestore/firestorevalidaterules"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/firestoremongodb/firestoremongodbexecutemql"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/firestoremongodb/firestoremongodbgetschema"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/http"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookeradddashboardelement"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookeradddashboardfilter"

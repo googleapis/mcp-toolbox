@@ -48,7 +48,7 @@ func main() {
 	// Initialize Genkit
 	g := genkit.Init(ctx,
 		genkit.WithPlugins(&googlegenai.GoogleAI{}),
-		genkit.WithDefaultModel("googleai/gemini-2.0-flash"),
+		genkit.WithDefaultModel("googleai/gemini-3.6-flash"),
 	)
 	if err != nil {
 		log.Fatalf("Failed to init genkit: %v\n", err)
@@ -112,7 +112,7 @@ func main() {
 
 		if len(parts) > 0 {
 			resp, err := genkit.Generate(ctx, g,
-				ai.WithMessages(append(response.History(), ai.NewMessage(ai.RoleTool, nil, parts...))...),
+				ai.WithMessages(append(response.History(), ai.NewMessage(ai.RoleUser, nil, parts...))...),
 				ai.WithTools(toolRefs...),
 			)
 			if err != nil {

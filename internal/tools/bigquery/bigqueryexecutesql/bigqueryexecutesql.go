@@ -63,9 +63,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -321,4 +320,22 @@ func (t Tool) Manifest(source sources.Source) (tools.Manifest, error) {
 		return tools.Manifest{}, err
 	}
 	return tools.Manifest{Description: t.Cfg.Description, Parameters: params.Manifest(), AuthRequired: t.Cfg.AuthRequired}, nil
+}
+
+// GetAnnotations dynamically returns readOnlyHint: true and destructiveHint: false
+// when the connected database source is in read-only mode.
+func (t Tool) GetAnnotations(src sources.Source) *tools.ToolAnnotations {
+	base := t.BaseTool.GetAnnotations(src)
+	if src == nil || !src.IsReadOnly() {
+		return base
+	}
+
+	res := tools.NewReadOnlyAnnotations()
+	if base != nil {
+		copied := *base
+		copied.ReadOnlyHint = res.ReadOnlyHint
+		copied.DestructiveHint = res.DestructiveHint
+		return &copied
+	}
+	return res
 }

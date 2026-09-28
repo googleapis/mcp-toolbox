@@ -62,16 +62,41 @@ func TestParseFromYamlAlloyDBAdmin(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "readOnly set to true",
+			in: `
+			kind: source
+			name: my-alloydb-admin-instance
+			type: alloydb-admin
+			readOnly: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-alloydb-admin-instance": alloydbadmin.Config{
+					Name:           "my-alloydb-admin-instance",
+					Type:           alloydbadmin.SourceType,
+					UseClientOAuth: false,
+					ReadOnly:       true,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
 			if !cmp.Equal(tc.want, got) {
 				t.Fatalf("incorrect parse: want %v, got %v", tc.want, got)
+			}
+			for _, sc := range got {
+				if cfg, ok := sc.(alloydbadmin.Config); ok {
+					src := &alloydbadmin.Source{Config: cfg}
+					if src.IsReadOnly() != cfg.ReadOnly {
+						t.Errorf("IsReadOnly() = %v, want %v", src.IsReadOnly(), cfg.ReadOnly)
+					}
+				}
 			}
 		})
 	}
@@ -106,7 +131,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}

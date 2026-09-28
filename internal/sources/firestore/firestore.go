@@ -15,9 +15,13 @@
 package firestore
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -26,6 +30,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/firebaserules/v1"
 	"google.golang.org/api/option"
 	"google.golang.org/genproto/googleapis/type/latlng"
@@ -73,6 +78,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	// Initialize Firebase Rules client
 	rulesClient, err := initFirebaseRulesConnection(ctx, r.Project)
 	if err != nil {
+		client.Close()
 		return nil, fmt.Errorf("failed to initialize Firebase Rules client: %w", err)
 	}
 
@@ -90,6 +96,10 @@ type Source struct {
 	Config
 	Client      *firestore.Client
 	RulesClient *firebaserules.Service
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {
@@ -114,6 +124,9 @@ func (s *Source) GetProjectId() string {
 }
 
 func (s *Source) GetDatabaseId() string {
+	if s.Database == "" {
+		return "(default)"
+	}
 	return s.Database
 }
 
@@ -585,6 +598,350 @@ func (s *Source) ValidateRules(ctx context.Context, sourceParam string) (any, er
 		FormattedIssues: formattedIssues,
 		RawIssues:       issues,
 	}, nil
+}
+
+// FieldSchema represents metadata about a document field
+type FieldSchema struct {
+	Name  string   `json:"name"`
+	Types []string `json:"types"`
+}
+
+// CollectionSchema represents metadata for a Firestore collection
+type CollectionSchema struct {
+	Collection string        `json:"collection"`
+	Fields     []FieldSchema `json:"fields"`
+}
+
+// GetSchema returns schema information for the specified collection or all root collections.
+func (s *Source) GetSchema(ctx context.Context, collection string) (any, error) {
+	var collectionsToInspect []string
+	if collection != "" {
+		collectionsToInspect = []string{collection}
+	} else {
+		// Discover root collections
+		collRefs, err := s.FirestoreClient().Collections(ctx).GetAll()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list collections: %w", err)
+		}
+		for _, ref := range collRefs {
+			collectionsToInspect = append(collectionsToInspect, ref.ID)
+		}
+	}
+
+	result := make([]CollectionSchema, 0, len(collectionsToInspect))
+	for _, collName := range collectionsToInspect {
+		schema, err := s.getSchemaFromPipeline(ctx, collName)
+		if err == nil && len(schema.Fields) > 0 {
+			result = append(result, schema)
+			continue
+		}
+
+		// Fallback: sample documents directly if get_schema pipeline stage is not available
+		collRef := s.FirestoreClient().Collection(collName)
+		docs, err := collRef.Limit(50).Documents(ctx).GetAll()
+		if err != nil {
+			return nil, fmt.Errorf("failed to sample documents from collection %q: %w", collName, err)
+		}
+
+		fieldsMap := make(map[string]map[string]bool)
+
+		for _, doc := range docs {
+			data := doc.Data()
+			extractFieldTypes("", data, fieldsMap)
+		}
+
+		fields := make([]FieldSchema, 0, len(fieldsMap))
+		for fieldName, typeSet := range fieldsMap {
+			typesList := make([]string, 0, len(typeSet))
+			for t := range typeSet {
+				typesList = append(typesList, t)
+			}
+			fields = append(fields, FieldSchema{
+				Name:  fieldName,
+				Types: typesList,
+			})
+		}
+
+		result = append(result, CollectionSchema{
+			Collection: collName,
+			Fields:     fields,
+		})
+	}
+
+	return result, nil
+}
+
+func (s *Source) getSchemaFromPipeline(ctx context.Context, collection string) (CollectionSchema, error) {
+	getSchemaQueryBytes, err := json.Marshal(map[string]string{
+		"collection": collection,
+		"semantics":  "mongodb",
+	})
+	if err != nil {
+		return CollectionSchema{}, fmt.Errorf("failed to marshal schema query: %w", err)
+	}
+
+	payload := map[string]any{
+		"structuredPipeline": map[string]any{
+			"pipeline": map[string]any{
+				"stages": []map[string]any{
+					{
+						"name": "get_schema",
+						"args": []map[string]any{
+							{
+								"stringValue": string(getSchemaQueryBytes),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return CollectionSchema{}, err
+	}
+
+	userAgent, _ := util.UserAgentFromContext(ctx)
+	if userAgent == "" {
+		userAgent = "mcp-toolbox"
+	}
+
+	httpClient, err := google.DefaultClient(ctx, "https://www.googleapis.com/auth/datastore", "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return CollectionSchema{}, err
+	}
+
+	url := fmt.Sprintf("https://firestore.googleapis.com/v1/projects/%s/databases/%s/documents:executePipeline", s.GetProjectId(), s.GetDatabaseId())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return CollectionSchema{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("x-goog-request-params", fmt.Sprintf("project_id=%s&database_id=%s", s.GetProjectId(), s.GetDatabaseId()))
+	req.Header.Set("x-goog-firestore-api-requester", "querydata")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return CollectionSchema{}, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return CollectionSchema{}, err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return CollectionSchema{}, fmt.Errorf("get_schema API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var rawResult any
+	if err := json.Unmarshal(respBody, &rawResult); err != nil {
+		return CollectionSchema{}, err
+	}
+
+	fields := parseFieldsFromPipelineResponse(rawResult)
+	return CollectionSchema{
+		Collection: collection,
+		Fields:     fields,
+	}, nil
+}
+
+func parseFieldsFromPipelineResponse(raw any) []FieldSchema {
+	var fields []FieldSchema
+	switch data := raw.(type) {
+	case []any:
+		for _, item := range data {
+			if itemMap, ok := item.(map[string]any); ok {
+				if docMap, ok := itemMap["result"].(map[string]any); ok {
+					if fMap, ok := docMap["fields"].(map[string]any); ok {
+						fields = append(fields, flattenFieldsFromMap("", fMap)...)
+					}
+				} else if docMap, ok := itemMap["document"].(map[string]any); ok {
+					if fMap, ok := docMap["fields"].(map[string]any); ok {
+						fields = append(fields, flattenFieldsFromMap("", fMap)...)
+					}
+				} else if fMap, ok := itemMap["fields"].(map[string]any); ok {
+					fields = append(fields, flattenFieldsFromMap("", fMap)...)
+				}
+			}
+		}
+	case map[string]any:
+		if results, ok := data["results"].([]any); ok {
+			return parseFieldsFromPipelineResponse(results)
+		}
+		if fMap, ok := data["fields"].(map[string]any); ok {
+			fields = append(fields, flattenFieldsFromMap("", fMap)...)
+		}
+	}
+	return fields
+}
+
+func flattenFieldsFromMap(prefix string, fieldsMap map[string]any) []FieldSchema {
+	var result []FieldSchema
+	for name, val := range fieldsMap {
+		fieldName := name
+		if prefix != "" {
+			fieldName = prefix + "." + name
+		}
+		if valMap, ok := val.(map[string]any); ok {
+			if strVal, hasStr := valMap["stringValue"].(string); hasStr {
+				result = append(result, FieldSchema{
+					Name:  fieldName,
+					Types: []string{strVal},
+				})
+			} else if mapVal, hasMap := valMap["mapValue"].(map[string]any); hasMap {
+				if innerFields, ok := mapVal["fields"].(map[string]any); ok {
+					result = append(result, flattenFieldsFromMap(fieldName, innerFields)...)
+				}
+			} else {
+				for k := range valMap {
+					t := strings.TrimSuffix(k, "Value")
+					result = append(result, FieldSchema{
+						Name:  fieldName,
+						Types: []string{t},
+					})
+					break
+				}
+			}
+		} else if strVal, ok := val.(string); ok {
+			result = append(result, FieldSchema{
+				Name:  fieldName,
+				Types: []string{strVal},
+			})
+		}
+	}
+	return result
+}
+
+func extractFieldTypes(prefix string, data map[string]any, fieldsMap map[string]map[string]bool) {
+	for k, v := range data {
+		fullKey := k
+		if prefix != "" {
+			fullKey = prefix + "." + k
+		}
+		typeName := getTypeName(v)
+		if fieldsMap[fullKey] == nil {
+			fieldsMap[fullKey] = make(map[string]bool)
+		}
+		fieldsMap[fullKey][typeName] = true
+
+		if nestedMap, ok := v.(map[string]any); ok {
+			extractFieldTypes(fullKey, nestedMap, fieldsMap)
+		}
+	}
+}
+
+func getTypeName(v any) string {
+	if v == nil {
+		return "null"
+	}
+	switch v.(type) {
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "integer"
+	case float32, float64:
+		return "double"
+	case time.Time:
+		return "timestamp"
+	case map[string]any:
+		return "map"
+	case []any:
+		return "array"
+	case *latlng.LatLng:
+		return "geopoint"
+	case *firestore.DocumentRef:
+		return "reference"
+	case []byte:
+		return "bytes"
+	default:
+		return fmt.Sprintf("%T", v)
+	}
+}
+
+// ExecuteMQL sends an MQL query to the Firestore executePipeline API via the iql stage or as a raw structured pipeline.
+func (s *Source) ExecuteMQL(ctx context.Context, query string) (any, error) {
+	userAgent, err := util.UserAgentFromContext(ctx)
+	if err != nil {
+		userAgent = "mcp-toolbox"
+	}
+
+	httpClient, err := google.DefaultClient(ctx, "https://www.googleapis.com/auth/datastore", "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create authenticated HTTP client: %w", err)
+	}
+
+	url := fmt.Sprintf("https://firestore.googleapis.com/v1/projects/%s/databases/%s/documents:executePipeline", s.GetProjectId(), s.GetDatabaseId())
+
+	trimmed := strings.TrimSpace(query)
+	var bodyBytes []byte
+
+	// If the query is already formatted as a full structuredPipeline JSON payload
+	if strings.HasPrefix(trimmed, "{") && (strings.Contains(trimmed, "structuredPipeline") || strings.Contains(trimmed, "pipeline")) {
+		bodyBytes = []byte(trimmed)
+	} else {
+		mqlQuery := trimmed
+		if !strings.HasPrefix(mqlQuery, "db.") && !strings.HasPrefix(mqlQuery, "db[") {
+			mqlQuery = "db." + mqlQuery
+		}
+
+		// Construct the structuredPipeline payload with "iql" stage
+		payload := map[string]any{
+			"structuredPipeline": map[string]any{
+				"pipeline": map[string]any{
+					"stages": []map[string]any{
+						{
+							"name": "iql",
+							"args": []map[string]any{
+								{
+									"stringValue": mqlQuery,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		bodyBytes, err = json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal pipeline payload: %w", err)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("x-goog-request-params", fmt.Sprintf("project_id=%s&database_id=%s", s.GetProjectId(), s.GetDatabaseId()))
+	req.Header.Set("x-goog-firestore-api-requester", "querydata")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute pipeline request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("executePipeline API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return string(respBody), nil
+	}
+
+	return result, nil
 }
 
 func initFirestoreConnection(

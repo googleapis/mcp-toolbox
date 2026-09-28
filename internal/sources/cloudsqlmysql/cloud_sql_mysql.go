@@ -60,6 +60,7 @@ type Config struct {
 	User         string         `yaml:"user"`
 	Password     string         `yaml:"password"`
 	Database     string         `yaml:"database"`
+	ReadOnly     bool           `yaml:"readOnly"`
 	SQLCommenter *bool          `yaml:"sqlCommenter"`
 }
 
@@ -68,13 +69,14 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initCloudSQLMySQLConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database)
+	pool, err := initCloudSQLMySQLConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
 
 	err = pool.PingContext(ctx)
 	if err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -90,6 +92,10 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	Pool *sql.DB
+}
+
+func (s *Source) IsReadOnly() bool {
+	return s.ReadOnly
 }
 
 func (s *Source) SourceType() string {
@@ -205,7 +211,36 @@ func getConnectionConfig(ctx context.Context, user, pass string) (string, string
 	return user, pass, useIAM, nil
 }
 
-func initCloudSQLMySQLConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, instance, ipType, user, pass, dbname string) (*sql.DB, error) {
+func buildDSN(user, pass, driverName, project, region, instance, dbname, userAgent string, useIAM, readOnly bool) string {
+	connAttrs := fmt.Sprintf("program_name:%s", url.QueryEscape(userAgent))
+	if readOnly {
+		connAttrs += ",read_only_connection:true"
+	}
+
+	if useIAM {
+		return fmt.Sprintf("%s@%s(%s:%s:%s)/%s?connectionAttributes=%s",
+			user,
+			driverName,
+			project,
+			region,
+			instance,
+			dbname,
+			connAttrs,
+		)
+	}
+	return fmt.Sprintf("%s:%s@%s(%s:%s:%s)/%s?connectionAttributes=%s",
+		user,
+		pass,
+		driverName,
+		project,
+		region,
+		instance,
+		dbname,
+		connAttrs,
+	)
+}
+
+func initCloudSQLMySQLConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, instance, ipType, user, pass, dbname string, readOnly bool) (*sql.DB, error) {
 	//nolint:all // Reassigned ctx
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
 	defer span.End()
@@ -235,30 +270,7 @@ func initCloudSQLMySQLConnectionPool(ctx context.Context, tracer trace.Tracer, n
 		}
 	}
 
-	var dsn string
-	// Tell the driver to use the Cloud SQL Go Connector to create connections
-	if useIAM {
-		dsn = fmt.Sprintf("%s@%s(%s:%s:%s)/%s?connectionAttributes=program_name:%s",
-			user,
-			driverName,
-			project,
-			region,
-			instance,
-			dbname,
-			url.QueryEscape(userAgent),
-		)
-	} else {
-		dsn = fmt.Sprintf("%s:%s@%s(%s:%s:%s)/%s?connectionAttributes=program_name:%s",
-			user,
-			pass,
-			driverName,
-			project,
-			region,
-			instance,
-			dbname,
-			url.QueryEscape(userAgent),
-		)
-	}
+	dsn := buildDSN(user, pass, driverName, project, region, instance, dbname, userAgent, useIAM, readOnly)
 
 	db, err := sql.Open(
 		driverName,

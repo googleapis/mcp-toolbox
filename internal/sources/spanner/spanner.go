@@ -94,6 +94,10 @@ type Source struct {
 	dataplexMgr *searchcatalog.DataplexClientManager
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }

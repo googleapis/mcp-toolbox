@@ -45,7 +45,46 @@ func main() {
 }
 ```
 
-# Using with Orchestration Frameworks
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in [`github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit`](https://github.com/googleapis/mcp-toolbox-sdk-go/tree/main/tbgenkit) version `v0.10.0` (with `core` >= `v1.2.0`) and require MCP protocol version `2026-07-28` or newer with the [`com.google.cloud/toolbox.v1` extension](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md). For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime values (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see, control, or hallucinate.
+
+* **Schema Isolation:** When converting a `ToolboxTool` into a Genkit tool via `tbgenkit.ToGenkitTool`, secure parameters are automatically excluded from the Genkit tool's input schema. Genkit models will never see or prompt for these parameters.
+* **Pre-Binding Required:** Secure parameters must be bound to the `ToolboxTool` (either during loading or via `tool.ToolFrom(...)`) before conversion. All type-safe `core.WithBindSecureParam*` and `core.WithBindSecureParam*Func` options are supported.
+* **Prompt Injection Defense:** If a model attempts to supply a secure parameter in standard inputs, execution fails immediately.
+* **Fast-Fail Validation:** If any required secure parameter is not bound, execution fails locally before making network requests.
+
+```go
+package main
+
+import (
+    "context"
+    "github.com/firebase/genkit/go/genkit"
+    "github.com/googleapis/mcp-toolbox-sdk-go/core"
+    "github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit"
+)
+
+func main() {
+    ctx := context.Background()
+    toolboxClient, err := core.NewToolboxClient("http://127.0.0.1:5000")
+
+    // Load tool with secure parameter bound
+    tool, err := toolboxClient.LoadTool("search_secure_data", ctx,
+        core.WithBindSecureParamString("customer_id", "cust_12345"),
+    )
+
+    // Convert to Genkit tool
+    g, err := genkit.Init(ctx)
+    genkitTool, err := tbgenkit.ToGenkitTool(tool, g)
+}
+```
+
+
+## Using with Orchestration Frameworks
 
 To see how the MCP Toolbox Go SDK works with orchestration frameworks, check out these end-to-end examples given below.
 

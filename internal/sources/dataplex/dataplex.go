@@ -139,6 +139,10 @@ type Source struct {
 	projectNumber     int64
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	// Returns Dataplex source type
 	return SourceType

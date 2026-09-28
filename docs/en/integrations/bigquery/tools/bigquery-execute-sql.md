@@ -16,17 +16,17 @@ A `bigquery-execute-sql` tool executes a SQL statement against BigQuery.
 - **`dry_run`** (optional): If set to `true`, the query is validated but not
   run, returning information about the execution instead. Defaults to `false`.
 
-The behavior of this tool is influenced by the `writeMode` setting on its
-`bigquery` source:
+The behavior of this tool is influenced by the combination of the `readOnly`
+and `writeMode` settings on its `bigquery` source:
 
-- **`allowed` (default):** All SQL statements are permitted.
-- **`blocked`:** Only `SELECT` statements are allowed. Any other type of
-  statement (e.g., `INSERT`, `UPDATE`, `CREATE`) will be rejected.
-- **`protected`:** This mode enables session-based execution. `SELECT`
-  statements can be used on all tables, while write operations are allowed only
-  for the session's temporary dataset (e.g., `CREATE TEMP TABLE ...`). This
-  prevents modifications to permanent datasets while allowing stateful,
-  multi-step operations within a secure session.
+| `readOnly` | `writeMode` | Tool Behavior | MCP Tool Annotations |
+| :--- | :--- | :--- | :--- |
+| `false` *(default)* | `allowed` *(default)* | All SQL statements are permitted. | *(Default / none)* |
+| `true` | `blocked` *(default if `readOnly: true`)* | Only `SELECT` statements are allowed. Any other type of statement (e.g., `INSERT`, `UPDATE`, `CREATE`) will be rejected. | `readOnlyHint: true` |
+| `true` | `protected` | Enables session-based execution. `SELECT` statements can be used on all tables, while write operations are allowed only for the session's temporary dataset (e.g., `CREATE TEMP TABLE ...`). | `readOnlyHint: true` |
+
+> **Note:** Conflicting configurations, such as `readOnly: true` combined with
+> `writeMode: allowed`, are rejected during server startup.
 
 The tool's behavior is influenced by the `allowedDatasets` restriction on the
 `bigquery` source. Similar to `writeMode`, this setting provides an additional

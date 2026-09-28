@@ -140,6 +140,10 @@ func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 }
 
 // SourceType returns the resourceType string for this source.
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }
