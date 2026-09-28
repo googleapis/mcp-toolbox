@@ -36,6 +36,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
       - name: Wait for image in Artifact Registry
         shell: bash
         run: |
@@ -71,15 +77,36 @@ jobs:
         shell: bash
         run: |
           VERSION=$(jq -r '.version' server.json)
-          curl -fsSL -X POST \
-            -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-            -H "Content-Type: application/json" \
-            "https://artifactregistry.googleapis.com/v1/projects/database-toolbox/locations/us-central1/repositories/toolbox:promoteArtifact" \
-            -d "{
-              \"source_repository\": \"projects/database-toolbox/locations/us-central1/repositories/toolbox-containers-staging\",
-              \"source_tag\": \"projects/database-toolbox/locations/us-central1/repositories/toolbox-containers-staging/packages/toolbox/tags/${VERSION}\",
-              \"attachment_behavior\": \"PUBLIC_BCID_VSA_ONLY\"
-            }"
+          bash .ci/promote_artifacts.sh "database-toolbox" "us-central1" "toolbox-containers-staging" "toolbox" "toolbox" "${VERSION}"
+
+      - name: Publish NPM packages to Artifact Registry and trigger Exit Gate
+        shell: bash
+        env:
+          BUILD_ID: ${{ github.run_id }}
+          EXIT_GATE_PROJECT: "mcp-toolbox"
+          EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
+          PUSH_TO_EXIT_GATES: "true"
+        run: |
+          bash .ci/publish_npm_to_ar.sh
+          bash .ci/trigger_exit_gate.sh npm
+
+      - name: Publish PyPI packages to Artifact Registry and trigger Exit Gate
+        shell: bash
+        env:
+          BUILD_ID: ${{ github.run_id }}
+          EXIT_GATE_PROJECT: "mcp-toolbox"
+          EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
+          PUSH_TO_EXIT_GATES: "true"
+        run: |
+          VERSION="v$(cat ./cmd/version.txt)"
+          BUCKET="gs://mcp-toolbox-for-databases/${VERSION}"
+          gcloud storage cp "${BUCKET}/linux/amd64/toolbox"       toolbox.linux.amd64
+          gcloud storage cp "${BUCKET}/darwin/arm64/toolbox"      toolbox.darwin.arm64
+          gcloud storage cp "${BUCKET}/darwin/amd64/toolbox"      toolbox.darwin.amd64
+          gcloud storage cp "${BUCKET}/windows/amd64/toolbox.exe" toolbox.windows.amd64
+          gcloud storage cp "${BUCKET}/windows/arm64/toolbox.exe" toolbox.windows.arm64
+          bash .ci/publish_pypi_to_ar.sh
+          bash .ci/trigger_exit_gate.sh pypi
 
       - name: Install MCP Publisher
         run: |

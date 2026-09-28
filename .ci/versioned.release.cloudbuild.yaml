@@ -427,56 +427,6 @@ steps:
       export VERSION=v$(cat ./cmd/version.txt)
       gcloud storage cp toolbox.geminicli.windows.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/arm64/toolbox.exe
 
-  - id: "publish-npm-to-ar"
-    name: node:20
-    waitFor:
-      - "build-linux-amd64"
-      - "build-darwin-arm64"
-      - "build-darwin-amd64"
-      - "build-windows-amd64"
-      - "build-windows-arm64"
-    script: |
-      #!/usr/bin/env bash
-      bash .ci/publish_npm_to_ar.sh
-
-  - id: "trigger-exit-gate-npm"
-    name: "gcr.io/cloud-builders/gcloud:latest"
-    waitFor:
-      - "publish-npm-to-ar"
-    env:
-      - "BUILD_ID=$BUILD_ID"
-      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
-      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
-      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
-    script: |
-      #!/usr/bin/env bash
-      bash .ci/trigger_exit_gate.sh npm
-
-  - id: "publish-pypi-to-ar"
-    name: python:3.12
-    waitFor:
-      - "build-linux-amd64"
-      - "build-darwin-arm64"
-      - "build-darwin-amd64"
-      - "build-windows-amd64"
-      - "build-windows-arm64"
-    script: |
-      #!/usr/bin/env bash
-      bash .ci/publish_pypi_to_ar.sh
-
-  - id: "trigger-exit-gate-pypi"
-    name: "gcr.io/cloud-builders/gcloud:latest"
-    waitFor:
-      - "publish-pypi-to-ar"
-    env:
-      - "BUILD_ID=$BUILD_ID"
-      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
-      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
-      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
-    script: |
-      #!/usr/bin/env bash
-      bash .ci/trigger_exit_gate.sh pypi
-
 options:
   requestedVerifyOption: VERIFIED # This ensures provenance is generated
   automapSubstitutions: true
