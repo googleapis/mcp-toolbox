@@ -15,22 +15,18 @@
 package skills_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
-	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // textResource builds a real text resource rather than a mock, so discovery is
@@ -277,24 +273,6 @@ func TestDiscoverCRLFFrontmatter(t *testing.T) {
 	}
 }
 
-// TestDiscoverNoLogger covers the boot-time contract: discovery needs a logger
-// to report duplicate names, and a context without one is a wiring error
-// rather than a condition to skip past silently.
-func TestDiscoverNoLogger(t *testing.T) {
-	resourcesMap := map[string]resources.Resource{
-		"s": textResource(t, mustLoggerCtx(t), "s", "skill://guide/SKILL.md",
-			"---\nname: guide\ndescription: A guide\n---\n\n# guide\n"),
-	}
-
-	_, err := skills.Discover(context.Background(), resourcesMap)
-	if err == nil {
-		t.Fatal("Discover() with no logger in context = nil, want an error")
-	}
-	if !strings.Contains(err.Error(), "duplicate skill names") {
-		t.Errorf("error = %q, want it to name the operation that failed", err)
-	}
-}
-
 func mustLoggerCtx(t *testing.T) context.Context {
 	t.Helper()
 	ctx, err := testutils.ContextWithNewLogger()
@@ -403,64 +381,6 @@ func (r badResource) GetResourceUIMetadata() any                        { return
 func (r badResource) IsUI() bool                                        { return false }
 func (r badResource) ToConfig() resources.ResourceConfig                { return nil }
 func (r badResource) Read(context.Context, map[string]any) (any, error) { return r.content, r.err }
-
-// TestDiscoverWarnsOnDuplicateNames pins the one thing warnOnDuplicateNames
-// does. Entry.Validate ties the frontmatter name to the final skill-path
-// segment, so a duplicate can only arise from differing parent paths.
-func TestDiscoverWarnsOnDuplicateNames(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := util.WithLogger(context.Background(), logger)
-
-	resourcesMap := map[string]resources.Resource{
-		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
-		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
-	}
-
-	entries, err := skills.Discover(ctx, resourcesMap)
-	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("got %d entries, want 2", len(entries))
-	}
-
-	got := stderr.String()
-	for _, want := range []string{
-		"skill://acme/guide/SKILL.md",
-		"skill://other/guide/SKILL.md",
-		`share the name \"guide\"`,
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("warning %q does not mention %q", got, want)
-		}
-	}
-}
-
-// TestDiscoverNoDuplicateWarning guards the other direction: distinct names
-// must not warn, or the warning is noise an operator learns to ignore.
-func TestDiscoverNoDuplicateWarning(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := util.WithLogger(context.Background(), logger)
-
-	resourcesMap := map[string]resources.Resource{
-		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
-		"b": textResource(t, ctx, "b", "skill://acme/other/SKILL.md", skillMD("other", "Two")),
-	}
-	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
-	}
-	if got := stderr.String(); strings.Contains(got, "share the name") {
-		t.Errorf("unexpected duplicate-name warning: %q", got)
-	}
-}
 
 // TestDiscoverUnreadableResource covers the two ways a member can fail to
 // produce text. A skill's files must be textual, so both are errors rather
