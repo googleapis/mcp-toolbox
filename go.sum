@@ -27,8 +27,8 @@ cloud.google.com/go/dataproc/v2 v2.23.0 h1:7PR3Aa+NO+AESWUv1dt6aFHfXizIx/zo6N2sd
 cloud.google.com/go/dataproc/v2 v2.23.0/go.mod h1:dOzSynzBm7TBf9nIxmJxKAQt5EpdNPcNJomYfbpPhm4=
 cloud.google.com/go/firestore v1.22.0 h1:avooeboIq37vKXobrbPUFhFBxS/c3FqmWoX0xs8dO6E=
 cloud.google.com/go/firestore v1.22.0/go.mod h1:PaM4i7i7ruALSKmlpHXXZaPObcZw0W7ie5UOPr72iTU=
-cloud.google.com/go/geminidataanalytics v1.4.0 h1:M9qNtcAiF+tFySjsJeoCCha6EyfrN3IOBo1rOnWDoO0=
-cloud.google.com/go/geminidataanalytics v1.4.0/go.mod h1:Y61akKsUtvaJ0QwtGz136ctPu3F4OjwvgWtyRP747uc=
+cloud.google.com/go/geminidataanalytics v1.5.0 h1:/A2s+bRi9Jmuqh7sNrPHhIAqxHKHNZCnRXHdLcPqTQM=
+cloud.google.com/go/geminidataanalytics v1.5.0/go.mod h1:JnvQaf2vg0AAPjS07bOzbFXH8dUN6ZI5E4cmHXrulYc=
 cloud.google.com/go/iam v1.11.0 h1:KieQ9Pb+LLPak1O3Rv3GgCxhnmkYf7Xyh0P5HfF1jFM=
 cloud.google.com/go/iam v1.11.0/go.mod h1:KP+nKGugNJW4LcLx1uEZcq1ok5sQHFaQehQNl4QDgV4=
 cloud.google.com/go/logging v1.18.0 h1:KhzZq+1cSkPH9YUaKLLhLtQxIHitVayBmk0sGfoM9+k=
