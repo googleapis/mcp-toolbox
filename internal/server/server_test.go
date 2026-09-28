@@ -1678,7 +1678,7 @@ func TestInitializeConfigs(t *testing.T) {
 						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
 						URI:        "skill://analytics-guide/SKILL.md",
 					},
-					// The text has no frontmatter. Discover rejects it.
+					// The text has no frontmatter. Validate rejects it.
 					Text: "# Just a heading\n",
 				},
 			},

@@ -29,7 +29,9 @@ import (
 
 const skillFile = "SKILL.md"
 
-// Discover builds one Entry per skill. A skill can have 1 or more supporting files.
+// Discover builds one Entry per skill, reading and hashing every file. It runs
+// per request, so the digests always describe current content. Startup uses
+// Validate instead, which hashes nothing.
 func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Entry, error) {
 	roots := skillRoots(resourcesMap)
 	if len(roots) == 0 {
@@ -47,10 +49,6 @@ func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) (
 			return nil, err
 		}
 		entries = append(entries, e)
-	}
-
-	if err := warnOnDuplicateNames(ctx, entries); err != nil {
-		return nil, err
 	}
 	return entries, nil
 }
@@ -200,15 +198,15 @@ func cutAtDelimiter(rest string) (string, bool) {
 }
 
 // warnOnDuplicateNames reports skills sharing a frontmatter name.
-func warnOnDuplicateNames(ctx context.Context, entries []Entry) error {
+func warnOnDuplicateNames(ctx context.Context, found []Skill) error {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("checking for duplicate skill names: %w", err)
 	}
 	byName := map[string][]string{}
-	for _, e := range entries {
-		if name, ok := e.Frontmatter["name"].(string); ok {
-			byName[name] = append(byName[name], e.URI)
+	for _, s := range found {
+		if name, ok := s.Frontmatter["name"].(string); ok {
+			byName[name] = append(byName[name], s.URI)
 		}
 	}
 	names := make([]string, 0, len(byName))
