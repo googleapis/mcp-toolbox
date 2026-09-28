@@ -68,16 +68,21 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	pool, err := initCloudSQLMySQLConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create pool: %w", err)
+	}
+
+	err = pool.PingContext(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	}
+
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.MySQLPoolContext(ctx); err != nil {
-		return nil, err
+		Pool:   pool,
 	}
 	return s, nil
 }
@@ -86,25 +91,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*sql.DB]
-}
-
-// MySQLPoolContext returns the pool, connecting on first use.
-func (s *Source) MySQLPoolContext(ctx context.Context) (*sql.DB, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
-		r := s.Config
-		pool, err := initCloudSQLMySQLConnectionPool(ctx, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create pool: %w", err)
-		}
-
-		err = pool.PingContext(ctx)
-		if err != nil {
-			pool.Close()
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return pool, nil
-	})
+	Pool *sql.DB
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -119,41 +106,33 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+func (s *Source) MySQLPool() *sql.DB {
+	return s.Pool
+}
+
 func (s *Source) MySQLDatabase() string {
 	return s.Database
 }
 
 func (s *Source) PerformanceSchemaEnabled(ctx context.Context) (bool, error) {
-	pool, err := s.MySQLPoolContext(ctx)
-	if err != nil {
-		return false, err
-	}
 	var name, value string
-	if err := pool.QueryRowContext(ctx, "SHOW VARIABLES LIKE 'performance_schema'").Scan(&name, &value); err != nil {
+	if err := s.MySQLPool().QueryRowContext(ctx, "SHOW VARIABLES LIKE 'performance_schema'").Scan(&name, &value); err != nil {
 		return false, err
 	}
 	return value == "ON", nil
 }
 
 func (s *Source) RetrieveSourceVersion(ctx context.Context) (string, error) {
-	pool, err := s.MySQLPoolContext(ctx)
-	if err != nil {
-		return "", err
-	}
 	var version string
-	if err := pool.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
+	if err := s.MySQLPool().QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
 		return "", err
 	}
 	return version, nil
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	pool, err := s.MySQLPoolContext(ctx)
-	if err != nil {
-		return nil, err
-	}
 	statement = sqlcommenter.PrependComment(ctx, statement, SourceType, s.SQLCommenter)
-	results, err := pool.QueryContext(ctx, statement, params...)
+	results, err := s.MySQLPool().QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -261,7 +240,11 @@ func buildDSN(user, pass, driverName, project, region, instance, dbname, userAge
 	)
 }
 
-func initCloudSQLMySQLConnectionPool(ctx context.Context, name, project, region, instance, ipType, user, pass, dbname string, readOnly bool) (*sql.DB, error) {
+func initCloudSQLMySQLConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, instance, ipType, user, pass, dbname string, readOnly bool) (*sql.DB, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	// Configure the driver to connect to the database
 	user, pass, useIAM, err := getConnectionConfig(ctx, user, pass)
 	if err != nil {

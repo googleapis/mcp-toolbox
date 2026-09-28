@@ -44,7 +44,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	CassandraSessionContext(context.Context) (*gocql.Session, error)
+	CassandraSession() *gocql.Session
 	RunSQL(context.Context, string, parameters.ParamValues) (any, error)
 }
 

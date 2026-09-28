@@ -500,7 +500,7 @@ substitutions:
 
 artifacts:
   testResults:
-    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${BUILD_ID}"
+    bucketUri: "gs://${_ASSETS_BUCKET}/test-results/${TAG_NAME}"
     paths:
       - "junit-report.xml"
     format: JUNIT

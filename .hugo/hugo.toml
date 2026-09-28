@@ -64,6 +64,10 @@ ignoreFiles = ["quickstart/shared", "quickstart/python", "quickstart/js", "quick
 # The order of versions in this file is mirrored into the dropdown
 
 [[params.versions]]
+  version = "v1.13.1"
+  url = "https://mcp-toolbox.dev/v1.13.1/"
+
+[[params.versions]]
   version = "v1.13.0"
   url = "https://mcp-toolbox.dev/v1.13.0/"
 
