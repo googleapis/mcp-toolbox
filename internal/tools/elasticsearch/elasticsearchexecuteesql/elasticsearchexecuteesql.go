@@ -21,6 +21,7 @@ import (
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	es "github.com/googleapis/mcp-toolbox/internal/sources/elasticsearch"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -43,6 +44,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
+	ElasticsearchClient() es.EsClient
 	RunSQL(ctx context.Context, format, query string, params []map[string]any) (any, error)
 }
 
