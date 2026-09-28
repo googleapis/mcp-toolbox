@@ -39,6 +39,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/http"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
+	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresdeletememory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressearchmemory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressql"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresupdatememory"
@@ -2655,7 +2656,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory", "search_memory", "update_memory"},
+					ToolNames:   []string{"create_memory", "search_memory", "update_memory", "delete_memory"},
 				},
 			},
 		},
@@ -2666,7 +2667,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory", "search_memory", "update_memory"},
+					ToolNames:   []string{"create_memory", "search_memory", "update_memory", "delete_memory"},
 				},
 			},
 		},
@@ -2677,7 +2678,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"memory": group.GroupConfig{
 					Name:        "memory",
 					Description: "Use these tools to persist, query, and manage long-term agent memories across sessions.",
-					ToolNames:   []string{"create_memory", "search_memory", "update_memory"},
+					ToolNames:   []string{"create_memory", "search_memory", "update_memory", "delete_memory"},
 				},
 			},
 		},
@@ -3260,6 +3261,32 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 					t.Fatalf("[%s] update_memory user_id should not be exposed to agent when unauthenticated", name)
 				}
 			}
+
+			deleteToolCfg, ok := parsed.Tools["delete_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing delete_memory tool", name)
+			}
+			deleteMemCfg, ok := deleteToolCfg.(postgresdeletememory.Config)
+			if !ok {
+				t.Fatalf("expected postgresdeletememory.Config, got %T", deleteToolCfg)
+			}
+			if deleteMemCfg.DefaultUserID != "default" {
+				t.Errorf("[%s] expected delete_memory DefaultUserID 'default', got %q", name, deleteMemCfg.DefaultUserID)
+			}
+
+			deleteTool, err := deleteMemCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize delete_memory failed: %v", name, err)
+			}
+			deleteParams, err := deleteTool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] delete_memory GetParameters failed: %v", name, err)
+			}
+			for _, param := range deleteParams {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] delete_memory user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
 		}
 	})
 
@@ -3352,6 +3379,32 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 			for _, param := range updateParams {
 				if param.GetName() == "user_id" {
 					t.Fatalf("[%s] update_memory user_id should not be exposed to agent when unauthenticated", name)
+				}
+			}
+
+			deleteToolCfg, ok := parsed.Tools["delete_memory"]
+			if !ok {
+				t.Fatalf("prebuilt %s missing delete_memory tool", name)
+			}
+			deleteMemCfg, ok := deleteToolCfg.(postgresdeletememory.Config)
+			if !ok {
+				t.Fatalf("expected postgresdeletememory.Config, got %T", deleteToolCfg)
+			}
+			if deleteMemCfg.DefaultUserID != "alextalreja" {
+				t.Errorf("[%s] expected delete_memory DefaultUserID 'alextalreja', got %q", name, deleteMemCfg.DefaultUserID)
+			}
+
+			deleteTool, err := deleteMemCfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("[%s] initialize delete_memory failed: %v", name, err)
+			}
+			deleteParams, err := deleteTool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("[%s] delete_memory GetParameters failed: %v", name, err)
+			}
+			for _, param := range deleteParams {
+				if param.GetName() == "user_id" {
+					t.Fatalf("[%s] delete_memory user_id should not be exposed to agent when unauthenticated", name)
 				}
 			}
 		}
