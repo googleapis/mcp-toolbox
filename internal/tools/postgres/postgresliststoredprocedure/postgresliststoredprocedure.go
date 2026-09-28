@@ -68,7 +68,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	PostgresPoolContext(context.Context) (*pgxpool.Pool, error)
+	PostgresPool() *pgxpool.Pool
 }
 
 // validate compatible sources are still compatible
@@ -78,9 +78,8 @@ var _ compatibleSource = &postgres.Source{}
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 var _ tools.ToolConfig = Config{}
@@ -129,12 +128,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	sliceParams := newParams.AsSlice()
 
-	pool, err := source.PostgresPoolContext(ctx)
-	if err != nil {
-		return nil, util.ProcessGeneralError(err)
-	}
-
-	results, err := pool.Query(ctx, listStoredProcedure, sliceParams...)
+	results, err := source.PostgresPool().Query(ctx, listStoredProcedure, sliceParams...)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
