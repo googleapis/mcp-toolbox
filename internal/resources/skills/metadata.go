@@ -37,20 +37,21 @@ func (s skillDoc) GetName() string        { return s.name }
 func (s skillDoc) GetDescription() string { return s.description }
 func (s skillDoc) GetMimeType() string    { return docMimeType }
 
-// WithDocMetadata returns a replacement SKILL.md per each entry, under the same
-// key resourcesMap holds it by. Omits any resource that is not a skill's
-// SKILL.md.
-func WithDocMetadata(entries []Entry, resourcesMap map[string]resources.Resource) (map[string]resources.Resource, error) {
-	if len(entries) == 0 {
+// WithDocMetadata returns a replacement SKILL.md per validated skill, under the
+// same key resourcesMap holds it by. Omits any resource that is not a skill's
+// SKILL.md. It takes Validate's results, so publishing the metadata reads
+// nothing beyond the SKILL.md startup validation already read.
+func WithDocMetadata(found []Skill, resourcesMap map[string]resources.Resource) (map[string]resources.Resource, error) {
+	if len(found) == 0 {
 		return nil, nil
 	}
 
-	byURI := make(map[string]Entry, len(entries))
-	for _, e := range entries {
-		byURI[e.URI] = e
+	byURI := make(map[string]Skill, len(found))
+	for _, s := range found {
+		byURI[s.URI] = s
 	}
 
-	docs := make(map[string]resources.Resource, len(entries))
+	docs := make(map[string]resources.Resource, len(found))
 	for key, res := range resourcesMap {
 		e, ok := byURI[res.GetURI()]
 		if !ok {
