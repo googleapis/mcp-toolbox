@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package postgrescreatememory_test
+package postgressearchmemory_test
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
-	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
+	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressearchmemory"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -48,17 +48,17 @@ func TestParseFromYaml(t *testing.T) {
 	}
 	in := `
             kind: tool
-            name: create_memory
-            type: postgres-create-memory
+            name: search_memory
+            type: postgres-search-memory
             source: my-pg
             authService: my-auth
             userIdField: email
 	`
 	want := server.ToolConfigs{
-		"create_memory": postgrescreatememory.Config{
+		"search_memory": postgressearchmemory.Config{
 			Config: memory.Config{
-				ConfigBase:  tools.ConfigBase{Name: "create_memory", AuthRequired: []string{}},
-				Type:        "postgres-create-memory",
+				ConfigBase:  tools.ConfigBase{Name: "search_memory", AuthRequired: []string{}},
+				Type:        "postgres-search-memory",
 				Source:      "my-pg",
 				AuthService: "my-auth",
 				UserIDField: "email",
@@ -81,10 +81,10 @@ func TestInitializeParameters(t *testing.T) {
 	}
 
 	t.Run("default parameters and categories", func(t *testing.T) {
-		cfg := postgrescreatememory.Config{
+		cfg := postgressearchmemory.Config{
 			Config: memory.Config{
-				ConfigBase: tools.ConfigBase{Name: "create_memory"},
-				Type:       "postgres-create-memory",
+				ConfigBase: tools.ConfigBase{Name: "search_memory"},
+				Type:       "postgres-search-memory",
 				Source:     "pg",
 			},
 		}
@@ -102,7 +102,7 @@ func TestInitializeParameters(t *testing.T) {
 			gotParamNames = append(gotParamNames, p.Name)
 		}
 
-		wantParamNames := []string{"content", "category", "is_global", "is_pinned"}
+		wantParamNames := []string{"query", "category", "top_k", "threshold"}
 		if diff := cmp.Diff(wantParamNames, gotParamNames); diff != "" {
 			t.Errorf("parameters diff: %s", diff)
 		}
@@ -123,19 +123,56 @@ func TestInitializeParameters(t *testing.T) {
 					t.Errorf("unexpected error parsing valid category: %v", err)
 				}
 			}
-			if bp, ok := p.(*parameters.BooleanParameter); ok && bp.GetName() == "is_global" {
-				if bp.GetDefault() != false {
-					t.Errorf("expected is_global default to be false, got %v", bp.GetDefault())
+			if ip, ok := p.(*parameters.IntParameter); ok && ip.GetName() == "top_k" {
+				if ip.GetDefault() != 5 {
+					t.Errorf("expected top_k default to be 5, got %v", ip.GetDefault())
 				}
+			}
+			if fp, ok := p.(*parameters.FloatParameter); ok && fp.GetName() == "threshold" {
+				if fp.GetDefault() != 0.0 {
+					t.Errorf("expected threshold default to be 0.0, got %v", fp.GetDefault())
+				}
+			}
+			if p.GetName() == "user_id" {
+				t.Fatalf("user_id should not be exposed in unauthenticated mode")
 			}
 		}
 	})
 
-	t.Run("invalid table name errors", func(t *testing.T) {
-		cfg := postgrescreatememory.Config{
+	t.Run("authenticated mode includes user_id parameter", func(t *testing.T) {
+		cfg := postgressearchmemory.Config{
 			Config: memory.Config{
-				ConfigBase: tools.ConfigBase{Name: "create_memory"},
-				Type:       "postgres-create-memory",
+				ConfigBase:  tools.ConfigBase{Name: "search_memory"},
+				Type:        "postgres-search-memory",
+				Source:      "pg",
+				AuthService: "my-auth",
+			},
+		}
+		tool, err := cfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		manifest, err := tool.Manifest(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+
+		var gotParamNames []string
+		for _, p := range manifest.Parameters {
+			gotParamNames = append(gotParamNames, p.Name)
+		}
+
+		wantParamNames := []string{"query", "category", "top_k", "threshold", "user_id"}
+		if diff := cmp.Diff(wantParamNames, gotParamNames); diff != "" {
+			t.Errorf("parameters diff: %s", diff)
+		}
+	})
+
+	t.Run("invalid table name errors", func(t *testing.T) {
+		cfg := postgressearchmemory.Config{
+			Config: memory.Config{
+				ConfigBase: tools.ConfigBase{Name: "search_memory"},
+				Type:       "postgres-search-memory",
 				Source:     "pg",
 				TableName:  "drop table users; --",
 			},
@@ -148,10 +185,10 @@ func TestInitializeParameters(t *testing.T) {
 }
 
 func TestValidateSource(t *testing.T) {
-	cfg := postgrescreatememory.Config{
+	cfg := postgressearchmemory.Config{
 		Config: memory.Config{
-			ConfigBase: tools.ConfigBase{Name: "create_memory"},
-			Type:       "postgres-create-memory",
+			ConfigBase: tools.ConfigBase{Name: "search_memory"},
+			Type:       "postgres-search-memory",
 			Source:     "pg",
 		},
 	}
