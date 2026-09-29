@@ -2534,7 +2534,7 @@ func TestLooker(t *testing.T) {
 	wantResult = "[]"
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_schedule_failures"}`), wantResult)
 
-	wantResult = "[{\"Feature\":\"null\"}]"
+	wantResult = "null"
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_legacy_features"}`), wantResult)
 
 	wantResult = "\"Project\":\"the_look\""
