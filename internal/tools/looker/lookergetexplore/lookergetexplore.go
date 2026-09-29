@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package lookergetexplores
+package lookergetexplore
 
 import (
 	"context"
@@ -25,12 +25,11 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
-	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
-const resourceType string = "looker-get-explores"
+const resourceType string = "looker-get-explore"
 
 func init() {
 	if !tools.Register(resourceType, newConfig) {
@@ -56,8 +55,9 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string `yaml:"type" validate:"required"`
-	Source           string `yaml:"source" validate:"required"`
+	Type             string                 `yaml:"type" validate:"required"`
+	Source           string                 `yaml:"source" validate:"required"`
+	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface
@@ -72,14 +72,15 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
 	}
 
-	modelParameter := parameters.NewStringParameter("model", "The model containing the explores.")
-	params := parameters.Parameters{modelParameter}
+	modelParameter := parameters.NewStringParameter("model", "The model containing the explore.")
+	exploreParameter := parameters.NewStringParameter("explore", "The explore to get metadata for.")
+	params := parameters.Parameters{modelParameter, exploreParameter}
 
 	// finish tool setup
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			lookercommon.ReadOnlyAnnotations(cfg.Annotations),
+			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewReadOnlyAnnotations),
 			tools.Manifest{Description: cfg.Description, Parameters: params.Manifest(), AuthRequired: cfg.AuthRequired},
 			params,
 		),
@@ -123,12 +124,22 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if !ok {
 		return nil, util.NewAgentError(fmt.Sprintf("'model' must be a string, got %T", mapParams["model"]), nil)
 	}
+	explore, ok := mapParams["explore"].(string)
+	if !ok {
+		return nil, util.NewAgentError(fmt.Sprintf("'explore' must be a string, got %T", mapParams["explore"]), nil)
+	}
 
 	sdk, err := source.GetLookerSDK(ctx, string(accessToken))
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
-	resp, err := sdk.LookmlModel(model, "explores(name,description,label,group_label,hidden)", source.LookerApiSettings())
+	fieldsStr := "name,description,label,group_label,hidden,tags,always_filter,conditionally_filter"
+	request := v4.RequestLookmlModelExplore{
+		LookmlModelName: model,
+		ExploreName:     explore,
+		Fields:          &fieldsStr,
+	}
+	resp, err := sdk.LookmlModelExplore(request, source.LookerApiSettings())
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -136,34 +147,38 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGeneralError(err)
 	}
 
-	var data []any
-	for _, v := range *resp.Explores {
-		logger.DebugContext(ctx, "Got response element of %v\n", v)
-		if !source.LookerShowHiddenExplores() && v.Hidden != nil && *v.Hidden {
-			continue
-		}
-		vMap := make(map[string]any)
-		if v.Name != nil {
-			vMap["name"] = *v.Name
-		}
-		if v.Description != nil {
-			vMap["description"] = *v.Description
-		}
-		if v.Label != nil {
-			vMap["label"] = *v.Label
-		}
-		if v.GroupLabel != nil {
-			vMap["group_label"] = *v.GroupLabel
-		}
-		if v.Hidden != nil {
-			vMap["hidden"] = *v.Hidden
-		}
-		logger.DebugContext(ctx, "Converted to %v\n", vMap)
-		data = append(data, vMap)
+	if !source.LookerShowHiddenExplores() && resp.Hidden != nil && *resp.Hidden {
+		return nil, util.NewAgentError(fmt.Sprintf("explore %q is hidden", explore), nil)
 	}
-	logger.DebugContext(ctx, "data = ", data)
 
-	return data, nil
+	vMap := make(map[string]any)
+	if resp.Name != nil {
+		vMap["name"] = *resp.Name
+	}
+	if resp.Description != nil {
+		vMap["description"] = *resp.Description
+	}
+	if resp.Label != nil {
+		vMap["label"] = *resp.Label
+	}
+	if resp.GroupLabel != nil {
+		vMap["group_label"] = *resp.GroupLabel
+	}
+	if resp.Hidden != nil {
+		vMap["hidden"] = *resp.Hidden
+	}
+	if resp.Tags != nil {
+		vMap["tags"] = *resp.Tags
+	}
+	if resp.AlwaysFilter != nil {
+		vMap["always_filter"] = *resp.AlwaysFilter
+	}
+	if resp.ConditionallyFilter != nil {
+		vMap["conditionally_filter"] = *resp.ConditionallyFilter
+	}
+	logger.DebugContext(ctx, "data = ", vMap)
+
+	return vMap, nil
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
