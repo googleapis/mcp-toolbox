@@ -60,13 +60,15 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	client, err := initLineageConnection(ctx, tracer, r.Name, r.Project)
-	if err != nil {
-		return nil, err
-	}
 	s := &Source{
 		Config: r,
-		Client: client,
+		conn: sources.NewConnectOnce[*lineage.Client](ctx, r.Name, SourceType, tracer).
+			OnClose(func(_ context.Context, c *lineage.Client) error {
+				return c.Close()
+			}),
+	}
+	if _, err := s.client(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -75,11 +77,25 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Client *lineage.Client
+	conn *sources.ConnectOnce[*lineage.Client]
+}
+
+func (s *Source) client(ctx context.Context) (*lineage.Client, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*lineage.Client, error) {
+		r := s.Config
+		// Every handle built below outlives this call, and an oauth2 token source
+		// reuses the context it was built with for every refresh.
+		clientCtx := sources.DetachedConnectContext(ctx)
+		return initLineageConnection(clientCtx, r.Project)
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -96,13 +112,8 @@ func (s *Source) ProjectID() string {
 
 func initLineageConnection(
 	ctx context.Context,
-	tracer trace.Tracer,
-	name string,
 	project string,
 ) (*lineage.Client, error) {
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
 	cred, err := google.FindDefaultCredentials(ctx, sources.CloudPlatformScope)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find default Google Cloud credentials for project %q: %w", project, err)
@@ -132,6 +143,11 @@ func (s *Source) SearchLineageStreaming(
 	maxProcessPerLink int32,
 	requestProcessDetails bool,
 ) ([]*lineagepb.LineageLink, []string, error) {
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	parent := fmt.Sprintf("projects/%s/locations/%s", s.ProjectID(), parentLocation)
 
 	req := &lineagepb.SearchLineageStreamingRequest{
@@ -159,7 +175,7 @@ func (s *Source) SearchLineageStreaming(
 		ctx = metadata.AppendToOutgoingContext(ctx, "x-goog-fieldmask", "links,links.processes.process,unreachable")
 	}
 
-	stream, err := s.Client.SearchLineageStreaming(ctx, req)
+	stream, err := client.SearchLineageStreaming(ctx, req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to start search lineage streaming: %w", err)
 	}
