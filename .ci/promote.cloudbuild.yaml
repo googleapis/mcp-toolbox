@@ -20,29 +20,7 @@ steps:
       #!/usr/bin/env bash
       set -eo pipefail
       export VERSION=$(cat ./cmd/version.txt)
-      STAGING_IMAGE_URI="${_AR_HOSTNAME}/${PROJECT_ID}/${_STAGING_AR_REPO_NAME}/toolbox"
-
-      IMAGE_DIGEST=$(gcloud artifacts docker tags list "${STAGING_IMAGE_URI}" \
-        --project="${PROJECT_ID}" \
-        --filter="tag ~ /tags/(v?${VERSION})$" \
-        --format="value(version)" | head -n 1)
-
-      if [[ -z "${IMAGE_DIGEST}" ]]; then
-        echo "ERROR: Could not resolve image digest for ${STAGING_IMAGE_URI}:${VERSION}" >&2
-        exit 1
-      fi
-
-      curl -fsSL -X POST \
-        -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-        -H "Content-Type: application/json" \
-        "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${_REGION}/repositories/${_PROD_AR_REPO_NAME}:promoteArtifact" \
-        -d "{
-          \"source_repository\": \"projects/${PROJECT_ID}/locations/${_REGION}/repositories/${_STAGING_AR_REPO_NAME}\",
-          \"source_version\": \"projects/${PROJECT_ID}/locations/${_REGION}/repositories/${_STAGING_AR_REPO_NAME}/packages/toolbox/versions/${IMAGE_DIGEST}\",
-          \"attachment_behavior\": \"PUBLIC_BCID_VSA_ONLY\",
-          \"include_all_tags\": true,
-          \"overwrite_tags\": true
-        }"
+      bash .ci/promote_artifacts.sh "${PROJECT_ID}" "${_REGION}" "${_STAGING_AR_REPO_NAME}" "${_PROD_AR_REPO_NAME}" "toolbox" "${VERSION}"
 
   - id: "publish-npm-to-ar"
     name: node:20
