@@ -28,10 +28,10 @@ import (
 )
 
 const (
-	DimensionsFields = "fields(dimensions(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
-	FiltersFields    = "fields(filters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
-	MeasuresFields   = "fields(measures(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
-	ParametersFields = "fields(parameters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
+	DimensionsFields = "fields(dimensions(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
+	FiltersFields    = "fields(filters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
+	MeasuresFields   = "fields(measures(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
+	ParametersFields = "fields(parameters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
 )
 
 // ExtractLookerFieldProperties extracts common properties from Looker field objects.
@@ -79,6 +79,12 @@ func ExtractLookerFieldProperties(ctx context.Context, fields *[]v4.LookmlModelE
 		}
 		if v.Synonyms != nil && len(*v.Synonyms) > 0 {
 			vMap["synonyms"] = *v.Synonyms
+		}
+		if v.ValueFormat != nil && *v.ValueFormat != "" {
+			vMap["value_format"] = *v.ValueFormat
+		}
+		if v.ValueFormatName != nil && *v.ValueFormatName != "" {
+			vMap["value_format_name"] = *v.ValueFormatName
 		}
 		if v.Suggestable != nil {
 			vMap["suggestable"] = *v.Suggestable
