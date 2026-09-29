@@ -63,8 +63,8 @@ description: |
   or `conditionally_filter`), your query will fail unless you include them.
 
   Parameters:
-  - model_name (required): The name of the LookML model, obtained from `get_models`.
-  - explore_name (required): The name of the explore within the model, obtained from `get_explores`.
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 ---
 kind: tool
 name: get_dimensions
@@ -952,6 +952,7 @@ description: These skills are designed for data discovery and business intellige
 tools:
 - get_models
 - get_explores
+- get_explore
 - get_dimensions
 - get_measures
 - get_filters
