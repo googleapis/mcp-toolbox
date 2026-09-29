@@ -123,7 +123,7 @@ func checkDoc(ctx context.Context, skillURI string, doc resources.Resource, m Ma
 	}
 
 	e := Entry{URI: skillURI, Frontmatter: frontmatter, Resources: m}
-	if err := e.validate(false); err != nil {
+	if err := e.Validate(false); err != nil {
 		return Skill{}, err
 	}
 	return Skill{URI: skillURI, Frontmatter: frontmatter}, nil

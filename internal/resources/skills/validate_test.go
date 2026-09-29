@@ -15,17 +15,15 @@
 package skills_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
+	"path"
 	"strings"
 	"testing"
 
-	"github.com/googleapis/mcp-toolbox/internal/log"
+	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
-	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // unreadResource fails the test if Validate reads it. Startup validation reads
@@ -43,254 +41,209 @@ func (r unreadResource) Read(context.Context, map[string]any) (any, error) {
 	return "", nil
 }
 
+// skillAt builds a valid SKILL.md at uri, named for its final skill-path segment.
+func skillAt(t *testing.T, ctx context.Context, uri, description string) resources.Resource {
+	t.Helper()
+	name := path.Base(path.Dir(uri))
+	return textResource(t, ctx, uri, uri, skillMD(name, description))
+}
+
+// withUnreadFiles adds n supporting files of the given size under root.
+func withUnreadFiles(t *testing.T, m map[string]resources.Resource, root string, n int, size int64) map[string]resources.Resource {
+	for i := range n {
+		uri := fmt.Sprintf("%s/refs/%03d.md", root, i)
+		m[uri] = unreadResource{badResource: badResource{uri: uri}, t: t, size: size}
+	}
+	return m
+}
+
 func TestValidate(t *testing.T) {
 	ctx := mustLoggerCtx(t)
-	resourcesMap := map[string]resources.Resource{
-		"guide": textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
-			skillMD("analytics-guide", "Query and summarize the warehouse")),
-		"queries": unreadResource{
-			badResource: badResource{uri: "skill://analytics-guide/references/queries.md"},
-			t:           t,
-			size:        962,
-		},
-		"docs": textResource(t, ctx, "docs", "file://project-docs", "not a skill"),
+	fm := func(name, desc string) map[string]any {
+		return map[string]any{"name": name, "description": desc}
 	}
-
-	got, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-	if err != nil {
-		t.Fatalf("Validate() = %v, want nil", err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("got %d skills, want 1", len(got))
-	}
-	if got[0].URI != "skill://analytics-guide/SKILL.md" {
-		t.Errorf("URI = %q, want the SKILL.md URI", got[0].URI)
-	}
-	if name := got[0].Frontmatter["name"]; name != "analytics-guide" {
-		t.Errorf("frontmatter name = %v, want analytics-guide", name)
-	}
-}
-
-func TestValidateNoSkills(t *testing.T) {
-	ctx := mustLoggerCtx(t)
-	resourcesMap := map[string]resources.Resource{
-		"docs": textResource(t, ctx, "docs", "file://project-docs", "hello"),
-	}
-	got, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-	if err != nil {
-		t.Fatalf("Validate() = %v, want nil", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("got %d skills, want 0", len(got))
-	}
-}
-
-// TestValidateNestedSkill checks that a nested skill validates as its own
-// skill and that its files count toward the enclosing one.
-func TestValidateNestedSkill(t *testing.T) {
-	ctx := mustLoggerCtx(t)
-	resourcesMap := map[string]resources.Resource{
-		"parent": textResource(t, ctx, "parent", "skill://acme/billing/SKILL.md",
-			skillMD("billing", "Billing workflows")),
-		"child": textResource(t, ctx, "child", "skill://acme/billing/refunds/SKILL.md",
-			skillMD("refunds", "Refund workflows")),
-	}
-	got, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-	if err != nil {
-		t.Fatalf("Validate() = %v, want nil", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("got %d skills, want 2", len(got))
-	}
-}
-
-func TestValidateErrors(t *testing.T) {
 	tcs := []struct {
-		desc    string
-		content string
-		wantErr string
+		desc      string
+		resources func(t *testing.T) map[string]resources.Resource
+		want      []skills.Skill
 	}{
-		{"SKILL.md without frontmatter", "# Just a heading\n", "must open with YAML frontmatter"},
-		{"frontmatter never closed", "---\nname: guide\n", "not closed by ---"},
-		{"frontmatter missing description", "---\nname: guide\n---\n", "description"},
-		{"frontmatter name disagrees with the URI", skillMD("something-else", "Mismatched"), "name"},
+		{
+			desc: "a skill with a supporting file, beside a non-skill resource",
+			resources: func(t *testing.T) map[string]resources.Resource {
+				return withUnreadFiles(t, map[string]resources.Resource{
+					"guide": skillAt(t, ctx, "skill://analytics-guide/SKILL.md", "Query the warehouse"),
+					"docs":  textResource(t, ctx, "docs", "file://project-docs", "not a skill"),
+				}, "skill://analytics-guide", 1, 962)
+			},
+			want: []skills.Skill{
+				{URI: "skill://analytics-guide/SKILL.md", Frontmatter: fm("analytics-guide", "Query the warehouse")},
+			},
+		},
+		{
+			desc: "no skills",
+			resources: func(t *testing.T) map[string]resources.Resource {
+				return map[string]resources.Resource{
+					"docs": textResource(t, ctx, "docs", "file://project-docs", "hello"),
+				}
+			},
+		},
+		{
+			// The child's SKILL.md also counts toward the parent's files.
+			desc: "a nested skill validates as its own skill",
+			resources: func(t *testing.T) map[string]resources.Resource {
+				return map[string]resources.Resource{
+					"parent": skillAt(t, ctx, "skill://acme/billing/SKILL.md", "Billing workflows"),
+					"child":  skillAt(t, ctx, "skill://acme/billing/refunds/SKILL.md", "Refund workflows"),
+				}
+			},
+			want: []skills.Skill{
+				{URI: "skill://acme/billing/SKILL.md", Frontmatter: fm("billing", "Billing workflows")},
+				{URI: "skill://acme/billing/refunds/SKILL.md", Frontmatter: fm("refunds", "Refund workflows")},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			ctx := mustLoggerCtx(t)
-			resourcesMap := map[string]resources.Resource{
-				"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", tc.content),
+			got, err := skills.Validate(ctx, skills.NewRegistry(tc.resources(t)))
+			if err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
 			}
-			_, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-			if err == nil {
-				t.Fatalf("Validate() = nil, want error containing %q", tc.wantErr)
-			}
-			if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Errorf("Validate() = %v, want error containing %q", err, tc.wantErr)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Validate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-// TestValidateTooManyFiles checks the ref-count limit without reading any
-// supporting file.
-func TestValidateTooManyFiles(t *testing.T) {
-	ctx := mustLoggerCtx(t)
-	resourcesMap := map[string]resources.Resource{
-		"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", skillMD("guide", "A guide")),
+func TestValidateErrors(t *testing.T) {
+	loggerCtx := mustLoggerCtx(t)
+	const uri = "skill://guide/SKILL.md"
+	guide := func(t *testing.T, content string) map[string]resources.Resource {
+		return map[string]resources.Resource{"s": textResource(t, loggerCtx, "s", uri, content)}
 	}
-	// One over the limit once the SKILL.md itself is counted.
-	for i := 0; i < skills.MaxRefs; i++ {
-		uri := fmt.Sprintf("skill://guide/refs/%03d.md", i)
-		resourcesMap[uri] = unreadResource{badResource: badResource{uri: uri}, t: t, size: 1}
+	tcs := []struct {
+		desc      string
+		ctx       context.Context // defaults to one with a logger
+		resources func(t *testing.T) map[string]resources.Resource
+		wantErr   []string
+	}{
+		{
+			desc:      "SKILL.md without frontmatter",
+			resources: func(t *testing.T) map[string]resources.Resource { return guide(t, "# Just a heading\n") },
+			wantErr:   []string{"must open with YAML frontmatter"},
+		},
+		{
+			desc:      "frontmatter never closed",
+			resources: func(t *testing.T) map[string]resources.Resource { return guide(t, "---\nname: guide\n") },
+			wantErr:   []string{"not closed by ---"},
+		},
+		{
+			desc:      "frontmatter missing description",
+			resources: func(t *testing.T) map[string]resources.Resource { return guide(t, "---\nname: guide\n---\n") },
+			wantErr:   []string{"description"},
+		},
+		{
+			desc: "frontmatter name disagrees with the URI",
+			resources: func(t *testing.T) map[string]resources.Resource {
+				return guide(t, skillMD("something-else", "Mismatched"))
+			},
+			wantErr: []string{"name"},
+		},
+		{
+			// One over the limit once SKILL.md itself is counted.
+			desc: "too many files",
+			resources: func(t *testing.T) map[string]resources.Resource {
+				return withUnreadFiles(t, guide(t, skillMD("guide", "A guide")), "skill://guide", skills.MaxRefs, 1)
+			},
+			wantErr: []string{"exceeds the limit", uri},
+		},
+		{
+			// Four 4 MiB files exceed 16 MiB from reported sizes alone.
+			desc: "total size over the limit",
+			resources: func(t *testing.T) map[string]resources.Resource {
+				return withUnreadFiles(t, guide(t, skillMD("guide", "A guide")), "skill://guide", 4, 4<<20)
+			},
+			wantErr: []string{"total size exceeds the limit", uri},
+		},
+		{
+			desc: "unreadable SKILL.md",
+			resources: func(t *testing.T) map[string]resources.Resource {
+				return map[string]resources.Resource{"s": badResource{uri: uri, err: fmt.Errorf("backend is down")}}
+			},
+			wantErr: []string{"unable to read", uri},
+		},
+		{
+			// Validation needs a logger to report duplicate names; a context
+			// without one is a wiring error, not something to skip silently.
+			desc:      "no logger in the context",
+			ctx:       context.Background(),
+			resources: func(t *testing.T) map[string]resources.Resource { return guide(t, skillMD("guide", "A guide")) },
+			wantErr:   []string{"duplicate skill names"},
+		},
 	}
-
-	_, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-	if err == nil {
-		t.Fatal("Validate() = nil, want an error")
-	}
-	if !strings.Contains(err.Error(), "exceeds the limit") {
-		t.Errorf("Validate() = %v, want the ref-count limit error", err)
-	}
-}
-
-// TestValidateOversizeSkill checks the total-size limit from the reported
-// sizes, without reading the files.
-func TestValidateOversizeSkill(t *testing.T) {
-	ctx := mustLoggerCtx(t)
-	resourcesMap := map[string]resources.Resource{
-		"guide": textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
-			skillMD("analytics-guide", "Query and summarize the warehouse")),
-	}
-	const chunk = 4 << 20 // 4 MiB per file. Four files exceed the 16 MiB limit.
-	for i := range 4 {
-		uri := fmt.Sprintf("skill://analytics-guide/refs/%d.md", i)
-		resourcesMap[uri] = unreadResource{badResource: badResource{uri: uri}, t: t, size: chunk}
-	}
-
-	_, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-	if err == nil {
-		t.Fatal("Validate() = nil, want a total-size error")
-	}
-	if !strings.Contains(err.Error(), "total size exceeds the limit") {
-		t.Errorf("Validate() = %v, want a total-size error", err)
-	}
-	if !strings.Contains(err.Error(), "skill://analytics-guide/SKILL.md") {
-		t.Errorf("Validate() = %v, want the error to name the skill", err)
-	}
-}
-
-// TestValidateUnreadableSkillFile checks that a SKILL.md that yields no text
-// fails the load and names the skill.
-func TestValidateUnreadableSkillFile(t *testing.T) {
-	ctx := mustLoggerCtx(t)
-	resourcesMap := map[string]resources.Resource{
-		"s": badResource{uri: "skill://guide/SKILL.md", err: fmt.Errorf("backend is down")},
-	}
-	_, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-	if err == nil {
-		t.Fatal("Validate() = nil, want an error")
-	}
-	if !strings.Contains(err.Error(), "unable to read") || !strings.Contains(err.Error(), "skill://guide/SKILL.md") {
-		t.Errorf("Validate() = %v, want a read error naming the skill", err)
-	}
-}
-
-// TestValidateNoLogger covers the boot-time contract: validation needs a logger
-// to report duplicate names, and a context without one is a wiring error
-// rather than a condition to skip past silently.
-func TestValidateNoLogger(t *testing.T) {
-	resourcesMap := map[string]resources.Resource{
-		"s": textResource(t, mustLoggerCtx(t), "s", "skill://guide/SKILL.md",
-			"---\nname: guide\ndescription: A guide\n---\n\n# guide\n"),
-	}
-
-	_, err := skills.Validate(context.Background(), skills.NewRegistry(resourcesMap))
-	if err == nil {
-		t.Fatal("Validate() with no logger in context = nil, want an error")
-	}
-	if !strings.Contains(err.Error(), "duplicate skill names") {
-		t.Errorf("error = %q, want it to name the operation that failed", err)
-	}
-}
-
-// TestValidateWarnsOnDuplicateNames pins the one thing warnOnDuplicateNames
-// does. Entry validation ties the frontmatter name to the final skill-path
-// segment, so a duplicate can only arise from differing parent paths.
-func TestValidateWarnsOnDuplicateNames(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := util.WithLogger(context.Background(), logger)
-
-	resourcesMap := map[string]resources.Resource{
-		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
-		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
-	}
-
-	got, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
-	if err != nil {
-		t.Fatalf("Validate() = %v, want nil", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("got %d skills, want 2", len(got))
-	}
-
-	out := stderr.String()
-	for _, want := range []string{
-		"skill://acme/guide/SKILL.md",
-		"skill://other/guide/SKILL.md",
-		`share the name \"guide\"`,
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("warning %q does not mention %q", out, want)
-		}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx := tc.ctx
+			if ctx == nil {
+				ctx = loggerCtx
+			}
+			_, err := skills.Validate(ctx, skills.NewRegistry(tc.resources(t)))
+			if err == nil {
+				t.Fatalf("Validate() = nil, want error containing %q", tc.wantErr)
+			}
+			for _, want := range tc.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Validate() = %v, want error containing %q", err, want)
+				}
+			}
+		})
 	}
 }
 
-// TestValidateNoDuplicateWarning guards the other direction: distinct names
-// must not warn, or the warning is noise an operator learns to ignore.
-func TestValidateNoDuplicateWarning(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
-	if err != nil {
-		t.Fatal(err)
+// TestValidateDuplicateNameWarning checks that Validate warns when two skills
+// share a frontmatter name, and only then. Entry validation ties the name to
+// the final skill-path segment, so a duplicate can only arise from differing
+// parent paths.
+func TestValidateDuplicateNameWarning(t *testing.T) {
+	tcs := []struct {
+		desc     string
+		uris     []string
+		wantWarn []string // nil means no warning
+	}{
+		{
+			desc:     "same name under different parents",
+			uris:     []string{"skill://acme/guide/SKILL.md", "skill://other/guide/SKILL.md"},
+			wantWarn: []string{"skill://acme/guide/SKILL.md", "skill://other/guide/SKILL.md", `share the name \"guide\"`},
+		},
+		{
+			desc: "distinct names",
+			uris: []string{"skill://acme/guide/SKILL.md", "skill://acme/other/SKILL.md"},
+		},
 	}
-	ctx := util.WithLogger(context.Background(), logger)
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx, stderr := bufferLoggerCtx(t)
+			resourcesMap := map[string]resources.Resource{}
+			for _, uri := range tc.uris {
+				resourcesMap[uri] = skillAt(t, ctx, uri, "A skill")
+			}
+			if _, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap)); err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
 
-	resourcesMap := map[string]resources.Resource{
-		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
-		"b": textResource(t, ctx, "b", "skill://acme/other/SKILL.md", skillMD("other", "Two")),
-	}
-	if _, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap)); err != nil {
-		t.Fatalf("Validate() = %v, want nil", err)
-	}
-	if got := stderr.String(); strings.Contains(got, "share the name") {
-		t.Errorf("unexpected duplicate-name warning: %q", got)
-	}
-}
-
-// TestDiscoverDoesNotWarn pins that Discover, which runs per request, leaves
-// the duplicate-name warning to startup.
-func TestDiscoverDoesNotWarn(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := util.WithLogger(context.Background(), logger)
-
-	resourcesMap := map[string]resources.Resource{
-		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
-		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
-	}
-	if _, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap)); err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
-	}
-	if got := stderr.String(); strings.Contains(got, "share the name") {
-		t.Errorf("Discover() warned %q, want the warning left to Validate", got)
+			out := stderr.String()
+			if tc.wantWarn == nil {
+				if strings.Contains(out, "share the name") {
+					t.Errorf("unexpected duplicate-name warning: %q", out)
+				}
+				return
+			}
+			for _, want := range tc.wantWarn {
+				if !strings.Contains(out, want) {
+					t.Errorf("warning %q does not mention %q", out, want)
+				}
+			}
+		})
 	}
 }
 
