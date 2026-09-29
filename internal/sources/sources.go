@@ -22,6 +22,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // CloudPlatformScope is the OAuth2 scope for Google Cloud Platform services.
@@ -79,6 +80,11 @@ type Closer interface {
 
 // InitConnectionSpan adds a span for database pool connection initialization
 func InitConnectionSpan(ctx context.Context, tracer trace.Tracer, sourceType, sourceName string) (context.Context, trace.Span) {
+	// Sources that never opened a span before this path existed are still
+	// initialized with a nil tracer in tests.
+	if tracer == nil {
+		tracer = noop.NewTracerProvider().Tracer("")
+	}
 	ctx, span := tracer.Start(
 		ctx,
 		"toolbox/server/source/connect",
