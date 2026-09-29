@@ -110,9 +110,10 @@ func manyRefs(n int, size int64) []skills.ResourceRef {
 
 func TestManifestValidate(t *testing.T) {
 	tcs := []struct {
-		desc    string
-		in      skills.Manifest
-		wantErr string
+		desc        string
+		in          skills.Manifest
+		skipDigests bool // calls Validate(false), as startup validation does
+		wantErr     string
 	}{
 		{
 			desc: "static skill with one file",
@@ -162,6 +163,20 @@ func TestManifestValidate(t *testing.T) {
 			desc:    "missing digest",
 			in:      skills.Manifest{Refs: []skills.ResourceRef{{URI: "skill://x/SKILL.md", Size: 1}}},
 			wantErr: "want sha256:",
+		},
+		{
+			desc:        "missing digest passes when digests are skipped",
+			in:          skills.Manifest{Refs: []skills.ResourceRef{{URI: "skill://x/SKILL.md", Size: 1}}},
+			skipDigests: true,
+		},
+		{
+			desc: "skipping digests still enforces the other rules",
+			in: skills.Manifest{Refs: []skills.ResourceRef{
+				{URI: "skill://x/SKILL.md", Size: 1},
+				{URI: "skill://x/SKILL.md", Size: 2},
+			}},
+			skipDigests: true,
+			wantErr:     "listed more than once",
 		},
 		{
 			desc:    "wrong digest algorithm",
@@ -230,7 +245,7 @@ func TestManifestValidate(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			err := tc.in.Validate()
+			err := tc.in.Validate(!tc.skipDigests)
 
 			if tc.wantErr == "" {
 				if err != nil {
@@ -541,7 +556,7 @@ func TestEntryValidate(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			e := validEntry()
 			tc.mutate(&e)
-			err := e.Validate()
+			err := e.Validate(true)
 
 			if tc.wantErr == "" {
 				if err != nil {
