@@ -22,6 +22,7 @@ import (
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/google/uuid"
+	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
@@ -99,6 +100,9 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if userParam := cfg.UserIDParameter(); userParam != nil {
 		allParameters = append(allParameters, userParam)
 	}
+	if embParam := cfg.EmbeddingParameter("content_embedding", "content"); embParam != nil {
+		allParameters = append(allParameters, embParam)
+	}
 
 	return Tool{
 		BaseTool: tools.NewBaseTool(
@@ -120,6 +124,10 @@ type Result struct {
 	Status  string         `json:"status"`
 	Message string         `json:"message"`
 	Memory  *memory.Memory `json:"memory,omitempty"`
+}
+
+func (t Tool) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, pMgr tools.PrimitiveManagerI) (parameters.ParamValues, error) {
+	return parameters.EmbedParams(ctx, t.StaticParameters, paramValues, pMgr, embeddingmodels.FormatVectorForPgvector)
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
@@ -176,12 +184,24 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError(err.Error(), http.StatusBadRequest, err)
 	}
 
-	if logger != nil {
-		logger.InfoContext(ctx, fmt.Sprintf("update_memory: preparing update for user=%q, memory_id=%s, fields=%v", userID, memoryID, fields))
+	useVector := t.Cfg.EmbeddingModel != ""
+	var contentEmbedding, embeddingModel *string
+	if useVector && content != nil {
+		emb := strings.TrimSpace(asString(p["content_embedding"]))
+		if emb == "" {
+			return nil, util.NewClientServerError("missing content_embedding parameter value", http.StatusInternalServerError, nil)
+		}
+		contentEmbedding = &emb
+		modelName := t.Cfg.EmbeddingModel
+		embeddingModel = &modelName
 	}
 
-	// Lazy bootstrap to create the memory table if it doesn't exist yet.
-	if err := memory.EnsureMemoryTable(ctx, pool, table); err != nil {
+	if logger != nil {
+		logger.InfoContext(ctx, fmt.Sprintf("update_memory: preparing update for user=%q, memory_id=%s, fields=%v, vector=%t", userID, memoryID, fields, useVector))
+	}
+
+	// Lazy bootstrap to create the memory table (and vector extension/column when configured) if it doesn't exist yet.
+	if err := memory.EnsureMemoryTable(ctx, pool, table, useVector); err != nil {
 		if logger != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("update_memory: table bootstrap failed: %v", err))
 		}
@@ -189,18 +209,41 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 
 	// Apply the provided fields and refresh salience; omitted fields are nil and left unchanged via COALESCE.
-	// tsv is a generated column and is recomputed automatically.
-	update := fmt.Sprintf(`UPDATE %s
+	// tsv is a generated column and is recomputed automatically; when vector search is enabled and content
+	// changed, embedding and embedding_model are updated. In FTS mode, changing content resets embedding_model
+	// to NULL so any stale embedding from a prior model run is invalidated.
+	var (
+		update     string
+		updateArgs []any
+	)
+	if useVector {
+		update = fmt.Sprintf(`UPDATE %s
 SET content = COALESCE($3, content),
     category = COALESCE($4, category),
     is_pinned = COALESCE($5, is_pinned),
+    embedding = COALESCE($6::vector, embedding),
+    embedding_model = COALESCE($7, embedding_model),
     updated_at = NOW(),
     last_accessed_at = NOW(),
     access_count = access_count + 1
 WHERE memory_id = $1::uuid AND user_id = $2
 RETURNING %s`, table, memory.Columns)
+		updateArgs = []any{memoryID, userID, content, category, isPinned, contentEmbedding, embeddingModel}
+	} else {
+		update = fmt.Sprintf(`UPDATE %s
+SET content = COALESCE($3, content),
+    category = COALESCE($4, category),
+    is_pinned = COALESCE($5, is_pinned),
+    embedding_model = CASE WHEN $3 IS NOT NULL THEN NULL ELSE embedding_model END,
+    updated_at = NOW(),
+    last_accessed_at = NOW(),
+    access_count = access_count + 1
+WHERE memory_id = $1::uuid AND user_id = $2
+RETURNING %s`, table, memory.Columns)
+		updateArgs = []any{memoryID, userID, content, category, isPinned}
+	}
 
-	rows, err := pool.Query(ctx, update, memoryID, userID, content, category, isPinned)
+	rows, err := pool.Query(ctx, update, updateArgs...)
 	if err != nil {
 		if logger != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("update_memory: UPDATE failed: %v", err))

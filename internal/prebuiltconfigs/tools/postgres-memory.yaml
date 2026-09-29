@@ -27,18 +27,21 @@ name: create_memory
 type: postgres-create-memory
 source: postgresql-source
 defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
+embeddingModel: ${TOOLBOX_MEMORY_EMBEDDING_MODEL:}
 ---
 kind: tool
 name: search_memory
 type: postgres-search-memory
 source: postgresql-source
 defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
+embeddingModel: ${TOOLBOX_MEMORY_EMBEDDING_MODEL:}
 ---
 kind: tool
 name: update_memory
 type: postgres-update-memory
 source: postgresql-source
 defaultUserId: ${TOOLBOX_MEMORY_DEFAULT_USER_ID:default}
+embeddingModel: ${TOOLBOX_MEMORY_EMBEDDING_MODEL:}
 ---
 kind: tool
 name: delete_memory

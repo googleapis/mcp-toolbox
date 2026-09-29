@@ -15,9 +15,11 @@
 package memory_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
@@ -38,6 +40,34 @@ type mockIncompatibleSource struct {
 	sources.Source
 }
 
+type mockEmbeddingModel struct {
+	dim int
+}
+
+func (m mockEmbeddingModel) EmbeddingModelType() string                    { return "mock" }
+func (m mockEmbeddingModel) ToConfig() embeddingmodels.EmbeddingModelConfig { return nil }
+func (m mockEmbeddingModel) EmbedParameters(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i := range texts {
+		vec := make([]float32, m.dim)
+		if m.dim > 0 {
+			vec[0] = 0.5
+		}
+		out[i] = vec
+	}
+	return out, nil
+}
+
+type mockPrimitiveManager struct {
+	models map[string]embeddingmodels.EmbeddingModel
+}
+
+func (m mockPrimitiveManager) GetSource(string) (sources.Source, bool) { return nil, false }
+func (m mockPrimitiveManager) GetEmbeddingModel(name string) (embeddingmodels.EmbeddingModel, bool) {
+	em, ok := m.models[name]
+	return em, ok
+}
+
 func TestSchemaDefaultTable(t *testing.T) {
 	ddl, err := memory.Schema("")
 	if err != nil {
@@ -49,6 +79,9 @@ func TestSchemaDefaultTable(t *testing.T) {
 	}
 	if !strings.Contains(ddl, "tsvector GENERATED ALWAYS AS") {
 		t.Errorf("ddl missing tsvector column:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "embedding_model  TEXT") {
+		t.Errorf("ddl missing embedding_model column:\n%s", ddl)
 	}
 	if !strings.Contains(ddl, "is_global        BOOLEAN NOT NULL DEFAULT FALSE") {
 		t.Errorf("ddl missing is_global column:\n%s", ddl)
@@ -78,6 +111,25 @@ func TestSchemaCustomTable(t *testing.T) {
 	}
 }
 
+func TestVectorSchema(t *testing.T) {
+	ddl, err := memory.VectorSchema("custom_schema.my_memories")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(ddl, "CREATE EXTENSION IF NOT EXISTS vector;") {
+		t.Errorf("vector ddl missing extension:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "ALTER TABLE custom_schema.my_memories ADD COLUMN IF NOT EXISTS embedding VECTOR(768);") {
+		t.Errorf("vector ddl missing embedding column:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "ALTER TABLE custom_schema.my_memories ADD COLUMN IF NOT EXISTS embedding_model TEXT;") {
+		t.Errorf("vector ddl missing embedding_model column:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "CREATE INDEX IF NOT EXISTS custom_schema_my_memories_embedding_idx ON custom_schema.my_memories USING hnsw (embedding vector_cosine_ops);") {
+		t.Errorf("vector ddl missing HNSW index:\n%s", ddl)
+	}
+}
+
 func TestSchemaInvalidTableNames(t *testing.T) {
 	invalidNames := []string{
 		"toolbox_agent_memories; DROP TABLE users; --",
@@ -90,9 +142,11 @@ func TestSchemaInvalidTableNames(t *testing.T) {
 
 	for _, name := range invalidNames {
 		t.Run(name, func(t *testing.T) {
-			_, err := memory.Schema(name)
-			if err == nil {
-				t.Fatalf("expected error for invalid table name %q, got nil", name)
+			if _, err := memory.Schema(name); err == nil {
+				t.Fatalf("expected error for invalid table name %q in Schema, got nil", name)
+			}
+			if _, err := memory.VectorSchema(name); err == nil {
+				t.Fatalf("expected error for invalid table name %q in VectorSchema, got nil", name)
 			}
 		})
 	}
@@ -131,13 +185,17 @@ func TestIsValidSQLIdentifier(t *testing.T) {
 func TestConfigResolve(t *testing.T) {
 	t.Run("applies defaults and trims whitespace", func(t *testing.T) {
 		cfg := memory.Config{
-			DefaultUserID: "  alice  ",
-			TableName:     "  my_memories  ",
-			AuthService:   "  my_auth  ",
+			EmbeddingModel: "  my_embedder  ",
+			DefaultUserID:  "  alice  ",
+			TableName:      "  my_memories  ",
+			AuthService:    "  my_auth  ",
 		}
 		resolved, err := cfg.Resolve()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if resolved.EmbeddingModel != "my_embedder" {
+			t.Errorf("expected EmbeddingModel 'my_embedder', got %q", resolved.EmbeddingModel)
 		}
 		if resolved.DefaultUserID != "alice" {
 			t.Errorf("expected DefaultUserID 'alice', got %q", resolved.DefaultUserID)
@@ -234,6 +292,64 @@ func TestUserIDParameter(t *testing.T) {
 		authServices := sp.GetAuthServices()
 		if len(authServices) != 1 || authServices[0].Name != "google-auth" || authServices[0].Field != "email" {
 			t.Errorf("expected authServices [{google-auth email}], got %v", authServices)
+		}
+	})
+}
+
+func TestEmbeddingParameterAndEmbedParams(t *testing.T) {
+	t.Run("returns nil when EmbeddingModel is empty", func(t *testing.T) {
+		cfg := memory.Config{}
+		if p := cfg.EmbeddingParameter("content_embedding", "content"); p != nil {
+			t.Fatalf("expected nil EmbeddingParameter when EmbeddingModel is empty, got %v", p)
+		}
+	})
+
+	t.Run("embeds non-empty value and tolerates nil optional value", func(t *testing.T) {
+		cfg := memory.Config{EmbeddingModel: "my-model"}
+		embParam := cfg.EmbeddingParameter("content_embedding", "content")
+		if embParam == nil {
+			t.Fatalf("expected non-nil EmbeddingParameter")
+		}
+		ps := parameters.Parameters{
+			parameters.NewStringParameter("content", "content", parameters.WithStringRequired(false)),
+			embParam,
+		}
+		// Hidden from Manifest because ValueFromParam is set.
+		if len(ps.Manifest()) != 1 {
+			t.Fatalf("expected 1 manifest parameter, got %d", len(ps.Manifest()))
+		}
+
+		pMgr := mockPrimitiveManager{
+			models: map[string]embeddingmodels.EmbeddingModel{
+				"my-model": mockEmbeddingModel{dim: memory.EmbeddingDimensions},
+			},
+		}
+
+		// Case 1: nil optional content leaves content_embedding nil.
+		nilParams := parameters.ParamValues{
+			{Name: "content", Value: nil},
+			{Name: "content_embedding", Value: nil},
+		}
+		gotNil, err := parameters.EmbedParams(context.Background(), ps, nilParams, pMgr, embeddingmodels.FormatVectorForPgvector)
+		if err != nil {
+			t.Fatalf("unexpected error on nil content: %v", err)
+		}
+		if gotNil.AsMap()["content_embedding"] != nil {
+			t.Fatalf("expected nil content_embedding, got %v", gotNil.AsMap()["content_embedding"])
+		}
+
+		// Case 2: non-empty content formats pgvector string.
+		valParams := parameters.ParamValues{
+			{Name: "content", Value: "User prefers Go"},
+			{Name: "content_embedding", Value: "User prefers Go"},
+		}
+		gotVal, err := parameters.EmbedParams(context.Background(), ps, valParams, pMgr, embeddingmodels.FormatVectorForPgvector)
+		if err != nil {
+			t.Fatalf("unexpected error on non-empty content: %v", err)
+		}
+		vecStr, ok := gotVal.AsMap()["content_embedding"].(string)
+		if !ok || !strings.HasPrefix(vecStr, "[0.5, 0") {
+			t.Fatalf("expected formatted pgvector string, got %v", gotVal.AsMap()["content_embedding"])
 		}
 	})
 }

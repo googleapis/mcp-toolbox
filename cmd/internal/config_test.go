@@ -38,6 +38,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/http"
+	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgrescreatememory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresdeletememory"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgressearchmemory"
@@ -3406,6 +3407,66 @@ func TestPrebuiltMemoryDefaultUserIDEnvVar(t *testing.T) {
 				if param.GetName() == "user_id" {
 					t.Fatalf("[%s] delete_memory user_id should not be exposed to agent when unauthenticated", name)
 				}
+			}
+		}
+	})
+
+	t.Run("configured with TOOLBOX_MEMORY_EMBEDDING_MODEL", func(t *testing.T) {
+		setRequiredSourceEnv(t)
+		t.Setenv("TOOLBOX_MEMORY_EMBEDDING_MODEL", "my-gemini-embedder")
+
+		userYaml := []byte(`
+kind: embeddingModel
+name: my-gemini-embedder
+type: gemini
+model: gemini-embedding-001
+apiKey: test-api-key
+dimension: 768
+`)
+
+		for _, name := range prebuilts {
+			buf, err := prebuiltconfigs.Get(name)
+			if err != nil {
+				t.Fatalf("unable to get prebuilt %s: %v", name, err)
+			}
+			p := &ConfigParser{}
+			parsedPrebuilt, err := p.ParseConfig(ctx, buf)
+			if err != nil {
+				t.Fatalf("unable to parse prebuilt %s: %v", name, err)
+			}
+			parsedUser, err := p.ParseConfig(ctx, userYaml)
+			if err != nil {
+				t.Fatalf("unable to parse user yaml: %v", err)
+			}
+			parsed, err := mergeConfigs(parsedPrebuilt, parsedUser)
+			if err != nil {
+				t.Fatalf("[%s] mergeConfigs failed: %v", name, err)
+			}
+
+			wantEmb := server.EmbeddingModelConfigs{
+				"my-gemini-embedder": gemini.Config{
+					Name:      "my-gemini-embedder",
+					Type:      gemini.EmbeddingModelType,
+					Model:     "gemini-embedding-001",
+					ApiKey:    "test-api-key",
+					Dimension: memory.EmbeddingDimensions,
+				},
+			}
+			if diff := cmp.Diff(wantEmb, parsed.EmbeddingModels); diff != "" {
+				t.Errorf("[%s] embeddingModel config diff: %s", name, diff)
+			}
+
+			createCfg := parsed.Tools["create_memory"].(postgrescreatememory.Config)
+			if createCfg.EmbeddingModel != "my-gemini-embedder" {
+				t.Errorf("[%s] expected create_memory EmbeddingModel 'my-gemini-embedder', got %q", name, createCfg.EmbeddingModel)
+			}
+			searchCfg := parsed.Tools["search_memory"].(postgressearchmemory.Config)
+			if searchCfg.EmbeddingModel != "my-gemini-embedder" {
+				t.Errorf("[%s] expected search_memory EmbeddingModel 'my-gemini-embedder', got %q", name, searchCfg.EmbeddingModel)
+			}
+			updateCfg := parsed.Tools["update_memory"].(postgresupdatememory.Config)
+			if updateCfg.EmbeddingModel != "my-gemini-embedder" {
+				t.Errorf("[%s] expected update_memory EmbeddingModel 'my-gemini-embedder', got %q", name, updateCfg.EmbeddingModel)
 			}
 		}
 	})

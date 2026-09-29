@@ -186,7 +186,7 @@ func EmbedParams(ctx context.Context, ps Parameters, paramValues ParamValues, pM
 
 	for i, p := range ps {
 		modelName := p.GetEmbeddedBy()
-		if modelName == "" {
+		if modelName == "" || i >= len(paramValues) || paramValues[i].Value == nil {
 			continue
 		}
 
@@ -194,6 +194,10 @@ func EmbedParams(ctx context.Context, ps Parameters, paramValues ParamValues, pM
 		valueStr, ok := paramValues[i].Value.(string)
 		if !ok {
 			return nil, fmt.Errorf("parameter '%s' is marked for embedding but has a non-string value (type: %T)", p.GetName(), paramValues[i].Value)
+		}
+		if strings.TrimSpace(valueStr) == "" {
+			paramValues[i].Value = nil
+			continue
 		}
 
 		parametersToEmbed[modelName] = append(parametersToEmbed[modelName], ParamToEmbed{

@@ -53,15 +53,17 @@ func TestParseFromYaml(t *testing.T) {
             source: my-pg
             authService: my-auth
             userIdField: email
+            embeddingModel: my-embed
 	`
 	want := server.ToolConfigs{
 		"search_memory": postgressearchmemory.Config{
 			Config: memory.Config{
-				ConfigBase:  tools.ConfigBase{Name: "search_memory", AuthRequired: []string{}},
-				Type:        "postgres-search-memory",
-				Source:      "my-pg",
-				AuthService: "my-auth",
-				UserIDField: "email",
+				ConfigBase:     tools.ConfigBase{Name: "search_memory", AuthRequired: []string{}},
+				Type:           "postgres-search-memory",
+				Source:         "my-pg",
+				AuthService:    "my-auth",
+				UserIDField:    "email",
+				EmbeddingModel: "my-embed",
 			},
 		},
 	}
@@ -165,6 +167,51 @@ func TestInitializeParameters(t *testing.T) {
 		wantParamNames := []string{"query", "category", "top_k", "threshold", "user_id"}
 		if diff := cmp.Diff(wantParamNames, gotParamNames); diff != "" {
 			t.Errorf("parameters diff: %s", diff)
+		}
+	})
+
+	t.Run("embeddingModel adds hidden query_embedding parameter", func(t *testing.T) {
+		cfg := postgressearchmemory.Config{
+			Config: memory.Config{
+				ConfigBase:     tools.ConfigBase{Name: "search_memory"},
+				Type:           "postgres-search-memory",
+				Source:         "pg",
+				EmbeddingModel: "my-embed",
+			},
+		}
+		tool, err := cfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		manifest, err := tool.Manifest(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		for _, p := range manifest.Parameters {
+			if p.Name == "query_embedding" {
+				t.Errorf("query_embedding must be hidden from manifest")
+			}
+		}
+		params, err := tool.GetParameters(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		var found bool
+		for _, p := range params {
+			if p.GetName() == "query_embedding" {
+				found = true
+				if p.GetEmbeddedBy() != "my-embed" || p.GetValueFromParam() != "query" {
+					t.Errorf("unexpected query_embedding config: embeddedBy=%q valueFromParam=%q", p.GetEmbeddedBy(), p.GetValueFromParam())
+				}
+			}
+			if fp, ok := p.(*parameters.FloatParameter); ok && fp.GetName() == "threshold" {
+				if fp.GetDefault() != memory.DefaultVectorThreshold {
+					t.Errorf("expected vector threshold default to be %v, got %v", memory.DefaultVectorThreshold, fp.GetDefault())
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("expected query_embedding parameter when embeddingModel is set")
 		}
 	})
 

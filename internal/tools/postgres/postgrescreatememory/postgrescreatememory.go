@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
+	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
@@ -33,10 +34,11 @@ const resourceType string = "postgres-create-memory"
 // defaultDescription gives LLMs clear prompt guidance on when to invoke this tool, and is reused across postgres prebuilts.
 // The category list is derived from DefaultCategories so it stays the single source of truth.
 var defaultDescription = fmt.Sprintf(`Persist a single, discrete fact about the user, their project, or their preferences so it can be recalled in future sessions (e.g. "All timestamps in the orders DB are stored in EST", "User prefers tabs over spaces in Go", "Fix for build error X is Y").
+Before calling this tool, use search_memory to check whether a semantically equivalent or conflicting memory already exists.
 
 Before inserting, the tool checks for existing memories in the same category with identical content:
 - status "created": the memory was stored.
-- status "duplicate": an equivalent memory already exists; it was NOT re-created and its salience was refreshed instead.
+- status "duplicate": an identical memory already exists; it was NOT re-created and its salience was refreshed instead.
 
 Keep content short, self-contained and in the third person. Choose exactly one category of the following: %q.`, memory.DefaultCategories)
 
@@ -101,6 +103,9 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if userParam := cfg.UserIDParameter(); userParam != nil {
 		allParameters = append(allParameters, userParam)
 	}
+	if embParam := cfg.EmbeddingParameter("content_embedding", "content"); embParam != nil {
+		allParameters = append(allParameters, embParam)
+	}
 
 	return Tool{
 		BaseTool: tools.NewBaseTool(
@@ -122,6 +127,10 @@ type Result struct {
 	Status  string         `json:"status"`
 	Message string         `json:"message"`
 	Memory  *memory.Memory `json:"memory,omitempty"`
+}
+
+func (t Tool) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, pMgr tools.PrimitiveManagerI) (parameters.ParamValues, error) {
+	return parameters.EmbedParams(ctx, t.StaticParameters, paramValues, pMgr, embeddingmodels.FormatVectorForPgvector)
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
@@ -156,12 +165,21 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	isPinned, _ := p["is_pinned"].(bool)
 
-	if logger != nil {
-		logger.InfoContext(ctx, fmt.Sprintf("create_memory: preparing insert for user=%q, category=%q, is_global=%t, content_len=%d", userID, category, isGlobal, len(content)))
+	useVector := t.Cfg.EmbeddingModel != ""
+	var embedding string
+	if useVector {
+		embedding = strings.TrimSpace(asString(p["content_embedding"]))
+		if embedding == "" {
+			return nil, util.NewClientServerError("missing content_embedding parameter value", http.StatusInternalServerError, nil)
+		}
 	}
 
-	// Lazy bootstrap to create the memory table if it doesn't exist yet.
-	if err := memory.EnsureMemoryTable(ctx, pool, table); err != nil {
+	if logger != nil {
+		logger.InfoContext(ctx, fmt.Sprintf("create_memory: preparing insert for user=%q, category=%q, is_global=%t, content_len=%d, vector=%t", userID, category, isGlobal, len(content), useVector))
+	}
+
+	// Lazy bootstrap to create the memory table (and vector extension/column when configured) if it doesn't exist yet.
+	if err := memory.EnsureMemoryTable(ctx, pool, table, useVector); err != nil {
 		if logger != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("create_memory: table bootstrap failed: %v", err))
 		}
@@ -194,13 +212,40 @@ LIMIT 1`, memory.Columns, table, memory.ScopeClause("$1"))
 			logger.InfoContext(ctx, fmt.Sprintf("create_memory: duplicate found (id=%s); refreshing salience", dup.MemoryID))
 		}
 
-		// If a duplicate exists, we "refresh" its salience by bumping access_count and last_accessed_at, and return status "duplicate".
-		refreshed, err := memory.Touch(ctx, pool, table, dup.MemoryID)
-		if err != nil {
-			if logger != nil {
-				logger.ErrorContext(ctx, fmt.Sprintf("create_memory: refresh existing memory failed: %v", err))
+		var refreshed memory.Memory
+		if useVector {
+			// Refresh salience and ensure the duplicate's embedding and embedding_model are populated for the active model.
+			touchSQL := fmt.Sprintf(`UPDATE %s
+SET access_count = access_count + 1,
+    last_accessed_at = NOW(),
+    embedding = $2::vector,
+    embedding_model = $3
+WHERE memory_id = $1::uuid
+RETURNING %s`, table, memory.Columns)
+			tRows, tErr := pool.Query(ctx, touchSQL, dup.MemoryID, embedding, t.Cfg.EmbeddingModel)
+			if tErr != nil {
+				if logger != nil {
+					logger.ErrorContext(ctx, fmt.Sprintf("create_memory: refresh existing memory failed: %v", tErr))
+				}
+				return nil, util.ProcessGeneralError(tErr)
 			}
-			return nil, util.ProcessGeneralError(err)
+			ms, cErr := memory.CollectMemories(tRows)
+			if cErr != nil {
+				return nil, util.ProcessGeneralError(cErr)
+			}
+			if len(ms) != 1 {
+				return nil, util.NewClientServerError("duplicate refresh returned no row", http.StatusInternalServerError, nil)
+			}
+			refreshed = ms[0]
+		} else {
+			var tErr error
+			refreshed, tErr = memory.Touch(ctx, pool, table, dup.MemoryID)
+			if tErr != nil {
+				if logger != nil {
+					logger.ErrorContext(ctx, fmt.Sprintf("create_memory: refresh existing memory failed: %v", tErr))
+				}
+				return nil, util.ProcessGeneralError(tErr)
+			}
 		}
 		return Result{
 			Status:  "duplicate",
@@ -210,11 +255,23 @@ LIMIT 1`, memory.Columns, table, memory.ScopeClause("$1"))
 	}
 
 	// Insert the new memory record and scan the newly generated row using memory.Columns.
-	insert := fmt.Sprintf(`INSERT INTO %s (user_id, is_global, category, content, is_pinned)
+	var (
+		insert     string
+		insertArgs []any
+	)
+	if useVector {
+		insert = fmt.Sprintf(`INSERT INTO %s (user_id, is_global, category, content, is_pinned, embedding, embedding_model)
+VALUES ($1, $2, $3, $4, $5, $6::vector, $7)
+RETURNING %s`, table, memory.Columns)
+		insertArgs = []any{userID, isGlobal, category, content, isPinned, embedding, t.Cfg.EmbeddingModel}
+	} else {
+		insert = fmt.Sprintf(`INSERT INTO %s (user_id, is_global, category, content, is_pinned)
 VALUES ($1, $2, $3, $4, $5)
 RETURNING %s`, table, memory.Columns)
+		insertArgs = []any{userID, isGlobal, category, content, isPinned}
+	}
 
-	rows, err = pool.Query(ctx, insert, userID, isGlobal, category, content, isPinned)
+	rows, err = pool.Query(ctx, insert, insertArgs...)
 	if err != nil {
 		if logger != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("create_memory: INSERT failed: %v", err))

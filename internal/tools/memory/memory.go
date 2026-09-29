@@ -40,6 +40,13 @@ const (
 
 	// DefaultUserIDField is the JWT claim field extracted for authenticated users.
 	DefaultUserIDField = "sub"
+
+	// EmbeddingDimensions is the fixed dimensionality of the pgvector embedding column.
+	EmbeddingDimensions = 768
+
+	// DefaultVectorThreshold is the default minimum cosine similarity score
+	// applied by search_memory when an embeddingModel is configured.
+	DefaultVectorThreshold = 0.5
 )
 
 // DefaultCategories defines the allowed category values shared across memory tools.
@@ -87,6 +94,7 @@ type Config struct {
 	tools.ConfigBase `yaml:",inline"`
 	Type             string                 `yaml:"type" validate:"required"`
 	Source           string                 `yaml:"source" validate:"required"`
+	EmbeddingModel   string                 `yaml:"embeddingModel,omitempty"`
 	TableName        string                 `yaml:"tableName"`
 	AuthService      string                 `yaml:"authService"`
 	UserIDField      string                 `yaml:"userIdField"`
@@ -96,6 +104,7 @@ type Config struct {
 
 // Resolve validates and populates default settings for the shared configuration.
 func (c Config) Resolve() (Config, error) {
+	c.EmbeddingModel = strings.TrimSpace(c.EmbeddingModel)
 	c.DefaultUserID = strings.TrimSpace(c.DefaultUserID)
 	c.UserIDField = strings.TrimSpace(c.UserIDField)
 	c.AuthService = strings.TrimSpace(c.AuthService)
@@ -140,6 +149,18 @@ func (c Config) UserIDParameter() parameters.Parameter {
 	)
 }
 
+// EmbeddingParameter builds a hidden parameter whose value is copied from sourceParam
+// and replaced by its pgvector literal before Invoke when EmbeddingModel is configured.
+func (c Config) EmbeddingParameter(name, sourceParam string) parameters.Parameter {
+	if c.EmbeddingModel == "" {
+		return nil
+	}
+	p := parameters.NewStringParameter(name, fmt.Sprintf("Embedding of %q.", sourceParam))
+	p.ValueFromParam = sourceParam
+	p.EmbeddedBy = c.EmbeddingModel
+	return p
+}
+
 // ResolveUserID resolves the user ID from the parameters or returns the default.
 // In auth mode, it extracts this claim from params. In unauthenticated mode, it returns DefaultUserID, set via env var.
 func (c Config) ResolveUserID(params parameters.ParamValues) (string, error) {
@@ -174,6 +195,7 @@ CREATE TABLE IF NOT EXISTS %s (
                          setweight(to_tsvector('english', coalesce(category, '')), 'B') ||
                          setweight(to_tsvector('english', content), 'A')
                      ) STORED,
+    embedding_model  TEXT,
     is_pinned        BOOLEAN NOT NULL DEFAULT FALSE,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -187,36 +209,69 @@ CREATE INDEX IF NOT EXISTS %s_category_user_idx ON %s (category, user_id, is_glo
 	return ddl, nil
 }
 
+// VectorSchema returns the DDL statements that enable pgvector and add the embedding
+// column, embedding_model column, and HNSW index if needed.
+func VectorSchema(table string) (string, error) {
+	if table == "" {
+		table = DefaultTableName
+	}
+	if !IsValidSQLIdentifier(table) {
+		return "", fmt.Errorf("invalid tableName %q: must be a valid SQL identifier", table)
+	}
+
+	idxPrefix := strings.ReplaceAll(table, ".", "_")
+	ddl := fmt.Sprintf(`
+CREATE EXTENSION IF NOT EXISTS vector;
+ALTER TABLE %[1]s ADD COLUMN IF NOT EXISTS embedding VECTOR(%[2]d);
+ALTER TABLE %[1]s ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+CREATE INDEX IF NOT EXISTS %[3]s_embedding_idx ON %[1]s USING hnsw (embedding vector_cosine_ops);
+`, table, EmbeddingDimensions, idxPrefix)
+
+	return ddl, nil
+}
+
 var (
 	tableMu    sync.Mutex
 	tablesDone = make(map[string]bool)
+	vectorDone = make(map[string]bool)
 )
 
 // EnsureMemoryTable creates the agent memories table and indexes once per table identifier.
-func EnsureMemoryTable(ctx context.Context, pool *pgxpool.Pool, table string) error {
+// When withVector is true, it also enables pgvector and adds the embedding and embedding_model columns.
+func EnsureMemoryTable(ctx context.Context, pool *pgxpool.Pool, table string, withVector ...bool) error {
 	if table == "" {
 		table = DefaultTableName
 	}
 	if !IsValidSQLIdentifier(table) {
 		return fmt.Errorf("invalid tableName %q: must be a valid SQL identifier", table)
 	}
+	needVector := len(withVector) > 0 && withVector[0]
 
 	tableMu.Lock()
 	defer tableMu.Unlock()
-	if tablesDone[table] {
-		return nil
+
+	if !tablesDone[table] {
+		ddl, err := Schema(table)
+		if err != nil {
+			return err
+		}
+		if _, err := pool.Exec(ctx, ddl); err != nil {
+			return fmt.Errorf("unable to bootstrap memory table %q: %w", table, err)
+		}
+		tablesDone[table] = true
 	}
 
-	ddl, err := Schema(table)
-	if err != nil {
-		return err
+	if needVector && !vectorDone[table] {
+		vddl, err := VectorSchema(table)
+		if err != nil {
+			return err
+		}
+		if _, err := pool.Exec(ctx, vddl); err != nil {
+			return fmt.Errorf("unable to bootstrap pgvector schema on table %q: %w (is the pgvector extension installed?)", table, err)
+		}
+		vectorDone[table] = true
 	}
 
-	if _, err := pool.Exec(ctx, ddl); err != nil {
-		return fmt.Errorf("unable to bootstrap memory table %q: %w", table, err)
-	}
-
-	tablesDone[table] = true
 	return nil
 }
 

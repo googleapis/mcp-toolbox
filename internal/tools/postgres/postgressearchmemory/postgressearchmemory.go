@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
+	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/memory"
@@ -76,6 +77,13 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		cfg.Description = defaultDescription
 	}
 
+	defaultThreshold := 0.0
+	thresholdDesc := "Minimum relevance score threshold range (0.0 to 1.0, defaults to 0.0)."
+	if cfg.EmbeddingModel != "" {
+		defaultThreshold = memory.DefaultVectorThreshold
+		thresholdDesc = fmt.Sprintf("Minimum relevance score threshold range (0.0 to 1.0, defaults to %.1f).", defaultThreshold)
+	}
+
 	allParameters := parameters.Parameters{
 		parameters.NewStringParameter(
 			"query",
@@ -95,13 +103,16 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		),
 		parameters.NewFloatParameter(
 			"threshold",
-			"Minimum relevance score threshold range (0.0 to 1.0, defaults to 0.0).",
-			parameters.WithFloatDefault(0.0),
+			thresholdDesc,
+			parameters.WithFloatDefault(defaultThreshold),
 		),
 	}
 
 	if userParam := cfg.UserIDParameter(); userParam != nil {
 		allParameters = append(allParameters, userParam)
+	}
+	if embParam := cfg.EmbeddingParameter("query_embedding", "query"); embParam != nil {
+		allParameters = append(allParameters, embParam)
 	}
 
 	return Tool{
@@ -124,6 +135,10 @@ type Result struct {
 	Status   string          `json:"status"`
 	Message  string          `json:"message"`
 	Memories []memory.Memory `json:"memories"`
+}
+
+func (t Tool) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, pMgr tools.PrimitiveManagerI) (parameters.ParamValues, error) {
+	return parameters.EmbedParams(ctx, t.StaticParameters, paramValues, pMgr, embeddingmodels.FormatVectorForPgvector)
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
@@ -153,38 +168,89 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError(err.Error(), http.StatusBadRequest, err)
 	}
 
+	useVector := t.Cfg.EmbeddingModel != ""
+	defaultThreshold := 0.0
+	if useVector {
+		defaultThreshold = memory.DefaultVectorThreshold
+	}
 	category := strings.TrimSpace(asString(p["category"]))
 	topK := asInt(p["top_k"], 5)
-	threshold := asFloat(p["threshold"], 0.0)
+	threshold := asFloat(p["threshold"], defaultThreshold)
 
-	if logger != nil {
-		logger.InfoContext(ctx, fmt.Sprintf("search_memory: querying table=%q user=%q category=%q top_k=%d threshold=%f", table, userID, category, topK, threshold))
+	var embedding string
+	if useVector {
+		embedding = strings.TrimSpace(asString(p["query_embedding"]))
+		if embedding == "" {
+			return nil, util.NewClientServerError("missing query_embedding parameter value", http.StatusInternalServerError, nil)
+		}
 	}
 
-	// Lazy bootstrap to ensure the memory table exists before querying.
-	if err := memory.EnsureMemoryTable(ctx, pool, table); err != nil {
+	if logger != nil {
+		logger.InfoContext(ctx, fmt.Sprintf("search_memory: querying table=%q user=%q category=%q top_k=%d threshold=%f vector=%t", table, userID, category, topK, threshold, useVector))
+	}
+
+	// Lazy bootstrap to ensure the memory table (and vector extension/column when configured) exists before querying.
+	if err := memory.EnsureMemoryTable(ctx, pool, table, useVector); err != nil {
 		if logger != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("search_memory: table bootstrap failed: %v", err))
 		}
 		return nil, util.NewAgentError(fmt.Sprintf("database setup error: %v", err), err)
 	}
 
-	args := []any{query, userID}
-	filters := ""
-	if category != "" {
-		args = append(args, category)
-		filters += fmt.Sprintf(" AND category = $%d", len(args))
-	}
-	if threshold > 0 {
-		args = append(args, threshold)
-		filters += fmt.Sprintf(" AND ts_rank(m.tsv, q.tsq) >= $%d", len(args))
-	}
-	args = append(args, topK)
-	limitParam := fmt.Sprintf("$%d", len(args))
+	var (
+		querySQL string
+		args     []any
+	)
+	if useVector {
+		args = []any{embedding, userID, t.Cfg.EmbeddingModel}
+		filters := ""
+		if category != "" {
+			args = append(args, category)
+			filters += fmt.Sprintf(" AND category = $%d", len(args))
+		}
+		if threshold > 0 {
+			args = append(args, 1.0-threshold)
+			filters += fmt.Sprintf(" AND m.embedding <=> $1::vector <= $%d", len(args))
+		}
+		args = append(args, topK)
+		limitParam := fmt.Sprintf("$%d", len(args))
 
-	// Match memories sharing any query term (lexemes OR'd), ranked by relevance, and atomically bump
-	// access_count/last_accessed_at so the returned rows always match the database.
-	querySQL := fmt.Sprintf(`WITH q AS (
+		// Rank memories embedded with the active model by cosine distance (<=>) and atomically bump
+		// access_count/last_accessed_at so the returned rows always match the database.
+		querySQL = fmt.Sprintf(`WITH hits AS (
+    SELECT m.memory_id,
+           1 - (m.embedding <=> $1::vector) AS score,
+           m.last_accessed_at AS prev_accessed_at
+    FROM %[1]s AS m
+    WHERE %[2]s AND m.embedding IS NOT NULL AND m.embedding_model = $3%[3]s
+    ORDER BY m.embedding <=> $1::vector ASC, m.is_pinned DESC, m.last_accessed_at DESC
+    LIMIT %[4]s
+), refreshed AS (
+    UPDATE %[1]s AS m
+    SET access_count = m.access_count + 1, last_accessed_at = NOW()
+    FROM hits
+    WHERE m.memory_id = hits.memory_id
+    RETURNING m.memory_id::text AS memory_id, m.user_id, m.is_global, m.category, m.content, m.is_pinned, m.created_at, m.updated_at, m.last_accessed_at, m.access_count, hits.score, hits.prev_accessed_at
+)
+SELECT %[5]s, score FROM refreshed ORDER BY score DESC, is_pinned DESC, prev_accessed_at DESC`,
+			table, memory.ScopeClause("$2"), filters, limitParam, memory.Columns)
+	} else {
+		args = []any{query, userID}
+		filters := ""
+		if category != "" {
+			args = append(args, category)
+			filters += fmt.Sprintf(" AND category = $%d", len(args))
+		}
+		if threshold > 0 {
+			args = append(args, threshold)
+			filters += fmt.Sprintf(" AND ts_rank(m.tsv, q.tsq) >= $%d", len(args))
+		}
+		args = append(args, topK)
+		limitParam := fmt.Sprintf("$%d", len(args))
+
+		// Match memories sharing any query term (lexemes OR'd), ranked by relevance, and atomically bump
+		// access_count/last_accessed_at so the returned rows always match the database.
+		querySQL = fmt.Sprintf(`WITH q AS (
     SELECT NULLIF(replace(plainto_tsquery('english', $1)::text, ' & ', ' | '), '')::tsquery AS tsq
 ), hits AS (
     SELECT m.memory_id, ts_rank(m.tsv, q.tsq) AS score, m.last_accessed_at AS prev_accessed_at
@@ -200,7 +266,8 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
     RETURNING m.memory_id::text AS memory_id, m.user_id, m.is_global, m.category, m.content, m.is_pinned, m.created_at, m.updated_at, m.last_accessed_at, m.access_count, hits.score, hits.prev_accessed_at
 )
 SELECT %[5]s, score FROM refreshed ORDER BY score DESC, is_pinned DESC, prev_accessed_at DESC`,
-		table, memory.ScopeClause("$2"), filters, limitParam, memory.Columns)
+			table, memory.ScopeClause("$2"), filters, limitParam, memory.Columns)
+	}
 
 	rows, err := pool.Query(ctx, querySQL, args...)
 	if err != nil {

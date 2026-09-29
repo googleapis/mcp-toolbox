@@ -54,15 +54,17 @@ func TestParseFromYaml(t *testing.T) {
             source: my-pg
             authService: my-auth
             userIdField: email
+            embeddingModel: my-embed
 	`
 	want := server.ToolConfigs{
 		"update_memory": postgresupdatememory.Config{
 			Config: memory.Config{
-				ConfigBase:  tools.ConfigBase{Name: "update_memory", AuthRequired: []string{}},
-				Type:        "postgres-update-memory",
-				Source:      "my-pg",
-				AuthService: "my-auth",
-				UserIDField: "email",
+				ConfigBase:     tools.ConfigBase{Name: "update_memory", AuthRequired: []string{}},
+				Type:           "postgres-update-memory",
+				Source:         "my-pg",
+				AuthService:    "my-auth",
+				UserIDField:    "email",
+				EmbeddingModel: "my-embed",
 			},
 		},
 	}
@@ -172,6 +174,46 @@ func TestInitializeParameters(t *testing.T) {
 		wantParamNames := []string{"memory_id", "content", "category", "is_pinned", "user_id"}
 		if diff := cmp.Diff(wantParamNames, gotParamNames); diff != "" {
 			t.Errorf("parameters diff: %s", diff)
+		}
+	})
+
+	t.Run("embeddingModel adds hidden content_embedding parameter", func(t *testing.T) {
+		cfg := postgresupdatememory.Config{
+			Config: memory.Config{
+				ConfigBase:     tools.ConfigBase{Name: "update_memory"},
+				Type:           "postgres-update-memory",
+				Source:         "pg",
+				EmbeddingModel: "my-embed",
+			},
+		}
+		tool, err := cfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		manifest, err := tool.Manifest(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		for _, p := range manifest.Parameters {
+			if p.Name == "content_embedding" {
+				t.Errorf("content_embedding must be hidden from manifest")
+			}
+		}
+		params, err := tool.GetParameters(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		var found bool
+		for _, p := range params {
+			if p.GetName() == "content_embedding" {
+				found = true
+				if p.GetEmbeddedBy() != "my-embed" || p.GetValueFromParam() != "content" {
+					t.Errorf("unexpected content_embedding config: embeddedBy=%q valueFromParam=%q", p.GetEmbeddedBy(), p.GetValueFromParam())
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("expected content_embedding parameter when embeddingModel is set")
 		}
 	})
 
