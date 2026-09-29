@@ -15,9 +15,9 @@ require (
 	cloud.google.com/go/dataplex v1.35.0
 	cloud.google.com/go/dataproc/v2 v2.23.0
 	cloud.google.com/go/firestore v1.22.0
-	cloud.google.com/go/geminidataanalytics v1.2.0
+	cloud.google.com/go/geminidataanalytics v1.4.0
 	cloud.google.com/go/logging v1.18.0
-	cloud.google.com/go/longrunning v1.0.0
+	cloud.google.com/go/longrunning v1.2.0
 	cloud.google.com/go/resourcemanager v1.15.0
 	cloud.google.com/go/spanner v1.92.0
 	cloud.google.com/go/storage v1.62.3
@@ -48,7 +48,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/gax-go/v2 v2.22.0
+	github.com/googleapis/gax-go/v2 v2.23.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/looker-open-source/sdk-codegen/go v0.26.10
@@ -82,7 +82,7 @@ require (
 	golang.org/x/mod v0.37.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
-	google.golang.org/api v0.285.0
+	google.golang.org/api v0.287.1
 	google.golang.org/genai v1.61.0
 	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94
 	google.golang.org/grpc v1.83.0
@@ -199,7 +199,7 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.16 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.17 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c // indirect

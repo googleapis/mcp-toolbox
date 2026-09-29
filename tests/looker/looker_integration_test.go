@@ -2380,7 +2380,7 @@ func TestLooker(t *testing.T) {
 	tests.RunToolInvokeParametersTest(t, "get_field_value_suggestions", []byte(`{"model": "system__activity", "explore": "history", "field": "history.source"}`), wantResult)
 
 	// Verify that the suggestions list contains the expected values
-	wantSuggestions := []string{"api4", "dashboard", "explore", "merge_query", "regenerator", "sqlrunner", "suggest"}
+	wantSuggestions := []string{"api4", "dashboard", "explore", "regenerator", "sqlrunner", "suggest"}
 	testFieldValueSuggestions(t, "basic", []byte("{\"model\": \"system__activity\", \"explore\": \"history\", \"field\": \"history.source\"}"), wantSuggestions)
 
 	// Verify that search term filtering works

@@ -184,6 +184,30 @@ func TestParseEnv(t *testing.T) {
 			wantOptional: []string{"DB_PORT"},
 		},
 		{
+			desc: "multiline yaml with env var between comment blocks",
+			in: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: ${FOO}\n" +
+				"# Another comment block\n",
+			env: map[string]string{
+				"FOO": "bar",
+			},
+			want: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: bar\n" +
+				"# Another comment block\n",
+		},
+		{
 			desc:         "with default without env",
 			in:           "${FOO:}",
 			want:         "",
@@ -1850,6 +1874,7 @@ func TestPrebuiltTools(t *testing.T) {
 	alloydb_config, _ := prebuiltconfigs.Get("alloydb-postgres")
 	alloydbobsvconfig, _ := prebuiltconfigs.Get("alloydb-postgres-observability")
 	bigquery_config, _ := prebuiltconfigs.Get("bigquery")
+	bigtable_config, _ := prebuiltconfigs.Get("bigtable")
 	clickhouse_config, _ := prebuiltconfigs.Get("clickhouse")
 	cloudhealthcare_config, _ := prebuiltconfigs.Get("cloud-healthcare")
 	cloudsqlmssql_config, _ := prebuiltconfigs.Get("cloud-sql-mssql")
@@ -1888,6 +1913,8 @@ func TestPrebuiltTools(t *testing.T) {
 	t.Setenv("API_KEY", "your_api_key")
 
 	t.Setenv("BIGQUERY_PROJECT", "your_gcp_project_id")
+	t.Setenv("BIGTABLE_PROJECT", "your_gcp_project_id")
+	t.Setenv("BIGTABLE_INSTANCE", "your_bigtable_instance")
 	t.Setenv("DATAPLEX_PROJECT", "your_gcp_project_id")
 	t.Setenv("FIRESTORE_PROJECT", "your_gcp_project_id")
 	t.Setenv("FIRESTORE_DATABASE", "your_firestore_db_name")
@@ -2169,6 +2196,27 @@ func TestPrebuiltTools(t *testing.T) {
 					Name:        "analytics",
 					Description: `Use these skills when you need to handle advanced data intelligence and predictive tasks. Use when a user asks "why" data changed or needs future projections. Provides automated insight generation and time-series forecasting.`,
 					ToolNames:   []string{"analyze_contribution", "ask_data_insights", "forecast", "search_catalog"},
+				},
+			},
+		},
+		{
+			name: "bigtable prebuilt tools",
+			in:   bigtable_config,
+			wantGroups: server.GroupConfigs{
+				"admin": group.GroupConfig{
+					Name:        "admin",
+					Description: "Use these tools when you need to create, get, list, update, or delete Bigtable instances and clusters.",
+					ToolNames:   []string{"create_instance", "get_instance", "list_instances", "update_instance", "delete_instance", "create_cluster", "get_cluster", "list_clusters", "update_cluster", "delete_cluster"},
+				},
+				"data": group.GroupConfig{
+					Name:        "data",
+					Description: "Use these tools when you need to list Bigtable schemas, create, get, list, update, or delete tables, and execute GoogleSQL queries.",
+					ToolNames:   []string{"execute_sql", "list_schemas", "list_tables", "get_table", "create_table", "update_table", "delete_table"},
+				},
+				"views": group.GroupConfig{
+					Name:        "views",
+					Description: "Use these tools when you need to create, get, list, update, or delete Bigtable logical views and materialized views.",
+					ToolNames:   []string{"create_logical_view", "get_logical_view", "list_logical_views", "update_logical_view", "delete_logical_view", "create_materialized_view", "get_materialized_view", "list_materialized_views", "update_materialized_view", "delete_materialized_view"},
 				},
 			},
 		},
@@ -2639,6 +2687,21 @@ func TestPrebuiltTools(t *testing.T) {
 				for tsName, ts := range configFile.Groups {
 					if len(ts.ToolNames) > 10 {
 						t.Logf("WARNING: Group %q in config %q has %d tools, which is larger than the recommended maximum of 10.", tsName, tc.name, len(ts.ToolNames))
+					}
+				}
+			})
+
+			t.Run("initialize tools", func(t *testing.T) {
+				for tName, tCfg := range configFile.Tools {
+					tool, err := tCfg.Initialize(ctx)
+					if err != nil {
+						t.Fatalf("failed to initialize tool %q in config %q: %v", tName, tc.name, err)
+					}
+					if tool.GetName() != tName {
+						t.Errorf("tool name mismatch: got %q, want %q", tool.GetName(), tName)
+					}
+					if tc.name == "bigtable prebuilt tools" && tool.GetDescription() == "" {
+						t.Errorf("tool %q in config %q has empty description", tName, tc.name)
 					}
 				}
 			})
