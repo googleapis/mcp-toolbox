@@ -102,7 +102,7 @@ func validateSkill(ctx context.Context, root string, members []resources.Resourc
 	}
 
 	e := Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}
-	if err := e.validate(false); err != nil {
+	if err := e.Validate(false); err != nil {
 		return Skill{}, err
 	}
 	return Skill{URI: skillURI, Frontmatter: frontmatter}, nil
