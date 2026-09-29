@@ -16,8 +16,10 @@ package tools_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -27,6 +29,28 @@ import (
 
 // Compile-time check: ConfigBase satisfies ToolMeta on its own.
 var _ tools.ToolMeta = tools.ConfigBase{}
+
+func TestConfigBaseAnnotationsYAML(t *testing.T) {
+	data := []byte(`name: my-tool
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+`)
+	var cfg struct {
+		tools.ConfigBase `yaml:",inline"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	want := &tools.ToolAnnotations{
+		ReadOnlyHint:    testutils.BoolPtr(true),
+		DestructiveHint: testutils.BoolPtr(false),
+	}
+	if diff := cmp.Diff(want, cfg.Annotations); diff != "" {
+		t.Errorf("ConfigBase.Annotations mismatch (-want +got):\n%s", diff)
+	}
+}
 
 func newBaseTool() (tools.BaseTool[tools.ConfigBase], tools.Manifest) {
 	cfg := tools.ConfigBase{
@@ -211,8 +235,7 @@ func TestShouldSuppress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
 			cfg := testutils.MockToolConfig{
-				ConfigBase:  tools.ConfigBase{Name: "my-tool"},
-				Annotations: tt.annotations,
+				ConfigBase: tools.ConfigBase{Name: "my-tool", Annotations: tt.annotations},
 			}
 			tool, err := cfg.Initialize(context.Background())
 			if err != nil {
@@ -220,6 +243,54 @@ func TestShouldSuppress(t *testing.T) {
 			}
 			if got := tools.ShouldSuppress(context.Background(), tool, tt.src); got != tt.want {
 				t.Errorf("ShouldSuppress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigBase_GetToolUIMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   tools.ConfigBase
+		expected *tools.ToolUIMetadata
+	}{
+		{
+			name:     "no ui config",
+			config:   tools.ConfigBase{},
+			expected: nil,
+		},
+		{
+			name: "ui config with resource",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource: "my-resource",
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityModel, tools.VisibilityApp},
+			},
+		},
+		{
+			name: "ui config with visibility",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource:   "my-resource",
+					Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.config.GetToolUIMetadata()
+			if !reflect.DeepEqual(got, tc.expected) {
+				t.Errorf("GetToolUIMetadata() mismatch: expected %v, got %v", tc.expected, got)
 			}
 		})
 	}

@@ -15,11 +15,17 @@
 package internal
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 )
@@ -144,6 +150,102 @@ func TestLoadConfig(t *testing.T) {
 						t.Errorf("unexpected error message:\ngot:  %q\nwant: %q", err.Error(), tc.wantErr)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestCheckVersion(t *testing.T) {
+	tcs := []struct {
+		desc                string
+		currentVersion      string
+		remoteVersion       string
+		httpStatus          int
+		disableVersionCheck bool
+		wantInfoLog         string
+	}{
+		{
+			desc:           "outdated version logs warning",
+			currentVersion: "1.7.0",
+			remoteVersion:  "v1.8.0",
+			httpStatus:     http.StatusOK,
+			wantInfoLog:    "A newer version of MCP Toolbox is available: (v1.7.0 -> v1.8.0)",
+		},
+		{
+			desc:           "up to date version logs nothing",
+			currentVersion: "1.8.0",
+			remoteVersion:  "v1.8.0",
+			httpStatus:     http.StatusOK,
+		},
+		{
+			desc:           "ahead of release logs nothing",
+			currentVersion: "1.9.0",
+			remoteVersion:  "v1.8.0",
+			httpStatus:     http.StatusOK,
+		},
+		{
+			desc:                "flag disabled skips check",
+			currentVersion:      "1.7.0",
+			remoteVersion:       "v1.8.0",
+			httpStatus:          http.StatusOK,
+			disableVersionCheck: true,
+		},
+		{
+			desc:           "empty version string skips check",
+			currentVersion: "",
+			remoteVersion:  "v1.8.0",
+			httpStatus:     http.StatusOK,
+		},
+		{
+			desc:           "github rate limited or 500 error fails gracefully",
+			currentVersion: "1.7.0",
+			httpStatus:     http.StatusForbidden,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.httpStatus)
+				if tc.httpStatus == http.StatusOK {
+					_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": tc.remoteVersion})
+				}
+			}))
+			defer ts.Close()
+
+			origURL := githubReleasesURL
+			githubReleasesURL = ts.URL
+			defer func() { githubReleasesURL = origURL }()
+
+			buf := new(bytes.Buffer)
+			logger, err := log.NewLogger("standard", "DEBUG", buf, buf)
+			if err != nil {
+				t.Fatalf("failed to create test logger: %v", err)
+			}
+			opts := &ToolboxOptions{
+				Logger:     logger,
+				VersionNum: tc.currentVersion,
+				Cfg: server.ServerConfig{
+					DisableVersionCheck: tc.disableVersionCheck,
+				},
+				IOStreams: IOStreams{Out: buf, ErrOut: buf},
+			}
+
+			opts.checkVersion(context.Background())
+			output := buf.String()
+
+			if tc.wantInfoLog == "" {
+				if strings.Contains(output, "INFO") {
+					t.Errorf("expected no INFO log, but got: %s", output)
+				}
+				return
+			}
+
+			if !strings.Contains(output, "INFO") {
+				t.Errorf("expected log level to be INFO, but got: %s", output)
+			}
+			if !strings.Contains(output, tc.wantInfoLog) {
+				t.Errorf("expected info log containing %q, but got: %s", tc.wantInfoLog, output)
 			}
 		})
 	}

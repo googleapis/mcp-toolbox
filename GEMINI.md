@@ -20,6 +20,9 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 -   `cmd/`: Application entry points.
 -   `internal/sources/`: Implementations of database sources (e.g., Postgres, BigQuery).
 -   `internal/tools/`: Implementations of specific tools for each source.
+-   `internal/prompts/`: Implementations of MCP prompts.
+-   `internal/resources/`: Implementations of MCP resources and resource templates (e.g., text, file).
+-   `internal/group/`: Implementations of groups scoping tools, prompts, resources, and resource templates.
 -   `tests/`: Integration tests.
 -   `evals/`: Evalsets and harness configs for evaluating the prebuilt tool configs with [EvalBench](https://github.com/googlecloudplatform/evalbench); run by `.ci/evals.cloudbuild.yaml`.
 -   `docs/en`: Project documentation. Separated logically into:
@@ -160,11 +163,12 @@ Use the format: `Fixes #<issue_number> 🦕`
 4.  Implement `Source` interface (`SourceType`, `ToConfig`).
 5.  Implement `init()` to register the source.
 6.  Add unit tests in `internal/sources/<newdb>/<newdb>_test.go`.
+7.  **Google Cloud Databases:** For every Google Cloud database, ensure a corresponding `product: <database>` label is added to `.github/labels.yaml`, routing is configured in `.github/blunderbuss.yml` (under both `assign_issues_by` and `assign_prs_by`), and the GitHub team is team-synced from an MDB group with write access to the repo.
 
 ### Adding a New Tool
 
 1.  Create a new directory: `internal/tools/<newdb>/<toolname>`.
-2.  Define a `Config` struct that **embeds `tools.ConfigBase`** (with `yaml:",inline"`). This supplies the shared `name`, `description`, `authRequired`, and `scopesRequired` fields and their getters — add only tool-specific fields and do not redeclare the shared ones.
+2.  Define a `Config` struct that **embeds `tools.ConfigBase`** (with `yaml:",inline"`). This supplies the shared `name`, `description`, `authRequired`, `scopesRequired`, and `annotations` fields and the applicable getters — add only tool-specific fields and do not redeclare the shared ones.
 3.  Define a `Tool` struct that **embeds `tools.BaseTool[Config]`**. Do *not* re-declare the boilerplate `Tool` methods (`GetName`, `GetDescription`, `Manifest`, `GetParameters`, `Authorized`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, `EmbedParams`, etc.) — they are inherited from `BaseTool`.
 4.  Implement `ToolConfig` interface (`ToolConfigType`, `Initialize`). In `Initialize`, construct the tool via `tools.NewBaseTool(cfg, annotations, manifest, staticParameters)`.
 5.  Implement only the methods `BaseTool` does not provide: `Invoke` and `ToConfig`. Override an inherited method (e.g. `EmbedParams`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`) **only** when the tool's behavior differs from the default.
@@ -177,6 +181,7 @@ Refer to `internal/tools/postgres/postgressql/postgressql.go` for the canonical 
 
 -   **For a new source:** Add source documentation to `docs/en/integrations/<source_name>/source.md`. Ensure the root `_index.md` file contains **strictly only frontmatter** and no markdown body text.
 -   **For a new native tool:** Add tool documentation to `docs/en/integrations/<source_name>/tools/<tool_name>.md`. Ensure the `tools/_index.md` file contains **strictly only frontmatter**.
+-   **For a new resource:** Add resource documentation to `docs/en/documentation/configuration/resources/<resource_type>.md`.
 -   **Adding Integration Samples:** Add integration-specific samples to `docs/en/integrations/<source_name>/samples/`. Ensure the `samples/_index.md` file contains **strictly only frontmatter**.
 -   **Tool Inheritance (Shared Tools):** Managed databases (e.g., Cloud SQL Postgres) that use the tools of their underlying engine (e.g., Postgres) map their inherited tools by utilizing the `shared_tools` frontmatter parameter inside their `tools/_index.md` file. This file must contain only frontmatter.
 -   **New Top-Level Directories:** If adding a completely new top-level section to the documentation site, you must update the "Diátaxis Narrative Framework" section inside both `.hugo/layouts/index.llms.txt` and `.hugo/layouts/index.llms-full.txt` to keep the AI context synced with the site structure.
@@ -244,4 +249,3 @@ Sample code is aggregated visually in the UI via the Samples section, but the ph
 ##### Asset Constraints (`docs/`)
 
 1.  **File Size Limits:** Never add files larger than 24MB to the `docs/` directory.
-

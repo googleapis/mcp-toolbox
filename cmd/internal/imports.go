@@ -18,6 +18,10 @@ import (
 	// Import prompt packages for side effect of registration
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
 
+	// Import resource packages for side effect of registration
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
+
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbadmin"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/arcadedb"

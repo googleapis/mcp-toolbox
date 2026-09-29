@@ -1940,19 +1940,17 @@ func TestLooker(t *testing.T) {
 				"parameters": []any{
 					map[string]any{
 						"authServices": []any{},
-						"description":  "Type of Looker content to embed (ie. dashboards, looks, query-visualization)",
+						"description":  "Type of Looker content to embed (e.g. dashboards, looks, query-visualizations, or explores).",
 						"name":         "type",
-						"required":     false,
+						"required":     true,
 						"type":         "string",
-						"default":      "",
 					},
 					map[string]any{
 						"authServices": []any{},
 						"description":  "The ID of the content to embed.",
 						"name":         "id",
-						"required":     false,
+						"required":     true,
 						"type":         "string",
-						"default":      "",
 					},
 				},
 			},
@@ -2382,7 +2380,7 @@ func TestLooker(t *testing.T) {
 	tests.RunToolInvokeParametersTest(t, "get_field_value_suggestions", []byte(`{"model": "system__activity", "explore": "history", "field": "history.source"}`), wantResult)
 
 	// Verify that the suggestions list contains the expected values
-	wantSuggestions := []string{"api4", "dashboard", "explore", "merge_query", "regenerator", "sqlrunner", "suggest"}
+	wantSuggestions := []string{"api4", "dashboard", "explore", "regenerator", "sqlrunner", "suggest"}
 	testFieldValueSuggestions(t, "basic", []byte("{\"model\": \"system__activity\", \"explore\": \"history\", \"field\": \"history.source\"}"), wantSuggestions)
 
 	// Verify that search term filtering works
@@ -2392,7 +2390,7 @@ func TestLooker(t *testing.T) {
 	// Verify that conditional filtering based on other fields works
 	testFieldValueSuggestions(t, "with_filtering", []byte(`{"model": "system__activity", "explore": "history", "field": "history.source", "filters": {"history.status": "complete"}}`), wantSuggestions)
 
-	wantResult = "{\"description\":\"\",\"label\":\"API Usage\",\"label_short\":\"API Usage\",\"name\":\"turtle::api_usage\",\"suggestable\":false,\"type\":\"turtle_look\"}"
+	wantResult = "{\"description\":\"The total number of views via the Looker API\",\"label\":\"Content Usage API Total\",\"label_short\":\"API Total\",\"name\":\"content_usage.api_total\",\"suggestable\":false,\"type\":\"sum\"}"
 	tests.RunToolInvokeParametersTest(t, "get_measures", []byte(`{"model": "system__activity", "explore": "content_usage"}`), wantResult)
 
 	wantResult = "[]"
