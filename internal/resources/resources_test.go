@@ -257,6 +257,101 @@ func TestResourceConfigBaseValidateDynamic(t *testing.T) {
 	}
 }
 
+func TestValidateSkillURI(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		uri     string
+		wantErr string
+	}{
+		{desc: "SKILL.md", uri: "skill://analytics-guide/SKILL.md"},
+		{desc: "nested skill path", uri: "skill://org/team/analytics-guide/SKILL.md"},
+		{desc: "supporting file", uri: "skill://analytics-guide/references/queries.md"},
+		// Only skill:// URIs are checked; other schemes keep their own rules.
+		{desc: "non-skill uri with a query", uri: "text://anything?x=1"},
+		{desc: "non-skill uri with an uppercase name", uri: "file://org/Bad_Name/SKILL.md"},
+		{
+			desc:    "invalid skill name",
+			uri:     "skill://org/Bad_Name/SKILL.md",
+			wantErr: `skill name "Bad_Name" may only contain lowercase letters, digits, and hyphens`,
+		},
+		{
+			desc:    "skill name with consecutive hyphens",
+			uri:     "skill://analytics--guide/SKILL.md",
+			wantErr: `skill name "analytics--guide" contains consecutive hyphens`,
+		},
+		{desc: "query", uri: "skill://analytics-guide/SKILL.md?x=1", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "fragment", uri: "skill://analytics-guide/SKILL.md#top", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "userinfo", uri: "skill://user@analytics-guide/SKILL.md", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "empty segment", uri: "skill://analytics-guide//SKILL.md", wantErr: "has an empty or relative path segment"},
+		{desc: "relative segment", uri: "skill://analytics-guide/../SKILL.md", wantErr: "has an empty or relative path segment"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := resources.ValidateSkillURI(tc.uri)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateSkillURI(%q): got %v, want nil", tc.uri, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateSkillURI(%q): got nil, want %q", tc.uri, tc.wantErr)
+			}
+			if err.Error() != tc.wantErr {
+				t.Errorf("ValidateSkillURI(%q): got %q, want %q", tc.uri, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestResourceConfigBaseSkillDoc checks that a SKILL.md reports its frontmatter
+// identity once SetSkillDoc is called, and its config identity otherwise.
+func TestResourceConfigBaseSkillDoc(t *testing.T) {
+	newBase := func() resources.ResourceConfigBase {
+		return resources.ResourceConfigBase{
+			ConfigBase: resources.ConfigBase{
+				Name:        "guide",
+				Description: "configured description",
+				MimeType:    "text/plain",
+			},
+			URI: "skill://analytics-guide/SKILL.md",
+		}
+	}
+
+	t.Run("config values before SetSkillDoc", func(t *testing.T) {
+		c := newBase()
+		if got := c.GetName(); got != "guide" {
+			t.Errorf("GetName() = %q, want %q", got, "guide")
+		}
+		if got := c.GetDescription(); got != "configured description" {
+			t.Errorf("GetDescription() = %q, want %q", got, "configured description")
+		}
+		if got := c.GetMimeType(); got != "text/plain" {
+			t.Errorf("GetMimeType() = %q, want %q", got, "text/plain")
+		}
+	})
+
+	t.Run("frontmatter values after SetSkillDoc", func(t *testing.T) {
+		c := newBase()
+		var setter resources.SkillDocSetter = &c
+		setter.SetSkillDoc("analytics-guide", "Query the warehouse")
+		if got := c.GetName(); got != "analytics-guide" {
+			t.Errorf("GetName() = %q, want %q", got, "analytics-guide")
+		}
+		if got := c.GetDescription(); got != "Query the warehouse" {
+			t.Errorf("GetDescription() = %q, want %q", got, "Query the warehouse")
+		}
+		if got := c.GetMimeType(); got != "text/markdown" {
+			t.Errorf("GetMimeType() = %q, want %q", got, "text/markdown")
+		}
+		// The config fields themselves are untouched.
+		if c.Name != "guide" || c.Description != "configured description" || c.MimeType != "text/plain" {
+			t.Errorf("config fields changed: %+v", c.ConfigBase)
+		}
+	})
+}
+
 func TestGetBaseDirFromContext(t *testing.T) {
 	ctx := context.Background()
 

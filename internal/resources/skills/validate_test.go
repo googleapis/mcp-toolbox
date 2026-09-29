@@ -15,15 +15,19 @@
 package skills_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // unreadResource fails the test if Validate reads it. Startup validation reads
@@ -272,6 +276,10 @@ func TestValidateDynamicSkill(t *testing.T) {
 	if len(got) != 1 || got[0].Frontmatter["name"] != "big-skill" {
 		t.Fatalf("got %+v, want the dynamic skill with its frontmatter", got)
 	}
+	// A dynamic SKILL.md is published under its frontmatter name as well.
+	if got := resourcesMap["doc"].GetName(); got != "big-skill" {
+		t.Errorf("GetName() = %q, want the frontmatter name %q", got, "big-skill")
+	}
 }
 
 // TestValidateDynamicSkillStillChecksItsDoc checks that a dynamic skill with a
@@ -284,5 +292,138 @@ func TestValidateDynamicSkillStillChecksItsDoc(t *testing.T) {
 	_, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap))
 	if err == nil || !strings.Contains(err.Error(), "must open with YAML frontmatter") {
 		t.Fatalf("Validate() = %v, want the frontmatter error", err)
+	}
+}
+
+// TestValidatePublishesSkillDoc is the point of SetSkillDoc: after Validate, a
+// SKILL.md is published as the skill, not as a resource named after the file.
+// Each SKILL.md takes its own frontmatter identity, and every other resource
+// keeps its config identity.
+func TestValidatePublishesSkillDoc(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+
+	// The configured names are deliberately unhelpful, so the assertions below
+	// cannot pass by accident.
+	resourcesMap := map[string]resources.Resource{
+		"alpha": textResource(t, ctx, "SKILL.md", "skill://alpha-guide/SKILL.md", skillMD("alpha-guide", "Query the warehouse")),
+		"notes": textResource(t, ctx, "notes", "skill://alpha-guide/references/notes.md", "# Notes\n"),
+		"beta":  textResource(t, ctx, "beta", "skill://beta-guide/SKILL.md", skillMD("beta-guide", "Summarize the warehouse")),
+		"docs":  textResource(t, ctx, "docs", "file://project-docs", "unrelated"),
+	}
+	if _, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap)); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+
+	// textResource configures text/markdown for every resource, so the MIME
+	// type branch is pinned in resources_test.go rather than here.
+	want := map[string]struct{ name, description, mimeType string }{
+		"alpha": {"alpha-guide", "Query the warehouse", "text/markdown"},
+		"beta":  {"beta-guide", "Summarize the warehouse", "text/markdown"},
+		"notes": {"notes", "", "text/markdown"},
+		"docs":  {"docs", "", "text/markdown"},
+	}
+	for key, w := range want {
+		res := resourcesMap[key]
+		if got := res.GetName(); got != w.name {
+			t.Errorf("%s GetName() = %q, want %q", key, got, w.name)
+		}
+		if got := res.GetDescription(); got != w.description {
+			t.Errorf("%s GetDescription() = %q, want %q", key, got, w.description)
+		}
+		if got := res.GetMimeType(); got != w.mimeType {
+			t.Errorf("%s GetMimeType() = %q, want %q", key, got, w.mimeType)
+		}
+	}
+}
+
+// noSkillDoc reads as a valid SKILL.md but cannot record its frontmatter
+// identity: embedding the interface hides the backing resource's SetSkillDoc.
+type noSkillDoc struct {
+	resources.Resource
+}
+
+// TestValidateRejectsResourceWithoutSkillDoc checks that a resource type that
+// cannot publish the frontmatter identity fails the load rather than being
+// served under its config name.
+func TestValidateRejectsResourceWithoutSkillDoc(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+	const uri = "skill://guide/SKILL.md"
+	backing := textResource(t, ctx, "guide", uri, skillMD("guide", "A guide"))
+
+	_, err := skills.Validate(ctx, skills.NewRegistry(map[string]resources.Resource{"guide": noSkillDoc{backing}}))
+	if err == nil {
+		t.Fatal("Validate() = nil, want an error")
+	}
+	for _, want := range []string{uri, "cannot back a SKILL.md"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Validate() = %v, want error containing %q", err, want)
+		}
+	}
+}
+
+// TestWarnOnDocNameMismatch pins the signal an operator needs. A group lists its
+// resources by config key, so a key that differs from the frontmatter name is
+// hard to maintain.
+func TestWarnOnDocNameMismatch(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"guide":   textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+		"other":   textResource(t, ctx, "other", "skill://other/SKILL.md", skillMD("other", "A skill named for its key")),
+		"queries": textResource(t, ctx, "queries", "skill://analytics-guide/references/queries.md", "# Common queries\n"),
+	}
+
+	reg := skills.NewRegistry(resourcesMap)
+	found, err := skills.Validate(ctx, reg)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, reg); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+
+	got := stderr.String()
+	for _, want := range []string{`resource \"guide\"`, `skill \"analytics-guide\"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warning %q does not mention %q", got, want)
+		}
+	}
+	// A key that matches, and a supporting file, are not mismatches.
+	for _, unwanted := range []string{`resource \"other\"`, `resource \"queries\"`} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("warning %q reports %q", got, unwanted)
+		}
+	}
+}
+
+// TestNoDocNameMismatchWarning guards the other direction: a key that matches
+// must not warn, or the warning is noise an operator learns to ignore.
+func TestNoDocNameMismatchWarning(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"analytics-guide": textResource(t, ctx, "analytics-guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+	}
+
+	reg := skills.NewRegistry(resourcesMap)
+	found, err := skills.Validate(ctx, reg)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, reg); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+	if got := stderr.String(); strings.Contains(got, "Rename the resource") {
+		t.Errorf("unexpected name-mismatch warning: %q", got)
 	}
 }

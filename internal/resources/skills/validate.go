@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // Skill is what startup validation learns about one skill. It carries no
@@ -38,6 +39,9 @@ type Skill struct {
 //
 // It applies the same rules as Discover apart from the digest format, and warns
 // once when two skills share a frontmatter name.
+//
+// For each valid skill it also sets the frontmatter name and description on
+// the SKILL.md resource, through resources.SkillDocSetter.
 func Validate(ctx context.Context, reg *Registry) ([]Skill, error) {
 	if reg.Len() == 0 {
 		return nil, nil
@@ -126,5 +130,37 @@ func checkDoc(ctx context.Context, skillURI string, doc resources.Resource, m Ma
 	if err := e.Validate(false); err != nil {
 		return Skill{}, err
 	}
+	setter, ok := doc.(resources.SkillDocSetter)
+	if !ok {
+		return Skill{}, fmt.Errorf("skill %q: resource type %T cannot back a %s", skillURI, doc, resources.SkillFile)
+	}
+	setter.SetSkillDoc(frontmatter["name"].(string), frontmatter["description"].(string))
 	return Skill{URI: skillURI, Frontmatter: frontmatter}, nil
+}
+
+// WarnOnDocNameMismatch reports the SKILL.md resources whose config key differs
+// from the frontmatter name. Validate already publishes the SKILL.md under the
+// frontmatter name. A group lists its resources by config key, so a key that
+// differs from the skill is hard to maintain. Call it one time, at startup.
+func WarnOnDocNameMismatch(ctx context.Context, found []Skill, reg *Registry) error {
+	if len(found) == 0 {
+		return nil
+	}
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("checking the names of the skill documents: %w", err)
+	}
+
+	for _, e := range found {
+		key, ok := reg.Key(e.URI)
+		if !ok {
+			continue
+		}
+		name, ok := e.Frontmatter["name"].(string)
+		if !ok || name == key {
+			continue
+		}
+		logger.WarnContext(ctx, fmt.Sprintf("resource %q is the %s of skill %q. Rename the resource to %q, so that a group lists it under the skill's name", key, resources.SkillFile, name, name))
+	}
+	return nil
 }

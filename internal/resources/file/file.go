@@ -449,8 +449,14 @@ func (c *TemplateConfig) Validate() error {
 		return err
 	}
 	if !c.UI {
-		if err := resources.ValidateScheme(strings.ReplaceAll(c.URITemplate, "{path}", "path"), resourceType); err != nil {
-			return fmt.Errorf("invalid scheme for file resource template %q: %w", c.Name, err)
+		// Only file:// is accepted. A skill:// template would look like part of
+		// a skill, but skills are built from resources only, so its files would
+		// never be listed or validated as part of one. ValidateScheme is not
+		// used because it also accepts skill://. url.Parse lowercases the
+		// scheme.
+		parsed, err := url.Parse(strings.ReplaceAll(c.URITemplate, "{path}", "path"))
+		if err != nil || parsed.Scheme != resourceType {
+			return fmt.Errorf("invalid scheme for file resource template %q: must be '%s'", c.Name, resourceType)
 		}
 	}
 
