@@ -106,7 +106,7 @@ func TestInitializeHandler(t *testing.T) {
 				}
 			}
 
-			got, err := initializeHandler(tt.context, dummyID, "", body)
+			got, err := initializeHandler(tt.context, dummyID, nil, body)
 
 			if tt.wantErr {
 				if err == nil {

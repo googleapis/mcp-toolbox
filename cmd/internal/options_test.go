@@ -257,6 +257,7 @@ func TestPrebuiltGroupInstructions(t *testing.T) {
 	t.Setenv("POSTGRES_DATABASE", "mock")
 	t.Setenv("POSTGRES_USER", "mock")
 	t.Setenv("POSTGRES_PASSWORD", "mock")
+	t.Setenv("BIGQUERY_PROJECT", "mock")
 
 	ctx, err := testutils.ContextWithNewLogger()
 	if err != nil {
@@ -270,8 +271,13 @@ func TestPrebuiltGroupInstructions(t *testing.T) {
 	}{
 		{
 			desc:            "single prebuilt with specific toolset inherits instructions",
-			prebuiltConfigs: []string{"postgres/data"},
+			prebuiltConfigs: []string{"bigquery/data"},
 			wantInstruction: true,
+		},
+		{
+			desc:            "single prebuilt toolset that doesn't have description does not inherit instructions",
+			prebuiltConfigs: []string{"postgres/data"},
+			wantInstruction: false,
 		},
 		{
 			desc:            "prebuilt source with multiple toolsets does not set default instructions",
