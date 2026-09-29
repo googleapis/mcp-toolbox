@@ -72,20 +72,20 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initPostgresConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.QueryExecMode, r.ConnectTimeout)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
+	var opts []sources.Option
+	if r.ConnectTimeout != nil {
+		opts = append(opts, sources.WithMinConnectTimeout(time.Duration(*r.ConnectTimeout)*time.Second))
 	}
-
-	err = pool.Ping(ctx)
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
 	s := &Source{
 		Config: r,
-		Pool:   pool,
+		conn: sources.NewConnectOnce[*pgxpool.Pool](ctx, r.Name, SourceType, tracer, opts...).
+			OnClose(func(_ context.Context, pool *pgxpool.Pool) error {
+				pool.Close()
+				return nil
+			}),
+	}
+	if _, err := s.PostgresPoolContext(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -94,11 +94,32 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *pgxpool.Pool
+	conn *sources.ConnectOnce[*pgxpool.Pool]
+}
+
+// PostgresPoolContext returns the pool, connecting on first use. It is the
+// discriminator the postgres tools assert on.
+func (s *Source) PostgresPoolContext(ctx context.Context) (*pgxpool.Pool, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*pgxpool.Pool, error) {
+		r := s.Config
+		pool, err := initPostgresConnectionPool(ctx, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.QueryExecMode, r.ConnectTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return pool, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -109,13 +130,13 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) PostgresPool() *pgxpool.Pool {
-	return s.Pool
-}
-
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
+	pool, err := s.PostgresPoolContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	statement = sqlcommenter.PrependComment(ctx, statement, SourceType, s.SQLCommenter)
-	results, err := s.PostgresPool().Query(ctx, statement, params...)
+	results, err := pool.Query(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -142,10 +163,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initPostgresConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string, queryParams map[string]string, queryExecMode string, connectTimeout *int) (*pgxpool.Pool, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
+func initPostgresConnectionPool(ctx context.Context, host, port, user, pass, dbname string, queryParams map[string]string, queryExecMode string, connectTimeout *int) (*pgxpool.Pool, error) {
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		userAgent = "genai-toolbox"

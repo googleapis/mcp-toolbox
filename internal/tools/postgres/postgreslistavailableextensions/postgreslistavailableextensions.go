@@ -54,7 +54,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	PostgresPool() *pgxpool.Pool
+	PostgresPoolContext(context.Context) (*pgxpool.Pool, error)
 	RunSQL(context.Context, string, []any) (any, error)
 }
 

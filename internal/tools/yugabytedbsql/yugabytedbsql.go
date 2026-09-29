@@ -44,7 +44,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	YugabyteDBPool() *pgxpool.Pool
+	YugabyteDBPoolContext(context.Context) (*pgxpool.Pool, error)
 	RunSQL(context.Context, string, []any) (any, error)
 }
 
