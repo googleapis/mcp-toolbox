@@ -246,6 +246,32 @@ func TestParseFromYamlText(t *testing.T) {
 				},
 			},
 		},
+		{
+			// The skill URI check runs after the scheme and host are
+			// lowercased, so an uppercase skill name in the host is accepted.
+			desc: "skill uri with an uppercase scheme and host",
+			in: `
+			kind: resource
+			name: my-skill
+			type: text
+			uri: SKILL://Analytics-Guide/SKILL.md
+			text: "hello"
+			`,
+			want: server.ResourceConfigs{
+				"my-skill": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "my-skill",
+							Type:        "text",
+							MimeType:    "text/plain",
+							Annotations: &resources.ResourceAnnotations{Priority: floatPtr(1.0)},
+						},
+						URI: "skill://analytics-guide/SKILL.md",
+					},
+					Text: "hello",
+				},
+			},
+		},
 	}
 
 	for _, tc := range tcs {
@@ -254,7 +280,7 @@ func TestParseFromYamlText(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(resources.ResourceConfigBase{})); diff != "" {
 				t.Fatalf("incorrect parse (-want +got):\n%s", diff)
 			}
 		})
@@ -382,6 +408,28 @@ func TestFailParseFromYaml(t *testing.T) {
 				lastModified: "2025-01-12"
 			`,
 			err: "not a valid ISO 8601 string",
+		},
+		{
+			desc: "skill uri with an invalid skill name",
+			in: `
+			kind: resource
+			name: test-skill
+			type: text
+			text: "hello"
+			uri: skill://org/Bad_Name/SKILL.md
+			`,
+			err: `invalid skill uri "skill://org/Bad_Name/SKILL.md" for resource "test-skill": skill name "Bad_Name" may only contain lowercase letters, digits, and hyphens`,
+		},
+		{
+			desc: "skill uri with a query",
+			in: `
+			kind: resource
+			name: test-skill
+			type: text
+			text: "hello"
+			uri: skill://analytics-guide/SKILL.md?x=1
+			`,
+			err: "must be a bare path, with no query, fragment, or userinfo",
 		},
 	}
 

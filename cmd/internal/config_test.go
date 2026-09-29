@@ -1158,7 +1158,7 @@ func TestParseConfig(t *testing.T) {
 			if diff := cmp.Diff(tc.wantConfig.Prompts, configFile.Prompts); diff != "" {
 				t.Fatalf("incorrect prompts parse: diff %v", diff)
 			}
-			if diff := cmp.Diff(tc.wantConfig.Resources, configFile.Resources, cmp.AllowUnexported(file.Config{})); diff != "" {
+			if diff := cmp.Diff(tc.wantConfig.Resources, configFile.Resources, cmp.AllowUnexported(file.Config{}, resources.ResourceConfigBase{})); diff != "" {
 				t.Fatalf("incorrect resources parse: diff %v", diff)
 			}
 			if diff := cmp.Diff(tc.wantConfig.ResourceTemplates, configFile.ResourceTemplates, cmp.AllowUnexported(file.TemplateConfig{})); diff != "" {
@@ -1514,7 +1514,7 @@ func TestParseConfigWithAuth(t *testing.T) {
 			if diff := cmp.Diff(tc.wantConfig.Prompts, configFile.Prompts); diff != "" {
 				t.Fatalf("incorrect prompts parse: diff %v", diff)
 			}
-			if diff := cmp.Diff(tc.wantConfig.Resources, configFile.Resources, cmp.AllowUnexported(file.Config{})); diff != "" {
+			if diff := cmp.Diff(tc.wantConfig.Resources, configFile.Resources, cmp.AllowUnexported(file.Config{}, resources.ResourceConfigBase{})); diff != "" {
 				t.Fatalf("incorrect resources parse: diff %v", diff)
 			}
 			if diff := cmp.Diff(tc.wantConfig.ResourceTemplates, configFile.ResourceTemplates, cmp.AllowUnexported(file.TemplateConfig{})); diff != "" {
@@ -2842,7 +2842,7 @@ func TestMergeConfigs(t *testing.T) {
 				t.Fatalf("mergeConfigs() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if !tc.wantErr {
-				if diff := cmp.Diff(tc.want, got); diff != "" {
+				if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(resources.ResourceConfigBase{})); diff != "" {
 					t.Errorf("mergeConfigs() mismatch (-want +got):\n%s", diff)
 				}
 			} else {
