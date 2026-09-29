@@ -794,6 +794,26 @@ description: |
   `add_dashboard_filter` and `add_dashboard_element`.
 ---
 kind: tool
+name: import_dashboard_from_lookml
+type: looker-import-dashboard-from-lookml
+source: looker-source
+description: |
+  This tool imports a LookML dashboard YAML definition to create or overwrite a
+  user-defined dashboard in Looker.
+
+  If a dashboard already exists with the YAML-defined `preferred_slug`, it will
+  be overwritten. Otherwise, a new dashboard will be created.
+
+  Required Parameters:
+  - lookml (required): Valid LookML dashboard YAML string defining the dashboard, filters, and elements.
+
+  Optional Parameters:
+  - folder (optional): Destination folder ID. If omitted, new dashboards are placed in the user's personal folder and overwritten dashboards remain in their existing folder.
+
+  Output:
+  A JSON object containing a link (`url`) to the imported dashboard and its unique `id`.
+---
+kind: tool
 name: add_dashboard_element
 type: looker-add-dashboard-element
 source: looker-source
@@ -950,6 +970,7 @@ tools:
 - get_dashboards
 - run_dashboard
 - make_dashboard
+- import_dashboard_from_lookml
 - add_dashboard_element
 - add_dashboard_filter
 - generate_embed_url

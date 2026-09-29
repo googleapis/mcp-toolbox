@@ -36,6 +36,7 @@ description: "Details of the Looker prebuilt configuration."
     *   `get_dashboards`: Searches for saved dashboards.
     *   `run_dashboard`: Runs the queries associated with a dashboard.
     *   `make_dashboard`: Creates a new dashboard.
+    *   `import_dashboard_from_lookml`: Imports a dashboard from a LookML YAML definition.
     *   `add_dashboard_element`: Adds a tile to a dashboard.
     *   `add_dashboard_filter`: Adds a filter to a dashboard.
     *   `generate_embed_url`: Generate an embed url for content.

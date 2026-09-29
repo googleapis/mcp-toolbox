@@ -62,6 +62,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthanalyze"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthpulse"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthvacuum"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerimportdashboardfromlookml"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistagents"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistgitbranches"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookermakedashboard"
@@ -284,6 +285,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 		{
 			resourceType:    "looker-health-vacuum",
 			wantReadOnly:    true,
+			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-import-dashboard-from-lookml",
+			wantReadOnly:    false,
 			wantDestructive: false,
 		},
 		{

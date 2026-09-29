@@ -168,6 +168,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"import_dashboard_from_lookml": map[string]any{
+				"type":        "looker-import-dashboard-from-lookml",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"add_dashboard_filter": map[string]any{
 				"type":        "looker-add-dashboard-filter",
 				"source":      "my-instance",
@@ -1285,6 +1290,31 @@ func TestLooker(t *testing.T) {
 						"required":     false,
 						"type":         "string",
 						"default":      "",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The folder id where the Dashboard will be created. Leave blank to use the user's personal folder",
+						"name":         "folder",
+						"required":     false,
+						"type":         "string",
+						"default":      "",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "import_dashboard_from_lookml",
+		map[string]any{
+			"import_dashboard_from_lookml": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The LookML YAML definition of the dashboard to import",
+						"name":         "lookml",
+						"required":     true,
+						"type":         "string",
 					},
 					map[string]any{
 						"authServices": []any{},
@@ -2528,6 +2558,9 @@ func TestLooker(t *testing.T) {
 	testRunDashboard(t, dashboardId)
 	testDashboardLifecycle(t, dashboardId)
 
+	deleteImportedDashboard := testImportDashboardFromLookml(t, randstr)
+	defer deleteImportedDashboard()
+
 	wantResult = "\"Connection\":\"thelook\""
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_db_connections"}`), wantResult)
 
@@ -3029,4 +3062,51 @@ func testDashboardLifecycle(t *testing.T, dashboardId string) {
 			t.Fatalf("failed to find element %s in target layout %s", elementId, newLayoutId)
 		}
 	})
+}
+
+func testImportDashboardFromLookml(t *testing.T, randstr string) func() {
+	var id string
+	t.Run("TestImportDashboardFromLookml", func(t *testing.T) {
+		lookml := fmt.Sprintf("- dashboard: test_imported_%s\n  title: TestImportedDashboard%s\n  layout: newspaper\n", randstr, randstr)
+		reqMap := map[string]any{
+			"lookml": lookml,
+		}
+		reqBody, err := json.Marshal(reqMap)
+		if err != nil {
+			t.Fatalf("error marshaling request body: %v", err)
+		}
+
+		url := "http://127.0.0.1:5000/api/tool/import_dashboard_from_lookml/invoke"
+		resp, bodyBytes := tests.RunRequest(t, http.MethodPost, url, bytes.NewBuffer(reqBody), nil)
+
+		if resp.StatusCode != 200 {
+			t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, 200, string(bodyBytes))
+		}
+
+		var respBody map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
+			t.Fatalf("error parsing response body: %v", err)
+		}
+
+		result := respBody["result"].(string)
+		if err := json.Unmarshal([]byte(result), &respBody); err != nil {
+			t.Fatalf("error parsing result body: %v", err)
+		}
+
+		var ok bool
+		if id, ok = respBody["id"].(string); !ok || id == "" {
+			t.Fatalf("didn't get imported dashboard id, got %s", string(bodyBytes))
+		}
+	})
+
+	return func() {
+		if id == "" {
+			return
+		}
+		sdk := newLookerTestSDK(t)
+
+		if _, err := sdk.DeleteDashboard(id, nil); err != nil {
+			t.Fatalf("error deleting imported dashboard: %v", err)
+		}
+	}
 }
