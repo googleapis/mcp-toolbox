@@ -59,20 +59,15 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	db, err := initSQLiteConnection(ctx, tracer, r.Name, r.Database)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create db connection: %w", err)
-	}
-
-	err = db.PingContext(context.Background())
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
 	s := &Source{
 		Config: r,
-		Db:     db,
+		conn: sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer).
+			OnClose(func(_ context.Context, db *sql.DB) error {
+				return db.Close()
+			}),
+	}
+	if _, err := s.SQLiteDBContext(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -81,11 +76,34 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Db *sql.DB
+	conn *sources.ConnectOnce[*sql.DB]
+}
+
+// SQLiteDBContext returns the database handle, connecting on first use. It is the
+// discriminator the sqlite tools assert on.
+func (s *Source) SQLiteDBContext(ctx context.Context) (*sql.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
+		r := s.Config
+		db, err := initSQLiteConnection(ctx, r.Database)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create db connection: %w", err)
+		}
+
+		// Opening a local file takes no deadline; the ping must not inherit the connect's.
+		if err := db.PingContext(context.Background()); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return db, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -96,14 +114,14 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) SQLiteDB() *sql.DB {
-	return s.Db
-}
-
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
+	db, err := s.SQLiteDBContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// Execute the SQL query with parameters
 	statement = sqlcommenter.PrependComment(ctx, statement, SourceType, s.SQLCommenter)
-	rows, err := s.SQLiteDB().QueryContext(ctx, statement, params...)
+	rows, err := db.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -161,11 +179,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initSQLiteConnection(ctx context.Context, tracer trace.Tracer, name, dbPath string) (*sql.DB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initSQLiteConnection(ctx context.Context, dbPath string) (*sql.DB, error) {
 	// Open database connection
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {

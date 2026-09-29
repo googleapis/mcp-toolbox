@@ -101,20 +101,15 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	db, err := initOracleConnection(ctx, tracer, r)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create Oracle connection: %w", err)
-	}
-
-	err = db.PingContext(ctx)
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("unable to connect to Oracle successfully: %w", err)
-	}
-
 	s := &Source{
 		Config: r,
-		DB:     db,
+		conn: sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer).
+			OnClose(func(_ context.Context, db *sql.DB) error {
+				return db.Close()
+			}),
+	}
+	if _, err := s.pool(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -123,11 +118,31 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	DB *sql.DB
+	conn *sources.ConnectOnce[*sql.DB]
+}
+
+func (s *Source) pool(ctx context.Context) (*sql.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
+		r := s.Config
+		db, err := initOracleConnection(ctx, r)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create Oracle connection: %w", err)
+		}
+
+		if err := db.PingContext(ctx); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("unable to connect to Oracle successfully: %w", err)
+		}
+		return db, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -138,13 +153,13 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) OracleDB() *sql.DB {
-	return s.DB
-}
-
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any, readOnly bool) (any, error) {
+	db, err := s.pool(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if !readOnly {
-		result, err := s.OracleDB().ExecContext(ctx, statement, params...)
+		result, err := db.ExecContext(ctx, statement, params...)
 		if err != nil {
 			return nil, fmt.Errorf("unable to execute DML statement: %w", err)
 		}
@@ -159,7 +174,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any, rea
 			"rows_affected": rowsAffected,
 		}, nil
 	}
-	rows, err := s.OracleDB().QueryContext(ctx, statement, params...)
+	rows, err := db.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -294,11 +309,7 @@ func decodePercentEncodedUserInfo(value string) string {
 	return decoded
 }
 
-func initOracleConnection(ctx context.Context, tracer trace.Tracer, config Config) (*sql.DB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, config.Name)
-	defer span.End()
-
+func initOracleConnection(ctx context.Context, config Config) (*sql.DB, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		panic(err)

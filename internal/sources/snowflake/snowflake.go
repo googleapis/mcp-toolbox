@@ -61,20 +61,15 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	db, err := initSnowflakeConnection(ctx, tracer, r.Name, r.Account, r.User, r.Password, r.Database, r.Schema, r.Warehouse, r.Role)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create connection: %w", err)
-	}
-
-	err = db.PingContext(ctx)
-	if err != nil {
-		db.Close()
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
 	s := &Source{
 		Config: r,
-		DB:     db,
+		conn: sources.NewConnectOnce[*sqlx.DB](ctx, r.Name, SourceType, tracer).
+			OnClose(func(_ context.Context, db *sqlx.DB) error {
+				return db.Close()
+			}),
+	}
+	if _, err := s.SnowflakeDBContext(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -83,11 +78,32 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	DB *sqlx.DB
+	conn *sources.ConnectOnce[*sqlx.DB]
+}
+
+// SnowflakeDBContext returns the database handle, connecting on first use. It is the
+// discriminator the snowflake tools assert on.
+func (s *Source) SnowflakeDBContext(ctx context.Context) (*sqlx.DB, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sqlx.DB, error) {
+		r := s.Config
+		db, err := initSnowflakeConnection(ctx, r.Account, r.User, r.Password, r.Database, r.Schema, r.Warehouse, r.Role)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create connection: %w", err)
+		}
+		if err := db.PingContext(ctx); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return db, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -98,12 +114,12 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) SnowflakeDB() *sqlx.DB {
-	return s.DB
-}
-
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	rows, err := s.DB.QueryxContext(ctx, statement, params...)
+	db, err := s.SnowflakeDBContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryxContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -140,11 +156,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initSnowflakeConnection(ctx context.Context, tracer trace.Tracer, name, account, user, password, database, schema, warehouse, role string) (*sqlx.DB, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initSnowflakeConnection(ctx context.Context, account, user, password, database, schema, warehouse, role string) (*sqlx.DB, error) {
 	// Set defaults for optional parameters
 	if warehouse == "" {
 		warehouse = "COMPUTE_WH"
