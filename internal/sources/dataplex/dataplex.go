@@ -81,7 +81,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	// Initializes a Dataplex source
 	s := &Source{
 		Config: r,
@@ -89,6 +89,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 			OnClose(func(_ context.Context, cs *clientSet) error {
 				return errors.Join(cs.client.Close(), cs.dataScanClient.Close(), cs.dataProductClient.Close(), cs.projectsClient.Close())
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.clients(ctx); err != nil {
 		return nil, err

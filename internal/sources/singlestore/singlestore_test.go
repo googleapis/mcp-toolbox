@@ -220,7 +220,7 @@ func TestFailInitialization(t *testing.T) {
 		Password:     "pass",
 		QueryTimeout: "abc", // invalid duration
 	}
-	_, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"))
+	_, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"), false)
 	if err == nil {
 		t.Fatalf("expected error for invalid queryTimeout, got nil")
 	}

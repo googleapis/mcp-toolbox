@@ -71,7 +71,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	// The ping issues a query, which Trino bounds by queryTimeout, so the
 	// connect must not be capped tighter. Trino owns this value's format, so a
 	// string it does not recognise as a duration just leaves the default; that
@@ -87,6 +87,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 			OnClose(func(_ context.Context, db *sql.DB) error {
 				return db.Close()
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.TrinoDBContext(ctx); err != nil {
 		return nil, err

@@ -63,7 +63,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	onDataplexEvict := func(key string, value interface{}) {
 		if client, ok := value.(*dataplexapi.CatalogClient); ok && client != nil {
 			client.Close()
@@ -82,6 +82,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 			UseClientOAuth: r.UseClientOAuth,
 			Cache:          sources.NewCache(onDataplexEvict),
 		},
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.client(ctx); err != nil {
 		return nil, err

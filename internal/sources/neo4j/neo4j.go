@@ -63,7 +63,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	if r.Database == "" {
 		r.Database = "neo4j"
 	}
@@ -73,6 +73,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 			OnClose(func(ctx context.Context, d neo4j.Driver) error {
 				return d.Close(ctx)
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.Neo4jDriverContext(ctx); err != nil {
 		return nil, err

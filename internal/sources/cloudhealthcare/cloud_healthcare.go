@@ -80,7 +80,7 @@ func (c Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (c Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	// The allow lists are config, so tool schemas can read them without connecting; verifying the stores exist stays in the connect.
 	allowedFHIRStores := make(map[string]struct{}, len(c.AllowedFHIRStores))
 	for _, store := range c.AllowedFHIRStores {
@@ -95,6 +95,9 @@ func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		conn:               sources.NewConnectOnce[*clientSet](ctx, c.Name, SourceType, tracer),
 		allowedFHIRStores:  allowedFHIRStores,
 		allowedDICOMStores: allowedDICOMStores,
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.clients(ctx); err != nil {
 		return nil, err

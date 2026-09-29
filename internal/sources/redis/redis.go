@@ -74,13 +74,16 @@ type RedisClient interface {
 var _ RedisClient = (*redis.Client)(nil)
 var _ RedisClient = (*redis.ClusterClient)(nil)
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: r,
 		conn: sources.NewConnectOnce[RedisClient](ctx, r.Name, SourceType, tracer).
 			OnClose(func(_ context.Context, c RedisClient) error {
 				return c.Close()
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.client(ctx); err != nil {
 		return nil, err

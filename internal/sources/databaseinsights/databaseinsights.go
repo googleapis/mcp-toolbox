@@ -63,7 +63,7 @@ func (cfg Config) SourceConfigType() string {
 	return SourceKind
 }
 
-func (cfg Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (cfg Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	// Derived from config alone so it resolves on an unconnected source.
 	endpoint := cfg.Endpoint
 	if endpoint == "" {
@@ -73,6 +73,9 @@ func (cfg Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.
 		Config:   cfg,
 		endpoint: endpoint,
 		conn:     sources.NewConnectOnce[*http.Client](ctx, cfg.Name, SourceKind, tracer),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.client(ctx); err != nil {
 		return nil, err

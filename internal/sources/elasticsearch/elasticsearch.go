@@ -86,10 +86,13 @@ func (t *tracerProviderAdapter) Tracer(name string, options ...trace.TracerOptio
 }
 
 // Initialize creates a new Elasticsearch Source instance.
-func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (c Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: c,
 		conn:   sources.NewConnectOnce[EsClient](ctx, c.Name, SourceType, tracer),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.client(ctx); err != nil {
 		return nil, err

@@ -498,7 +498,7 @@ func TestInitialize_MaxQueryResultRows(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			src, err := tc.cfg.Initialize(ctx, tracer)
+			src, err := tc.cfg.Initialize(ctx, tracer, false)
 			if err != nil {
 				t.Fatalf("Initialize failed: %v", err)
 			}
@@ -551,7 +551,7 @@ func TestInitialize_MaximumBytesBilled(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			src, err := tc.cfg.Initialize(ctx, tracer)
+			src, err := tc.cfg.Initialize(ctx, tracer, false)
 			if err != nil {
 				t.Fatalf("Initialize failed: %v", err)
 			}
@@ -633,7 +633,7 @@ func TestInitialize_APIEndpoint(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			src, err := tc.cfg.Initialize(ctx, tracer)
+			src, err := tc.cfg.Initialize(ctx, tracer, false)
 			if err != nil {
 				t.Fatalf("Initialize failed: %v", err)
 			}
@@ -922,7 +922,7 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 				tt.cfg.Type = bigquery.SourceType
 				tt.cfg.Project = "test-project"
 			}
-			src, err := tt.cfg.Initialize(ctx, tracer)
+			src, err := tt.cfg.Initialize(ctx, tracer, false)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tt.wantErr)

@@ -56,7 +56,7 @@ type Config struct {
 }
 
 // Initialize implements sources.SourceConfig.
-func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (c Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: c,
 		conn: sources.NewConnectOnce[*gocql.Session](ctx, c.Name, SourceType, tracer).
@@ -64,6 +64,9 @@ func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 				sess.Close()
 				return nil
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.CassandraSessionContext(ctx); err != nil {
 		return nil, err

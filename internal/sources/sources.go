@@ -60,7 +60,8 @@ func DecodeConfig(ctx context.Context, sourceType string, name string, decoder *
 // SourceConfig is the interface for configuring a source.
 type SourceConfig interface {
 	SourceConfigType() string
-	Initialize(ctx context.Context, tracer trace.Tracer) (Source, error)
+	// Initialize builds the source; with deferConnect it returns before connecting.
+	Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (Source, error)
 }
 
 // Source is the interface for the source itself.

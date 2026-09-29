@@ -77,7 +77,7 @@ func (r Config) validateTLS() error {
 	return nil
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	if err := r.validateTLS(); err != nil {
 		return nil, err
 	}
@@ -93,6 +93,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	s := &Source{
 		Config: r,
 		conn:   sources.NewConnectOnce[*falkordb.FalkorDB](ctx, r.Name, SourceType, tracer),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.FalkorDBClientContext(ctx); err != nil {
 		return nil, err

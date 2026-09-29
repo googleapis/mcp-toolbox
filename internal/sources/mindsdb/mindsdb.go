@@ -61,7 +61,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	queryTimeout, err := r.queryTimeout()
 	if err != nil {
 		return nil, err
@@ -79,6 +79,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 			OnClose(func(_ context.Context, db *sql.DB) error {
 				return db.Close()
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.MindsDBPoolContext(ctx); err != nil {
 		return nil, err

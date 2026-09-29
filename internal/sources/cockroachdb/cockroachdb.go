@@ -97,7 +97,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	retryBaseDelay, err := time.ParseDuration(r.RetryBaseDelay)
 	if err != nil {
 		return nil, fmt.Errorf("invalid retryBaseDelay: %w", err)
@@ -119,6 +119,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		Config:         r,
 		retryBaseDelay: retryBaseDelay,
 		conn:           sources.NewConnectOnce[*pgxpool.Pool](ctx, r.Name, SourceType, tracer, opts...),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.PostgresPoolContext(ctx); err != nil {
 		return nil, err

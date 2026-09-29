@@ -92,7 +92,7 @@ func TestADCClientRefreshesAfterTheConnectReturns(t *testing.T) {
 	// on first use, the connect runs through ConnectOnce.Do, whose context is
 	// cancelled the moment the connect returns.
 	startupCtx := testutils.ContextWithUserAgent(context.Background(), "1.2.3")
-	src, err := cfg.Initialize(startupCtx, noop.NewTracerProvider().Tracer("test"))
+	src, err := cfg.Initialize(startupCtx, noop.NewTracerProvider().Tracer("test"), false)
 	if err != nil {
 		t.Fatalf("initializing source: %s", err)
 	}

@@ -171,7 +171,7 @@ func TestInitializeRedisReleasesClientOnFailedPing(t *testing.T) {
 		Type:    redis.SourceType,
 		Address: []string{"127.0.0.1:1"},
 	}
-	if _, err := cfg.Initialize(context.Background(), nil); err == nil {
+	if _, err := cfg.Initialize(context.Background(), nil, false); err == nil {
 		t.Fatal("expected the connection to fail against a dead endpoint")
 	}
 

@@ -138,7 +138,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	if r.WriteMode == "" {
 		r.WriteMode = WriteModeAllowed
 		if r.ReadOnly != nil && *r.ReadOnly {
@@ -207,6 +207,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	s.makeDataplexCatalogClient = s.lazyInitDataplexClient(ctx, tracer)
 	// Still connects here, as it did before: only the plumbing moves in this
 	// change. Deferring to first use arrives once every source is migrated.
+	if deferConnect {
+		return s, nil
+	}
 	if _, err := s.clients(ctx); err != nil {
 		return nil, err
 	}
