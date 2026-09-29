@@ -163,11 +163,12 @@ Use the format: `Fixes #<issue_number> 🦕`
 4.  Implement `Source` interface (`SourceType`, `ToConfig`).
 5.  Implement `init()` to register the source.
 6.  Add unit tests in `internal/sources/<newdb>/<newdb>_test.go`.
+7.  **Google Cloud Databases:** For every Google Cloud database, ensure a corresponding `product: <database>` label is added to `.github/labels.yaml`, routing is configured in `.github/blunderbuss.yml` (under both `assign_issues_by` and `assign_prs_by`), and the GitHub team is team-synced from an MDB group with write access to the repo.
 
 ### Adding a New Tool
 
 1.  Create a new directory: `internal/tools/<newdb>/<toolname>`.
-2.  Define a `Config` struct that **embeds `tools.ConfigBase`** (with `yaml:",inline"`). This supplies the shared `name`, `description`, `authRequired`, and `scopesRequired` fields and their getters — add only tool-specific fields and do not redeclare the shared ones.
+2.  Define a `Config` struct that **embeds `tools.ConfigBase`** (with `yaml:",inline"`). This supplies the shared `name`, `description`, `authRequired`, `scopesRequired`, and `annotations` fields and the applicable getters — add only tool-specific fields and do not redeclare the shared ones.
 3.  Define a `Tool` struct that **embeds `tools.BaseTool[Config]`**. Do *not* re-declare the boilerplate `Tool` methods (`GetName`, `GetDescription`, `Manifest`, `GetParameters`, `Authorized`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, `EmbedParams`, etc.) — they are inherited from `BaseTool`.
 4.  Implement `ToolConfig` interface (`ToolConfigType`, `Initialize`). In `Initialize`, construct the tool via `tools.NewBaseTool(cfg, annotations, manifest, staticParameters)`.
 5.  Implement only the methods `BaseTool` does not provide: `Invoke` and `ToConfig`. Override an inherited method (e.g. `EmbedParams`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`) **only** when the tool's behavior differs from the default.
@@ -248,4 +249,3 @@ Sample code is aggregated visually in the UI via the Samples section, but the ph
 ##### Asset Constraints (`docs/`)
 
 1.  **File Size Limits:** Never add files larger than 24MB to the `docs/` directory.
-

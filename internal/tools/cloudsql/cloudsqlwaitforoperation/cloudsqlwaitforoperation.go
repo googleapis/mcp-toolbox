@@ -100,11 +100,10 @@ type Config struct {
 	BaseURL          string `yaml:"baseURL"`
 
 	// Polling configuration
-	Delay       string                 `yaml:"delay"`
-	MaxDelay    string                 `yaml:"maxDelay"`
-	Multiplier  float64                `yaml:"multiplier"`
-	MaxRetries  int                    `yaml:"maxRetries"`
-	Annotations *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Delay      string  `yaml:"delay"`
+	MaxDelay   string  `yaml:"maxDelay"`
+	Multiplier float64 `yaml:"multiplier"`
+	MaxRetries int     `yaml:"maxRetries"`
 }
 
 // validate interface

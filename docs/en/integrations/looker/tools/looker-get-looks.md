@@ -10,7 +10,8 @@ description: >
 ## About
 
 The `looker-get-looks` tool searches for a saved Look by
-name or description.
+name or description. It returns each Look's `id`, `title`, `description`,
+`model_id`, and `certification_metadata` (if present).
 
 `looker-get-looks` takes four parameters, the `title`, `desc`, `limit`
 and `offset`.
@@ -33,7 +34,7 @@ type: looker-get-looks
 source: looker-source
 description: |
   This tool searches for saved Looks (pre-defined queries and visualizations)
-  in a Looker instance. It returns a list of JSON objects, each representing a Look.
+  in a Looker instance. It returns a list of JSON objects, each representing a Look, including its id, title, description, model_id, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by Look title (supports wildcards).

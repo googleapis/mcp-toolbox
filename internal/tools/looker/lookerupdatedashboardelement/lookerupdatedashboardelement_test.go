@@ -168,12 +168,12 @@ func TestAnnotations(t *testing.T) {
 		ConfigBase: tools.ConfigBase{
 			Name:        "test_tool",
 			Description: "test description",
+			Annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: &readOnlyFalse,
+			},
 		},
 		Type:   "looker-update-dashboard-element",
 		Source: "my-instance",
-		Annotations: &tools.ToolAnnotations{
-			ReadOnlyHint: &readOnlyFalse,
-		},
 	}
 
 	tool, err := cfg.Initialize(context.Background())
@@ -190,5 +190,17 @@ func TestAnnotations(t *testing.T) {
 	}
 	if *annotations.ReadOnlyHint != false {
 		t.Errorf("ReadOnlyHint should be false, got %v", *annotations.ReadOnlyHint)
+	}
+	if annotations.DestructiveHint == nil {
+		t.Fatal("mcp manifest DestructiveHint is nil")
+	}
+	if *annotations.DestructiveHint != true {
+		t.Errorf("DestructiveHint should be true, got %v", *annotations.DestructiveHint)
+	}
+	if annotations.OpenWorldHint == nil {
+		t.Fatal("mcp manifest OpenWorldHint is nil")
+	}
+	if *annotations.OpenWorldHint != false {
+		t.Errorf("OpenWorldHint should be false, got %v", *annotations.OpenWorldHint)
 	}
 }

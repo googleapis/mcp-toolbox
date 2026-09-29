@@ -1,0 +1,268 @@
+# Groups Specification
+
+**Extension Identifier:** `com.google.cloud/toolbox.v1`  
+**Protocol Version:** `2026-07-28`  
+**Schema Definition:** [`../schema/schema.ts`](../schema/schema.ts)
+
+---
+
+## 1. Overview & Motivation
+
+A **Group** is a named collection that scopes all MCP primitives together — tools, prompts, resources, and resource templates. Toolbox serves each group on its own endpoint (`/mcp/{name}`), so connecting to that endpoint scopes each primitive's list method to the group's contents.
+
+This extension introduces two methods for **Groups**:
+
+- **`groups/list`** — enumerate every named group with its `name` and `description`, so a client can choose one without prior configuration.
+- **`groups/get`** — fetch all of a single group's primitives together in one round trip.
+
+---
+
+## 2. Server Capability Discovery & Negotiation
+
+### 2.1 Server Discovery (`server/discover`)
+
+The server advertises enabled MCP extensions in the `capabilities.extensions` object during discovery on protocol version `2026-07-28`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "discover-1",
+  "result": {
+    "resultType": "complete",
+    "supportedVersions": ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"],
+    "capabilities": {
+      "extensions": {
+        "com.google.cloud/toolbox.v1": {}
+      },
+      "tools": { "listChanged": false },
+      "prompts": { "listChanged": false }
+    },
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "Toolbox",
+        "version": "1.0.0"
+      }
+    }
+  }
+}
+```
+
+Extensions can be disabled on the server using the `--disable-ext com.google.cloud/toolbox.v1` CLI flag. With the extension disabled, `groups/list` and `groups/get` are unreachable even for an extension-aware client.
+
+### 2.2 Client Capability Declaration
+
+Clients indicate support for the `com.google.cloud/toolbox.v1` extension by advertising the extension capability within `_meta["io.modelcontextprotocol/clientCapabilities"].extensions` in request metadata:
+
+```json
+{
+  "_meta": {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": {
+      "name": "MyApplicationClient",
+      "version": "1.0.0"
+    },
+    "io.modelcontextprotocol/clientCapabilities": {
+      "extensions": {
+        "com.google.cloud/toolbox.v1": {}
+      }
+    }
+  }
+}
+```
+
+---
+
+## 3. Protocol Methods & Behavior
+
+### 3.1 Group Discovery (`groups/list`)
+
+Returns every named group's `name` and `description`, sorted alphabetically by name.
+
+- The default (nameless) group is **omitted** — it is not a configured collection but the implicit set of everything on the server. Reach it through `groups/get` instead.
+- The method is **not paginated**. A server configures a bounded set of groups, so all of them come back in one response. There is no `cursor` request field and no `nextCursor` in the result.
+- The response carries **no `ttlMs` / `cacheScope` hint**. It spans groups that may each configure a different TTL, so no single hint applies.
+
+#### Example `groups/list` Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "groups-list-1",
+  "method": "groups/list",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "MyApplicationClient",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {
+        "extensions": {
+          "com.google.cloud/toolbox.v1": {}
+        }
+      }
+    }
+  }
+}
+```
+
+#### Example `groups/list` Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "groups-list-1",
+  "result": {
+    "resultType": "complete",
+    "groups": [
+      {
+        "name": "admin",
+        "description": "Administrative operations."
+      },
+      {
+        "name": "data_analyst",
+        "description": "Tools and prompts for exploratory data analysis."
+      }
+    ],
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "Toolbox",
+        "version": "1.0.0"
+      }
+    }
+  }
+}
+```
+
+---
+
+### 3.2 Group Contents (`groups/get`)
+
+Takes a group `name` and returns all of that group's primitives together, along with the group's cache hints. The result always carries a `tools`, `prompts`, `resources`, and `resourceTemplates` array; a group holding none of a given primitive returns that array empty.
+
+- The group's `description` is **intentionally omitted** from the result; it is exposed only through `groups/list`.
+- `ttlMs` and `cacheScope` are the group's own configured values — the same hints each primitive's list method returns when called on that group's endpoint. They default to `300000` (5 minutes) and `"public"`.
+- An **omitted or empty `name`** resolves to the default (nameless) group, which holds all primitives defined on the server. This mirrors the `/api/toolset` REST endpoint called without a toolset name. Since `groups/list` omits the default group, this is the only way to reach it over MCP.
+- An **unrecognized `name`** returns `INVALID_PARAMS` (-32602).
+- Every primitive is serialized exactly as its own list method serializes it. Because reaching `groups/get` at all requires declaring `com.google.cloud/toolbox.v1`, tools defining secure parameters are always included, with their sensitive parameters split into `secureInputSchema`. See the [Secure Parameters specification](../../secureParams/specification/secure_params.md).
+
+#### Example `groups/get` Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "groups-get-1",
+  "method": "groups/get",
+  "params": {
+    "name": "data_analyst",
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "MyApplicationClient",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {
+        "extensions": {
+          "com.google.cloud/toolbox.v1": {}
+        }
+      }
+    }
+  }
+}
+```
+
+#### Example `groups/get` Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "groups-get-1",
+  "result": {
+    "resultType": "complete",
+    "name": "data_analyst",
+    "ttlMs": 300000,
+    "cacheScope": "public",
+    "tools": [
+      {
+        "name": "list_tables",
+        "description": "List tables in the database.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      },
+      {
+        "name": "execute_sql",
+        "description": "Run a SQL query.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sql": { "type": "string" }
+          },
+          "required": ["sql"]
+        }
+      }
+    ],
+    "prompts": [
+      {
+        "name": "summarize_results",
+        "description": "Summarize query results."
+      }
+    ],
+    "resources": [
+      {
+        "name": "schema_overview",
+        "uri": "schema://overview",
+        "description": "Summary of the analytics schema.",
+        "mimeType": "text/plain"
+      }
+    ],
+    "resourceTemplates": [
+      {
+        "name": "table_schema",
+        "uriTemplate": "schema://tables/{table}",
+        "description": "Schema for a single table.",
+        "mimeType": "text/plain"
+      }
+    ],
+    "_meta": {
+      "io.modelcontextprotocol/serverInfo": {
+        "name": "Toolbox",
+        "version": "1.0.0"
+      }
+    }
+  }
+}
+```
+
+---
+
+### 3.3 Transport Headers
+
+Over the HTTP transport, requests carry `Mcp-Method` and `Mcp-Name` headers that MUST agree with the request body. For `groups/list`, `Mcp-Name` MUST be empty. For `groups/get`, `Mcp-Name` MUST equal `params.name` — including the empty string when resolving the default group. A mismatch returns `HEADER_MISMATCH` (-32020). The stdio transport has no headers and skips this check.
+
+---
+
+## 4. Configuration Constraints
+
+Groups are declared as `kind: group` documents in the Toolbox configuration:
+
+- **`name`** is required and unique across both `kind: group` and `kind: toolset` documents; a collision is a startup error.
+- **`description`** is optional and is surfaced only through `groups/list`. A `description` written on a `kind: toolset` is dropped with a warning, because a toolset is a tools-only group without one.
+- **`ttlMs`** defaults to `300000`; **`cacheScope`** defaults to `"public"`. Both are returned by `groups/get`.
+
+**Note:** `kind: toolset` is not a separate concept at runtime. Every toolset document is folded into a tools-only group when the configuration loads, so every toolset is visible to `groups/list` and `groups/get`, with empty `prompts`, `resources`, and `resourceTemplates` arrays. See the [Toolsets configuration documentation](../../../../docs/en/documentation/configuration/toolsets/_index.md).
+
+---
+
+## 5. Error Handling Matrix
+
+| Error Type | Protocol Level / Result | Error Code | Error Message | Condition |
+|---|---|---|---|---|
+| Method Not Found | JSON-RPC Error | `-32601` (`METHOD_NOT_FOUND`) | `invalid method groups/list` | Calling `groups/list` or `groups/get` on a protocol version earlier than `2026-07-28`. |
+| Missing Client Capability | JSON-RPC Error | `-32021` (`MISSING_REQUIRED_CLIENT_CAPABILITY`) | `missing required client capability: method "groups/list" requires com.google.cloud/toolbox.v1 extension which is not supported by the client` | Calling either method on protocol `2026-07-28` without declaring `com.google.cloud/toolbox.v1` in client capabilities, or against a server started with `--disable-ext com.google.cloud/toolbox.v1`. |
+| Group Not Found | JSON-RPC Error | `-32602` (`INVALID_PARAMS`) | `invalid group name: group with name "<name>" does not exist` | `groups/get` was called with a `name` that is not a configured group. |
+| Missing Request Metadata | JSON-RPC Error | `-32602` (`INVALID_PARAMS`) | `_meta error: missing required fields in request metadata` | The request omitted required `_meta` fields (protocol version, client info, or client capabilities). |
+| Header Mismatch | JSON-RPC Error | `-32020` (`HEADER_MISMATCH`) | `Mcp-Name header value '<header>' does not match body value '<body>'` | Over HTTP, `Mcp-Method` or `Mcp-Name` disagrees with the request body. |
+| Malformed Request | JSON-RPC Error | `-32600` (`INVALID_REQUEST`) | `invalid mcp groups list request: <parse error>` for `groups/list`; `invalid mcp groups/get request: <parse error>` for `groups/get` | The request body could not be parsed into the method's request shape. |
