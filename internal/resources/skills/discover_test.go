@@ -15,18 +15,22 @@
 package skills_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // textResource builds a real text resource rather than a mock, so discovery is
@@ -297,6 +301,34 @@ func mustLoggerCtx(t *testing.T) context.Context {
 		t.Fatal(err)
 	}
 	return ctx
+}
+
+// bufferLoggerCtx returns a context whose logger writes warnings to the
+// returned buffer.
+func bufferLoggerCtx(t *testing.T) (context.Context, *bytes.Buffer) {
+	t.Helper()
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return util.WithLogger(context.Background(), logger), &stderr
+}
+
+// TestDiscoverDoesNotWarn pins that Discover, which runs per request, leaves
+// the duplicate-name warning to startup.
+func TestDiscoverDoesNotWarn(t *testing.T) {
+	ctx, stderr := bufferLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
+		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
+	}
+	if _, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap)); err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+	if got := stderr.String(); strings.Contains(got, "share the name") {
+		t.Errorf("Discover() warned %q, want the warning left to Validate", got)
+	}
 }
 
 // TestDiscoverSkipsUnrefableURIs pins the grouping to the same rule the manifest

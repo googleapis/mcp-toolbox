@@ -44,7 +44,7 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := e.Validate(); err != nil {
+		if err := e.Validate(true); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
