@@ -49,16 +49,15 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 type compatibleSource interface {
 	ProjectID() string
-	ProjectNumberContext(ctx context.Context) (int64, error)
+	ProjectNumber() int64
 	UpdateEntry(ctx context.Context, entry *dataplexpb.Entry, updateMask *fieldmaskpb.FieldMask) (*dataplexpb.Entry, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Parameters       parameters.Parameters  `yaml:"parameters"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string                `yaml:"type" validate:"required"`
+	Source           string                `yaml:"source" validate:"required"`
+	Parameters       parameters.Parameters `yaml:"parameters"`
 }
 
 // validate interface
@@ -217,14 +216,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
-	projectNumber, err := source.ProjectNumberContext(ctx)
-	if err != nil {
-		return nil, util.ProcessGcpError(err)
-	}
-
 	entryName := fmt.Sprintf(
 		"projects/%s/locations/%s/entryGroups/@dataplex/entries/projects/%d/locations/%s/dataProducts/%s",
-		projectID, locationID, projectNumber, locationID, dataProductID,
+		projectID, locationID, source.ProjectNumber(), locationID, dataProductID,
 	)
 
 	entry := &dataplexpb.Entry{

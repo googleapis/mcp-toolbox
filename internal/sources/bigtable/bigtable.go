@@ -57,60 +57,41 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	client, err := initBigtableClient(ctx, tracer, r.Name, r.Project, r.Instance)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create client: %w", err)
+	}
+
+	instanceAdminClient, err := initBigtableInstanceAdminClient(ctx, tracer, r.Name, r.Project)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("unable to create instance admin client: %w", err)
+	}
+
+	adminClient, err := initBigtableAdminClient(ctx, tracer, r.Name, r.Project, r.Instance)
+	if err != nil {
+		client.Close()
+		instanceAdminClient.Close()
+		return nil, fmt.Errorf("unable to create admin client: %w", err)
+	}
+
 	s := &Source{
-		Config: r,
-		conn:   sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.clients(ctx); err != nil {
-		return nil, err
+		Config:        r,
+		Client:        client,
+		InstanceAdmin: instanceAdminClient,
+		Admin:         adminClient,
 	}
 	return s, nil
 }
 
 var _ sources.Source = &Source{}
 
-type clientSet struct {
-	client        *bigtable.Client
-	instanceAdmin *bigtable.InstanceAdminClient
-	admin         *bigtable.AdminClient
-}
-
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*clientSet]
-}
-
-func (s *Source) clients(ctx context.Context) (*clientSet, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*clientSet, error) {
-		r := s.Config
-		client, err := initBigtableClient(ctx, r.Project, r.Instance)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create client: %w", err)
-		}
-
-		instanceAdminClient, err := initBigtableInstanceAdminClient(ctx, r.Project)
-		if err != nil {
-			client.Close()
-			return nil, fmt.Errorf("unable to create instance admin client: %w", err)
-		}
-
-		adminClient, err := initBigtableAdminClient(ctx, r.Project, r.Instance)
-		if err != nil {
-			client.Close()
-			instanceAdminClient.Close()
-			return nil, fmt.Errorf("unable to create admin client: %w", err)
-		}
-
-		return &clientSet{
-			client:        client,
-			instanceAdmin: instanceAdminClient,
-			admin:         adminClient,
-		}, nil
-	})
+	Client        *bigtable.Client
+	InstanceAdmin *bigtable.InstanceAdminClient
+	Admin         *bigtable.AdminClient
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -123,6 +104,18 @@ func (s *Source) SourceType() string {
 
 func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
+}
+
+func (s *Source) BigtableClient() *bigtable.Client {
+	return s.Client
+}
+
+func (s *Source) BigtableInstanceAdminClient() *bigtable.InstanceAdminClient {
+	return s.InstanceAdmin
+}
+
+func (s *Source) BigtableAdminClient() *bigtable.AdminClient {
+	return s.Admin
 }
 
 func (s *Source) ProjectID() string {
@@ -173,17 +166,12 @@ func getMapParamsType(tparams parameters.Parameters) (map[string]bigtable.SQLTyp
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, configParam parameters.Parameters, params parameters.ParamValues) (any, error) {
-	cs, err := s.clients(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	mapParamsType, err := getMapParamsType(configParam)
 	if err != nil {
 		return nil, fmt.Errorf("fail to get map params: %w", err)
 	}
 
-	ps, err := cs.client.PrepareStatement(
+	ps, err := s.BigtableClient().PrepareStatement(
 		ctx,
 		statement,
 		mapParamsType,
@@ -226,7 +214,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, configParam param
 	return out, nil
 }
 
-func initBigtableClient(ctx context.Context, project, instance string) (*bigtable.Client, error) {
+func initBigtableClient(ctx context.Context, tracer trace.Tracer, name, project, instance string) (*bigtable.Client, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	// Set up Bigtable data operations client.
 	poolSize := 10
 	userAgent, err := util.UserAgentFromContext(ctx)
@@ -243,7 +235,11 @@ func initBigtableClient(ctx context.Context, project, instance string) (*bigtabl
 	return client, nil
 }
 
-func initBigtableInstanceAdminClient(ctx context.Context, project string) (*bigtable.InstanceAdminClient, error) {
+func initBigtableInstanceAdminClient(ctx context.Context, tracer trace.Tracer, name, project string) (*bigtable.InstanceAdminClient, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -257,7 +253,11 @@ func initBigtableInstanceAdminClient(ctx context.Context, project string) (*bigt
 	return client, nil
 }
 
-func initBigtableAdminClient(ctx context.Context, project, instance string) (*bigtable.AdminClient, error) {
+func initBigtableAdminClient(ctx context.Context, tracer trace.Tracer, name, project, instance string) (*bigtable.AdminClient, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, err

@@ -184,6 +184,30 @@ func TestParseEnv(t *testing.T) {
 			wantOptional: []string{"DB_PORT"},
 		},
 		{
+			desc: "multiline yaml with env var between comment blocks",
+			in: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: ${FOO}\n" +
+				"# Another comment block\n",
+			env: map[string]string{
+				"FOO": "bar",
+			},
+			want: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: bar\n" +
+				"# Another comment block\n",
+		},
+		{
 			desc:         "with default without env",
 			in:           "${FOO:}",
 			want:         "",

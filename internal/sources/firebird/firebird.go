@@ -59,16 +59,21 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	pool, err := initFirebirdConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create pool: %w", err)
+	}
+
+	err = pool.PingContext(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	}
+
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.FirebirdDBContext(ctx); err != nil {
-		return nil, err
+		Db:     pool,
 	}
 	return s, nil
 }
@@ -77,25 +82,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*sql.DB]
-}
-
-// FirebirdDBContext returns the pool, connecting on first use. It is the
-// discriminator the firebird tools assert on.
-func (s *Source) FirebirdDBContext(ctx context.Context) (*sql.DB, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
-		r := s.Config
-		pool, err := initFirebirdConnectionPool(ctx, r.Host, r.Port, r.User, r.Password, r.Database)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create pool: %w", err)
-		}
-
-		if err := pool.PingContext(ctx); err != nil {
-			pool.Close()
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return pool, nil
-	})
+	Db *sql.DB
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -110,12 +97,12 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+func (s *Source) FirebirdDB() *sql.DB {
+	return s.Db
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	pool, err := s.FirebirdDBContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := pool.QueryContext(ctx, statement, params...)
+	rows, err := s.FirebirdDB().QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -161,7 +148,10 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initFirebirdConnectionPool(ctx context.Context, host, port, user, pass, dbname string) (*sql.DB, error) {
+func initFirebirdConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string) (*sql.DB, error) {
+	_, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	// urlExample := "user:password@host:port/path/to/database.fdb"
 	dsn := fmt.Sprintf("%s:%s@%s:%s/%s", user, pass, host, port, dbname)
 

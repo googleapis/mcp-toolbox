@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 const resourceType string = "mongodb-update-one"
@@ -44,6 +45,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
+	MongoClient() *mongo.Client
 	UpdateOne(context.Context, string, bool, string, string, string, bool) (any, error)
 }
 
@@ -59,9 +61,8 @@ type Config struct {
 	UpdatePayload           string                `yaml:"updatePayload" validate:"required"`
 	UpdateParams            parameters.Parameters `yaml:"updateParams" validate:"required"`
 
-	Canonical   bool                   `yaml:"canonical"`
-	Upsert      bool                   `yaml:"upsert"`
-	Annotations *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Canonical bool `yaml:"canonical"`
+	Upsert    bool `yaml:"upsert"`
 }
 
 // validate interface

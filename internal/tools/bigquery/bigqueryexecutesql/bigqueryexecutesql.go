@@ -49,6 +49,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
+	BigQueryClient() *bigqueryapi.Client
 	BigQuerySession() bigqueryds.BigQuerySessionProvider
 	BigQueryWriteMode() string
 	UseClientAuthorization() bool
@@ -56,15 +57,14 @@ type compatibleSource interface {
 	GetMaximumBytesBilled() int64
 	IsDatasetAllowed(projectID, datasetID string) bool
 	BigQueryAllowedDatasets() []string
-	RetrieveClientAndService(context.Context, tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error)
+	RetrieveClientAndService(tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error)
 	RunSQL(context.Context, *bigqueryapi.Client, string, string, []bigqueryapi.QueryParameter, []*bigqueryapi.ConnectionProperty, map[string]string) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -131,7 +131,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewAgentError(fmt.Sprintf("unable to cast dry_run parameter %s", paramsMap["dry_run"]), nil)
 	}
 
-	bqClient, restService, err := source.RetrieveClientAndService(ctx, accessToken)
+	bqClient, restService, err := source.RetrieveClientAndService(accessToken)
 	if err != nil {
 		return nil, util.NewClientServerError("failed to retrieve BigQuery client", http.StatusInternalServerError, err)
 	}
@@ -148,11 +148,23 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
-	dryRunJob, err := bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source.GetMaximumBytesBilled())
-	if err != nil {
-		return nil, util.ProcessGcpError(err)
+	var dryRunJob *bigqueryrestapi.Job
+	if len(source.BigQueryAllowedDatasets()) > 0 {
+		var validationErr util.ToolboxError
+		dryRunJob, validationErr = bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source, source.GetMaximumBytesBilled(), false)
+		if validationErr != nil {
+			return nil, validationErr
+		}
+	} else {
+		dryRunJob, err = bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source.GetMaximumBytesBilled(), false)
+		if err != nil {
+			return nil, util.ProcessGcpError(err)
+		}
 	}
 
+	if dryRunJob.Statistics == nil || dryRunJob.Statistics.Query == nil {
+		return nil, util.NewClientServerError("dry run failed to return query statistics", http.StatusInternalServerError, nil)
+	}
 	statementType := dryRunJob.Statistics.Query.StatementType
 
 	switch source.BigQueryWriteMode() {
@@ -165,53 +177,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 			if dest := dryRunJob.Configuration.Query.DestinationTable; dest != nil && dest.DatasetId != session.DatasetID {
 				return nil, util.NewAgentError(fmt.Sprintf("protected write mode only supports SELECT statements, or write operations in the anonymous "+
 					"dataset of a BigQuery session, but destination was %q", dest.DatasetId), nil)
-			}
-		}
-	}
-
-	if len(source.BigQueryAllowedDatasets()) > 0 {
-		switch statementType {
-		case "CREATE_SCHEMA", "DROP_SCHEMA", "ALTER_SCHEMA":
-			return nil, util.NewAgentError(fmt.Sprintf("dataset-level operations like '%s' are not allowed when dataset restrictions are in place", statementType), nil)
-		case "CREATE_FUNCTION", "CREATE_TABLE_FUNCTION", "CREATE_PROCEDURE":
-			return nil, util.NewAgentError(fmt.Sprintf("creating stored routines ('%s') is not allowed when dataset restrictions are in place, as their contents cannot be safely analyzed", statementType), nil)
-		case "CALL":
-			return nil, util.NewAgentError(fmt.Sprintf("calling stored procedures ('%s') is not allowed when dataset restrictions are in place, as their contents cannot be safely analyzed", statementType), nil)
-		}
-
-		// Use a map to avoid duplicate table names.
-		tableIDSet := make(map[string]struct{})
-
-		// Get all tables from the dry run result. This is the most reliable method.
-		queryStats := dryRunJob.Statistics.Query
-		if queryStats != nil {
-			for _, tableRef := range queryStats.ReferencedTables {
-				tableIDSet[fmt.Sprintf("%s.%s.%s", tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)] = struct{}{}
-			}
-			if tableRef := queryStats.DdlTargetTable; tableRef != nil {
-				tableIDSet[fmt.Sprintf("%s.%s.%s", tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)] = struct{}{}
-			}
-			if tableRef := queryStats.DdlDestinationTable; tableRef != nil {
-				tableIDSet[fmt.Sprintf("%s.%s.%s", tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)] = struct{}{}
-			}
-		}
-
-		// Always run the parser to ensure we catch views/tables that the dry run might bypass
-		parsedTables, parseErr := bqutil.TableParser(sql, bqClient.Project())
-		if parseErr != nil {
-			return nil, util.NewAgentError("could not parse tables from query to validate against allowed datasets", parseErr)
-		}
-		for _, tableID := range parsedTables {
-			tableIDSet[tableID] = struct{}{}
-		}
-
-		for tableID := range tableIDSet {
-			parts := strings.Split(tableID, ".")
-			if len(parts) == 3 {
-				projectID, datasetID := parts[0], parts[1]
-				if !source.IsDatasetAllowed(projectID, datasetID) {
-					return nil, util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
-				}
 			}
 		}
 	}
