@@ -65,7 +65,9 @@ func (m Manifest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m.Refs)
 }
 
-func (m Manifest) Validate() error {
+// Validate applies every manifest rule. checkDigests is false only for startup
+// validation, which sizes files without hashing them.
+func (m Manifest) Validate(checkDigests bool) error {
 	if m.Dynamic {
 		if len(m.Refs) > 0 {
 			return fmt.Errorf("invalid skill manifest: a dynamic skill publishes no file list, got %d refs", len(m.Refs))
@@ -91,7 +93,7 @@ func (m Manifest) Validate() error {
 		}
 		seen[r.URI] = struct{}{}
 
-		if !validDigest(r.Digest) {
+		if checkDigests && !validDigest(r.Digest) {
 			return fmt.Errorf("invalid skill manifest: %q has digest %q, want sha256: followed by 64 lowercase hex characters", r.URI, r.Digest)
 		}
 		if r.Size < 0 {
@@ -117,7 +119,8 @@ type Entry struct {
 }
 
 // Validate checks the rules relating a manifest to the skill's own identity.
-func (e Entry) Validate() error {
+// checkDigests is passed through to Manifest.Validate.
+func (e Entry) Validate(checkDigests bool) error {
 	scheme, segs, err := uriSegments(e.URI)
 	if err != nil {
 		return fmt.Errorf("invalid skill entry %q: uri %w", e.URI, err)
@@ -129,7 +132,7 @@ func (e Entry) Validate() error {
 	if err := e.validateFrontmatter(root[len(root)-1]); err != nil {
 		return err
 	}
-	if err := e.Resources.Validate(); err != nil {
+	if err := e.Resources.Validate(checkDigests); err != nil {
 		return fmt.Errorf("skill %q: %w", e.URI, err)
 	}
 	if e.Resources.Dynamic {

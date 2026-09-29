@@ -277,24 +277,6 @@ func TestDiscoverCRLFFrontmatter(t *testing.T) {
 	}
 }
 
-// TestDiscoverNoLogger covers the boot-time contract: discovery needs a logger
-// to report duplicate names, and a context without one is a wiring error
-// rather than a condition to skip past silently.
-func TestDiscoverNoLogger(t *testing.T) {
-	resourcesMap := map[string]resources.Resource{
-		"s": textResource(t, mustLoggerCtx(t), "s", "skill://guide/SKILL.md",
-			"---\nname: guide\ndescription: A guide\n---\n\n# guide\n"),
-	}
-
-	_, err := skills.Discover(context.Background(), resourcesMap)
-	if err == nil {
-		t.Fatal("Discover() with no logger in context = nil, want an error")
-	}
-	if !strings.Contains(err.Error(), "duplicate skill names") {
-		t.Errorf("error = %q, want it to name the operation that failed", err)
-	}
-}
-
 func mustLoggerCtx(t *testing.T) context.Context {
 	t.Helper()
 	ctx, err := testutils.ContextWithNewLogger()
@@ -302,6 +284,34 @@ func mustLoggerCtx(t *testing.T) context.Context {
 		t.Fatal(err)
 	}
 	return ctx
+}
+
+// bufferLoggerCtx returns a context whose logger writes warnings to the
+// returned buffer.
+func bufferLoggerCtx(t *testing.T) (context.Context, *bytes.Buffer) {
+	t.Helper()
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return util.WithLogger(context.Background(), logger), &stderr
+}
+
+// TestDiscoverDoesNotWarn pins that Discover, which runs per request, leaves
+// the duplicate-name warning to startup.
+func TestDiscoverDoesNotWarn(t *testing.T) {
+	ctx, stderr := bufferLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
+		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
+	}
+	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
+		t.Fatalf("Discover() = %v, want nil", err)
+	}
+	if got := stderr.String(); strings.Contains(got, "share the name") {
+		t.Errorf("Discover() warned %q, want the warning left to Validate", got)
+	}
 }
 
 // TestDiscoverSkipsUnrefableURIs pins the grouping to the same rule the manifest
@@ -404,64 +414,6 @@ func (r badResource) IsUI() bool                                        { return
 func (r badResource) ToConfig() resources.ResourceConfig                { return nil }
 func (r badResource) Read(context.Context, map[string]any) (any, error) { return r.content, r.err }
 
-// TestDiscoverWarnsOnDuplicateNames pins the one thing warnOnDuplicateNames
-// does. Entry.Validate ties the frontmatter name to the final skill-path
-// segment, so a duplicate can only arise from differing parent paths.
-func TestDiscoverWarnsOnDuplicateNames(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := util.WithLogger(context.Background(), logger)
-
-	resourcesMap := map[string]resources.Resource{
-		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
-		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
-	}
-
-	entries, err := skills.Discover(ctx, resourcesMap)
-	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("got %d entries, want 2", len(entries))
-	}
-
-	got := stderr.String()
-	for _, want := range []string{
-		"skill://acme/guide/SKILL.md",
-		"skill://other/guide/SKILL.md",
-		`share the name \"guide\"`,
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("warning %q does not mention %q", got, want)
-		}
-	}
-}
-
-// TestDiscoverNoDuplicateWarning guards the other direction: distinct names
-// must not warn, or the warning is noise an operator learns to ignore.
-func TestDiscoverNoDuplicateWarning(t *testing.T) {
-	var stderr bytes.Buffer
-	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := util.WithLogger(context.Background(), logger)
-
-	resourcesMap := map[string]resources.Resource{
-		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
-		"b": textResource(t, ctx, "b", "skill://acme/other/SKILL.md", skillMD("other", "Two")),
-	}
-	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
-	}
-	if got := stderr.String(); strings.Contains(got, "share the name") {
-		t.Errorf("unexpected duplicate-name warning: %q", got)
-	}
-}
-
 // TestDiscoverUnreadableResource covers the two ways a member can fail to
 // produce text. A skill's files must be textual, so both are errors rather
 // than a skipped file.
@@ -527,5 +479,121 @@ func TestDiscoverTooManyFiles(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "want text content") {
 		t.Errorf("Discover() = %v, want the limit checked before any file is read", err)
+	}
+}
+
+// TestDiscoverRejectsOversizeSkillWhileReading checks that Discover applies the
+// total-size limit as it reads each file, not after it reads all of them.
+func TestDiscoverRejectsOversizeSkillWhileReading(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// badResource reports no size. Discover therefore skips the hint, and this
+	// test exercises the check on the bytes that Discover reads.
+	const chunk = 4 << 20 // 4 MiB per file. Five files exceed the 16 MiB limit.
+	// Every file shares one string. Strings are immutable and Read returns the
+	// same string, so five files use 4 MiB of memory, not 20 MiB.
+	chunkContent := strings.Repeat("x", chunk)
+	resourcesMap := map[string]resources.Resource{
+		"guide/SKILL.md": textResource(t, ctx, "guide/SKILL.md",
+			"skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query and summarize the warehouse")),
+	}
+	for i := range 5 {
+		name := string(rune('a' + i))
+		resourcesMap[name] = badResource{
+			uri:     "skill://analytics-guide/refs/" + name + ".md",
+			content: chunkContent,
+		}
+	}
+
+	_, err = skills.Discover(ctx, resourcesMap)
+	if err == nil {
+		t.Fatal("Discover() = nil, want a total-size error")
+	}
+	if !strings.Contains(err.Error(), "total size exceeds the limit") {
+		t.Errorf("Discover() = %v, want a total-size error", err)
+	}
+	if !strings.Contains(err.Error(), "skill://analytics-guide/SKILL.md") {
+		t.Errorf("Discover() = %v, want the error to name the skill", err)
+	}
+}
+
+// hugeResource reports an oversize length. The test fails if Discover reads it.
+type hugeResource struct {
+	badResource
+	t *testing.T
+}
+
+func (r hugeResource) GetSize() *int64 {
+	size := int64(skills.MaxTotalSize) + 1
+	return &size
+}
+
+func (r hugeResource) Read(context.Context, map[string]any) (any, error) {
+	r.t.Error("Read() was called, want the size hint to reject the file first")
+	return "", nil
+}
+
+// TestDiscoverRejectsOversizeFileBeforeReading checks that Discover rejects a
+// file larger than the limit from its size hint, and does not read the file.
+func TestDiscoverRejectsOversizeFileBeforeReading(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resourcesMap := map[string]resources.Resource{
+		"guide": textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query and summarize the warehouse")),
+		"big": hugeResource{
+			badResource: badResource{uri: "skill://analytics-guide/refs/big.md"},
+			t:           t,
+		},
+	}
+
+	_, err = skills.Discover(ctx, resourcesMap)
+	if err == nil {
+		t.Fatal("Discover() = nil, want a total-size error")
+	}
+	if !strings.Contains(err.Error(), "total size exceeds the limit") {
+		t.Errorf("Discover() = %v, want a total-size error", err)
+	}
+}
+
+// TestDiscoverRejectsOversizeTextSkill checks the total-size limit on real text
+// resources. The two tests above use fakes, so neither covers the size hint
+// that a text resource reports.
+func TestDiscoverRejectsOversizeTextSkill(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const chunk = 4 << 20 // 4 MiB per file. Four files exceed the 16 MiB limit.
+	// Every file shares one string, so the four files use 4 MiB of memory.
+	chunkContent := strings.Repeat("x", chunk)
+	resourcesMap := map[string]resources.Resource{
+		"guide/SKILL.md": textResource(t, ctx, "guide/SKILL.md",
+			"skill://analytics-guide/SKILL.md",
+			skillMD("analytics-guide", "Query and summarize the warehouse")),
+	}
+	for i := range 4 {
+		name := string(rune('a' + i))
+		resourcesMap[name] = textResource(t, ctx, name,
+			"skill://analytics-guide/refs/"+name+".md", chunkContent)
+	}
+
+	_, err = skills.Discover(ctx, resourcesMap)
+	if err == nil {
+		t.Fatal("Discover() = nil, want a total-size error")
+	}
+	if !strings.Contains(err.Error(), "total size exceeds the limit") {
+		t.Errorf("Discover() = %v, want a total-size error", err)
+	}
+	if !strings.Contains(err.Error(), "skill://analytics-guide/SKILL.md") {
+		t.Errorf("Discover() = %v, want the error to name the skill", err)
 	}
 }

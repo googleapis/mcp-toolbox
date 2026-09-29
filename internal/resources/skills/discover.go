@@ -29,7 +29,9 @@ import (
 
 const skillFile = "SKILL.md"
 
-// Discover builds one Entry per skill. A skill can have 1 or more supporting files.
+// Discover builds one Entry per skill, reading and hashing every file. It runs
+// per request, so the digests always describe current content. Startup uses
+// Validate instead, which hashes nothing.
 func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Entry, error) {
 	roots := skillRoots(resourcesMap)
 	if len(roots) == 0 {
@@ -43,14 +45,10 @@ func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) (
 		if err != nil {
 			return nil, err
 		}
-		if err := e.Validate(); err != nil {
+		if err := e.Validate(true); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
-	}
-
-	if err := warnOnDuplicateNames(ctx, entries); err != nil {
-		return nil, err
 	}
 	return entries, nil
 }
@@ -115,16 +113,29 @@ func buildEntry(ctx context.Context, root string, members []resources.Resource) 
 
 	refs := make([]ResourceRef, 0, len(members))
 	var frontmatter map[string]any
+	// Manifest.Validate enforces the same limit, but only once every file is in
+	// memory. We sum as we read: this bounds what each skill loads.
+	var total int64
 	for _, res := range members {
+		// Subtraction, not addition: a huge hint would wrap the total negative.
+		if sz := res.GetSize(); sz != nil && *sz > MaxTotalSize-total {
+			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
+		}
 		content, err := readString(ctx, res)
 		if err != nil {
 			return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
 		}
+		// GetSize above is only a hint; this is authoritative.
+		size := int64(len(content))
+		if size > MaxTotalSize-total {
+			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
+		}
+		total += size
 		sum := sha256.Sum256([]byte(content))
 		refs = append(refs, ResourceRef{
 			URI:    res.GetURI(),
 			Digest: "sha256:" + hex.EncodeToString(sum[:]),
-			Size:   int64(len(content)),
+			Size:   size,
 		})
 		if res.GetURI() == skillURI {
 			frontmatter, err = parseFrontmatter(content)
@@ -187,15 +198,15 @@ func cutAtDelimiter(rest string) (string, bool) {
 }
 
 // warnOnDuplicateNames reports skills sharing a frontmatter name.
-func warnOnDuplicateNames(ctx context.Context, entries []Entry) error {
+func warnOnDuplicateNames(ctx context.Context, found []Skill) error {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("checking for duplicate skill names: %w", err)
 	}
 	byName := map[string][]string{}
-	for _, e := range entries {
-		if name, ok := e.Frontmatter["name"].(string); ok {
-			byName[name] = append(byName[name], e.URI)
+	for _, s := range found {
+		if name, ok := s.Frontmatter["name"].(string); ok {
+			byName[name] = append(byName[name], s.URI)
 		}
 	}
 	names := make([]string, 0, len(byName))
