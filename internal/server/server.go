@@ -262,19 +262,11 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	// Validate every skill the config declares. This runs after the log above
 	// because every resource did initialize: the check is across resources.
 	// Nothing is hashed here; skills/list and skills/get compute digests per
-	// request.
-	found, err := skills.Validate(ctx, resourcesMap)
-	if err != nil {
+	// request. Validate also sets each SKILL.md's frontmatter name and
+	// description on its resource, so a client sees the skill rather than the
+	// filename.
+	if _, err := skills.Validate(ctx, resourcesMap); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
-	}
-	// A SKILL.md is published under the name and description its frontmatter
-	// declares, so a client sees the skill rather than the filename.
-	docs, err := skills.WithDocMetadata(found, resourcesMap)
-	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, nil, err
-	}
-	for key, doc := range docs {
-		resourcesMap[key] = doc
 	}
 
 	// initialize and validate the resource templates from configs
