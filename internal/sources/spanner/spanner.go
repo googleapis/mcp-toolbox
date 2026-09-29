@@ -64,11 +64,6 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	client, err := initSpannerClient(ctx, tracer, r.Name, r.Project, r.Instance, r.Database)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create client: %w", err)
-	}
-
 	onDataplexEvict := func(key string, value interface{}) {
 		if client, ok := value.(*dataplexapi.CatalogClient); ok && client != nil {
 			client.Close()
@@ -77,11 +72,19 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 
 	s := &Source{
 		Config: r,
-		Client: client,
+		conn: sources.NewConnectOnce[*spanner.Client](ctx, r.Name, SourceType, tracer).
+			OnClose(func(_ context.Context, c *spanner.Client) error {
+				c.Close()
+				return nil
+			}),
+		// Builds nothing until a catalog call arrives, so it is free to hold here.
 		dataplexMgr: &searchcatalog.DataplexClientManager{
 			UseClientOAuth: r.UseClientOAuth,
 			Cache:          sources.NewCache(onDataplexEvict),
 		},
+	}
+	if _, err := s.client(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -90,12 +93,29 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Client      *spanner.Client
+	conn        *sources.ConnectOnce[*spanner.Client]
 	dataplexMgr *searchcatalog.DataplexClientManager
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) client(ctx context.Context) (*spanner.Client, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*spanner.Client, error) {
+		r := s.Config
+		// The client outlives this call, and an oauth2 token source reuses the
+		// context it was built with for every refresh.
+		client, err := initSpannerClient(sources.DetachedConnectContext(ctx), r.Project, r.Instance, r.Database)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create client: %w", err)
+		}
+		return client, nil
+	})
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -104,10 +124,6 @@ func (s *Source) SourceType() string {
 
 func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
-}
-
-func (s *Source) SpannerClient() *spanner.Client {
-	return s.Client
 }
 
 func (s *Source) DatabaseDialect() string {
@@ -178,11 +194,16 @@ func (s *Source) RunSQL(ctx context.Context, readOnly bool, statement string, pa
 		stmt.Params = params
 	}
 
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if readOnly {
-		iter := s.SpannerClient().Single().Query(ctx, stmt)
+		iter := client.Single().Query(ctx, stmt)
 		results, opErr = processRows(iter)
 	} else {
-		_, opErr = s.SpannerClient().ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		_, opErr = client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 			iter := txn.Query(ctx, stmt)
 			results, err = processRows(iter)
 			if err != nil {
@@ -199,11 +220,7 @@ func (s *Source) RunSQL(ctx context.Context, readOnly bool, statement string, pa
 	return results, nil
 }
 
-func initSpannerClient(ctx context.Context, tracer trace.Tracer, name, project, instance, dbname string) (*spanner.Client, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+func initSpannerClient(ctx context.Context, project, instance, dbname string) (*spanner.Client, error) {
 	// Configure the connection to the database
 	db := fmt.Sprintf("projects/%s/instances/%s/databases/%s", project, instance, dbname)
 

@@ -24,7 +24,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
-	"google.golang.org/api/firebaserules/v1"
 )
 
 const resourceType string = "firestore-get-rules"
@@ -44,7 +43,6 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	FirebaseRulesClient() *firebaserules.Service
 	GetRules(context.Context) (any, error)
 }
 
