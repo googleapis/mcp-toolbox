@@ -186,7 +186,7 @@ func TestParseFromYamlFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(file.Config{})); diff != "" {
+			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(file.Config{}, resources.ResourceConfigBase{})); diff != "" {
 				t.Fatalf("incorrect parse (-want +got):\n%s", diff)
 			}
 		})
@@ -301,6 +301,28 @@ func TestFailParseFromYaml(t *testing.T) {
 			maxSize: 50MB
 			`, filepath.ToSlash(validPath)),
 			err: "cannot unmarshal",
+		},
+		{
+			desc: "skill uri with an invalid skill name",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: skill://org/Bad_Name/SKILL.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: `invalid skill uri "skill://org/Bad_Name/SKILL.md" for resource "my-file": skill name "Bad_Name" may only contain lowercase letters, digits, and hyphens`,
+		},
+		{
+			desc: "skill uri with an empty path segment",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: skill://analytics-guide//SKILL.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "has an empty or relative path segment",
 		},
 	}
 
