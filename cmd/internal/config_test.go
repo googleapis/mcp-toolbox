@@ -2334,11 +2334,11 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"discovery": group.GroupConfig{
 					Name:      "discovery",
-					ToolNames: []string{"search_entries", "lookup_entry", "search_aspect_types", "lookup_context", "search_dq_scans"},
+					ToolNames: []string{"search_entries", "lookup_entry", "lookup_context", "search_dq_scans"},
 				},
 				"data-products": group.GroupConfig{
 					Name:      "data-products",
-					ToolNames: []string{"search_entries", "lookup_entry", "search_aspect_types", "lookup_context", "list_data_products", "get_data_product", "list_data_assets", "get_data_asset", "create_data_product", "update_data_product", "create_data_asset", "update_data_asset", "update_data_product_aspects", "get_operation"},
+					ToolNames: []string{"search_entries", "lookup_entry", "lookup_context", "list_data_products", "get_data_product", "list_data_assets", "get_data_asset", "create_data_product", "update_data_product", "create_data_asset", "update_data_asset", "update_data_product_aspects", "get_operation"},
 				},
 				"enrich": group.GroupConfig{
 					Name:      "enrich",

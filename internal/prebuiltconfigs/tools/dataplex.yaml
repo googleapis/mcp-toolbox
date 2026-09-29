@@ -30,12 +30,6 @@ source: dataplex-source
 description: Retrieves a specific metadata regarding a data asset (e.g. table/dataset/view) from Catalog
 ---
 kind: tool
-name: search_aspect_types
-type: dataplex-search-aspect-types
-source: dataplex-source
-description: Search aspect types relevant to the query.
----
-kind: tool
 name: lookup_context
 type: dataplex-lookup-context
 source: dataplex-source
@@ -277,7 +271,6 @@ name: discovery
 tools:
 - search_entries
 - lookup_entry
-- search_aspect_types
 - lookup_context
 - search_dq_scans
 ---
@@ -286,7 +279,6 @@ name: data-products
 tools:
 - search_entries
 - lookup_entry
-- search_aspect_types
 - lookup_context
 - list_data_products
 - get_data_product

@@ -363,7 +363,7 @@ This abbreviated syntax works for the qualified predicates except for `label` in
 
 ## Tool: lookup_entry
 ### Request
-1. Always try to limit the size of the response by specifying `aspect_types` parameter. Make sure to include to select view=CUSTOM when using aspect_types parameter. If you do not know the name of the aspect type, use the `search_aspect_types` tool.
+1. Always try to limit the size of the response by specifying `aspect_types` parameter. Make sure to include to select view=CUSTOM when using aspect_types parameter. If you do not know the name of the aspect type, refer to the list of system aspect types in the Aspect Types section above.
 2. If you do not know the name of the entry, use `search_entries` tool
 ### Response
 1. Unless asked for a specific aspect, respond with all aspects attached to the entry.
