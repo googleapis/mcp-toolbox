@@ -613,6 +613,34 @@ steps:
           exit 0
         fi
 
+  - id: "spanner-omni"
+    name: golang:1
+    waitFor: ["compile-test-binary", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)spanner/|(^|/)spanneromni/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Spanner Omni tests..."
+          .ci/test_with_coverage.sh \
+            "Spanner Omni" \
+            spanneromni \
+            spanner/spannerexecutesql \
+            spanner/spannerlisttables \
+            spanner/spannerlistgraphs \
+            spanner/spannersearchcatalog
+        else
+          echo "No relevant changes for Spanner Omni. Skipping shard."
+          exit 0
+        fi
+
   - id: "neo4j"
     name: golang:1
     waitFor: ["compile-test-binary", "detect-changes"]
