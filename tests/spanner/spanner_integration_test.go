@@ -1014,6 +1014,15 @@ func runSpannerSchemaToolInvokeTest(t *testing.T, accessSchemaWant string) {
 				t.Fatalf("unable to find result in response body")
 			}
 
+			// Database errors are returned with a 200 status and an error in
+			// the result.
+			if tc.isErr {
+				if !strings.Contains(got, `"error"`) {
+					t.Fatalf("expected an error, got %q", got)
+				}
+				return
+			}
+
 			if got != tc.want {
 				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
 			}

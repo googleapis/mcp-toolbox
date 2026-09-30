@@ -593,6 +593,8 @@ steps:
       - "SPANNER_DATABASE=$_DATABASE_NAME"
       - "SPANNER_INSTANCE=$_SPANNER_INSTANCE"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
+      # Spanner Omni runs in its own step below.
+      - "EXTRA_TEST_ARGS=-test.skip=TestSpannerOmni"
     secretEnv: ["CLIENT_ID", "API_KEY"]
     volumes:
       - name: "go"
@@ -619,23 +621,24 @@ steps:
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
+      - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
+      # Starts Spanner Omni in a testcontainer; see spanner_omni_integration_test.go.
+      - "EXTRA_TEST_ARGS=-test.run=TestSpannerOmni"
+    secretEnv: ["CLIENT_ID", "API_KEY"]
     volumes:
       - name: "go"
         path: "/gopath"
     args:
       - -c
       - |
-        PATTERN="(^|/)spanner/|(^|/)spanneromni/|$$(cat .ci/core_pattern.txt)"
+        PATTERN="(^|/)spanner/|$$(cat .ci/core_pattern.txt)"
 
         if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
           echo "Changes detected. Running Spanner Omni tests..."
           .ci/test_with_coverage.sh \
             "Spanner Omni" \
-            spanneromni \
-            spanner/spannerexecutesql \
-            spanner/spannerlisttables \
-            spanner/spannerlistgraphs \
-            spanner/spannersearchcatalog
+            spanner \
+            spanner
         else
           echo "No relevant changes for Spanner Omni. Skipping shard."
           exit 0
