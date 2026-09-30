@@ -25,17 +25,16 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
-	"github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 )
 
 func TestUpdateServer(t *testing.T) {
 	newSources := map[string]sources.Source{
-		"example-source": &alloydbpg.Source{
-			Config: alloydbpg.Config{
-				Name: "example-alloydb-source",
-				Type: "alloydb-postgres",
+		"example-source": testutils.MockSource{
+			MockSourceConfig: testutils.MockSourceConfig{
+				Name: "example-source",
+				Type: "mock-source",
 			},
 		},
 	}
@@ -89,10 +88,10 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, resource templates (-want +got):\n%s", diff)
 	}
 	updateSource := map[string]sources.Source{
-		"example-source2": &alloydbpg.Source{
-			Config: alloydbpg.Config{
-				Name: "example-alloydb-source2",
-				Type: "alloydb-postgres",
+		"example-source2": testutils.MockSource{
+			MockSourceConfig: testutils.MockSourceConfig{
+				Name: "example-source2",
+				Type: "mock-source",
 			},
 		},
 	}

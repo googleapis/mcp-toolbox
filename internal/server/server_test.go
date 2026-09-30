@@ -53,7 +53,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
-	"github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
+	_ "github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/postgres"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/sqlite"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
@@ -416,10 +416,10 @@ func TestUpdateServer(t *testing.T) {
 	}
 
 	newSources := map[string]sources.Source{
-		"example-source": &alloydbpg.Source{
-			Config: alloydbpg.Config{
-				Name: "example-alloydb-source",
-				Type: "alloydb-postgres",
+		"example-source": testutils.MockSource{
+			MockSourceConfig: testutils.MockSourceConfig{
+				Name: "example-source",
+				Type: "mock-source",
 			},
 		},
 	}

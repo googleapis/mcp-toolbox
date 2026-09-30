@@ -69,25 +69,16 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initAlloyDBPgConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Cluster, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create pool: %w", err)
-	}
-
-	err = pool.Ping(ctx)
-	if err != nil {
-		pool.Close()
-		if r.ReadOnly &&
-			strings.Contains(err.Error(), "unrecognized configuration parameter") &&
-			strings.Contains(err.Error(), "alloydb_session_read_only") {
-			return nil, fmt.Errorf("failed to initialize AlloyDB source in read-only mode: 'alloydb_session_read_only' is not supported on this instance version. See documentation for details: https://mcp-toolbox.dev/integrations/alloydb/source/#reference: %w", err)
-		}
-		return nil, fmt.Errorf("unable to connect successfully: %w", err)
-	}
-
 	s := &Source{
 		Config: r,
-		Pool:   pool,
+		conn: sources.NewConnectOnce[*connSet](ctx, r.Name, SourceType, tracer).
+			OnClose(func(_ context.Context, cs *connSet) error {
+				cs.pool.Close()
+				return cs.dialer.Close()
+			}),
+	}
+	if _, err := s.PostgresPoolContext(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -96,11 +87,55 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Pool *pgxpool.Pool
+	conn *sources.ConnectOnce[*connSet]
+}
+
+// connSet pairs the pool with the dialer backing it. The dialer holds its own
+// credentials and refresher, and closing the pool does not stop it, so it is
+// kept here to be released alongside the pool.
+type connSet struct {
+	pool   *pgxpool.Pool
+	dialer *alloydbconn.Dialer
+}
+
+// PostgresPoolContext returns the pool, connecting on first use. It is the
+// discriminator the postgres tools assert on.
+func (s *Source) PostgresPoolContext(ctx context.Context) (*pgxpool.Pool, error) {
+	cs, err := s.conn.Do(ctx, func(ctx context.Context) (*connSet, error) {
+		r := s.Config
+		// The dialer outlives this call and refreshes its credentials in the
+		// background, so it cannot hold the connect context. The pool and its
+		// ping stay on it, so the attempt is still bounded.
+		pool, dialer, err := initAlloyDBPgConnectionPool(ctx, sources.DetachedConnectContext(ctx), r.Project, r.Region, r.Cluster, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create pool: %w", err)
+		}
+
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			// A failed attempt is not cached, so the dialer goes with it.
+			_ = dialer.Close()
+			if r.ReadOnly &&
+				strings.Contains(err.Error(), "unrecognized configuration parameter") &&
+				strings.Contains(err.Error(), "alloydb_session_read_only") {
+				return nil, fmt.Errorf("failed to initialize AlloyDB source in read-only mode: 'alloydb_session_read_only' is not supported on this instance version. See documentation for details: https://mcp-toolbox.dev/integrations/alloydb/source/#reference: %w", err)
+			}
+			return nil, fmt.Errorf("unable to connect successfully: %w", err)
+		}
+		return &connSet{pool: pool, dialer: dialer}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return cs.pool, nil
 }
 
 func (s *Source) IsReadOnly() bool {
 	return s.ReadOnly
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -111,13 +146,13 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) PostgresPool() *pgxpool.Pool {
-	return s.Pool
-}
-
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
+	pool, err := s.PostgresPoolContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	statement = sqlcommenter.PrependComment(ctx, statement, SourceType, s.SQLCommenter)
-	results, err := s.Pool.Query(ctx, statement, params...)
+	results, err := pool.Query(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -208,32 +243,30 @@ func getConnectionConfig(ctx context.Context, user, pass, dbname string, readOnl
 	return dsn, useIAM, nil
 }
 
-func initAlloyDBPgConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, cluster, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, error) {
-	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
-	defer span.End()
-
+// initAlloyDBPgConnectionPool builds the dialer from dialerCtx, which outlives
+// the connect, and everything else from ctx, which bounds it.
+func initAlloyDBPgConnectionPool(ctx, dialerCtx context.Context, project, region, cluster, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, *alloydbconn.Dialer, error) {
 	dsn, useIAM, err := getConnectionConfig(ctx, user, pass, dbname, readOnly)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get AlloyDB connection config: %w", err)
+		return nil, nil, fmt.Errorf("unable to get AlloyDB connection config: %w", err)
 	}
 
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse connection uri: %w", err)
+		return nil, nil, fmt.Errorf("unable to parse connection uri: %w", err)
 	}
 	// Create a new dialer with options
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	opts, err := getOpts(ipType, userAgent, useIAM)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	d, err := alloydbconn.NewDialer(ctx, opts...)
+	d, err := alloydbconn.NewDialer(dialerCtx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse connection uri: %w", err)
+		return nil, nil, fmt.Errorf("unable to parse connection uri: %w", err)
 	}
 
 	// Tell the driver to use the AlloyDB Go Connector to create connections
@@ -245,7 +278,8 @@ func initAlloyDBPgConnectionPool(ctx context.Context, tracer trace.Tracer, name,
 	// Interact with the driver directly as you normally would
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		return nil, err
+		_ = d.Close()
+		return nil, nil, err
 	}
-	return pool, nil
+	return pool, d, nil
 }
