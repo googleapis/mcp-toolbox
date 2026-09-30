@@ -808,6 +808,31 @@ steps:
   #         dgraph \
   #         dgraph
 
+  - id: "cloud-monitoring"
+    name: golang:1
+    waitFor: ["compile-test-binary", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)cloudmonitoring/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Cloud Monitoring tests..."
+          .ci/test_with_coverage.sh \
+            "Cloud Monitoring" \
+            cloudmonitoring \
+            cloudmonitoring
+        else
+          echo "No relevant changes for Cloud Monitoring. Skipping shard."
+          exit 0
+        fi
+
   - id: "http"
     name: golang:1
     waitFor: ["compile-test-binary", "detect-changes"]
