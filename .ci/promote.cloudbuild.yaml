@@ -19,6 +19,10 @@ steps:
     script: |
       #!/usr/bin/env bash
       set -eo pipefail
+
+      # Install jq (Required for parsing the API responses)
+      apt-get update && apt-get install -y jq
+
       export VERSION=$(cat ./cmd/version.txt)
       bash .ci/promote_artifacts.sh "${PROJECT_ID}" "${_REGION}" "${_STAGING_AR_REPO_NAME}" "${_PROD_AR_REPO_NAME}" "toolbox" "${VERSION}"
 
@@ -73,7 +77,6 @@ options:
 
 substitutions:
   _REGION: us-central1
-  _AR_HOSTNAME: ${_REGION}-docker.pkg.dev
   _STAGING_AR_REPO_NAME: toolbox-containers-staging
   _PROD_AR_REPO_NAME: toolbox
   _EXIT_GATE_PROJECT: "mcp-toolbox"
