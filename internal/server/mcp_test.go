@@ -2678,7 +2678,9 @@ func TestMcpServerInstructions(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			var res map[string]any
-			json.Unmarshal(respBody, &res)
+			if err := json.Unmarshal(respBody, &res); err != nil {
+				t.Fatalf("unexpected error unmarshaling response: %v", err)
+			}
 			resultMap := res["result"].(map[string]any)
 			if got, ok := resultMap["instructions"]; !ok || got != testInstructions {
 				t.Errorf("expected instructions %q, got %v", testInstructions, got)
@@ -2690,7 +2692,9 @@ func TestMcpServerInstructions(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			var plainResMap map[string]any
-			json.Unmarshal(plainResp, &plainResMap)
+			if err := json.Unmarshal(plainResp, &plainResMap); err != nil {
+				t.Fatalf("unexpected error unmarshaling response: %v", err)
+			}
 			plainResult := plainResMap["result"].(map[string]any)
 			if _, exists := plainResult["instructions"]; exists {
 				t.Errorf("expected instructions to be omitted, got %v", plainResult["instructions"])
@@ -2727,7 +2731,9 @@ func TestMcpServerInstructions(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		var res map[string]any
-		json.Unmarshal(respBody, &res)
+		if err := json.Unmarshal(respBody, &res); err != nil {
+			t.Fatalf("unexpected error unmarshaling response: %v", err)
+		}
 		resultMap := res["result"].(map[string]any)
 		if got, ok := resultMap["instructions"]; !ok || got != testInstructions {
 			t.Errorf("expected instructions %q, got %v", testInstructions, got)
@@ -2739,7 +2745,9 @@ func TestMcpServerInstructions(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		var plainResMap map[string]any
-		json.Unmarshal(plainResp, &plainResMap)
+		if err := json.Unmarshal(plainResp, &plainResMap); err != nil {
+			t.Fatalf("unexpected error unmarshaling response: %v", err)
+		}
 		plainResult := plainResMap["result"].(map[string]any)
 		if _, exists := plainResult["instructions"]; exists {
 			t.Errorf("expected instructions to be omitted, got %v", plainResult["instructions"])
