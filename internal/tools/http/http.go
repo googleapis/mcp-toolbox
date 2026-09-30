@@ -56,17 +56,16 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Path             string                 `yaml:"path" validate:"required"`
-	Method           tools.HTTPMethod       `yaml:"method" validate:"required"`
-	Headers          map[string]string      `yaml:"headers"`
-	RequestBody      string                 `yaml:"requestBody"`
-	PathParams       parameters.Parameters  `yaml:"pathParams"`
-	QueryParams      parameters.Parameters  `yaml:"queryParams"`
-	BodyParams       parameters.Parameters  `yaml:"bodyParams"`
-	HeaderParams     parameters.Parameters  `yaml:"headerParams"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string                `yaml:"type" validate:"required"`
+	Source           string                `yaml:"source" validate:"required"`
+	Path             string                `yaml:"path" validate:"required"`
+	Method           tools.HTTPMethod      `yaml:"method" validate:"required"`
+	Headers          map[string]string     `yaml:"headers"`
+	RequestBody      string                `yaml:"requestBody"`
+	PathParams       parameters.Parameters `yaml:"pathParams"`
+	QueryParams      parameters.Parameters `yaml:"queryParams"`
+	BodyParams       parameters.Parameters `yaml:"bodyParams"`
+	HeaderParams     parameters.Parameters `yaml:"headerParams"`
 }
 
 // validate interface

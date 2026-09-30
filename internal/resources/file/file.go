@@ -101,6 +101,7 @@ var allowedExts = map[string]bool{
 	".txt": true, ".md": true, ".csv": true, ".json": true,
 	".yaml": true, ".yml": true, ".xml": true, ".sql": true,
 	".html": true, ".htm": true, ".js": true, ".css": true, ".svg": true,
+	".py": true,
 }
 
 // validateExtension checks if a file extension is allowed.
