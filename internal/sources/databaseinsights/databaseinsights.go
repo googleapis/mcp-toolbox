@@ -33,6 +33,8 @@ import (
 
 const SourceKind string = "databaseinsights"
 
+const defaultEndpoint string = "https://databaseinsights.googleapis.com"
+
 // validate interface
 var _ sources.SourceConfig = Config{}
 
@@ -62,15 +64,18 @@ func (cfg Config) SourceConfigType() string {
 }
 
 func (cfg Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	httpClient, endpoint, err := initConnection(ctx, tracer, cfg.Name, cfg.Project, cfg.Endpoint)
-	if err != nil {
-		return nil, err
+	// Derived from config alone so it resolves on an unconnected source.
+	endpoint := cfg.Endpoint
+	if endpoint == "" {
+		endpoint = defaultEndpoint
 	}
-
 	s := &Source{
-		Config:     cfg,
-		httpClient: httpClient,
-		endpoint:   endpoint,
+		Config:   cfg,
+		endpoint: endpoint,
+		conn:     sources.NewConnectOnce[*http.Client](ctx, cfg.Name, SourceKind, tracer),
+	}
+	if _, err := s.client(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -79,12 +84,26 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	httpClient *http.Client
-	endpoint   string
+	endpoint string
+	conn     *sources.ConnectOnce[*http.Client]
+}
+
+func (s *Source) client(ctx context.Context) (*http.Client, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*http.Client, error) {
+		r := s.Config
+		// Every handle built below outlives this call, and an oauth2 token source
+		// reuses the context it was built with for every refresh.
+		clientCtx := sources.DetachedConnectContext(ctx)
+		return initConnection(clientCtx, r.Project)
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -95,36 +114,22 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) HTTPClient() *http.Client {
-	return s.httpClient
-}
-
-func (s *Source) APIEndpoint() string {
-	return s.endpoint
-}
-
 func (s *Source) ProjectID() string {
 	return s.Project
 }
 
 func initConnection(
 	ctx context.Context,
-	tracer trace.Tracer,
-	name string,
 	project string,
-	endpoint string,
-) (*http.Client, string, error) {
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceKind, name)
-	defer span.End()
-
+) (*http.Client, error) {
 	cred, err := google.FindDefaultCredentials(ctx, sources.CloudPlatformScope)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to find default Google Cloud credentials with scope %q: %w", sources.CloudPlatformScope, err)
+		return nil, fmt.Errorf("failed to find default Google Cloud credentials with scope %q: %w", sources.CloudPlatformScope, err)
 	}
 
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// Create authenticated HTTP client using the credentials token source
@@ -136,11 +141,7 @@ func initConnection(
 		next:          httpClient.Transport,
 	}
 
-	if endpoint == "" {
-		endpoint = "https://databaseinsights.googleapis.com"
-	}
-
-	return httpClient, endpoint, nil
+	return httpClient, nil
 }
 
 type authHeadersRoundTripper struct {
@@ -203,14 +204,14 @@ func extractLocationFromParent(parent string) string {
 }
 
 func (s *Source) getEndpointForParent(parent string) string {
-	if s.endpoint != "" && s.endpoint != "https://databaseinsights.googleapis.com" {
+	if s.endpoint != "" && s.endpoint != defaultEndpoint {
 		return s.endpoint
 	}
 	location := extractLocationFromParent(parent)
 	if location != "" && location != "global" {
 		return fmt.Sprintf("https://%s-databaseinsights.googleapis.com", location)
 	}
-	return "https://databaseinsights.googleapis.com"
+	return defaultEndpoint
 }
 
 // FetchQueryStatsRequest is the payload for fetching query execution stats.
@@ -374,7 +375,12 @@ func (s *Source) FetchQueryStats(ctx context.Context, req *FetchQueryStatsReques
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -408,7 +414,12 @@ func (s *Source) FetchWaitEventStats(ctx context.Context, req *FetchWaitEventSta
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -442,7 +453,12 @@ func (s *Source) FetchQueryTimeSeries(ctx context.Context, req *FetchQueryTimeSe
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -476,7 +492,12 @@ func (s *Source) FetchWaitEventTimeSeries(ctx context.Context, req *FetchWaitEve
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -510,7 +531,12 @@ func (s *Source) BatchQueryIndexRecommendations(ctx context.Context, req *BatchQ
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.httpClient.Do(httpReq)
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}

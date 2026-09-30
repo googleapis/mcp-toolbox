@@ -73,36 +73,13 @@ func (r Config) SourceConfigType() string {
 
 // Initialize initializes a CloudSQL Admin Source instance.
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	ua, err := util.UserAgentFromContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
-	}
-
-	var client *http.Client
-	if r.UseClientOAuth {
-		client = &http.Client{
-			Transport: util.NewUserAgentRoundTripper(ua, http.DefaultTransport),
-		}
-	} else {
-		// Use Application Default Credentials
-		creds, err := google.FindDefaultCredentials(ctx, sqladmin.SqlserviceAdminScope)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find default credentials: %w", err)
-		}
-		baseClient := oauth2.NewClient(ctx, creds.TokenSource)
-		baseClient.Transport = util.NewUserAgentRoundTripper(ua, baseClient.Transport)
-		client = baseClient
-	}
-
-	service, err := sqladmin.NewService(ctx, option.WithHTTPClient(client))
-	if err != nil {
-		return nil, fmt.Errorf("error creating new sqladmin service: %w", err)
-	}
-
 	s := &Source{
 		Config:  r,
 		BaseURL: "https://sqladmin.googleapis.com",
-		Service: service,
+		conn:    sources.NewConnectOnce[*sqladmin.Service](ctx, r.Name, SourceType, tracer),
+	}
+	if _, err := s.adminService(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -112,11 +89,50 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	BaseURL string
-	Service *sqladmin.Service
+	conn    *sources.ConnectOnce[*sqladmin.Service]
+}
+
+func (s *Source) adminService(ctx context.Context) (*sqladmin.Service, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (*sqladmin.Service, error) {
+		r := s.Config
+		// Every handle built below outlives this call, and an oauth2 token source
+		// reuses the context it was built with for every refresh.
+		clientCtx := sources.DetachedConnectContext(ctx)
+		ua, err := util.UserAgentFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error in User Agent retrieval: %s", err)
+		}
+
+		var client *http.Client
+		if r.UseClientOAuth {
+			client = &http.Client{
+				Transport: util.NewUserAgentRoundTripper(ua, http.DefaultTransport),
+			}
+		} else {
+			// Use Application Default Credentials
+			creds, err := google.FindDefaultCredentials(clientCtx, sqladmin.SqlserviceAdminScope)
+			if err != nil {
+				return nil, fmt.Errorf("failed to find default credentials: %w", err)
+			}
+			baseClient := oauth2.NewClient(clientCtx, creds.TokenSource)
+			baseClient.Transport = util.NewUserAgentRoundTripper(ua, baseClient.Transport)
+			client = baseClient
+		}
+
+		service, err := sqladmin.NewService(clientCtx, option.WithHTTPClient(client))
+		if err != nil {
+			return nil, fmt.Errorf("error creating new sqladmin service: %w", err)
+		}
+		return service, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return s.ReadOnly
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -142,7 +158,7 @@ func (s *Source) GetService(ctx context.Context, accessToken string) (*sqladmin.
 		}
 		return service, nil
 	}
-	return s.Service, nil
+	return s.adminService(ctx)
 }
 
 func (s *Source) UseClientAuthorization() bool {
