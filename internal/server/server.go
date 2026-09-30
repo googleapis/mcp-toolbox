@@ -856,10 +856,26 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// After the HTTP drain, so nothing is still serving a request against a
 	// source being released. A close failure is logged rather than returned:
 	// the server is already down, and it must not mask a drain error.
-	if cerr := s.PrimitiveMgr.CloseSources(ctx); cerr != nil {
+	if cerr := s.closeSources(ctx); cerr != nil {
 		s.logger.WarnContext(ctx, fmt.Sprintf("unable to close sources: %s", cerr))
 	}
 	return err
+}
+
+// closeSources releases every source that holds a connection worth releasing.
+// One source failing does not stop the rest; the failures are returned joined.
+func (s *Server) closeSources(ctx context.Context) error {
+	var errs []error
+	for name, src := range s.PrimitiveMgr.Sources() {
+		closer, ok := src.(sources.Closer)
+		if !ok {
+			continue
+		}
+		if err := closer.Close(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("source %q: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *Server) Addr() string {
