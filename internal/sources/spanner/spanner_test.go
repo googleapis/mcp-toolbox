@@ -98,7 +98,7 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 			},
 		},
 		{
-			desc: "omni with tls",
+			desc: "omni with mtls",
 			in: `
 			kind: source
 			name: my-spanner-omni

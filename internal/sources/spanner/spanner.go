@@ -109,9 +109,9 @@ func (r Config) validate() error {
 	}
 	switch {
 	case r.OmniEndpoint == "":
-		return fmt.Errorf("omniEndpoint is required when instanceType is %q", InstanceTypeOmni)
+		return fmt.Errorf("omniEndpoint is required when instanceType is %q", r.InstanceType)
 	case r.UseClientOAuth:
-		return fmt.Errorf("useClientOAuth is not supported when instanceType is %q", InstanceTypeOmni)
+		return fmt.Errorf("useClientOAuth is not supported when instanceType is %q", r.InstanceType)
 	case r.OmniUsePlainText && (r.OmniCaCertificateFile != "" || r.OmniClientCertificateFile != "" || r.OmniClientKeyFile != "" || r.OmniUsername != "" || r.OmniPassword != ""):
 		return fmt.Errorf("omniUsePlainText cannot be combined with TLS certificates or omniUsername/omniPassword")
 	case (r.OmniClientCertificateFile == "") != (r.OmniClientKeyFile == ""):
