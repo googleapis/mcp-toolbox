@@ -139,24 +139,7 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	var supportsUI bool
-	if req.Params.Meta != nil {
-		if req.Params.Meta.MetaClientCapabilities != nil && mcputil.CheckUISupport(req.Params.Meta.MetaClientCapabilities.Extensions) {
-			supportsUI = true
-		} else if req.Params.Meta.ClientCapabilities != nil && mcputil.CheckUISupport(req.Params.Meta.ClientCapabilities.Extensions) {
-			supportsUI = true
-		} else if mcputil.CheckUISupport(req.Params.Meta.Extensions) {
-			supportsUI = true
-		}
-	}
-	if !supportsUI && req.Params.Capabilities != nil {
-		if mcputil.CheckUISupport(req.Params.Capabilities.Extensions) {
-			supportsUI = true
-		}
-	}
-	if !supportsUI {
-		supportsUI = mcputil.CheckUISupportFromRequest(body)
-	}
+	supportsUI := mcputil.CheckUISupportFromRequest(body)
 	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
