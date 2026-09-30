@@ -67,7 +67,7 @@ func (r Config) SourceConfigType() string {
 }
 
 // Initialize sets up the SingleStore connection pool and returns a Source.
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	queryTimeout, err := r.queryTimeout()
 	if err != nil {
 		return nil, err
@@ -85,6 +85,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 			OnClose(func(_ context.Context, db *sql.DB) error {
 				return db.Close()
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.SingleStorePoolContext(ctx); err != nil {
 		return nil, err

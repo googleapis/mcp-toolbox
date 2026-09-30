@@ -63,7 +63,7 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	// Pure config validation, so it stays at startup for both paths.
 	if r.UseClientOAuth && r.ImpersonateServiceAccount != "" {
 		return nil, fmt.Errorf("useClientOAuth cannot be used with impersonateServiceAccount")
@@ -77,6 +77,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 				}
 				return cs.client.Close()
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.clients(ctx); err != nil {
 		return nil, err

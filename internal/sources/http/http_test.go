@@ -167,7 +167,7 @@ func TestRunRequestSanitizesErrorBodyByDefault(t *testing.T) {
 		Timeout:              "30s",
 		AllowPrivateNetworks: true,
 	}
-	initialized, err := sourceConfig.Initialize(ctx, otel.Tracer("test"))
+	initialized, err := sourceConfig.Initialize(ctx, otel.Tracer("test"), false)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestRunRequestIncludesErrorBodyWhenEnabled(t *testing.T) {
 		ReturnFullError:      true,
 		AllowPrivateNetworks: true,
 	}
-	initialized, err := sourceConfig.Initialize(ctx, otel.Tracer("test"))
+	initialized, err := sourceConfig.Initialize(ctx, otel.Tracer("test"), false)
 	if err != nil {
 		t.Fatalf("failed to initialize source: %v", err)
 	}

@@ -92,7 +92,7 @@ func (r Config) SourceConfigType() string {
 }
 
 // Initialize initializes an HTTP Source instance.
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	allowedRanges, err := parseCIDRs(r.AllowedIPRanges)
 	if err != nil {
 		return nil, fmt.Errorf("invalid allowedIpRanges: %w", err)
@@ -131,6 +131,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		guard:   guard,
 		timeout: timeout,
 		conn:    sources.NewConnectOnce[*httpClient](ctx, r.Name, SourceType, tracer),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.client(ctx); err != nil {
 		return nil, err

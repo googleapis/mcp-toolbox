@@ -63,11 +63,14 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config:  r,
 		BaseURL: "https://alloydb.googleapis.com",
 		conn:    sources.NewConnectOnce[*alloydbrestapi.Service](ctx, r.Name, SourceType, tracer),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.adminService(ctx); err != nil {
 		return nil, err

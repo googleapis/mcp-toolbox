@@ -64,13 +64,16 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
 	s := &Source{
 		Config: r,
 		conn: sources.NewConnectOnce[*clientSet](ctx, r.Name, SourceType, tracer).
 			OnClose(func(ctx context.Context, cs *clientSet) error {
 				return errors.Join(cs.batchClient.Close(), cs.sessionClient.Close(), cs.sessionTemplateClient.Close(), cs.opsClient.Close())
 			}),
+	}
+	if deferConnect {
+		return s, nil
 	}
 	if _, err := s.clients(ctx); err != nil {
 		return nil, err
