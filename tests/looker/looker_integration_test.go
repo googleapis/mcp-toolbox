@@ -103,6 +103,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"get_explore": map[string]any{
+				"type":        "looker-get-explore",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"get_dimensions": map[string]any{
 				"type":        "looker-get-dimensions",
 				"source":      "my-instance",
@@ -404,6 +409,30 @@ func TestLooker(t *testing.T) {
 						"authServices": []any{},
 						"description":  "The model containing the explores.",
 						"name":         "model",
+						"required":     true,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "get_explore",
+		map[string]any{
+			"get_explore": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The model containing the explore.",
+						"name":         "model",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The explore to get metadata for.",
+						"name":         "explore",
 						"required":     true,
 						"type":         "string",
 					},
@@ -2369,8 +2398,11 @@ func TestLooker(t *testing.T) {
 	wantResult := "{\"connections\":[],\"label\":\"System Activity\",\"name\":\"system__activity\",\"project_name\":\"system__activity\"}"
 	tests.RunToolInvokeSimpleTest(t, "get_models", wantResult)
 
-	wantResult = "{\"description\":\"Data about Look and dashboard usage, including frequency of views, favoriting, scheduling, embedding, and access via the API. Also includes details about individual Looks and dashboards.\",\"group_label\":\"System Activity\",\"label\":\"Content Usage\",\"name\":\"content_usage\"}"
+	wantResult = "{\"description\":\"Data about Look and dashboard usage, including frequency of views, favoriting, scheduling, embedding, and access via the API. Also includes details about individual Looks and dashboards.\",\"group_label\":\"System Activity\",\"hidden\":false,\"label\":\"Content Usage\",\"name\":\"content_usage\"}"
 	tests.RunToolInvokeParametersTest(t, "get_explores", []byte(`{"model": "system__activity"}`), wantResult)
+
+	wantResult = "\"group_label\":\"System Activity\",\"hidden\":false,\"label\":\"Content Usage\",\"name\":\"content_usage\""
+	tests.RunToolInvokeParametersTest(t, "get_explore", []byte(`{"model": "system__activity", "explore": "content_usage"}`), wantResult)
 
 	wantResult = "{\"description\":\"\",\"label\":\" Dashboard Linked Looks  ID\",\"label_short\":\" ID\",\"name\":\"_dashboard_linked_looks._id\",\"suggest_dimension\":\"_dashboard_linked_looks._id\",\"suggest_explore\":\"content_usage\",\"suggestable\":true,\"type\":\"string\"}"
 	tests.RunToolInvokeParametersTest(t, "get_dimensions", []byte(`{"model": "system__activity", "explore": "content_usage"}`), wantResult)
