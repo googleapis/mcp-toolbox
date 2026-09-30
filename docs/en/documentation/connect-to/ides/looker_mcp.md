@@ -497,6 +497,8 @@ and execute queries against that model.
 
 1. **get_models**: list the LookML models in Looker
 1. **get_explores**: list the explores in a given model
+1. **get_explore**: get detailed metadata, including required filters, for a
+   given explore
 1. **get_dimensions**: list the dimensions in a given explore
 1. **get_measures**: list the measures in a given explore
 1. **get_filters**: list the filters in a given explore
