@@ -36,7 +36,7 @@ func init() {
 }
 
 type compatibleSource interface {
-	ScyllaDBSession() *gocql.Session
+	ScyllaDBSessionContext(context.Context) (*gocql.Session, error)
 	RunSQL(context.Context, string, parameters.ParamValues) (any, error)
 }
 

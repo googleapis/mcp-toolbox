@@ -68,19 +68,22 @@ func (r Config) SourceConfigType() string {
 // RedisClient is an interface for `redis.Client` and `redis.ClusterClient
 type RedisClient interface {
 	Do(context.Context, ...any) *redis.Cmd
+	Close() error
 }
 
 var _ RedisClient = (*redis.Client)(nil)
 var _ RedisClient = (*redis.ClusterClient)(nil)
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	client, err := initRedisClient(ctx, r)
-	if err != nil {
-		return nil, fmt.Errorf("error initializing Redis client: %s", err)
-	}
 	s := &Source{
 		Config: r,
-		Client: client,
+		conn: sources.NewConnectOnce[RedisClient](ctx, r.Name, SourceType, tracer).
+			OnClose(func(_ context.Context, c RedisClient) error {
+				return c.Close()
+			}),
+	}
+	if _, err := s.client(ctx); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -156,11 +159,26 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Client RedisClient
+	conn *sources.ConnectOnce[RedisClient]
+}
+
+func (s *Source) client(ctx context.Context) (RedisClient, error) {
+	return s.conn.Do(ctx, func(ctx context.Context) (RedisClient, error) {
+		r := s.Config
+		client, err := initRedisClient(ctx, r)
+		if err != nil {
+			return nil, fmt.Errorf("error initializing Redis client: %s", err)
+		}
+		return client, nil
+	})
 }
 
 func (s *Source) IsReadOnly() bool {
 	return false
+}
+
+func (s *Source) Close(ctx context.Context) error {
+	return s.conn.Close(ctx)
 }
 
 func (s *Source) SourceType() string {
@@ -171,15 +189,15 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) RedisClient() RedisClient {
-	return s.Client
-}
-
 func (s *Source) RunCommand(ctx context.Context, cmds [][]any) (any, error) {
+	client, err := s.client(ctx)
+	if err != nil {
+		return nil, err
+	}
 	// Execute commands
 	responses := make([]*redis.Cmd, len(cmds))
 	for i, cmd := range cmds {
-		responses[i] = s.RedisClient().Do(ctx, cmd...)
+		responses[i] = client.Do(ctx, cmd...)
 	}
 	// Parse responses
 	out := make([]any, len(cmds))
