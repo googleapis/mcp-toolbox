@@ -16,6 +16,11 @@ package util
 
 import (
 	"testing"
+
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
 )
 
 func TestValidateUISupport(t *testing.T) {
@@ -262,3 +267,83 @@ func TestCheckUISupportFromRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveToolUIMetadata(t *testing.T) {
+	resByName := testutils.NewMockResource("res-by-name", "ui://app/res-name.html", "", "", "", nil, nil)
+	uiResByURI := testutils.NewMockUIResource("ui-res", "ui://app/by-uri.html", "", "", "", nil, nil, nil, nil, "", nil)
+	tmplByName := testutils.NewMockResourceTemplate("tmpl-by-name", "ui://app/tmpl/{path}", "", "", "", nil)
+	uiTmplByURI := testutils.NewMockUIResourceTemplate("ui-tmpl", "ui://app/ui-tmpl/{path}", "", "", "", nil, nil, nil, "", nil)
+
+	resourcesMap := map[string]resources.Resource{
+		resByName.GetName():  resByName,
+		uiResByURI.GetName(): uiResByURI,
+	}
+	templatesMap := map[string]resources.ResourceTemplate{
+		tmplByName.GetName():  tmplByName,
+		uiTmplByURI.GetName(): uiTmplByURI,
+	}
+	pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, templatesMap, nil)
+
+	tests := []struct {
+		name    string
+		tool    tools.Tool
+		wantURI string
+		wantErr bool
+	}{
+		{
+			name:    "tool without UI metadata",
+			tool:    testutils.NewMockTool("plain-tool", "", "", nil, false, false),
+			wantURI: "",
+			wantErr: false,
+		},
+		{
+			name:    "resolve resource by name",
+			tool:    testutils.NewMockToolWithUI("tool-res-name", "", "", nil, false, false, "res-by-name"),
+			wantURI: "ui://app/res-name.html",
+			wantErr: false,
+		},
+		{
+			name:    "resolve resource template by name",
+			tool:    testutils.NewMockToolWithUI("tool-tmpl-name", "", "", nil, false, false, "tmpl-by-name"),
+			wantURI: "ui://app/tmpl/{path}",
+			wantErr: false,
+		},
+		{
+			name:    "resolve UI resource by URI",
+			tool:    testutils.NewMockToolWithUI("tool-ui-res-uri", "", "", nil, false, false, "ui://app/by-uri.html"),
+			wantURI: "ui://app/by-uri.html",
+			wantErr: false,
+		},
+		{
+			name:    "resolve UI resource template by URI",
+			tool:    testutils.NewMockToolWithUI("tool-ui-tmpl-uri", "", "", nil, false, false, "ui://app/ui-tmpl/dashboard"),
+			wantURI: "ui://app/ui-tmpl/{path}",
+			wantErr: false,
+		},
+		{
+			name:    "unregistered UI resource returns error",
+			tool:    testutils.NewMockToolWithUI("tool-missing", "", "", nil, false, false, "nonexistent-res"),
+			wantURI: "",
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveToolUIMetadata(pMgr, tc.tool)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ResolveToolUIMetadata() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantURI == "" {
+				if got != nil {
+					t.Errorf("ResolveToolUIMetadata() = %v, want nil", got)
+				}
+				return
+			}
+			if got == nil || got["resourceUri"] != tc.wantURI {
+				t.Errorf("ResolveToolUIMetadata() resourceUri = %v, want %q", got, tc.wantURI)
+			}
+		})
+	}
+}
+

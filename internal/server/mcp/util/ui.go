@@ -68,20 +68,6 @@ func CheckUISupport(extensions map[string]any) bool {
 		if v != nil {
 			return ValidateUISupport(*v)
 		}
-	case map[string]any:
-		if mtVal, ok := v["mimeTypes"]; ok {
-			if slice, ok := mtVal.([]any); ok {
-				var mimeTypes []string
-				for _, item := range slice {
-					if s, ok := item.(string); ok {
-						mimeTypes = append(mimeTypes, s)
-					}
-				}
-				return ValidateUISupport(McpUiClientCapabilities{MimeTypes: mimeTypes})
-			} else if slice, ok := mtVal.([]string); ok {
-				return ValidateUISupport(McpUiClientCapabilities{MimeTypes: slice})
-			}
-		}
 	default:
 		data, err := json.Marshal(extVal)
 		if err != nil {
@@ -113,7 +99,7 @@ func checkMetaMapForUI(meta map[string]any) bool {
 	if exts, ok := meta["extensions"].(map[string]any); ok && CheckUISupport(exts) {
 		return true
 	}
-	if extVal, ok := meta[UIExtensionURI].(map[string]any); ok {
+	if extVal, ok := meta[UIExtensionURI]; ok {
 		if CheckUISupport(map[string]any{UIExtensionURI: extVal}) {
 			return true
 		}
@@ -168,6 +154,8 @@ func ResolveToolUIMetadata(pMgr *primitives.PrimitiveManager, tool tools.Tool) (
 		uri = tmpl.GetURITemplate()
 	} else if res, hasRes := pMgr.GetUIResourceFromURI(uiMetaOrig.Resource); hasRes {
 		uri = res.GetURI()
+	} else if tmpl, _, hasTmpl := pMgr.GetUIResourceTemplateByURI(uiMetaOrig.Resource); hasTmpl {
+		uri = tmpl.GetURITemplate()
 	} else {
 		return nil, fmt.Errorf("UI resource %q for tool %q is not registered", uiMetaOrig.Resource, tool.GetName())
 	}
