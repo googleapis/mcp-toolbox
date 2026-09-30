@@ -35,7 +35,7 @@ readonly AR_HOST="us-npm.pkg.dev"
 # Write to $HOME so npm finds it as user config from inside any package dir.
 # A .npmrc at /workspace would be ignored — npm's per-project .npmrc must sit
 # next to package.json, and each platform package has its own package.json.
-cat > "$HOME/.npmrc" <<EOF
+cat >> "$HOME/.npmrc" <<EOF
 @toolbox-sdk:registry=${AR_REGISTRY}
 //${AR_HOST}/:always-auth=true
 EOF
