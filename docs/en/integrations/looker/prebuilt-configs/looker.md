@@ -22,6 +22,8 @@ description: "Details of the Looker prebuilt configuration."
 *   **Tools:**
     *   `get_models`: Retrieves the list of LookML models.
     *   `get_explores`: Retrieves the list of explores in a model.
+    *   `get_explore`: Retrieves detailed metadata for an explore, including
+        `always_filter` and `conditionally_filter` constraints.
     *   `get_dimensions`: Retrieves the list of dimensions in an explore.
     *   `get_measures`: Retrieves the list of measures in an explore.
     *   `get_filters`: Retrieves the list of filters in an explore.
