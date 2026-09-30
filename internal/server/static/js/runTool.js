@@ -65,7 +65,11 @@ export async function handleRunTool(toolId, form, responseArea, parameters, pret
                     typedParams[NAME] = {};
                 } else {
                     try {
-                        typedParams[NAME] = JSON.parse(RAW_VALUE.trim());
+                        const parsed = JSON.parse(RAW_VALUE.trim());
+                        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                            throw new Error('Value must be a JSON object');
+                        }
+                        typedParams[NAME] = parsed;
                     } catch (e) {
                         throw new Error(`Invalid JSON format for object parameter ${NAME}: ${e.message}`);
                     }
@@ -267,14 +271,14 @@ function parseArrayParameter(rawValue, valueType, paramName) {
         switch (ELEMENT_TYPE) {
             case 'number': {
                 const NUM = Number(item);
-                if (item === '' || item === null || isNaN(NUM)) {
+                if (typeof item === 'boolean' || typeof item === 'object' || item === '' || item === null || isNaN(NUM)) {
                     throw new Error(`Invalid number "${item}" found in array for ${paramName} at index ${index}.`);
                 }
                 return NUM;
             }
             case 'integer': {
                 const INT = Number(item);
-                if (item === '' || item === null || isNaN(INT)) {
+                if (typeof item === 'boolean' || typeof item === 'object' || item === '' || item === null || isNaN(INT)) {
                     throw new Error(`Invalid integer "${item}" found in array for ${paramName} at index ${index}.`);
                 }
                 if (!Number.isInteger(INT)) {

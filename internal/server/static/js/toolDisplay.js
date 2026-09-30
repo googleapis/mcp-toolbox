@@ -19,9 +19,42 @@ import { createMcpHeaders, createMcpRequestBody, MCP_PROTOCOL_VERSION } from './
 
 let activeTool = null;
 const toolHeadersMap = new Map();
+const registeredToolsMap = new Map();
 let activeHeaders = {
     "Content-Type": "application/json"
 };
+
+/**
+ * Registers the current toolset manifests so the MCP Apps host bridge can
+ * enforce tool-level UI visibility (`_meta.ui.visibility`).
+ * @param {!Array<Object>} tools The tools returned by `tools/list`.
+ */
+export function setRegisteredTools(tools) {
+    registeredToolsMap.clear();
+    if (!Array.isArray(tools)) return;
+    tools.forEach(tool => {
+        if (tool && typeof tool.name === 'string') {
+            registeredToolsMap.set(tool.name, tool);
+        }
+    });
+}
+
+/**
+ * Checks whether an embedded MCP App iframe is permitted to invoke `toolName`.
+ * Per the MCP Apps specification, an app may invoke its own associated tool
+ * or any tool in the active toolset whose `_meta.ui.visibility` includes `"app"`.
+ */
+function isAppCallableTool(toolName, associatedToolId) {
+    if (toolName === associatedToolId) {
+        return true;
+    }
+    const targetTool = registeredToolsMap.get(toolName);
+    if (!targetTool) {
+        return false;
+    }
+    const visibility = targetTool._meta?.ui?.visibility || targetTool.ui?.visibility;
+    return Array.isArray(visibility) && visibility.includes('app');
+}
 
 // Bounds applied to the height an MCP App may request via
 // `ui/notifications/size-changed`. The app is untrusted input, so the requested
@@ -646,11 +679,15 @@ function setAppDisplayMode(mcpContainer, iframeElement, mode) {
         iframe.contentWindow.postMessage({
             jsonrpc: '2.0',
             method: 'ui/notifications/host-context-changed',
-            params: { displayMode: mode }
+            params: {
+                displayMode: mode,
+                availableDisplayModes: Array.from(SUPPORTED_DISPLAY_MODES)
+            }
         }, '*');
         iframe.contentWindow.postMessage({
             type: 'ui/host_context_changed',
-            displayMode: mode
+            displayMode: mode,
+            availableDisplayModes: Array.from(SUPPORTED_DISPLAY_MODES)
         }, '*');
     }
 }
@@ -659,8 +696,8 @@ function setAppDisplayMode(mcpContainer, iframeElement, mode) {
  * Constructs a standard Content Security Policy string according to SEP-1865.
  */
 function constructCsp(csp) {
-    const connectList = new Set(csp?.connectDomains || []);
-    const resourceList = new Set(csp?.resourceDomains || []);
+    const connectList = new Set(Array.isArray(csp?.connectDomains) ? csp.connectDomains : []);
+    const resourceList = new Set(Array.isArray(csp?.resourceDomains) ? csp.resourceDomains : []);
 
     // In local development or testing environments, ensure localhost and host ports are allowed
     const isLocal = window.location.hostname === 'localhost' || 
@@ -680,8 +717,8 @@ function constructCsp(csp) {
 
     const connect = Array.from(connectList).join(' ');
     const resource = Array.from(resourceList).join(' ');
-    const frame = (csp?.frameDomains && csp.frameDomains.length > 0) ? csp.frameDomains.join(' ') : "'none'";
-    const baseUri = (csp?.baseUriDomains && csp.baseUriDomains.length > 0) ? csp.baseUriDomains.join(' ') : "'self'";
+    const frame = (Array.isArray(csp?.frameDomains) && csp.frameDomains.length > 0) ? csp.frameDomains.join(' ') : "'none'";
+    const baseUri = (Array.isArray(csp?.baseUriDomains) && csp.baseUriDomains.length > 0) ? csp.baseUriDomains.join(' ') : "'self'";
 
     return `default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${resource}; style-src 'self' 'unsafe-inline' ${resource}; connect-src 'self' ${connect}; img-src 'self' data: ${resource}; font-src 'self' data: ${resource}; media-src 'self' data: ${resource}; frame-src ${frame}; object-src 'none'; base-uri ${baseUri};`.replace(/\s+/g, ' ').trim();
 }
@@ -735,7 +772,9 @@ async function loadAppResource(uri, iframeElement, statusElement, headers) {
 
                 iframeElement.srcdoc = finalHtml;
                 if (statusElement) {
-                    const domains = (csp?.resourceDomains || []).concat(csp?.connectDomains || []);
+                    const resourceDomains = Array.isArray(csp?.resourceDomains) ? csp.resourceDomains : [];
+                    const connectDomains = Array.isArray(csp?.connectDomains) ? csp.connectDomains : [];
+                    const domains = resourceDomains.concat(connectDomains);
                     if (domains.length > 0) {
                         statusElement.title = `Enforced CSP: ${domains.join(', ')}`;
                         statusElement.textContent = 'App Ready (CSP Enforced)';
@@ -793,6 +832,7 @@ window.addEventListener('message', (event) => {
                     hostContext: {
                         theme: 'light',
                         displayMode: 'inline',
+                        availableDisplayModes: Array.from(SUPPORTED_DISPLAY_MODES),
                         platform: 'web',
                         deviceCapabilities: {
                             touch: false,
@@ -822,7 +862,10 @@ window.addEventListener('message', (event) => {
             sender?.postMessage({
                 jsonrpc: '2.0',
                 method: 'ui/notifications/host-context-changed',
-                params: { displayMode: mode }
+                params: {
+                    displayMode: mode,
+                    availableDisplayModes: Array.from(SUPPORTED_DISPLAY_MODES)
+                }
             }, senderOrigin);
         } else if (data.method === 'ui/open-link' || data.method === 'open-link' || data.type === 'ui/openUrl' || data.type === 'open_link' || data.action === 'open_link') {
             const targetUrl = data.params?.url || data.payload?.url || data.url;
@@ -910,7 +953,20 @@ window.addEventListener('message', (event) => {
             }
 
             const toolId = matchingIframe ? matchingIframe.id.replace('mcp-app-iframe-', '') : '';
-            const toolHeaders = toolHeadersMap.get(toolId) || activeHeaders;
+            if (!isAppCallableTool(toolName, toolId)) {
+                if (hasId && sender) {
+                    sender.postMessage({
+                        jsonrpc: '2.0',
+                        id: data.id,
+                        error: {
+                            code: -32601,
+                            message: `Unauthorized: App is only permitted to call its associated tool "${toolId}" or tools with "app" visibility`
+                        }
+                    }, senderOrigin);
+                }
+                return;
+            }
+            const toolHeaders = toolHeadersMap.get(toolName) || toolHeadersMap.get(toolId) || activeHeaders;
 
             fetch('/mcp', {
                 method: 'POST',

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { renderToolInterface } from "./toolDisplay.js";
+import { renderToolInterface, setRegisteredTools } from "./toolDisplay.js";
 import { escapeHtml } from "./sanitize.js";
 import { createMcpHeaders, createMcpRequestBody } from "./mcpClient.js";
 
@@ -69,6 +69,7 @@ function renderToolList(apiResponse, secondNavContent, toolDisplayArea) {
     }
 
     currentToolsList = apiResponse.result.tools;
+    setRegisteredTools(currentToolsList);
 
     if (currentToolsList.length === 0) {
         secondNavContent.textContent = 'No tools found.';
