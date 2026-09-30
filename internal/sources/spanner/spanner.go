@@ -78,16 +78,16 @@ type Config struct {
 	Dialect        sources.Dialect `yaml:"dialect" validate:"required"`
 	Database       string          `yaml:"database" validate:"required"`
 	UseClientOAuth bool            `yaml:"useClientOAuth"`
-	// InstanceType is "cloud" (default) or "omni". The remaining fields apply
-	// only to Spanner Omni.
-	InstanceType          string `yaml:"instanceType" validate:"omitempty,oneof=cloud omni"`
-	Endpoint              string `yaml:"endpoint"`
-	UsePlainText          bool   `yaml:"usePlainText"`
-	CaCertificateFile     string `yaml:"caCertificateFile"`
-	ClientCertificateFile string `yaml:"clientCertificateFile"`
-	ClientKeyFile         string `yaml:"clientKeyFile"`
-	Username              string `yaml:"username"`
-	Password              string `yaml:"password"`
+	// InstanceType is "cloud" (default) or "omni". The omni-prefixed fields
+	// apply only to Spanner Omni.
+	InstanceType              string `yaml:"instanceType" validate:"omitempty,oneof=cloud omni"`
+	OmniEndpoint              string `yaml:"omniEndpoint"`
+	OmniUsePlainText          bool   `yaml:"omniUsePlainText"`
+	OmniCaCertificateFile     string `yaml:"omniCaCertificateFile"`
+	OmniClientCertificateFile string `yaml:"omniClientCertificateFile"`
+	OmniClientKeyFile         string `yaml:"omniClientKeyFile"`
+	OmniUsername              string `yaml:"omniUsername"`
+	OmniPassword              string `yaml:"omniPassword"`
 }
 
 func (r Config) isOmni() bool {
@@ -102,22 +102,22 @@ func (r Config) validate() error {
 		if r.Instance == "" {
 			return fmt.Errorf("instance is required")
 		}
-		if r.Endpoint != "" || r.UsePlainText || r.CaCertificateFile != "" || r.ClientCertificateFile != "" || r.ClientKeyFile != "" || r.Username != "" || r.Password != "" {
-			return fmt.Errorf("endpoint, usePlainText, caCertificateFile, clientCertificateFile, clientKeyFile, username, and password require instanceType %q", InstanceTypeOmni)
+		if r.OmniEndpoint != "" || r.OmniUsePlainText || r.OmniCaCertificateFile != "" || r.OmniClientCertificateFile != "" || r.OmniClientKeyFile != "" || r.OmniUsername != "" || r.OmniPassword != "" {
+			return fmt.Errorf("omniEndpoint, omniUsePlainText, omniCaCertificateFile, omniClientCertificateFile, omniClientKeyFile, omniUsername, and omniPassword require instanceType %q", InstanceTypeOmni)
 		}
 		return nil
 	}
 	switch {
-	case r.Endpoint == "":
-		return fmt.Errorf("endpoint is required when instanceType is %q", InstanceTypeOmni)
+	case r.OmniEndpoint == "":
+		return fmt.Errorf("omniEndpoint is required when instanceType is %q", InstanceTypeOmni)
 	case r.UseClientOAuth:
 		return fmt.Errorf("useClientOAuth is not supported when instanceType is %q", InstanceTypeOmni)
-	case r.UsePlainText && (r.CaCertificateFile != "" || r.ClientCertificateFile != "" || r.ClientKeyFile != "" || r.Username != "" || r.Password != ""):
-		return fmt.Errorf("usePlainText cannot be combined with TLS certificates or username/password")
-	case (r.ClientCertificateFile == "") != (r.ClientKeyFile == ""):
-		return fmt.Errorf("clientCertificateFile and clientKeyFile must be set together")
-	case (r.Username == "") != (r.Password == ""):
-		return fmt.Errorf("username and password must be set together")
+	case r.OmniUsePlainText && (r.OmniCaCertificateFile != "" || r.OmniClientCertificateFile != "" || r.OmniClientKeyFile != "" || r.OmniUsername != "" || r.OmniPassword != ""):
+		return fmt.Errorf("omniUsePlainText cannot be combined with TLS certificates or omniUsername/omniPassword")
+	case (r.OmniClientCertificateFile == "") != (r.OmniClientKeyFile == ""):
+		return fmt.Errorf("omniClientCertificateFile and omniClientKeyFile must be set together")
+	case (r.OmniUsername == "") != (r.OmniPassword == ""):
+		return fmt.Errorf("omniUsername and omniPassword must be set together")
 	}
 	return nil
 }
@@ -279,13 +279,13 @@ func initSpannerClient(ctx context.Context, tracer trace.Tracer, r Config) (*spa
 	var opts []option.ClientOption
 	if r.isOmni() {
 		config.Type = spanner.OMNI
-		config.UsePlainText = r.UsePlainText
-		config.CaCertificateFile = r.CaCertificateFile
-		config.ClientCertificateFile = r.ClientCertificateFile
-		config.ClientKeyFile = r.ClientKeyFile
-		config.Username = r.Username
-		config.Password = []byte(r.Password)
-		opts = append(opts, option.WithEndpoint(r.Endpoint))
+		config.UsePlainText = r.OmniUsePlainText
+		config.CaCertificateFile = r.OmniCaCertificateFile
+		config.ClientCertificateFile = r.OmniClientCertificateFile
+		config.ClientKeyFile = r.OmniClientKeyFile
+		config.Username = r.OmniUsername
+		config.Password = []byte(r.OmniPassword)
+		opts = append(opts, option.WithEndpoint(r.OmniEndpoint))
 	}
 	client, err := spanner.NewClientWithConfig(ctx, db, config, opts...)
 	if err != nil {

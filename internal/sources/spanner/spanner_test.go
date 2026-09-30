@@ -107,24 +107,24 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 			instance: default
 			database: my_db
 			instanceType: omni
-			endpoint: omni.example.com:15000
-			caCertificateFile: /certs/ca.crt
-			clientCertificateFile: /certs/client.crt
-			clientKeyFile: /certs/client.key
+			omniEndpoint: omni.example.com:15000
+			omniCaCertificateFile: /certs/ca.crt
+			omniClientCertificateFile: /certs/client.crt
+			omniClientKeyFile: /certs/client.key
 			`,
 			want: map[string]sources.SourceConfig{
 				"my-spanner-omni": spanner.Config{
-					Name:                  "my-spanner-omni",
-					Type:                  spanner.SourceType,
-					Project:               "default",
-					Instance:              "default",
-					Dialect:               "googlesql",
-					Database:              "my_db",
-					InstanceType:          "omni",
-					Endpoint:              "omni.example.com:15000",
-					CaCertificateFile:     "/certs/ca.crt",
-					ClientCertificateFile: "/certs/client.crt",
-					ClientKeyFile:         "/certs/client.key",
+					Name:                      "my-spanner-omni",
+					Type:                      spanner.SourceType,
+					Project:                   "default",
+					Instance:                  "default",
+					Dialect:                   "googlesql",
+					Database:                  "my_db",
+					InstanceType:              "omni",
+					OmniEndpoint:              "omni.example.com:15000",
+					OmniCaCertificateFile:     "/certs/ca.crt",
+					OmniClientCertificateFile: "/certs/client.crt",
+					OmniClientKeyFile:         "/certs/client.key",
 				},
 			},
 		},
@@ -136,20 +136,20 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 			type: spanner
 			database: my_db
 			instanceType: omni
-			endpoint: omni.example.com:15000
-			caCertificateFile: /certs/ca.crt
+			omniEndpoint: omni.example.com:15000
+			omniCaCertificateFile: /certs/ca.crt
 			`,
 			want: map[string]sources.SourceConfig{
 				"my-spanner-omni": spanner.Config{
-					Name:              "my-spanner-omni",
-					Type:              spanner.SourceType,
-					Project:           "default",
-					Instance:          "default",
-					Dialect:           "googlesql",
-					Database:          "my_db",
-					InstanceType:      "omni",
-					Endpoint:          "omni.example.com:15000",
-					CaCertificateFile: "/certs/ca.crt",
+					Name:                  "my-spanner-omni",
+					Type:                  spanner.SourceType,
+					Project:               "default",
+					Instance:              "default",
+					Dialect:               "googlesql",
+					Database:              "my_db",
+					InstanceType:          "omni",
+					OmniEndpoint:          "omni.example.com:15000",
+					OmniCaCertificateFile: "/certs/ca.crt",
 				},
 			},
 		},
@@ -163,20 +163,20 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 			instance: default
 			database: my_db
 			instanceType: omni
-			endpoint: localhost:15000
-			usePlainText: true
+			omniEndpoint: localhost:15000
+			omniUsePlainText: true
 			`,
 			want: map[string]sources.SourceConfig{
 				"my-spanner-omni": spanner.Config{
-					Name:         "my-spanner-omni",
-					Type:         spanner.SourceType,
-					Project:      "default",
-					Instance:     "default",
-					Dialect:      "googlesql",
-					Database:     "my_db",
-					InstanceType: "omni",
-					Endpoint:     "localhost:15000",
-					UsePlainText: true,
+					Name:             "my-spanner-omni",
+					Type:             spanner.SourceType,
+					Project:          "default",
+					Instance:         "default",
+					Dialect:          "googlesql",
+					Database:         "my_db",
+					InstanceType:     "omni",
+					OmniEndpoint:     "localhost:15000",
+					OmniUsePlainText: true,
 				},
 			},
 		},
@@ -269,9 +269,9 @@ func TestFailParseFromYaml(t *testing.T) {
 			project: my-project
 			instance: my-instance
 			database: my_db
-			endpoint: localhost:15000
+			omniEndpoint: localhost:15000
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: endpoint, usePlainText, caCertificateFile, clientCertificateFile, clientKeyFile, username, and password require instanceType \"omni\"",
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniEndpoint, omniUsePlainText, omniCaCertificateFile, omniClientCertificateFile, omniClientKeyFile, omniUsername, and omniPassword require instanceType \"omni\"",
 		},
 		{
 			desc: "omni without endpoint",
@@ -284,7 +284,7 @@ func TestFailParseFromYaml(t *testing.T) {
 			database: my_db
 			instanceType: omni
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: endpoint is required when instanceType is \"omni\"",
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniEndpoint is required when instanceType is \"omni\"",
 		},
 		{
 			desc: "omni with client oauth",
@@ -296,7 +296,7 @@ func TestFailParseFromYaml(t *testing.T) {
 			instance: my-instance
 			database: my_db
 			instanceType: omni
-			endpoint: localhost:15000
+			omniEndpoint: localhost:15000
 			useClientOAuth: true
 			`,
 			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: useClientOAuth is not supported when instanceType is \"omni\"",
@@ -311,11 +311,11 @@ func TestFailParseFromYaml(t *testing.T) {
 			instance: my-instance
 			database: my_db
 			instanceType: omni
-			endpoint: localhost:15000
-			usePlainText: true
-			caCertificateFile: /certs/ca.crt
+			omniEndpoint: localhost:15000
+			omniUsePlainText: true
+			omniCaCertificateFile: /certs/ca.crt
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: usePlainText cannot be combined with TLS certificates or username/password",
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniUsePlainText cannot be combined with TLS certificates or omniUsername/omniPassword",
 		},
 		{
 			desc: "omni client certificate without key",
@@ -327,10 +327,10 @@ func TestFailParseFromYaml(t *testing.T) {
 			instance: my-instance
 			database: my_db
 			instanceType: omni
-			endpoint: localhost:15000
-			clientCertificateFile: /certs/client.crt
+			omniEndpoint: localhost:15000
+			omniClientCertificateFile: /certs/client.crt
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: clientCertificateFile and clientKeyFile must be set together",
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniClientCertificateFile and omniClientKeyFile must be set together",
 		},
 		{
 			desc: "omni username without password",
@@ -342,10 +342,10 @@ func TestFailParseFromYaml(t *testing.T) {
 			instance: my-instance
 			database: my_db
 			instanceType: omni
-			endpoint: localhost:15000
-			username: admin
+			omniEndpoint: localhost:15000
+			omniUsername: admin
 			`,
-			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: username and password must be set together",
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniUsername and omniPassword must be set together",
 		},
 	}
 	for _, tc := range tcs {

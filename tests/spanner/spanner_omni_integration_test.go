@@ -60,17 +60,17 @@ func getSpannerOmniVars(t *testing.T) map[string]any {
 		"type":         SpannerSourceType,
 		"database":     SpannerOmniDatabase,
 		"instanceType": "omni",
-		"endpoint":     SpannerOmniEndpoint,
+		"omniEndpoint": SpannerOmniEndpoint,
 	}
 	if SpannerOmniUsePlainText {
-		config["usePlainText"] = true
+		config["omniUsePlainText"] = true
 	}
 	if SpannerOmniCaCert != "" {
-		config["caCertificateFile"] = SpannerOmniCaCert
+		config["omniCaCertificateFile"] = SpannerOmniCaCert
 	}
 	if SpannerOmniClientCert != "" {
-		config["clientCertificateFile"] = SpannerOmniClientCert
-		config["clientKeyFile"] = SpannerOmniClientKey
+		config["omniClientCertificateFile"] = SpannerOmniClientCert
+		config["omniClientKeyFile"] = SpannerOmniClientKey
 	}
 	return config
 }
