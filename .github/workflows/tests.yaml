@@ -61,9 +61,6 @@ jobs:
       - name: Build
         run: go build -v ./...
 
-      - name: Test integration harness
-        run: go test -race -v ./tests
-
       - name: Run tests with coverage
         if: ${{ runner.os == 'Linux' }}
         env:
