@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/googleapis/mcp-toolbox/compare/v1.13.0...v1.13.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* Revert "feat(sources): connect sources on first use" ([#4137](https://github.com/googleapis/mcp-toolbox/issues/4137)) ([7fdbef9](https://github.com/googleapis/mcp-toolbox/commit/7fdbef98233b5cd09764ef3ad290c0026168662d))
+
 ## [1.13.0](https://github.com/googleapis/mcp-toolbox/compare/v1.12.0...v1.13.0) (2026-09-24)
 
 

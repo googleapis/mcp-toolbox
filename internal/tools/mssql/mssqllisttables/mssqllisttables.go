@@ -293,7 +293,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	MSSQLDBContext(context.Context) (*sql.DB, error)
+	MSSQLDB() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
 }
 

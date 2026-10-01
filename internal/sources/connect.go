@@ -90,12 +90,6 @@ func NewConnectOnce[T any](ctx context.Context, name, sourceType string, tracer 
 	return &ConnectOnce[T]{name: name, sourceType: sourceType, tracer: tracer, startupCtx: ctx, timeout: o.timeout}
 }
 
-// Tracer reports the tracer the holder was built with, so a source needing one
-// inside its connect can reach it without keeping its own copy.
-func (c *ConnectOnce[T]) Tracer() trace.Tracer {
-	return c.tracer
-}
-
 // OnClose registers how to release the connection. A source that holds a
 // handle with no teardown can leave it unset. It is meant to be chained onto
 // NewConnectOnce, before the holder is reachable by another goroutine.
@@ -169,7 +163,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 		return value, nil
 	}
 	if c.isClosed() {
-		return zero, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
+		return zero, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
 	}
 
 	ch := c.initGroup.DoChan("", func() (any, error) {
@@ -179,7 +173,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 			return value, nil
 		}
 		if c.isClosed() {
-			return nil, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
+			return nil, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
 		}
 
 		// The attempt is shared by every waiter and the handle outlives the
@@ -206,7 +200,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 		value, err := connect(childCtx)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
-			return nil, fmt.Errorf("unable to connect to source %q: %w", c.name, err)
+			return nil, fmt.Errorf("unable to initialize source %q: %w", c.name, err)
 		}
 
 		c.mu.Lock()
@@ -219,7 +213,7 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 			if cerr := c.release(context.WithoutCancel(childCtx), value); cerr != nil {
 				return nil, fmt.Errorf("unable to close source %q: %w", c.name, cerr)
 			}
-			return nil, fmt.Errorf("unable to connect to source %q: source is closed", c.name)
+			return nil, fmt.Errorf("unable to initialize source %q: source is closed", c.name)
 		}
 		c.value, c.ready = value, true
 		c.mu.Unlock()
@@ -235,6 +229,6 @@ func (c *ConnectOnce[T]) Do(ctx context.Context, connect func(context.Context) (
 		return value, nil
 	case <-ctx.Done():
 		// Only this caller gives up; the shared attempt runs on for the others.
-		return zero, fmt.Errorf("unable to connect to source %q: %w", c.name, ctx.Err())
+		return zero, fmt.Errorf("unable to initialize source %q: %w", c.name, ctx.Err())
 	}
 }
