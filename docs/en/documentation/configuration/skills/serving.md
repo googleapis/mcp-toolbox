@@ -24,6 +24,11 @@ the digest.
 Toolbox advertises extensions only for MCP protocol version `2026-07-28`. A client
 on any other version reads the files as ordinary resources.
 
+A client must declare `io.modelcontextprotocol/skills` in
+`_meta.clientCapabilities.extensions` on each `skills/list` and `skills/get`
+request. Without it, both methods return error code `-32021`
+(`MISSING_REQUIRED_CLIENT_CAPABILITY`).
+
 ## The skill:// convention
 
 A resource joins a skill through its URI. Give the resource a URI of the form
@@ -34,7 +39,7 @@ A resource joins a skill through its URI. Give the resource a URI of the form
   that skill.
 
 A `skill://` resource with no `SKILL.md` at its skill path joins no skill.
-Toolbox serves it as an ordinary resource, and reports no error.
+Toolbox serves it as an ordinary resource, and logs a warning at startup.
 
 The skill path holds one or more segments. `skill://guide/SKILL.md` and
 `skill://team/guide/SKILL.md` both declare a skill. The frontmatter `name` must
@@ -190,9 +195,9 @@ Pass the extension URI to `--disable-ext`:
 ./toolbox --disable-ext io.modelcontextprotocol/skills
 ```
 
-The server then does not answer `skills/list` or `skills/get` on any endpoint,
-and removes the extension from its advertised capabilities. The files stay
-readable as ordinary resources. See
+The server then returns error code `-32021` for `skills/list` and `skills/get`
+on any endpoint, and removes the extension from its advertised capabilities. The
+files stay readable as ordinary resources. See
 [Disabling MCP Extensions](../../../reference/cli.md#disabling-mcp-extensions).
 
 Toolbox still validates every skill at startup. A skill that breaks one of the
