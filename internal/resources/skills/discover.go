@@ -29,6 +29,10 @@ import (
 
 const skillFile = "SKILL.md"
 
+// DocMimeType is the MIME type SEP-2640 fixes for a SKILL.md, whichever
+// resource type backs it.
+const DocMimeType = "text/markdown"
+
 // Discover builds one Entry per skill, reading and hashing every file. It runs
 // per request, so the digests always describe current content. Startup uses
 // Validate instead, which hashes nothing.
@@ -76,7 +80,7 @@ func skillMembers(resourcesMap map[string]resources.Resource, roots []string) ma
 	// validation applies. A root that is not a valid URI owns no files.
 	rootSegs := make(map[string][]string, len(roots))
 	for _, root := range roots {
-		if _, segs, err := uriSegments(root); err == nil {
+		if _, segs, err := resources.SkillURISegments(root); err == nil {
 			rootSegs[root] = segs
 		}
 	}
@@ -158,6 +162,30 @@ func readString(ctx context.Context, res resources.Resource) (string, error) {
 		return "", fmt.Errorf("%q returned %T, want text content", res.GetURI(), got)
 	}
 	return content, nil
+}
+
+// IsDoc reports whether uri names a SKILL.md, the document at the root of a
+// skill. Resource types use it to decide whether to resolve the frontmatter
+// identity in Initialize.
+func IsDoc(uri string) bool {
+	return strings.HasPrefix(uri, resources.SkillScheme+"://") && strings.HasSuffix(uri, "/"+skillFile)
+}
+
+// DocIdentity returns the name and description that a SKILL.md's frontmatter
+// declares. SEP-2640 publishes a SKILL.md under these rather than under the
+// resource's config name. ok is false when the frontmatter does not parse or
+// either field is missing or not a string; Validate reports why at startup.
+func DocIdentity(content string) (name, description string, ok bool) {
+	fm, err := parseFrontmatter(content)
+	if err != nil {
+		return "", "", false
+	}
+	name, nameOK := fm["name"].(string)
+	description, descOK := fm["description"].(string)
+	if !nameOK || !descOK || name == "" {
+		return "", "", false
+	}
+	return name, description, true
 }
 
 // Extracts the leading YAML frontmatter of a SKILL.md.
