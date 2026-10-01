@@ -16,6 +16,7 @@ package primitives_test
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"testing"
 
@@ -238,9 +239,10 @@ func TestMatchResourceTemplateURI(t *testing.T) {
 	}
 }
 
-// TestSkillRegistry pins the registry as derived from resources: built by the
-// constructor and rebuilt whenever SetPrimitives replaces the resources map.
-func TestSkillRegistry(t *testing.T) {
+// TestResourcesSnapshot pins Resources() as a copy that follows SetPrimitives:
+// the skill handlers group it per request, so a reload must show up in the next
+// call and a caller writing to the copy must not change the manager.
+func TestResourcesSnapshot(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
 	if err != nil {
 		t.Fatal(err)
@@ -249,23 +251,31 @@ func TestSkillRegistry(t *testing.T) {
 		"---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# analytics-guide\n")
 
 	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, nil, nil, nil)
-	if got := primMgr.SkillRegistry().Len(); got != 0 {
-		t.Errorf("Len() = %d with no resources, want 0", got)
+	if got := primMgr.Resources(); len(got) != 0 {
+		t.Errorf("Resources() = %v with no resources, want empty", got)
 	}
 
 	primMgr.SetPrimitives(nil, nil, nil, nil, nil,
 		map[string]resources.Resource{"guide": skillDoc}, nil, nil)
-	if got := primMgr.SkillRegistry().Len(); got != 1 {
-		t.Fatalf("Len() = %d after SetPrimitives, want 1", got)
-	}
-	if got := primMgr.SkillRegistry().URIs(); !slices.Equal(got, []string{"skill://analytics-guide/SKILL.md"}) {
-		t.Errorf("URIs() = %v, want the one skill", got)
+	snapshot := primMgr.Resources()
+	if got := slices.Sorted(maps.Keys(snapshot)); !slices.Equal(got, []string{"guide"}) {
+		t.Fatalf("Resources() keys = %v after SetPrimitives, want [guide]", got)
 	}
 
-	// A reload that drops the skill must drop it from the registry too.
+	// Writing to the copy must leave the manager's map alone.
+	delete(snapshot, "guide")
+	snapshot["extra"] = skillDoc
+	if _, ok := primMgr.GetResource("guide"); !ok {
+		t.Error("GetResource(guide) missing after deleting it from the copy")
+	}
+	if _, ok := primMgr.GetResource("extra"); ok {
+		t.Error("GetResource(extra) found after adding it only to the copy")
+	}
+
+	// A reload that drops the skill must drop it from the next snapshot too.
 	primMgr.SetPrimitives(nil, nil, nil, nil, nil, nil, nil, nil)
-	if got := primMgr.SkillRegistry().Len(); got != 0 {
-		t.Errorf("Len() = %d after the skill was removed, want 0", got)
+	if got := primMgr.Resources(); len(got) != 0 {
+		t.Errorf("Resources() = %v after the resource was removed, want empty", got)
 	}
 }
 

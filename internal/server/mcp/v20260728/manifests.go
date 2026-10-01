@@ -377,7 +377,9 @@ const (
 // host that fails to verify a digest recovers by asking again. Returning the
 // startup value would give it nothing to recover to.
 func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveManager) (ListSkillsResult, error) {
-	entries, err := skills.Discover(ctx, pMgr.SkillRegistry())
+	// Grouping is rebuilt per request from the resources map, the only record
+	// of which files make up a skill. It reads no files, unlike Discover.
+	entries, err := skills.Discover(ctx, skills.NewRegistry(pMgr.Resources()))
 	if err != nil {
 		return ListSkillsResult{}, err
 	}
@@ -402,7 +404,7 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 // in any skill fails this request too. That keeps Discover fail-fast and a
 // broken config loud.
 func GenerateGetSkillResult(ctx context.Context, pMgr *primitives.PrimitiveManager, uri string) (GetSkillResult, bool, error) {
-	entries, err := skills.Discover(ctx, pMgr.SkillRegistry())
+	entries, err := skills.Discover(ctx, skills.NewRegistry(pMgr.Resources()))
 	if err != nil {
 		return GetSkillResult{}, false, err
 	}

@@ -2737,6 +2737,48 @@ func TestSkillsListEmptyCatalogue(t *testing.T) {
 	}
 }
 
+// TestSkillsFollowReload pins that skills/list and skills/get serve the skills
+// of the current resources map. Nothing derived from it is stored, so a reload
+// through SetPrimitives must show up on the next request.
+func TestSkillsFollowReload(t *testing.T) {
+	ctx := skillsTestContext(t)
+	Initialize(nil)
+	skillDoc := func(name string) resources.Resource {
+		return skillTextResource(t, ctx, name, "skill://"+name+"/SKILL.md",
+			"---\nname: "+name+"\ndescription: A skill\n---\n\n# "+name+"\n")
+	}
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{"before": skillDoc("before")}, nil, nil)
+
+	listURIs := func() []string {
+		t.Helper()
+		result, err := GenerateListSkillsResult(ctx, primitiveMgr)
+		if err != nil {
+			t.Fatalf("GenerateListSkillsResult() = %v, want nil", err)
+		}
+		var uris []string
+		for _, e := range result.Skills {
+			uris = append(uris, e.URI)
+		}
+		return uris
+	}
+	if got, want := listURIs(), []string{"skill://before/SKILL.md"}; !slices.Equal(got, want) {
+		t.Fatalf("skills before reload = %v, want %v", got, want)
+	}
+
+	primitiveMgr.SetPrimitives(nil, nil, nil, nil, nil,
+		map[string]resources.Resource{"after": skillDoc("after")}, nil, nil)
+	if got, want := listURIs(), []string{"skill://after/SKILL.md"}; !slices.Equal(got, want) {
+		t.Errorf("skills after reload = %v, want %v", got, want)
+	}
+	if _, found, err := GenerateGetSkillResult(ctx, primitiveMgr, "skill://before/SKILL.md"); err != nil || found {
+		t.Errorf("GenerateGetSkillResult(removed skill) = found %v, err %v; want not found, nil", found, err)
+	}
+	if _, found, err := GenerateGetSkillResult(ctx, primitiveMgr, "skill://after/SKILL.md"); err != nil || !found {
+		t.Errorf("GenerateGetSkillResult(new skill) = found %v, err %v; want found, nil", found, err)
+	}
+}
+
 // TestSkillsMethodsDisabled pins --disable-ext: a switched-off extension has no
 // methods, so the dispatcher must not reach a handler.
 func TestSkillsMethodsDisabled(t *testing.T) {
