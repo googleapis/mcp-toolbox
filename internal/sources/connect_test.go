@@ -83,14 +83,6 @@ func (c *connector) connect(ctx context.Context) (*handle, error) {
 	return &handle{id: id}, nil
 }
 
-// doOnce adapts the config-free connect functions these tests use; the config
-// handed to a connect is exercised in deferredenv_test.go.
-func doOnce(once *sources.ConnectOnce[*handle], ctx context.Context, connect func(context.Context) (*handle, error)) (*handle, error) {
-	return once.Do(ctx, func(ctx context.Context) (*handle, error) {
-		return connect(ctx)
-	})
-}
-
 func (c *connector) callCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -158,7 +150,7 @@ func TestConnectOnceCoalescesConcurrentCallers(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, errs[i] = doOnce(once, context.Background(), c.connect)
+			_, errs[i] = once.Do(context.Background(), c.connect)
 		}()
 	}
 	close(start)
@@ -186,7 +178,7 @@ func TestConnectOnceSurvivesFirstCallerCancellation(t *testing.T) {
 	firstErr := make(chan error, 1)
 	go func() {
 		close(firstStarted)
-		_, err := doOnce(once, firstCtx, c.connect)
+		_, err := once.Do(firstCtx, c.connect)
 		firstErr <- err
 	}()
 	<-firstStarted
@@ -198,7 +190,7 @@ func TestConnectOnceSurvivesFirstCallerCancellation(t *testing.T) {
 		// the cancellation could land before the attempt it is meant to test.
 		<-c.entered
 		cancelFirst()
-		_, err := doOnce(once, context.Background(), c.connect)
+		_, err := once.Do(context.Background(), c.connect)
 		secondErr <- err
 	}()
 
@@ -227,7 +219,7 @@ func TestConnectOnceRespectsCallerDeadline(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := doOnce(once, ctx, c.connect)
+	_, err := once.Do(ctx, c.connect)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected the caller's deadline to end the wait, got %v", err)
 	}
@@ -240,7 +232,7 @@ func TestConnectOnceRetriesAfterFailure(t *testing.T) {
 	c := &connector{err: errors.New("connection refused")}
 	once := newConnectOnce(context.Background())
 
-	if _, err := doOnce(once, context.Background(), c.connect); err == nil {
+	if _, err := once.Do(context.Background(), c.connect); err == nil {
 		t.Fatal("expected the first connect to fail")
 	}
 	if _, ok := once.Get(); ok {
@@ -251,7 +243,7 @@ func TestConnectOnceRetriesAfterFailure(t *testing.T) {
 	c.err = nil
 	c.mu.Unlock()
 
-	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
+	if _, err := once.Do(context.Background(), c.connect); err != nil {
 		t.Fatalf("expected the retry to succeed, got %s", err)
 	}
 	if got := c.callCount(); got != 2 {
@@ -263,11 +255,11 @@ func TestConnectOnceReusesTheConnection(t *testing.T) {
 	c := &connector{}
 	once := newConnectOnce(context.Background())
 
-	first, err := doOnce(once, context.Background(), c.connect)
+	first, err := once.Do(context.Background(), c.connect)
 	if err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
-	second, err := doOnce(once, context.Background(), c.connect)
+	second, err := once.Do(context.Background(), c.connect)
 	if err != nil {
 		t.Fatalf("unexpected error on the second call: %s", err)
 	}
@@ -307,7 +299,7 @@ func TestConnectOnceCeiling(t *testing.T) {
 			once := newConnectOnce(context.Background(), tc.opts...)
 
 			start := time.Now()
-			if _, err := doOnce(once, context.Background(), c.connect); err != nil {
+			if _, err := once.Do(context.Background(), c.connect); err != nil {
 				t.Fatalf("unexpected error connecting: %s", err)
 			}
 			if got := c.observedTimeout(start); (got - tc.want).Abs() > time.Second {
@@ -351,7 +343,7 @@ func TestConnectOnceConnectsUnderTheStartupContext(t *testing.T) {
 				testutils.ContextWithUserAgent(context.Background(), "1.2.3"),
 				map[string]any{"sub": "caller@example.com"},
 			)
-			if _, err := doOnce(once, callerCtx, c.connect); err != nil {
+			if _, err := once.Do(callerCtx, c.connect); err != nil {
 				t.Fatalf("unexpected error connecting: %s", err)
 			}
 			if got := c.observedUserAgent(); got != tc.want {
@@ -369,7 +361,7 @@ func TestConnectOnceCloseReleasesTheConnection(t *testing.T) {
 	r := &releases{}
 	once := newConnectOnce(context.Background()).OnClose(r.close)
 
-	value, err := doOnce(once, context.Background(), c.connect)
+	value, err := once.Do(context.Background(), c.connect)
 	if err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
@@ -408,7 +400,7 @@ func TestConnectOnceCloseIsIdempotent(t *testing.T) {
 	r := &releases{}
 	once := newConnectOnce(context.Background()).OnClose(r.close)
 
-	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
+	if _, err := once.Do(context.Background(), c.connect); err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
 	for i := range 3 {
@@ -428,7 +420,7 @@ func TestConnectOnceRefusesToConnectAfterClose(t *testing.T) {
 	if err := once.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error closing: %s", err)
 	}
-	if _, err := doOnce(once, context.Background(), c.connect); err == nil {
+	if _, err := once.Do(context.Background(), c.connect); err == nil {
 		t.Fatal("expected a closed source to refuse to connect")
 	}
 	if got := c.callCount(); got != 0 {
@@ -446,7 +438,7 @@ func TestConnectOnceReleasesAnAttemptThatOutlivesClose(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := doOnce(once, context.Background(), c.connect)
+		_, err := once.Do(context.Background(), c.connect)
 		done <- err
 	}()
 
@@ -471,7 +463,7 @@ func TestConnectOnceCloseReportsCloserFailure(t *testing.T) {
 	r := &releases{fail: errors.New("pool did not drain")}
 	once := newConnectOnce(context.Background()).OnClose(r.close)
 
-	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
+	if _, err := once.Do(context.Background(), c.connect); err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
 	err := once.Close(context.Background())
@@ -491,7 +483,7 @@ func TestConnectOnceCloseWithoutACloser(t *testing.T) {
 	// A source whose handle needs no teardown leaves the closer unset.
 	once := newConnectOnce(context.Background())
 
-	if _, err := doOnce(once, context.Background(), c.connect); err != nil {
+	if _, err := once.Do(context.Background(), c.connect); err != nil {
 		t.Fatalf("unexpected error connecting: %s", err)
 	}
 	if err := once.Close(context.Background()); err != nil {
