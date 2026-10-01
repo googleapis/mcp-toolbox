@@ -58,16 +58,15 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+
+	client, err := initValkeyClient(ctx, r)
+	if err != nil {
+		return nil, fmt.Errorf("error initializing Valkey client: %s", err)
+	}
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[valkey.Client](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.client(ctx); err != nil {
-		return nil, err
+		Client: client,
 	}
 	return s, nil
 }
@@ -112,18 +111,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[valkey.Client]
-}
-
-func (s *Source) client(ctx context.Context) (valkey.Client, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (valkey.Client, error) {
-		r := s.Config
-		client, err := initValkeyClient(ctx, r)
-		if err != nil {
-			return nil, fmt.Errorf("error initializing Valkey client: %s", err)
-		}
-		return client, nil
-	})
+	Client valkey.Client
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -138,17 +126,16 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
-func (s *Source) RunCommand(ctx context.Context, cmds [][]string) (any, error) {
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (s *Source) ValkeyClient() valkey.Client {
+	return s.Client
+}
 
+func (s *Source) RunCommand(ctx context.Context, cmds [][]string) (any, error) {
 	// Build commands
 	builtCmds := make(valkey.Commands, len(cmds))
 
 	for i, cmd := range cmds {
-		builtCmds[i] = client.B().Arbitrary(cmd...).Build()
+		builtCmds[i] = s.ValkeyClient().B().Arbitrary(cmd...).Build()
 	}
 
 	if len(builtCmds) == 0 {
@@ -156,7 +143,7 @@ func (s *Source) RunCommand(ctx context.Context, cmds [][]string) (any, error) {
 	}
 
 	// Execute commands
-	responses := client.DoMulti(ctx, builtCmds...)
+	responses := s.ValkeyClient().DoMulti(ctx, builtCmds...)
 
 	// Parse responses
 	out := make([]any, len(cmds))

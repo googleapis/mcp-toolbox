@@ -67,41 +67,23 @@ func (r Config) SourceConfigType() string {
 }
 
 // Initialize sets up the SingleStore connection pool and returns a Source.
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
-	queryTimeout, err := r.queryTimeout()
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	pool, err := initSingleStoreConnectionPool(ctx, tracer, r)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
-	// The ping honours queryTimeout as the read timeout, so the connect must not
-	// be capped tighter than the config allows.
-	var opts []sources.Option
-	if queryTimeout > 0 {
-		opts = append(opts, sources.WithMinConnectTimeout(queryTimeout))
+
+	err = pool.PingContext(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
+
 	s := &Source{
-		Config:       r,
-		queryTimeout: queryTimeout,
-		conn:         sources.NewConnectOnce[*sql.DB](ctx, r.Name, SourceType, tracer, opts...),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.SingleStorePoolContext(ctx); err != nil {
-		return nil, err
+		Config: r,
+		Pool:   pool,
 	}
 	return s, nil
-}
-
-// queryTimeout parses the configured timeout; a malformed value fails at startup, not at connect.
-func (r Config) queryTimeout() (time.Duration, error) {
-	if r.QueryTimeout == "" {
-		return 0, nil
-	}
-	timeout, err := time.ParseDuration(r.QueryTimeout)
-	if err != nil {
-		return 0, fmt.Errorf("invalid queryTimeout %q: %w", r.QueryTimeout, err)
-	}
-	return timeout, nil
 }
 
 var _ sources.Source = &Source{}
@@ -109,27 +91,7 @@ var _ sources.Source = &Source{}
 // Source represents a SingleStore database source and holds its connection pool.
 type Source struct {
 	Config
-	queryTimeout time.Duration
-	conn         *sources.ConnectOnce[*sql.DB]
-}
-
-// SingleStorePoolContext returns the pool, connecting on first use. It is the
-// discriminator the singlestore tools assert on.
-func (s *Source) SingleStorePoolContext(ctx context.Context) (*sql.DB, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*sql.DB, error) {
-		r := s.Config
-		pool, err := initSingleStoreConnectionPool(ctx, r, s.queryTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create pool: %w", err)
-		}
-
-		err = pool.PingContext(ctx)
-		if err != nil {
-			pool.Close()
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return pool, nil
-	})
+	Pool *sql.DB
 }
 
 // SourceType returns the type of the source configuration.
@@ -145,12 +107,13 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+// SingleStorePool returns the underlying *sql.DB connection pool for SingleStore.
+func (s *Source) SingleStorePool() *sql.DB {
+	return s.Pool
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	pool, err := s.SingleStorePoolContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	results, err := pool.QueryContext(ctx, statement, params...)
+	results, err := s.SingleStorePool().QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -202,7 +165,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func initSingleStoreConnectionPool(ctx context.Context, cfg Config, queryTimeout time.Duration) (*sql.DB, error) {
+func initSingleStoreConnectionPool(ctx context.Context, tracer trace.Tracer, cfg Config) (*sql.DB, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, cfg.Name)
+	defer span.End()
+
 	// Build query parameters via url.Values for deterministic order and proper escaping.
 	connectionParams := url.Values{}
 
@@ -226,8 +193,12 @@ func initSingleStoreConnectionPool(ctx context.Context, cfg Config, queryTimeout
 	connectionParams.Set("tls", "preferred")
 
 	// Derive readTimeout from queryTimeout when provided.
-	if queryTimeout != 0 {
-		connectionParams.Set("readTimeout", queryTimeout.String())
+	if cfg.QueryTimeout != "" {
+		timeout, err := time.ParseDuration(cfg.QueryTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("invalid queryTimeout %q: %w", cfg.QueryTimeout, err)
+		}
+		connectionParams.Set("readTimeout", timeout.String())
 	}
 
 	// Custom user parameters (e.g. tls, compress) — may override defaults above.

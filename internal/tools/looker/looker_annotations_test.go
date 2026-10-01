@@ -46,6 +46,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboards"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdimensions"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplore"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplores"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfieldvaluesuggestions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfilters"
@@ -203,6 +204,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 		},
 		{
 			resourceType:    "looker-get-dimensions",
+			wantReadOnly:    true,
+			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-get-explore",
 			wantReadOnly:    true,
 			wantDestructive: false,
 		},

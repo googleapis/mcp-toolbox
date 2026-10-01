@@ -1335,7 +1335,7 @@ steps:
       - "SNOWFLAKE_DATABASE=$_SNOWFLAKE_DATABASE"
       - "SNOWFLAKE_SCHEMA=$_SNOWFLAKE_SCHEMA"
     secretEnv:
-      ["CLIENT_ID", "SNOWFLAKE_USER", "SNOWFLAKE_PASS", "SNOWFLAKE_ACCOUNT"]
+      ["CLIENT_ID", "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD", "SNOWFLAKE_ACCOUNT"]
     volumes:
       - name: "go"
         path: "/gopath"
@@ -1750,7 +1750,7 @@ availableSecrets:
     - versionName: projects/$PROJECT_ID/secrets/snowflake_user/versions/latest
       env: SNOWFLAKE_USER
     - versionName: projects/$PROJECT_ID/secrets/snowflake_pass/versions/latest
-      env: SNOWFLAKE_PASS
+      env: SNOWFLAKE_PASSWORD
     - versionName: projects/$PROJECT_ID/secrets/cassandra_user/versions/latest
       env: CASSANDRA_USER
     - versionName: projects/$PROJECT_ID/secrets/cassandra_pass/versions/latest
