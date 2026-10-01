@@ -591,9 +591,9 @@ text: "{}"
 	})
 }
 
-// TestTextResource_SkillDocIdentity checks that Initialize publishes a SKILL.md
-// under its frontmatter name and description, with text/markdown, and leaves
-// every other resource under its config identity.
+// TestTextResource_SkillDocIdentity checks that, after Initialize, a SKILL.md
+// reports the name and description from its frontmatter and the
+// text/markdown MIME type. Other resources keep their config values.
 func TestTextResource_SkillDocIdentity(t *testing.T) {
 	const skillMD = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
 	tcs := []struct {
@@ -603,8 +603,8 @@ func TestTextResource_SkillDocIdentity(t *testing.T) {
 		{"SKILL.md", "skill://analytics-guide/SKILL.md", skillMD, "analytics-guide", "Query the warehouse", "text/markdown"},
 		{"supporting file", "skill://analytics-guide/notes.md", skillMD, "guide", "configured", "text/plain"},
 		{"non-skill uri", "text://guide", skillMD, "guide", "configured", "text/plain"},
-		// skills.Validate rejects this at startup; Initialize keeps the config
-		// identity rather than failing.
+		// Initialize doesn't fail here; it keeps the config values and
+		// skills.Validate rejects the file at startup.
 		{"SKILL.md without frontmatter", "skill://analytics-guide/SKILL.md", "# Guide\n", "guide", "configured", "text/plain"},
 	}
 	for _, tc := range tcs {

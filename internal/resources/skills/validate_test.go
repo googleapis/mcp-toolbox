@@ -247,15 +247,15 @@ func TestValidateDuplicateNameWarning(t *testing.T) {
 	}
 }
 
-// TestSkillDocIdentity checks that a SKILL.md is published as the skill, not
-// as a resource named after the file. The text resource resolves this in
-// Initialize, so no Validate call is needed. Every other resource keeps its
-// config identity.
+// TestSkillDocIdentity checks that each SKILL.md reports the name and
+// description from its frontmatter, and that other resources keep their
+// config values. The text resource sets these in Initialize, so the test
+// doesn't call Validate.
 func TestSkillDocIdentity(t *testing.T) {
 	ctx := mustLoggerCtx(t)
 
-	// The configured names are deliberately unhelpful, so the assertions below
-	// cannot pass by accident.
+	// The config names differ from the frontmatter names on purpose, so the
+	// test can't pass by accident.
 	resourcesMap := map[string]resources.Resource{
 		"alpha": textResource(t, ctx, "SKILL.md", "skill://alpha-guide/SKILL.md", skillMD("alpha-guide", "Query the warehouse")),
 		"notes": textResource(t, ctx, "notes", "skill://alpha-guide/references/notes.md", "# Notes\n"),

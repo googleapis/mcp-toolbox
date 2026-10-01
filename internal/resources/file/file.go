@@ -270,10 +270,9 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 		isRelative:      isRelative,
 	}
 
-	// A SKILL.md is published under the name and description its frontmatter
-	// declares (SEP-2640), not under its config name. Frontmatter that does
-	// not parse leaves the config identity in place; skills.Validate rejects
-	// it at startup with the reason.
+	// SEP-2640 lists a SKILL.md under the name and description in its
+	// frontmatter, so read them now. If the frontmatter is invalid, keep the
+	// config values; skills.Validate will fail startup and explain why.
 	if skills.IsDoc(c.URI) {
 		content, err := r.Read(ctx, nil)
 		if err != nil {
@@ -295,8 +294,8 @@ type FileResource struct {
 	resolvedBaseDir string
 	isRelative      bool
 
-	// skillName and skillDescription hold a SKILL.md's frontmatter name and
-	// description. They are empty for every other resource.
+	// skillName and skillDescription come from a SKILL.md's frontmatter.
+	// They are empty for all other resources.
 	skillName        string
 	skillDescription string
 }

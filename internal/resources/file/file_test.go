@@ -1057,9 +1057,9 @@ path: %s
 	})
 }
 
-// TestFileResource_SkillDocIdentity checks that Initialize publishes a SKILL.md
-// under its frontmatter name and description, with text/markdown, and leaves
-// every other file under its config identity.
+// TestFileResource_SkillDocIdentity checks that, after Initialize, a SKILL.md
+// reports the name and description from its frontmatter and the
+// text/markdown MIME type. Other resources keep their config values.
 func TestFileResource_SkillDocIdentity(t *testing.T) {
 	tmpDir := t.TempDir()
 	skillPath := filepath.Join(tmpDir, "SKILL.md")
