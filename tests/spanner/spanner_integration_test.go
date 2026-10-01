@@ -369,7 +369,7 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 
 	toolsConfig := tests.AddSemanticSearchConfig(t, config, SpannerToolType, insertStmt, searchStmt)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig, "--enable-api")
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
