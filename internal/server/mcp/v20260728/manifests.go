@@ -15,11 +15,13 @@
 package v20260728
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -360,4 +362,54 @@ func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, ur
 		Resources:         listResourcesResult.Resources,
 		ResourceTemplates: listTemplatesResult.ResourceTemplates,
 	}, nil
+}
+
+// The catalogue is server-wide, so no group scopes it and none supplies its
+// ttlMs. Every client reads the same content, which is what public means.
+const (
+	skillsTTLMs      = group.DefaultTTLMs
+	skillsCacheScope = cacheScopePublic
+)
+
+// GenerateListSkillsResult rebuilds every skill from current file content.
+//
+// The digests are recomputed here rather than reused from startup, because a
+// host that fails to verify a digest recovers by asking again. Returning the
+// startup value would give it nothing to recover to.
+func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveManager) (ListSkillsResult, error) {
+	// Skills are grouped per request from the resources map, the only record of
+	// which files make up a skill, so a reload shows up on the next request.
+	entries, err := skills.Discover(ctx, pMgr.Resources())
+	if err != nil {
+		return ListSkillsResult{}, err
+	}
+	// A nil slice would marshal to null; the wire shape is a list.
+	list := make([]Skill, 0, len(entries))
+	for _, e := range entries {
+		list = append(list, generateSkillManifest(e))
+	}
+	return ListSkillsResult{
+		Skills: list,
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      skillsTTLMs,
+			CacheScope: skillsCacheScope,
+		},
+	}, nil
+}
+
+// generateSkillManifest converts a skill to the wire type skills/list and
+// skills/get publish.
+func generateSkillManifest(e skills.Entry) Skill {
+	refs := make([]SkillResourceRef, 0, len(e.Resources.Refs))
+	for _, r := range e.Resources.Refs {
+		refs = append(refs, SkillResourceRef{URI: r.URI, Digest: r.Digest, Size: r.Size})
+	}
+	return Skill{
+		URI:         e.URI,
+		Frontmatter: e.Frontmatter,
+		Resources:   SkillResources{Refs: refs, Dynamic: e.Resources.Dynamic},
+	}
 }
