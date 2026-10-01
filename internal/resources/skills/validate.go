@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // Skill is what startup validation learns about one skill. It carries no
@@ -69,7 +70,15 @@ func Validate(ctx context.Context, resourcesMap map[string]resources.Resource) (
 // validateSkill checks one skill's limits and structure, then reads and checks
 // its SKILL.md.
 func validateSkill(ctx context.Context, root string, members []resources.Resource) (Skill, error) {
-	skillURI := root + "/" + skillFile
+	skillURI := root + "/" + resources.SkillFile
+	if doc, dynamic := skillDoc(members, skillURI); dynamic {
+		// A dynamic skill is checked the way Discover builds its entry: the file
+		// count does not apply, and only SKILL.md is read.
+		if doc == nil {
+			return Skill{}, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
+		}
+		return checkDoc(ctx, skillURI, doc, Manifest{Dynamic: true})
+	}
 	if len(members) > MaxRefs {
 		return Skill{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
 	}
@@ -95,10 +104,16 @@ func validateSkill(ctx context.Context, root string, members []resources.Resourc
 		}
 	}
 	if doc == nil {
-		return Skill{}, fmt.Errorf("skill %q: %s is not among the skill's resources", skillURI, skillFile)
+		return Skill{}, fmt.Errorf("skill %q: %s is not among the skill's resources", skillURI, resources.SkillFile)
 	}
 
-	content, err := readString(ctx, doc)
+	return checkDoc(ctx, skillURI, doc, Manifest{Refs: refs})
+}
+
+// checkDoc reads and parses SKILL.md, then applies every entry rule except the
+// digest format.
+func checkDoc(ctx context.Context, skillURI string, doc resources.Resource, m Manifest) (Skill, error) {
+	content, err := readBounded(ctx, doc, MaxTotalSize)
 	if err != nil {
 		return Skill{}, fmt.Errorf("skill %q: %w", skillURI, err)
 	}
@@ -107,9 +122,49 @@ func validateSkill(ctx context.Context, root string, members []resources.Resourc
 		return Skill{}, fmt.Errorf("skill %q: %w", skillURI, err)
 	}
 
-	e := Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}
+	e := Entry{URI: skillURI, Frontmatter: frontmatter, Resources: m}
 	if err := e.Validate(false); err != nil {
 		return Skill{}, err
 	}
 	return Skill{URI: skillURI, Frontmatter: frontmatter}, nil
+}
+
+// WarnOnDocNameMismatch reports the SKILL.md resources whose config key differs
+// from the frontmatter name. Validate already publishes the SKILL.md under the
+// frontmatter name. A group lists its resources by config key, so a key that
+// differs from the skill is hard to maintain. Call it one time, at startup.
+func WarnOnDocNameMismatch(ctx context.Context, found []Skill, resourcesMap map[string]resources.Resource) error {
+	if len(found) == 0 {
+		return nil
+	}
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("checking the names of the skill documents: %w", err)
+	}
+
+	keys := make(map[string]string, len(found))
+	for key, res := range resourcesMap {
+		uri := res.GetURI()
+		if _, ok := resources.SkillRoot(uri); !ok {
+			continue
+		}
+		// Two config keys can address one URI. Keep the lowest, so the warning
+		// does not depend on map order.
+		if prev, seen := keys[uri]; !seen || key < prev {
+			keys[uri] = key
+		}
+	}
+
+	for _, s := range found {
+		key, ok := keys[s.URI]
+		if !ok {
+			continue
+		}
+		name, ok := s.Frontmatter["name"].(string)
+		if !ok || name == key {
+			continue
+		}
+		logger.WarnContext(ctx, fmt.Sprintf("resource %q is the %s of skill %q. Rename the resource to %q, so that a group lists it under the skill's name", key, resources.SkillFile, name, name))
+	}
+	return nil
 }

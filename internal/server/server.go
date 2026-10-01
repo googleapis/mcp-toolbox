@@ -263,7 +263,11 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	// because every resource did initialize: the check is across resources.
 	// Nothing is hashed here; skills/list and skills/get compute digests per
 	// request.
-	if _, err := skills.Validate(ctx, resourcesMap); err != nil {
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, resourcesMap); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 

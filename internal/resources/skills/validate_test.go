@@ -15,15 +15,19 @@
 package skills_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // unreadResource fails the test if Validate reads it. Startup validation reads
@@ -396,5 +400,114 @@ func TestDocIdentity(t *testing.T) {
 				t.Errorf("DocIdentity() = (%q, %q, %v), want (%q, %q, %v)", name, desc, ok, tc.wantName, tc.wantDesc, tc.wantOK)
 			}
 		})
+	}
+}
+
+// TestValidateDynamicSkill checks that startup validation treats a dynamic skill
+// the way Discover does: the file count and size sums do not apply, and only
+// SKILL.md is read.
+func TestValidateDynamicSkill(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"doc": dynamicSkillDoc(t, ctx, "doc", "skill://big-skill/SKILL.md",
+			skillMD("big-skill", "More files than a static skill may carry")),
+	}
+	for i := range skills.MaxRefs + 1 {
+		uri := fmt.Sprintf("skill://big-skill/refs/f%d.md", i)
+		resourcesMap[fmt.Sprintf("ref%d", i)] = unreadResource{
+			badResource: badResource{uri: uri},
+			t:           t,
+			size:        skills.MaxTotalSize,
+		}
+	}
+
+	got, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil: a dynamic skill has no refs to count", err)
+	}
+	if len(got) != 1 || got[0].Frontmatter["name"] != "big-skill" {
+		t.Fatalf("got %+v, want the dynamic skill with its frontmatter", got)
+	}
+	// A dynamic SKILL.md is published under its frontmatter name as well.
+	if got := resourcesMap["doc"].GetName(); got != "big-skill" {
+		t.Errorf("GetName() = %q, want the frontmatter name %q", got, "big-skill")
+	}
+}
+
+// TestValidateDynamicSkillStillChecksItsDoc checks that a dynamic skill with a
+// bad SKILL.md still fails the load.
+func TestValidateDynamicSkillStillChecksItsDoc(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"doc": dynamicSkillDoc(t, ctx, "doc", "skill://live-report/SKILL.md", "# no frontmatter\n"),
+	}
+	_, err := skills.Validate(ctx, resourcesMap)
+	if err == nil || !strings.Contains(err.Error(), "must open with YAML frontmatter") {
+		t.Fatalf("Validate() = %v, want the frontmatter error", err)
+	}
+}
+
+// TestWarnOnDocNameMismatch pins the signal an operator needs. A group lists its
+// resources by config key, so a key that differs from the frontmatter name is
+// hard to maintain.
+func TestWarnOnDocNameMismatch(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"guide":   textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+		"other":   textResource(t, ctx, "other", "skill://other/SKILL.md", skillMD("other", "A skill named for its key")),
+		"queries": textResource(t, ctx, "queries", "skill://analytics-guide/references/queries.md", "# Common queries\n"),
+	}
+
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, resourcesMap); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+
+	got := stderr.String()
+	for _, want := range []string{`resource \"guide\"`, `skill \"analytics-guide\"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warning %q does not mention %q", got, want)
+		}
+	}
+	// A key that matches, and a supporting file, are not mismatches.
+	for _, unwanted := range []string{`resource \"other\"`, `resource \"queries\"`} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("warning %q reports %q", got, unwanted)
+		}
+	}
+}
+
+// TestNoDocNameMismatchWarning guards the other direction: a key that matches
+// must not warn, or the warning is noise an operator learns to ignore.
+func TestNoDocNameMismatchWarning(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"analytics-guide": textResource(t, ctx, "analytics-guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+	}
+
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, resourcesMap); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+	if got := stderr.String(); strings.Contains(got, "Rename the resource") {
+		t.Errorf("unexpected name-mismatch warning: %q", got)
 	}
 }

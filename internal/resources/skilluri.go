@@ -20,9 +20,6 @@ import (
 	"strings"
 )
 
-// skillFile is the document at the root of every Agent Skill.
-const skillFile = "SKILL.md"
-
 // maxSkillNameLen is the Agent Skills limit on a skill name.
 const maxSkillNameLen = 64
 
@@ -41,7 +38,7 @@ func ValidateSkillURI(uri string) error {
 	if err != nil {
 		return err
 	}
-	if n := len(segs); n >= 2 && segs[n-1] == skillFile {
+	if n := len(segs); n >= 2 && segs[n-1] == SkillFile {
 		if err := ValidSkillName(segs[n-2]); err != nil {
 			return fmt.Errorf("skill name %w", err)
 		}
