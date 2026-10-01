@@ -24,15 +24,17 @@ import (
 
 // Registry records which resources make up which skill.
 //
-// It holds structure, never content. Which URIs belong to a skill follows from
-// the URIs alone, needs no I/O, and changes only when the resources map does —
-// that is, at reload. Digests, sizes, and frontmatter come from file content and
-// are recomputed per request instead: a digest cached for the process lifetime
-// would hand a host back the same value it already failed to verify, leaving the
-// refresh path SEP-2640 specifies with nothing to refresh to.
+// It is a view over a resources map, built when needed and never stored: the
+// resources map stays the only record of a skill's files, so there is no second
+// copy to keep in sync on reload. Building one is cheap, because which URIs
+// belong to a skill follows from the URIs alone and needs no I/O.
 //
-// A nil *Registry reports no skills. A caller that holds one before the config
-// loads needs no nil check.
+// It holds structure, never content. Digests, sizes, and frontmatter come from
+// file content and are recomputed per request: a cached digest would hand a host
+// back the same value it already failed to verify, leaving the refresh path
+// SEP-2640 specifies with nothing to refresh to.
+//
+// A nil *Registry reports no skills, so callers need no nil check.
 type Registry struct {
 	members map[string][]resources.Resource
 	uris    []string
