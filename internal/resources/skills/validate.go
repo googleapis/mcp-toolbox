@@ -31,22 +31,29 @@ type Skill struct {
 	Frontmatter map[string]any
 }
 
-// Validate checks every skill in reg so a misconfigured skill fails
+// Validate checks every skill in resourcesMap so a misconfigured skill fails
 // the load instead of a later skills/list. It hashes nothing and reads only
 // each skill's SKILL.md: membership comes from URIs, and sizes come from each
 // resource's GetSize, which is a stat for a file resource.
 //
-// It applies the same rules as Discover apart from the digest format, and warns
-// once when two skills share a frontmatter name.
-func Validate(ctx context.Context, reg *Registry) ([]Skill, error) {
-	if reg.Len() == 0 {
+// It applies the same rules as Discover apart from the digest format. It warns
+// once when two skills share a frontmatter name, and once for skill:// resources
+// that belong to no skill.
+func Validate(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Skill, error) {
+	roots := skillRoots(resourcesMap)
+	// Before the early return: a config whose only skill:// files are typos has
+	// no skills, and is exactly the case the warning is for.
+	members, orphans := skillMembers(resourcesMap, roots)
+	if err := warnOnOrphans(ctx, orphans); err != nil {
+		return nil, err
+	}
+	if len(roots) == 0 {
 		return nil, nil
 	}
 
-	found := make([]Skill, 0, reg.Len())
-	for _, skillURI := range reg.URIs() {
-		members, _ := reg.Members(skillURI)
-		s, err := validateSkill(ctx, skillURI, members)
+	found := make([]Skill, 0, len(roots))
+	for _, root := range roots {
+		s, err := validateSkill(ctx, root, members[root])
 		if err != nil {
 			return nil, err
 		}
@@ -61,7 +68,8 @@ func Validate(ctx context.Context, reg *Registry) ([]Skill, error) {
 
 // validateSkill checks one skill's limits and structure, then reads and checks
 // its SKILL.md.
-func validateSkill(ctx context.Context, skillURI string, members []resources.Resource) (Skill, error) {
+func validateSkill(ctx context.Context, root string, members []resources.Resource) (Skill, error) {
+	skillURI := root + "/" + skillFile
 	if len(members) > MaxRefs {
 		return Skill{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
 	}
