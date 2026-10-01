@@ -50,7 +50,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	FirestoreClientContext(context.Context) (*firestoreapi.Client, error)
+	FirestoreClient() *firestoreapi.Client
 	UpdateDocument(context.Context, string, []firestoreapi.Update, any, bool) (map[string]any, error)
 }
 
@@ -188,14 +188,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	// Use selective field update with update mask
 	updates := make([]firestoreapi.Update, 0, len(updatePaths))
 	var documentData any
-	client, err := source.FirestoreClientContext(ctx)
-	if err != nil {
-		return nil, util.ProcessGcpError(err)
-	}
+	var err error
 	if len(updatePaths) > 0 {
 
 		// Convert document data without delete markers
-		dataMap, err := fsUtil.JSONToFirestoreValue(documentDataRaw, client)
+		dataMap, err := fsUtil.JSONToFirestoreValue(documentDataRaw, source.FirestoreClient())
 		if err != nil {
 			return nil, util.NewAgentError(fmt.Sprintf("failed to convert document data: %v", err), err)
 		}
@@ -221,7 +218,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	} else {
 		// Update all fields in the document data (merge)
-		documentData, err = fsUtil.JSONToFirestoreValue(documentDataRaw, client)
+		documentData, err = fsUtil.JSONToFirestoreValue(documentDataRaw, source.FirestoreClient())
 		if err != nil {
 			return nil, util.NewAgentError(fmt.Sprintf("failed to convert document data: %v", err), err)
 		}

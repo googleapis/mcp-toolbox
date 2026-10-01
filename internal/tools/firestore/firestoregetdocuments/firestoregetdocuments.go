@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 
+	firestoreapi "cloud.google.com/go/firestore"
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -45,6 +46,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
+	FirestoreClient() *firestoreapi.Client
 	GetDocuments(context.Context, []string) ([]any, error)
 }
 
