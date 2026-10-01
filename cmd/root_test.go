@@ -304,13 +304,6 @@ func TestServerConfigFlags(t *testing.T) {
 				OpenAIAppsChallengeFile: "openai-token.txt",
 			}),
 		},
-		{
-			desc: "defer source connect",
-			args: []string{"--defer-source-connect"},
-			want: withDefaults(server.ServerConfig{
-				DeferSourceConnect: true,
-			}),
-		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {

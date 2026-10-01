@@ -45,7 +45,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	SingleStorePoolContext(context.Context) (*sql.DB, error)
+	SingleStorePool() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
 }
 
