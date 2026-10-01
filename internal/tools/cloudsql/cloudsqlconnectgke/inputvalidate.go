@@ -30,7 +30,7 @@ import (
 var (
 	projectIDRe      = regexp.MustCompile(`^[a-z][-a-z0-9]{4,28}[a-z0-9]$`)
 	gkeClusterNameRe = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$`)
-	gcpLocationRe    = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+(-[a-z])?$`)
+	gcpLocationRe    = regexp.MustCompile(`^[a-z]+(-[a-z]+)*[0-9]+(-[a-z])?$`)
 	kubernetesNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 )
 

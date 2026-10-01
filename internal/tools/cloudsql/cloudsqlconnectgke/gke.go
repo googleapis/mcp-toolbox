@@ -29,14 +29,15 @@ import (
 	"google.golang.org/api/option"
 )
 
-// containerService is the ADC-backed GKE client, built once and shared.
-// It follows the same rules as computeService in gce.go: initialized with
-// context.Background() so a cancelled first caller cannot poison the
-// cached error, and bypassed entirely when a caller token is supplied.
+// containerService is the ADC-backed GKE client, built on first use and
+// shared. It is initialized with context.Background() so a cancelled
+// first caller cannot poison it, and only a successfully built client is
+// cached: a transient failure (credential loading, network) is returned
+// to that caller and retried on the next request instead of breaking the
+// tool until the server restarts. Caller tokens bypass the cache.
 var (
-	containerOnce    sync.Once
+	containerMu      sync.RWMutex
 	containerService *container.Service
-	containerErr     error
 )
 
 // getContainerService returns a GKE (Kubernetes Engine) API client.
@@ -56,10 +57,25 @@ func getContainerService(ctx context.Context, accessToken string) (*container.Se
 		}
 		return svc, nil
 	}
-	containerOnce.Do(func() {
-		containerService, containerErr = container.NewService(context.Background(), option.WithScopes(container.CloudPlatformScope))
-	})
-	return containerService, containerErr
+
+	containerMu.RLock()
+	svc := containerService
+	containerMu.RUnlock()
+	if svc != nil {
+		return svc, nil
+	}
+
+	containerMu.Lock()
+	defer containerMu.Unlock()
+	if containerService != nil {
+		return containerService, nil
+	}
+	svc, err := container.NewService(context.Background(), option.WithScopes(container.CloudPlatformScope))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build GKE client: %w", err)
+	}
+	containerService = svc
+	return containerService, nil
 }
 
 // errClusterLookup marks cluster-resolution failures the caller can fix

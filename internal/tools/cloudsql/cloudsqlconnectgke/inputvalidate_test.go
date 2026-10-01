@@ -28,7 +28,7 @@ func TestInputValidators(t *testing.T) {
 	}{
 		{"project", func(v string) error { return validateProjectID(v, "cluster_project") }, []string{"my-proj-1"}, []string{"", "My-Proj", "1abcde", "a b", "google.com:proj"}},
 		{"cluster", validateClusterName, []string{"prod", "a-1"}, []string{"", "Prod", "-a", strings.Repeat("a", 41)}},
-		{"location", func(v string) error { return validateLocation(v, "cluster_location") }, []string{"us-central1", "us-central1-a"}, []string{"", "US", "us central1"}},
+		{"location", func(v string) error { return validateLocation(v, "cluster_location") }, []string{"us-central1", "us-central1-a", "us-gov-west1", "us-gov-west1-b", "northamerica-northeast1"}, []string{"", "US", "us central1", "us-central", "us-central1-ab", "-us1"}},
 		{"k8s name", func(v string) error { return validateKubernetesName(v, "namespace") }, []string{"default", "my-ns"}, []string{"", "My_NS", "-x", strings.Repeat("a", 64)}},
 	}
 	for _, tc := range tcs {
