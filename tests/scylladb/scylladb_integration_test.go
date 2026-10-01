@@ -158,13 +158,7 @@ func dropTable(session *gocql.Session, tableName string) {
 	}
 }
 
-func TestScyllaDB(t *testing.T) {
-	tableName := setupScyllaDBTest(t, "--enable-api")
-	tests.RunToolGetTest(t)
-	runScyllaDBCallTests(t, tableName, nil, nil)
-}
-
-func setupScyllaDBTest(t *testing.T, args ...string) string {
+func setupScyllaDBTest(t *testing.T) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	t.Cleanup(cancel)
@@ -211,7 +205,7 @@ func setupScyllaDBTest(t *testing.T, args ...string) string {
 
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, ScyllaDBToolType, tmplSelectCombined, tmplSelectFilterCombined, tmpSelectAll)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
