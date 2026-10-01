@@ -144,8 +144,8 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 }
 
 // Resources returns a copy of the resources map. The map is copied; the
-// resources in it are shared. Callers that need skill membership group this
-// copy with skills.NewRegistry, so nothing derived from resources is stored.
+// resources in it are shared. The skill handlers group this copy per request,
+// so nothing derived from resources is stored.
 func (r *PrimitiveManager) Resources() map[string]resources.Resource {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
