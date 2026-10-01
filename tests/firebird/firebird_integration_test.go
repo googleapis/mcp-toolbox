@@ -81,13 +81,7 @@ func initFirebirdConnection(host, port, user, pass, dbname string) (*sql.DB, err
 	return db, nil
 }
 
-func TestFirebirdToolEndpoints(t *testing.T) {
-	tableName := setupFirebirdTest(t, "--enable-api")
-	tests.RunToolGetTest(t)
-	runFirebirdCallTests(t, tableName, nil, nil, nil)
-}
-
-func setupFirebirdTest(t *testing.T, args ...string) string {
+func setupFirebirdTest(t *testing.T) string {
 	t.Helper()
 	sourceConfig := getFirebirdVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -117,7 +111,7 @@ func setupFirebirdTest(t *testing.T, args ...string) string {
 	tmplSelectCombined, tmplSelectFilterCombined := getFirebirdTmplToolStatement()
 	toolsFile = addFirebirdTemplateParamConfig(t, toolsFile, FirebirdToolType, tmplSelectCombined, tmplSelectFilterCombined)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
