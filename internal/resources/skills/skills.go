@@ -19,10 +19,11 @@ package skills
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 )
 
 const DynamicMarker = "dynamic"
@@ -36,7 +37,6 @@ const (
 // Frontmatter limits from the Agent Skills specification, which SEP-2640
 // adopts by reference.
 const (
-	maxNameLen        = 64
 	maxDescriptionLen = 1024
 )
 
@@ -121,7 +121,7 @@ type Entry struct {
 // Validate checks the rules relating a manifest to the skill's own identity.
 // checkDigests is passed through to Manifest.Validate.
 func (e Entry) Validate(checkDigests bool) error {
-	scheme, segs, err := uriSegments(e.URI)
+	scheme, segs, err := resources.SkillURISegments(e.URI)
 	if err != nil {
 		return fmt.Errorf("invalid skill entry %q: uri %w", e.URI, err)
 	}
@@ -150,7 +150,7 @@ func (e Entry) validateFrontmatter(name string) error {
 		return fmt.Errorf("invalid skill entry %q: %w", e.URI, err)
 	}
 	// Check the uri segment
-	if err := validSkillName(fmName); err != nil {
+	if err := resources.ValidSkillName(fmName); err != nil {
 		return fmt.Errorf("invalid skill entry %q: frontmatter name %w", e.URI, err)
 	}
 	desc, err := requiredString(e.Frontmatter, "description")
@@ -184,54 +184,11 @@ func (e Entry) validateRefs(scheme string, root []string) error {
 	return nil
 }
 
-// uriSegments splits a URI into a flat list of path segments.
-func uriSegments(raw string) (string, []string, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", nil, fmt.Errorf("is not a valid uri")
-	}
-	if u.Scheme == "" {
-		return "", nil, fmt.Errorf("has no scheme")
-	}
-	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-		return "", nil, fmt.Errorf("must be a bare path, with no query, fragment, or userinfo")
-	}
-	segs := []string{u.Host}
-	if rest := strings.TrimPrefix(u.Path, "/"); rest != "" {
-		segs = append(segs, strings.Split(rest, "/")...)
-	}
-	for _, s := range segs {
-		if s == "" || s == "." || s == ".." {
-			return "", nil, fmt.Errorf("has an empty or relative path segment")
-		}
-	}
-	return u.Scheme, segs, nil
-}
-
 // underSkill reports whether ref names a file inside the skill rooted at the
 // given scheme and skill path.
 func underSkill(ref, scheme string, root []string) bool {
-	s, segs, err := uriSegments(ref)
+	s, segs, err := resources.SkillURISegments(ref)
 	return err == nil && s == scheme && len(segs) > len(root) && slices.Equal(segs[:len(root)], root)
-}
-
-// validSkillName applies the Agent Skills naming rules
-func validSkillName(s string) error {
-	for _, c := range s {
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
-			return fmt.Errorf("%q may only contain lowercase letters, digits, and hyphens", s)
-		}
-	}
-	if s == "" || len(s) > maxNameLen {
-		return fmt.Errorf("is %d characters, want 1 to %d", len(s), maxNameLen)
-	}
-	if strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") {
-		return fmt.Errorf("%q starts or ends with a hyphen", s)
-	}
-	if strings.Contains(s, "--") {
-		return fmt.Errorf("%q contains consecutive hyphens", s)
-	}
-	return nil
 }
 
 // validDigest matches SEP-2640's sha256:{hex} form, {hex} being 64 lowercase

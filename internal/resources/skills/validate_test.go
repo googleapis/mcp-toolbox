@@ -246,3 +246,79 @@ func TestValidateDuplicateNameWarning(t *testing.T) {
 		})
 	}
 }
+
+// TestSkillDocIdentity checks that each SKILL.md reports the name and
+// description from its frontmatter, and that other resources keep their
+// config values. The text resource sets these in Initialize, so the test
+// doesn't call Validate.
+func TestSkillDocIdentity(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+
+	// The config names differ from the frontmatter names on purpose, so the
+	// test can't pass by accident.
+	resourcesMap := map[string]resources.Resource{
+		"alpha": textResource(t, ctx, "SKILL.md", "skill://alpha-guide/SKILL.md", skillMD("alpha-guide", "Query the warehouse")),
+		"notes": textResource(t, ctx, "notes", "skill://alpha-guide/references/notes.md", "# Notes\n"),
+		"beta":  textResource(t, ctx, "beta", "skill://beta-guide/SKILL.md", skillMD("beta-guide", "Summarize the warehouse")),
+		"docs":  textResource(t, ctx, "docs", "file://project-docs", "unrelated"),
+	}
+
+	want := map[string]struct{ name, description string }{
+		"alpha": {"alpha-guide", "Query the warehouse"},
+		"beta":  {"beta-guide", "Summarize the warehouse"},
+		"notes": {"notes", ""},
+		"docs":  {"docs", ""},
+	}
+	for key, w := range want {
+		res := resourcesMap[key]
+		if got := res.GetName(); got != w.name {
+			t.Errorf("%s GetName() = %q, want %q", key, got, w.name)
+		}
+		if got := res.GetDescription(); got != w.description {
+			t.Errorf("%s GetDescription() = %q, want %q", key, got, w.description)
+		}
+	}
+}
+
+func TestIsDoc(t *testing.T) {
+	tcs := []struct {
+		uri  string
+		want bool
+	}{
+		{"skill://analytics-guide/SKILL.md", true},
+		{"skill://org/team/analytics-guide/SKILL.md", true},
+		{"skill://analytics-guide/references/queries.md", false},
+		{"skill://analytics-guide/NOTSKILL.md", false},
+		{"file://analytics-guide/SKILL.md", false},
+	}
+	for _, tc := range tcs {
+		if got := skills.IsDoc(tc.uri); got != tc.want {
+			t.Errorf("IsDoc(%q) = %v, want %v", tc.uri, got, tc.want)
+		}
+	}
+}
+
+func TestDocIdentity(t *testing.T) {
+	tcs := []struct {
+		desc     string
+		content  string
+		wantName string
+		wantDesc string
+		wantOK   bool
+	}{
+		{desc: "valid", content: skillMD("guide", "A guide"), wantName: "guide", wantDesc: "A guide", wantOK: true},
+		{desc: "no frontmatter", content: "# Guide\n"},
+		{desc: "unclosed frontmatter", content: "---\nname: guide\n"},
+		{desc: "missing name", content: "---\ndescription: A guide\n---\n"},
+		{desc: "missing description", content: "---\nname: guide\n---\n"},
+		{desc: "non-string name", content: "---\nname: 7\ndescription: A guide\n---\n"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			name, desc, ok := skills.DocIdentity(tc.content)
+			if name != tc.wantName || desc != tc.wantDesc || ok != tc.wantOK {
+				t.Errorf("DocIdentity() = (%q, %q, %v), want (%q, %q, %v)", name, desc, ok, tc.wantName, tc.wantDesc, tc.wantOK)
+			}
+		})
+	}
+}

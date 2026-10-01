@@ -292,6 +292,10 @@ func (c *ResourceConfigBase) Validate() error {
 	parsed.Host = strings.ToLower(parsed.Host)
 	c.URI = parsed.String()
 
+	if err := ValidateSkillURI(c.URI); err != nil {
+		return fmt.Errorf("invalid skill uri %q for resource %q: %w", c.URI, c.Name, err)
+	}
+
 	return nil
 }
 
