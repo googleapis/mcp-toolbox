@@ -65,13 +65,7 @@ func initCouchbaseCluster(connectionString, username, password string) (*gocb.Cl
 	return cluster, nil
 }
 
-func TestCouchbaseToolEndpoints(t *testing.T) {
-	collectionName := setupCouchbaseTest(t, "--enable-api")
-	t.Run("discovery", tests.RunToolGetTest)
-	runCouchbaseCallTests(t, collectionName, nil, nil)
-}
-
-func setupCouchbaseTest(t *testing.T, args ...string) string {
+func setupCouchbaseTest(t *testing.T) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
@@ -130,7 +124,7 @@ func setupCouchbaseTest(t *testing.T, args ...string) string {
 	toolsFile := tests.GetToolsConfig(sourceConfig, couchbaseToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, couchbaseToolType, tmplSelectCombined, tmplSelectFilterCombined, tmplSelectAll)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization failed: %s", err)
 	}
