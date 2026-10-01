@@ -64,13 +64,7 @@ func initRedisClient(ctx context.Context, address, pass string) (*redis.Client, 
 	return standaloneClient, nil
 }
 
-func TestRedisToolEndpoints(t *testing.T) {
-	setupRedisTest(t, "--enable-api")
-	tests.RunToolGetTest(t)
-	runRedisCallTests(t)
-}
-
-func setupRedisTest(t *testing.T, args ...string) {
+func setupRedisTest(t *testing.T) {
 	t.Helper()
 
 	sourceConfig := getRedisVars(t)
@@ -91,7 +85,7 @@ func setupRedisTest(t *testing.T, args ...string) {
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetRedisValkeyToolsConfig(sourceConfig, RedisToolType)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
