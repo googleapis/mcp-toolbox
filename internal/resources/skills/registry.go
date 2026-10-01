@@ -64,7 +64,7 @@ func NewRegistry(resourcesMap map[string]resources.Resource) *Registry {
 	// validation applies. A root that is not a valid URI owns no files.
 	rootSegs := make(map[string][]string, len(isRoot))
 	for root := range isRoot {
-		if _, segs, err := uriSegments(root); err == nil {
+		if _, segs, err := resources.SkillURISegments(root); err == nil {
 			rootSegs[root] = segs
 		}
 	}

@@ -29,6 +29,9 @@ import (
 
 const skillFile = "SKILL.md"
 
+// DocMimeType is the MIME type SEP-2640 requires for every SKILL.md.
+const DocMimeType = "text/markdown"
+
 // Discover builds one Entry per skill, reading and hashing every file. It runs
 // per request, so the digests always describe current content. Startup uses
 // Validate instead, which hashes nothing.
@@ -116,6 +119,29 @@ func readString(ctx context.Context, res resources.Resource) (string, error) {
 		return "", fmt.Errorf("%q returned %T, want text content", res.GetURI(), got)
 	}
 	return content, nil
+}
+
+// IsDoc reports whether uri points to a skill's SKILL.md file.
+func IsDoc(uri string) bool {
+	return strings.HasPrefix(uri, resources.SkillScheme+"://") && strings.HasSuffix(uri, "/"+skillFile)
+}
+
+// DocIdentity returns the name and description from a SKILL.md's frontmatter.
+// SEP-2640 lists a SKILL.md under these values instead of its config name.
+//
+// ok is false if the frontmatter can't be parsed, or if name or description
+// is missing or not a string. Validate reports the exact problem at startup.
+func DocIdentity(content string) (name, description string, ok bool) {
+	fm, err := parseFrontmatter(content)
+	if err != nil {
+		return "", "", false
+	}
+	name, nameOK := fm["name"].(string)
+	description, descOK := fm["description"].(string)
+	if !nameOK || !descOK || name == "" {
+		return "", "", false
+	}
+	return name, description, true
 }
 
 // Extracts the leading YAML frontmatter of a SKILL.md.
