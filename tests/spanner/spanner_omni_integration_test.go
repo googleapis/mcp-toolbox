@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build omni_only
+
 package spanner
 
 import (
@@ -40,22 +42,6 @@ import (
 const (
 	SpannerOmniImage = "us-docker.pkg.dev/spanner-omni/images/spanner-omni:2026.r4-lts"
 	SpannerOmniPort  = "15000"
-)
-
-// By default the Omni test starts a plaintext single-server Spanner Omni
-// container. Set SPANNER_OMNI_ENDPOINT to test against an existing deployment
-// instead, with SPANNER_OMNI_CA_CERT (and optionally SPANNER_OMNI_CLIENT_CERT
-// and SPANNER_OMNI_CLIENT_KEY) for TLS/mTLS, SPANNER_OMNI_USERNAME and
-// SPANNER_OMNI_PASSWORD for password authentication, or
-// SPANNER_OMNI_USE_PLAINTEXT=true.
-var (
-	SpannerOmniEndpoint     = os.Getenv("SPANNER_OMNI_ENDPOINT")
-	SpannerOmniUsePlainText = os.Getenv("SPANNER_OMNI_USE_PLAINTEXT") == "true"
-	SpannerOmniCaCert       = os.Getenv("SPANNER_OMNI_CA_CERT")
-	SpannerOmniClientCert   = os.Getenv("SPANNER_OMNI_CLIENT_CERT")
-	SpannerOmniClientKey    = os.Getenv("SPANNER_OMNI_CLIENT_KEY")
-	SpannerOmniUsername     = os.Getenv("SPANNER_OMNI_USERNAME")
-	SpannerOmniPassword     = os.Getenv("SPANNER_OMNI_PASSWORD")
 )
 
 // setupSpannerOmniContainer starts Spanner Omni and returns its host:port.
@@ -101,41 +87,20 @@ func setupSpannerOmniContainer(ctx context.Context, t *testing.T) (string, func(
 
 func getSpannerOmniVars(endpoint, dbName string) map[string]any {
 	// project and instance are omitted on purpose: they default for Omni.
-	config := map[string]any{
-		"type":         SpannerSourceType,
-		"database":     dbName,
-		"instanceType": "omni",
-		"omniEndpoint": endpoint,
+	return map[string]any{
+		"type":             SpannerSourceType,
+		"database":         dbName,
+		"instanceType":     "omni",
+		"omniEndpoint":     endpoint,
+		"omniUsePlainText": true,
 	}
-	if SpannerOmniUsePlainText {
-		config["omniUsePlainText"] = true
-	}
-	if SpannerOmniCaCert != "" {
-		config["omniCaCertificateFile"] = SpannerOmniCaCert
-	}
-	if SpannerOmniClientCert != "" {
-		config["omniClientCertificateFile"] = SpannerOmniClientCert
-		config["omniClientKeyFile"] = SpannerOmniClientKey
-	}
-	if SpannerOmniUsername != "" {
-		config["omniUsername"] = SpannerOmniUsername
-		config["omniPassword"] = SpannerOmniPassword
-	}
-	return config
 }
 
 // initSpannerOmniClients creates the database and returns clients for it.
+// Nothing is dropped afterwards because the container is discarded.
 func initSpannerOmniClients(ctx context.Context, t *testing.T, endpoint, dbName string) (*spanner.Client, *database.DatabaseAdminClient, string, func()) {
 	t.Helper()
-	config := spanner.ClientConfig{
-		Type:                  spanner.OMNI,
-		UsePlainText:          SpannerOmniUsePlainText,
-		CaCertificateFile:     SpannerOmniCaCert,
-		ClientCertificateFile: SpannerOmniClientCert,
-		ClientKeyFile:         SpannerOmniClientKey,
-		Username:              SpannerOmniUsername,
-		Password:              []byte(SpannerOmniPassword),
-	}
+	config := spanner.ClientConfig{Type: spanner.OMNI, UsePlainText: true}
 	opt := option.WithEndpoint(endpoint)
 
 	adminClient, err := database.NewDatabaseAdminClientWithConfig(ctx, config, opt)
@@ -164,9 +129,6 @@ func initSpannerOmniClients(ctx context.Context, t *testing.T, endpoint, dbName 
 
 	return dataClient, adminClient, dbString, func() {
 		dataClient.Close()
-		if err := adminClient.DropDatabase(context.WithoutCancel(ctx), &databasepb.DropDatabaseRequest{Database: dbString}); err != nil {
-			t.Errorf("unable to drop database %s: %s", dbName, err)
-		}
 		adminClient.Close()
 	}
 }
@@ -187,17 +149,14 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	endpoint := SpannerOmniEndpoint
-	if endpoint == "" {
-		var cleanupContainer func()
-		endpoint, cleanupContainer = setupSpannerOmniContainer(ctx, t)
-		defer cleanupContainer()
-		SpannerOmniUsePlainText = true
-	}
+	endpoint, cleanupContainer := setupSpannerOmniContainer(ctx, t)
+	defer cleanupContainer()
 
-	dbName := "omni_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
-	dataClient, adminClient, dbString, teardownDatabase := initSpannerOmniClients(ctx, t, endpoint, dbName)
-	defer teardownDatabase()
+	// The container is discarded at the end, so the database, tables, and
+	// graph below aren't torn down individually.
+	dbName := "omni_test_db"
+	dataClient, adminClient, dbString, closeClients := initSpannerOmniClients(ctx, t, endpoint, dbName)
+	defer closeClients()
 	sourceConfig := getSpannerOmniVars(endpoint, dbName)
 
 	// create table name with UUID
@@ -207,24 +166,20 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSpannerParamToolInfo(tableNameParam)
-	teardownTable1 := setupSpannerTable(t, ctx, adminClient, dataClient, createParamTableStmt, insertParamTableStmt, tableNameParam, dbString, paramTestParams)
-	defer teardownTable1(t)
+	setupSpannerTable(t, ctx, adminClient, dataClient, createParamTableStmt, insertParamTableStmt, tableNameParam, dbString, paramTestParams)
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getSpannerAuthToolInfo(tableNameAuth)
-	teardownTable2 := setupSpannerTable(t, ctx, adminClient, dataClient, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, dbString, authTestParams)
-	defer teardownTable2(t)
+	setupSpannerTable(t, ctx, adminClient, dataClient, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, dbString, authTestParams)
 
 	// set up data for template param tool
 	createStatementTmpl := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING(MAX), age INT64) PRIMARY KEY (id)", tableNameTemplateParam)
-	teardownTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createStatementTmpl, "", tableNameTemplateParam, dbString, nil)
-	defer teardownTableTmpl(t)
+	setupSpannerTable(t, ctx, adminClient, dataClient, createStatementTmpl, "", tableNameTemplateParam, dbString, nil)
 
 	// set up for graph tool
 	nodeTableName := "node_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	createNodeStatementTmpl := fmt.Sprintf("CREATE TABLE %s (id INT64 NOT NULL) PRIMARY KEY (id)", nodeTableName)
-	teardownNodeTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createNodeStatementTmpl, "", nodeTableName, dbString, nil)
-	defer teardownNodeTableTmpl(t)
+	setupSpannerTable(t, ctx, adminClient, dataClient, createNodeStatementTmpl, "", nodeTableName, dbString, nil)
 
 	edgeTableName := "edge_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	createEdgeStatementTmpl := fmt.Sprintf(`
@@ -235,8 +190,7 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 	) PRIMARY KEY (id, target_id),
 	 INTERLEAVE IN PARENT %[2]s ON DELETE CASCADE
 	`, edgeTableName, nodeTableName)
-	teardownEdgeTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createEdgeStatementTmpl, "", edgeTableName, dbString, nil)
-	defer teardownEdgeTableTmpl(t)
+	setupSpannerTable(t, ctx, adminClient, dataClient, createEdgeStatementTmpl, "", edgeTableName, dbString, nil)
 
 	graphName := "graph_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	createGraphStmt := fmt.Sprintf(`
@@ -251,8 +205,7 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 				LABEL EDGE
 		)
 	`, nodeTableName, edgeTableName, graphName)
-	teardownGraph := setupSpannerGraph(t, ctx, adminClient, createGraphStmt, graphName, dbString)
-	defer teardownGraph(t)
+	setupSpannerGraph(t, ctx, adminClient, createGraphStmt, graphName, dbString)
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, SpannerToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -272,8 +225,7 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 	// Semantic search needs a Gemini API key for the embedding model.
 	runSemanticSearch := os.Getenv("API_KEY") != ""
 	if runSemanticSearch {
-		vectorTableName, tearDownVectorTable := setupSpannerVectorTable(t, ctx, adminClient, dbString)
-		defer tearDownVectorTable(t)
+		vectorTableName, _ := setupSpannerVectorTable(t, ctx, adminClient, dbString)
 		insertStmt, searchStmt := getSpannerVectorSearchStmts(vectorTableName)
 		toolsFile = tests.AddSemanticSearchConfig(t, toolsFile, SpannerToolType, insertStmt, searchStmt)
 	}
