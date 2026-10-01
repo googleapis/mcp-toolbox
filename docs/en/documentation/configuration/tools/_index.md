@@ -391,9 +391,9 @@ result, err := boundTool.Invoke(ctx, map[string]any{})
 Secure parameters require MCP protocol version `2026-07-28` and the `com.google.cloud/toolbox.v1` extension. For more details on extension capabilities and client requirements, see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md).
 
 For in-depth framework integration guides, see:
-* [Python SDK Secure Parameters](../../connect-to/toolbox-sdks/python-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/python-sdk/adk/index.md#secure-parameters) | [LangChain](../../connect-to/toolbox-sdks/python-sdk/langchain/index.md#secure-parameters) | [LlamaIndex](../../connect-to/toolbox-sdks/python-sdk/llamaindex/index.md#secure-parameters))
-* [JavaScript / TypeScript SDK Secure Parameters](../../connect-to/toolbox-sdks/javascript-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/javascript-sdk/adk/index.md#secure-parameters))
-* [Go SDK Secure Parameters](../../connect-to/toolbox-sdks/go-sdk/core/_index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/go-sdk/tbadk/_index.md#secure-parameters) | [Genkit](../../connect-to/toolbox-sdks/go-sdk/tbgenkit/_index.md#secure-parameters))
+* [Python SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/core/index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/adk/index.md#secure-parameters" >}}) | [LangChain]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/langchain/index.md#secure-parameters" >}}) | [LlamaIndex]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/llamaindex/index.md#secure-parameters" >}}))
+* [JavaScript / TypeScript SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/javascript-sdk/core/index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/javascript-sdk/adk/index.md#secure-parameters" >}}))
+* [Go SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/core/_index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/tbadk/_index.md#secure-parameters" >}}) | [Genkit]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/tbgenkit/_index.md#secure-parameters" >}}))
 {{< /notice >}}
 
 ### Authenticated Parameters
