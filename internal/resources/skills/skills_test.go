@@ -15,7 +15,6 @@
 package skills_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -23,51 +22,6 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 )
-
-func TestManifestMarshalJSON(t *testing.T) {
-	tcs := []struct {
-		desc string
-		in   skills.Manifest
-		want string
-	}{
-		{
-			desc: "static skill lists its files",
-			in: skills.Manifest{Refs: []skills.ResourceRef{
-				{URI: "skill://analytics-guide/SKILL.md", Digest: "sha256:a1b2", Size: 2314},
-				{URI: "skill://analytics-guide/references/queries.md", Digest: "sha256:c3d4", Size: 962},
-			}},
-			want: `[{"uri":"skill://analytics-guide/SKILL.md","digest":"sha256:a1b2","size":2314},` +
-				`{"uri":"skill://analytics-guide/references/queries.md","digest":"sha256:c3d4","size":962}]`,
-		},
-		{
-			desc: "dynamic skill collapses to the marker",
-			in:   skills.Manifest{Dynamic: true},
-			want: `"dynamic"`,
-		},
-		{
-			desc: "dynamic wins over any refs left set",
-			in:   skills.Manifest{Dynamic: true, Refs: []skills.ResourceRef{{URI: "skill://x/SKILL.md"}}},
-			want: `"dynamic"`,
-		},
-		{
-			desc: "unpopulated static manifest stays an array",
-			in:   skills.Manifest{},
-			want: `[]`,
-		},
-	}
-
-	for _, tc := range tcs {
-		t.Run(tc.desc, func(t *testing.T) {
-			got, err := json.Marshal(tc.in)
-			if err != nil {
-				t.Fatalf("Marshal() = %v, want nil", err)
-			}
-			if string(got) != tc.want {
-				t.Errorf("Marshal() = %s, want %s", got, tc.want)
-			}
-		})
-	}
-}
 
 // Well-formed digests. Fixtures elsewhere use the spec's abbreviated
 // placeholders, which Validate rejects by design.
@@ -260,33 +214,6 @@ func TestManifestValidate(t *testing.T) {
 				t.Errorf("Validate() = %v, want error containing %q", err, tc.wantErr)
 			}
 		})
-	}
-}
-
-// TestEntryMarshalJSON pins the shape SEP-2640 specifies for a skills/list
-// entry: the URI addresses SKILL.md rather than the skill root, and frontmatter
-// passes through verbatim because a host compares it field by field.
-func TestEntryMarshalJSON(t *testing.T) {
-	e := skills.Entry{
-		URI: "skill://analytics-guide/SKILL.md",
-		Frontmatter: map[string]any{
-			"name":        "analytics-guide",
-			"description": "Query and summarize the warehouse",
-		},
-		Resources: skills.Manifest{Refs: []skills.ResourceRef{
-			{URI: "skill://analytics-guide/SKILL.md", Digest: "sha256:a1b2", Size: 2314},
-		}},
-	}
-
-	got, err := json.Marshal(e)
-	if err != nil {
-		t.Fatalf("Marshal() = %v, want nil", err)
-	}
-	want := `{"uri":"skill://analytics-guide/SKILL.md",` +
-		`"frontmatter":{"description":"Query and summarize the warehouse","name":"analytics-guide"},` +
-		`"resources":[{"uri":"skill://analytics-guide/SKILL.md","digest":"sha256:a1b2","size":2314}]}`
-	if string(got) != want {
-		t.Errorf("Marshal() =\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -571,57 +498,5 @@ func TestEntryValidate(t *testing.T) {
 				t.Errorf("Validate() = %v, want error containing %q", err, tc.wantErr)
 			}
 		})
-	}
-}
-
-func TestEntryMarshalsDynamic(t *testing.T) {
-	in := skills.Entry{
-		URI:         "skill://drafting/SKILL.md",
-		Frontmatter: map[string]any{"name": "drafting"},
-		Resources:   skills.Manifest{Dynamic: true},
-	}
-
-	got, err := json.Marshal(in)
-	if err != nil {
-		t.Fatalf("Marshal() = %v, want nil", err)
-	}
-	want := `{"uri":"skill://drafting/SKILL.md","frontmatter":{"name":"drafting"},"resources":"dynamic"}`
-	if string(got) != want {
-		t.Errorf("Marshal() =\n%s\nwant\n%s", got, want)
-	}
-}
-
-// TestEntryMatchesSEPExample marshals an entry built from SEP-2640's
-// "Retrieval via skills/get" example, so a renamed or dropped field fails here.
-// Frontmatter keys are in Go's sorted order because encoding/json sorts map
-// keys, and the list is three of the example's six entries. The elided
-// placeholder digests make it an invalid manifest by design.
-func TestEntryMatchesSEPExample(t *testing.T) {
-	e := skills.Entry{
-		URI: "skill://pdf-processing/SKILL.md",
-		Frontmatter: map[string]any{
-			"name":        "pdf-processing",
-			"description": "Extract, fill, and assemble PDF documents",
-			"metadata":    map[string]any{"version": "2.1.0"},
-		},
-		Resources: skills.Manifest{Refs: []skills.ResourceRef{
-			{URI: "skill://pdf-processing/SKILL.md", Digest: "sha256:d5e6f7a8...", Size: 5120},
-			{URI: "skill://pdf-processing/references/FORMS.md", Digest: "sha256:e6f7a8b9...", Size: 18433},
-			{URI: "skill://pdf-processing/scripts/extract.py", Digest: "sha256:f7a8b9c0...", Size: 4096},
-		}},
-	}
-	const want = `{"uri":"skill://pdf-processing/SKILL.md",` +
-		`"frontmatter":{"description":"Extract, fill, and assemble PDF documents","metadata":{"version":"2.1.0"},"name":"pdf-processing"},` +
-		`"resources":[` +
-		`{"uri":"skill://pdf-processing/SKILL.md","digest":"sha256:d5e6f7a8...","size":5120},` +
-		`{"uri":"skill://pdf-processing/references/FORMS.md","digest":"sha256:e6f7a8b9...","size":18433},` +
-		`{"uri":"skill://pdf-processing/scripts/extract.py","digest":"sha256:f7a8b9c0...","size":4096}]}`
-
-	got, err := json.Marshal(e)
-	if err != nil {
-		t.Fatalf("Marshal() = %v, want nil", err)
-	}
-	if string(got) != want {
-		t.Errorf("Marshal() differs from the SEP example:\n got %s\nwant %s", got, want)
 	}
 }

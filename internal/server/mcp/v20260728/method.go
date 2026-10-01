@@ -1341,7 +1341,7 @@ func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
 	result := GetSkillResult{
-		Skill: entry,
+		Skill: generateSkillManifest(entry),
 		Result: Result{
 			ResultType: resultTypeComplete,
 		},

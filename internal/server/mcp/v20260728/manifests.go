@@ -383,11 +383,13 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 	if err != nil {
 		return ListSkillsResult{}, err
 	}
-	if entries == nil {
-		entries = []skills.Entry{}
+	// A nil slice would marshal to null; the wire shape is a list.
+	list := make([]Skill, 0, len(entries))
+	for _, e := range entries {
+		list = append(list, generateSkillManifest(e))
 	}
 	return ListSkillsResult{
-		Skills: entries,
+		Skills: list,
 		Result: Result{
 			ResultType: resultTypeComplete,
 		},
@@ -396,4 +398,18 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 			CacheScope: skillsCacheScope,
 		},
 	}, nil
+}
+
+// generateSkillManifest converts a skill to the wire type skills/list and
+// skills/get publish.
+func generateSkillManifest(e skills.Entry) Skill {
+	refs := make([]SkillResourceRef, 0, len(e.Resources.Refs))
+	for _, r := range e.Resources.Refs {
+		refs = append(refs, SkillResourceRef{URI: r.URI, Digest: r.Digest, Size: r.Size})
+	}
+	return Skill{
+		URI:         e.URI,
+		Frontmatter: e.Frontmatter,
+		Resources:   SkillResources{Refs: refs, Dynamic: e.Resources.Dynamic},
+	}
 }
