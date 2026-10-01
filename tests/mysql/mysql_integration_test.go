@@ -76,7 +76,6 @@ func initMySQLConnectionPool(host, port, user, pass, dbname string) (*sql.DB, er
 }
 
 type mysqlTestFixture struct {
-	ctx           context.Context
 	pool          *sql.DB
 	paramTable    string
 	authTable     string
@@ -90,16 +89,10 @@ type mysqlTestOptions struct {
 	prebuilt   []tests.ToolExecOption
 }
 
-func TestMySQLToolEndpoints(t *testing.T) {
-	fixture := setupMySQLTest(t, "--enable-api")
-	t.Run("discovery", tests.RunToolGetTest)
-	runMySQLCallTests(t, fixture, mysqlTestOptions{})
-}
-
-func setupMySQLTest(t *testing.T, args ...string) mysqlTestFixture {
+func setupMySQLTest(t *testing.T) mysqlTestFixture {
 	t.Helper()
 	sourceConfig := getMySQLVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	t.Cleanup(cancel)
 
 	pool, err := initMySQLConnectionPool(MySQLHost, MySQLPort, MySQLUser, MySQLPass, MySQLDatabase)
@@ -138,7 +131,7 @@ func setupMySQLTest(t *testing.T, args ...string) mysqlTestFixture {
 
 	toolsFile = tests.AddMySQLPrebuiltToolConfig(t, toolsFile)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -161,7 +154,7 @@ func setupMySQLTest(t *testing.T, args ...string) mysqlTestFixture {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	return mysqlTestFixture{ctx: ctx, pool: pool, paramTable: tableNameParam, authTable: tableNameAuth, templateTable: tableNameTemplateParam}
+	return mysqlTestFixture{pool: pool, paramTable: tableNameParam, authTable: tableNameAuth, templateTable: tableNameTemplateParam}
 }
 
 func runMySQLCallTests(t *testing.T, fixture mysqlTestFixture, options mysqlTestOptions) {
@@ -184,24 +177,24 @@ func runMySQLCallTests(t *testing.T, fixture mysqlTestFixture, options mysqlTest
 		tests.RunMySQLListTablesTest(t, MySQLDatabase, fixture.paramTable, fixture.authTable, "", options.prebuilt...)
 	})
 	t.Run("list_active_queries", func(t *testing.T) {
-		tests.RunMySQLListActiveQueriesTest(t, fixture.ctx, fixture.pool, options.prebuilt...)
+		tests.RunMySQLListActiveQueriesTest(t, t.Context(), fixture.pool, options.prebuilt...)
 	})
 	t.Run("list_tables_missing_unique_indexes", func(t *testing.T) {
-		tests.RunMySQLListTablesMissingUniqueIndexes(t, fixture.ctx, fixture.pool, MySQLDatabase, options.prebuilt...)
+		tests.RunMySQLListTablesMissingUniqueIndexes(t, t.Context(), fixture.pool, MySQLDatabase, options.prebuilt...)
 	})
 	t.Run("list_table_fragmentation", func(t *testing.T) {
 		tests.RunMySQLListTableFragmentationTest(t, MySQLDatabase, fixture.paramTable, fixture.authTable, options.prebuilt...)
 	})
 	t.Run("get_query_plan", func(t *testing.T) {
-		tests.RunMySQLGetQueryPlanTest(t, fixture.ctx, fixture.pool, MySQLDatabase, fixture.paramTable, options.prebuilt...)
+		tests.RunMySQLGetQueryPlanTest(t, t.Context(), fixture.pool, MySQLDatabase, fixture.paramTable, options.prebuilt...)
 	})
 	t.Run("list_all_locks", func(t *testing.T) {
-		tests.RunMySQLListAllLocks(t, fixture.ctx, fixture.pool, MySQLDatabase, options.prebuilt...)
+		tests.RunMySQLListAllLocks(t, t.Context(), fixture.pool, MySQLDatabase, options.prebuilt...)
 	})
 	t.Run("show_query_stats", func(t *testing.T) {
-		tests.RunMySQLShowQueryStats(t, fixture.ctx, fixture.pool, MySQLDatabase, options.prebuilt...)
+		tests.RunMySQLShowQueryStats(t, t.Context(), fixture.pool, MySQLDatabase, options.prebuilt...)
 	})
 	t.Run("list_table_stats", func(t *testing.T) {
-		tests.RunMySQLListTableStatsTest(t, fixture.ctx, fixture.pool, MySQLDatabase, fixture.paramTable, fixture.authTable, options.prebuilt...)
+		tests.RunMySQLListTableStatsTest(t, t.Context(), fixture.pool, MySQLDatabase, fixture.paramTable, fixture.authTable, options.prebuilt...)
 	})
 }
