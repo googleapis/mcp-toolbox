@@ -297,7 +297,7 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 	invokeParamWant := "[{\"id\":\"1\",\"name\":\"Alice\"},{\"id\":\"3\",\"name\":\"Sid\"}]"
 	accessSchemaWant := "[{\"schema_name\":\"INFORMATION_SCHEMA\"}]"
 	toolInvokeMyToolById4Want := `[{"id":"4","name":null}]`
-	mcpMyFailToolWant := `"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"unable to execute client: unable to parse row: spanner: code = \"InvalidArgument\", desc = \"Syntax error: Unexpected identifier \\\\\\\"SELEC\\\\\\\" [at 1:1]\\\\nSELEC 1;\\\\n^\"`
+	mcpMyFailToolWant := `"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing GCP request: unable to execute client: unable to parse row: spanner: code = \"InvalidArgument\", desc = \"Syntax error: Unexpected identifier \\\\\\\"SELEC\\\\\\\" [at 1:1]\\\\nSELEC 1;\\\\n^\"`
 	mcpMyToolId3NameAliceWant := `{"jsonrpc":"2.0","id":"my-tool","result":{"content":[{"type":"text","text":"{\"id\":\"1\",\"name\":\"Alice\"}"},{"type":"text","text":"{\"id\":\"3\",\"name\":\"Sid\"}"}]}}`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"\":\"1\"}"}]}}`
 	tmplSelectAllWwant := "[{\"age\":\"21\",\"id\":\"1\",\"name\":\"Alex\"},{\"age\":\"100\",\"id\":\"2\",\"name\":\"Alice\"}]"
@@ -313,7 +313,11 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 			tests.WithMyArrayToolWant(invokeParamWant),
 			tests.WithMyToolById4Want(toolInvokeMyToolById4Want),
 		)
-		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want, tests.WithMcpMyToolId3NameAliceWant(mcpMyToolId3NameAliceWant))
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
+			tests.WithMcpMyToolId3NameAliceWant(mcpMyToolId3NameAliceWant),
+			// Spanner returns INT64 values as JSON strings.
+			tests.WithMcpMySecureToolWant(invokeParamWant),
+		)
 		runSpannerExecuteSqlToolInvokeTest(t, select1Want, invokeParamWant, tableNameParam)
 	} else {
 		t.Log("Google credentials not found; skipping tool invoke, MCP, and execute SQL tests that include auth")
