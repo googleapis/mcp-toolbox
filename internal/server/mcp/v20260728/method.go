@@ -29,6 +29,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -1326,7 +1327,7 @@ func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 		genAIAttrs.OperationName = "get_skill"
 	}
 
-	result, found, err := GenerateGetSkillResult(ctx, primitiveMgr, uri)
+	entry, found, err := skills.Get(ctx, primitiveMgr.Resources(), uri)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
@@ -1335,9 +1336,19 @@ func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
 	}
 
-	meta, err := getResultMetadata(ctx, result.Meta)
+	meta, err := getResultMetadata(ctx, nil)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result := GetSkillResult{
+		Skill: entry,
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      skillsTTLMs,
+			CacheScope: skillsCacheScope,
+		},
 	}
 	result.Meta = meta
 

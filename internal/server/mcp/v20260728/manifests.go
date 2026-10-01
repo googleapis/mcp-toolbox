@@ -397,30 +397,3 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 		},
 	}, nil
 }
-
-// GenerateGetSkillResult rebuilds one skill by URI, reporting whether it exists.
-//
-// It rebuilds the whole catalogue to answer for one skill, so an unreadable file
-// in any skill fails this request too. That keeps Discover fail-fast and a
-// broken config loud.
-func GenerateGetSkillResult(ctx context.Context, pMgr *primitives.PrimitiveManager, uri string) (GetSkillResult, bool, error) {
-	entries, err := skills.Discover(ctx, pMgr.Resources())
-	if err != nil {
-		return GetSkillResult{}, false, err
-	}
-	for _, e := range entries {
-		if e.URI == uri {
-			return GetSkillResult{
-				Skill: e,
-				Result: Result{
-					ResultType: resultTypeComplete,
-				},
-				CacheableResult: CacheableResult{
-					TtlMs:      skillsTTLMs,
-					CacheScope: skillsCacheScope,
-				},
-			}, true, nil
-		}
-	}
-	return GetSkillResult{}, false, nil
-}

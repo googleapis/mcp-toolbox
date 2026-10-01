@@ -2503,13 +2503,14 @@ func TestSkillsGetHandler(t *testing.T) {
 	const skillURI = "skill://analytics-guide/SKILL.md"
 
 	tests := []struct {
-		name     string
-		rawBody  []byte
-		uri      string             // "" means skillURI
-		meta     *RequestMetaObject // nil means skillsValidMeta()
-		disabled []string
-		wantCode int
-		wantErr  string
+		name      string
+		rawBody   []byte
+		uri       string                        // "" means skillURI
+		meta      *RequestMetaObject            // nil means skillsValidMeta()
+		resources map[string]resources.Resource // nil means skillsTestResources()
+		disabled  []string
+		wantCode  int
+		wantErr   string
 	}{
 		{
 			name:    "invalid json body",
@@ -2543,12 +2544,25 @@ func TestSkillsGetHandler(t *testing.T) {
 		{
 			name: "returns the skill",
 		},
+		{
+			// Only the requested skill is read.
+			name: "returns the skill when another skill is broken",
+			resources: func() map[string]resources.Resource {
+				m := skillsTestResources()
+				m["broken"] = testutils.NewMockTextResource("broken", "skill://broken/SKILL.md", "no frontmatter here\n")
+				return m
+			}(),
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			Initialize(tc.disabled)
-			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, skillsTestResources(), nil, nil)
+			resourcesMap := tc.resources
+			if resourcesMap == nil {
+				resourcesMap = skillsTestResources()
+			}
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
 
 			uri := tc.uri
 			if uri == "" {
