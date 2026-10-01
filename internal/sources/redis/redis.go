@@ -73,16 +73,14 @@ type RedisClient interface {
 var _ RedisClient = (*redis.Client)(nil)
 var _ RedisClient = (*redis.ClusterClient)(nil)
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	client, err := initRedisClient(ctx, r)
+	if err != nil {
+		return nil, fmt.Errorf("error initializing Redis client: %s", err)
+	}
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[RedisClient](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.client(ctx); err != nil {
-		return nil, err
+		Client: client,
 	}
 	return s, nil
 }
@@ -158,18 +156,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[RedisClient]
-}
-
-func (s *Source) client(ctx context.Context) (RedisClient, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (RedisClient, error) {
-		r := s.Config
-		client, err := initRedisClient(ctx, r)
-		if err != nil {
-			return nil, fmt.Errorf("error initializing Redis client: %s", err)
-		}
-		return client, nil
-	})
+	Client RedisClient
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -184,15 +171,15 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+func (s *Source) RedisClient() RedisClient {
+	return s.Client
+}
+
 func (s *Source) RunCommand(ctx context.Context, cmds [][]any) (any, error) {
-	client, err := s.client(ctx)
-	if err != nil {
-		return nil, err
-	}
 	// Execute commands
 	responses := make([]*redis.Cmd, len(cmds))
 	for i, cmd := range cmds {
-		responses[i] = client.Do(ctx, cmd...)
+		responses[i] = s.RedisClient().Do(ctx, cmd...)
 	}
 	// Parse responses
 	out := make([]any, len(cmds))

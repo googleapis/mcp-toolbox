@@ -208,7 +208,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			desc:    "querying forbidden dataset table",
 			sql:     "SELECT * FROM forbidden_dataset.my_table",
 			wantErr: true,
-			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+			wantSub: "access to dataset 'test-project.forbidden_dataset' is not allowed",
 		},
 		{
 			desc:    "querying allowed dataset INFORMATION_SCHEMA tables",
@@ -219,7 +219,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			desc:    "querying forbidden dataset INFORMATION_SCHEMA tables",
 			sql:     "SELECT * FROM forbidden_dataset.INFORMATION_SCHEMA.TABLES",
 			wantErr: true,
-			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+			wantSub: "access to dataset 'test-project.forbidden_dataset' is not allowed",
 		},
 		{
 			desc:    "querying regional INFORMATION_SCHEMA schemata",
@@ -237,7 +237,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			desc:    "querying mixed allowed table and forbidden INFORMATION_SCHEMA view",
 			sql:     "SELECT * FROM allowed_dataset.my_table JOIN forbidden_dataset.INFORMATION_SCHEMA.TABLES ON true",
 			wantErr: true,
-			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+			wantSub: "access to dataset 'test-project.forbidden_dataset' is not allowed",
 		},
 		{
 			desc:    "querying EXTERNAL_QUERY",

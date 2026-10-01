@@ -34,6 +34,8 @@ type MockSource struct {
 	AllowedDatasets []string
 	RunSQLResult    any
 	RunSQLError     error
+	WriteMode       string
+	Session         *bigqueryds.Session
 }
 
 func (m *MockSource) BigQueryClient() *bigqueryapi.Client {
@@ -45,6 +47,9 @@ func (m *MockSource) UseClientAuthorization() bool {
 }
 
 func (m *MockSource) BigQueryWriteMode() string {
+	if m.WriteMode != "" {
+		return m.WriteMode
+	}
 	return "allowed"
 }
 
@@ -75,11 +80,14 @@ func (m *MockSource) BigQueryAllowedDatasets() []string {
 
 func (m *MockSource) BigQuerySession() bigqueryds.BigQuerySessionProvider {
 	return func(ctx context.Context) (*bigqueryds.Session, error) {
+		if m.Session != nil {
+			return m.Session, nil
+		}
 		return &bigqueryds.Session{ID: "mock-session-id"}, nil
 	}
 }
 
-func (m *MockSource) RetrieveClientAndService(context.Context, tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
+func (m *MockSource) RetrieveClientAndService(tools.AccessToken) (*bigqueryapi.Client, *bigqueryrestapi.Service, error) {
 	return m.Client, m.Service, nil
 }
 

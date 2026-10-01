@@ -67,16 +67,14 @@ type Config struct {
 }
 
 // Initialize implements sources.SourceConfig.
-func (c Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	session, err := initScyllaDBSession(ctx, tracer, c)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create session: %v", err)
+	}
 	s := &Source{
-		Config: c,
-		conn:   sources.NewConnectOnce[*gocql.Session](ctx, c.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.ScyllaDBSessionContext(ctx); err != nil {
-		return nil, err
+		Config:  c,
+		Session: session,
 	}
 	return s, nil
 }
@@ -90,20 +88,12 @@ var _ sources.SourceConfig = Config{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*gocql.Session]
+	Session *gocql.Session
 }
 
-// ScyllaDBSessionContext returns the session, connecting on first use. It is the
-// discriminator the scylladb tools assert on.
-func (s *Source) ScyllaDBSessionContext(ctx context.Context) (*gocql.Session, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*gocql.Session, error) {
-		r := s.Config
-		session, err := initScyllaDBSession(ctx, r)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create session: %v", err)
-		}
-		return session, nil
-	})
+// ScyllaDBSession returns the underlying ScyllaDB session.
+func (s *Source) ScyllaDBSession() *gocql.Session {
+	return s.Session
 }
 
 func (s *Source) ToConfig() sources.SourceConfig {
@@ -120,13 +110,8 @@ func (s *Source) SourceType() string {
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params parameters.ParamValues) (any, error) {
-	session, err := s.ScyllaDBSessionContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	sliceParams := params.AsSlice()
-	iter := session.Query(statement, sliceParams...).WithContext(ctx).Iter()
+	iter := s.ScyllaDBSession().Query(statement, sliceParams...).WithContext(ctx).Iter()
 
 	// Create a slice to store the output
 	var out []map[string]interface{}
@@ -148,7 +133,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 
 var _ sources.Source = &Source{}
 
-func initScyllaDBSession(ctx context.Context, c Config) (*gocql.Session, error) {
+func initScyllaDBSession(ctx context.Context, tracer trace.Tracer, c Config) (*gocql.Session, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, c.Name)
+	defer span.End()
+
 	// Validate authentication configuration
 	if c.Password != "" && c.Username == "" {
 		return nil, fmt.Errorf("invalid ScyllaDB configuration: password provided without a username")

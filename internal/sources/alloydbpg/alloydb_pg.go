@@ -68,16 +68,26 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	pool, err := initAlloyDBPgConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Cluster, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create pool: %w", err)
+	}
+
+	err = pool.Ping(ctx)
+	if err != nil {
+		pool.Close()
+		if r.ReadOnly &&
+			strings.Contains(err.Error(), "unrecognized configuration parameter") &&
+			strings.Contains(err.Error(), "alloydb_session_read_only") {
+			return nil, fmt.Errorf("failed to initialize AlloyDB source in read-only mode: 'alloydb_session_read_only' is not supported on this instance version. See documentation for details: https://mcp-toolbox.dev/integrations/alloydb/source/#reference: %w", err)
+		}
+		return nil, fmt.Errorf("unable to connect successfully: %w", err)
+	}
+
 	s := &Source{
 		Config: r,
-		conn:   sources.NewConnectOnce[*pgxpool.Pool](ctx, r.Name, SourceType, tracer),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.PostgresPoolContext(ctx); err != nil {
-		return nil, err
+		Pool:   pool,
 	}
 	return s, nil
 }
@@ -86,31 +96,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	conn *sources.ConnectOnce[*pgxpool.Pool]
-}
-
-// PostgresPoolContext returns the pool, connecting on first use. It is the
-// discriminator the postgres tools assert on.
-func (s *Source) PostgresPoolContext(ctx context.Context) (*pgxpool.Pool, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*pgxpool.Pool, error) {
-		r := s.Config
-		pool, err := initAlloyDBPgConnectionPool(ctx, r.Project, r.Region, r.Cluster, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create pool: %w", err)
-		}
-
-		err = pool.Ping(ctx)
-		if err != nil {
-			pool.Close()
-			if r.ReadOnly &&
-				strings.Contains(err.Error(), "unrecognized configuration parameter") &&
-				strings.Contains(err.Error(), "alloydb_session_read_only") {
-				return nil, fmt.Errorf("failed to initialize AlloyDB source in read-only mode: 'alloydb_session_read_only' is not supported on this instance version. See documentation for details: https://mcp-toolbox.dev/integrations/alloydb/source/#reference: %w", err)
-			}
-			return nil, fmt.Errorf("unable to connect successfully: %w", err)
-		}
-		return pool, nil
-	})
+	Pool *pgxpool.Pool
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -125,13 +111,13 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+func (s *Source) PostgresPool() *pgxpool.Pool {
+	return s.Pool
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	pool, err := s.PostgresPoolContext(ctx)
-	if err != nil {
-		return nil, err
-	}
 	statement = sqlcommenter.PrependComment(ctx, statement, SourceType, s.SQLCommenter)
-	results, err := pool.Query(ctx, statement, params...)
+	results, err := s.Pool.Query(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -222,7 +208,11 @@ func getConnectionConfig(ctx context.Context, user, pass, dbname string, readOnl
 	return dsn, useIAM, nil
 }
 
-func initAlloyDBPgConnectionPool(ctx context.Context, project, region, cluster, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, error) {
+func initAlloyDBPgConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, cluster, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	dsn, useIAM, err := getConnectionConfig(ctx, user, pass, dbname, readOnly)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get AlloyDB connection config: %w", err)

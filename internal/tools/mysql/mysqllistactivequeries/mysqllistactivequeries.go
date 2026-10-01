@@ -109,7 +109,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 type compatibleSource interface {
 	SourceType() string
-	MySQLPoolContext(context.Context) (*sql.DB, error)
+	MySQLPool() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
 }
 
