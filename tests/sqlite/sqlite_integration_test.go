@@ -111,13 +111,7 @@ func getSQLiteTmplToolStatement() (string, string) {
 	return tmplSelectCombined, tmplSelectFilterCombined
 }
 
-func TestSQLiteToolEndpoint(t *testing.T) {
-	tableName := setupSQLiteTest(t, "--enable-api")
-	tests.RunToolGetTest(t)
-	runSQLiteCallTests(t, tableName, nil, nil)
-}
-
-func setupSQLiteTest(t *testing.T, args ...string) string {
+func setupSQLiteTest(t *testing.T) string {
 	t.Helper()
 
 	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
@@ -150,7 +144,7 @@ func setupSQLiteTest(t *testing.T, args ...string) string {
 	tmplSelectCombined, tmplSelectFilterCombined := getSQLiteTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, SQLiteToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -194,12 +188,7 @@ func runSQLiteCallTests(t *testing.T, tableName string, invokeOptions []tests.In
 	})
 }
 
-func TestSQLiteExecuteSqlTool(t *testing.T) {
-	tableName := setupSQLiteExecuteSQLTest(t, "--enable-api")
-	runSQLiteExecuteSQLTests(t, tableName)
-}
-
-func setupSQLiteExecuteSQLTest(t *testing.T, args ...string) string {
+func setupSQLiteExecuteSQLTest(t *testing.T) string {
 	t.Helper()
 
 	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
@@ -235,7 +224,7 @@ func setupSQLiteExecuteSQLTest(t *testing.T, args ...string) string {
 		},
 	}
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolConfig, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolConfig)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
