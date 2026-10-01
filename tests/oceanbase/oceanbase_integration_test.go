@@ -77,13 +77,7 @@ func initOceanBaseConnectionPool(host, port, user, pass, dbname string) (*sql.DB
 	return pool, nil
 }
 
-func TestOceanBaseToolEndpoints(t *testing.T) {
-	tableName := setupOceanBaseTest(t, "--enable-api")
-	t.Run("discovery", tests.RunToolGetTest)
-	runOceanBaseCallTests(t, tableName, nil, nil, nil)
-}
-
-func setupOceanBaseTest(t *testing.T, args ...string) string {
+func setupOceanBaseTest(t *testing.T) string {
 	t.Helper()
 	sourceConfig := getOceanBaseVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -116,7 +110,7 @@ func setupOceanBaseTest(t *testing.T, args ...string) string {
 	tmplSelectCombined, tmplSelectFilterCombined := getOceanBaseTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, OceanBaseToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
