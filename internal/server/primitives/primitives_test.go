@@ -15,9 +15,6 @@
 package primitives_test
 
 import (
-	"context"
-	"maps"
-	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,7 +23,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
-	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -49,9 +45,7 @@ func TestUpdateServer(t *testing.T) {
 	newGroups := map[string]group.Group{
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
-	// A real resource, not nil: NewPrimitiveManager derives the skill registry
-	// from this map, so it reads every value's URI.
-	newResources := map[string]resources.Resource{"example-resource": testutils.MockResource1}
+	newResources := map[string]resources.Resource{"example-resource": nil}
 	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
 	primMgr := primitives.NewPrimitiveManager(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 
@@ -65,11 +59,9 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, authServices (-want +got):\n%s", diff)
 	}
 
-	// Compared by identity, not by cmp.Diff: a real resource carries unexported
-	// fields that cmp refuses to walk.
 	gotResource, _ := primMgr.GetResource("example-resource")
-	if gotResource != newResources["example-resource"] {
-		t.Errorf("error updating server, resources: got %v, want %v", gotResource, newResources["example-resource"])
+	if diff := cmp.Diff(gotResource, newResources["example-resource"]); diff != "" {
+		t.Errorf("error updating server, resources (-want +got):\n%s", diff)
 	}
 
 	gotTool, _ := primMgr.GetTool("example-tool")
@@ -237,60 +229,4 @@ func TestMatchResourceTemplateURI(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestResourcesSnapshot pins Resources() as a copy that follows SetPrimitives:
-// the skill handlers group it per request, so a reload must show up in the next
-// call and a caller writing to the copy must not change the manager.
-func TestResourcesSnapshot(t *testing.T) {
-	ctx, err := testutils.ContextWithNewLogger()
-	if err != nil {
-		t.Fatal(err)
-	}
-	skillDoc := textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
-		"---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# analytics-guide\n")
-
-	primMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, nil, nil, nil)
-	if got := primMgr.Resources(); len(got) != 0 {
-		t.Errorf("Resources() = %v with no resources, want empty", got)
-	}
-
-	primMgr.SetPrimitives(nil, nil, nil, nil, nil,
-		map[string]resources.Resource{"guide": skillDoc}, nil, nil)
-	snapshot := primMgr.Resources()
-	if got := slices.Sorted(maps.Keys(snapshot)); !slices.Equal(got, []string{"guide"}) {
-		t.Fatalf("Resources() keys = %v after SetPrimitives, want [guide]", got)
-	}
-
-	// Writing to the copy must leave the manager's map alone.
-	delete(snapshot, "guide")
-	snapshot["extra"] = skillDoc
-	if _, ok := primMgr.GetResource("guide"); !ok {
-		t.Error("GetResource(guide) missing after deleting it from the copy")
-	}
-	if _, ok := primMgr.GetResource("extra"); ok {
-		t.Error("GetResource(extra) found after adding it only to the copy")
-	}
-
-	// A reload that drops the skill must drop it from the next snapshot too.
-	primMgr.SetPrimitives(nil, nil, nil, nil, nil, nil, nil, nil)
-	if got := primMgr.Resources(); len(got) != 0 {
-		t.Errorf("Resources() = %v after the resource was removed, want empty", got)
-	}
-}
-
-func textResource(t *testing.T, ctx context.Context, name, uri, content string) resources.Resource {
-	t.Helper()
-	cfg := &text.Config{
-		ResourceConfigBase: resources.ResourceConfigBase{
-			ConfigBase: resources.ConfigBase{Name: name, Type: "text", MimeType: "text/markdown"},
-			URI:        uri,
-		},
-		Text: content,
-	}
-	res, err := cfg.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("unable to initialize %q: %s", uri, err)
-	}
-	return res
 }
