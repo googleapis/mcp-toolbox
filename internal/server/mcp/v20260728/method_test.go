@@ -17,7 +17,6 @@ package v20260728
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"reflect"
@@ -2332,7 +2331,9 @@ func skillsValidMeta() *RequestMetaObject {
 			BaseMetadata: BaseMetadata{Name: "TestClient"},
 			Version:      "1.0",
 		},
-		MetaClientCapabilities: &ClientCapabilities{},
+		MetaClientCapabilities: &ClientCapabilities{
+			Extensions: map[string]any{SkillsExtensionURI: map[string]any{}},
+		},
 	}
 }
 
@@ -2680,23 +2681,68 @@ func TestSkillsFollowReload(t *testing.T) {
 	}
 }
 
-// TestSkillsMethodsDisabled pins --disable-ext: a switched-off extension has no
-// methods, so the dispatcher must not reach a handler.
+// TestSkillsMethodsDisabled pins the extension gate: skills/list and skills/get
+// answer MISSING_REQUIRED_CLIENT_CAPABILITY when the server disables the skills
+// extension (--disable-ext) or the client does not declare it.
 func TestSkillsMethodsDisabled(t *testing.T) {
 	ctx := skillsTestContext(t)
-	Initialize([]string{SkillsExtensionURI})
 	t.Cleanup(func() { Initialize(nil) })
 	primitiveMgr := skillsTestPrimitives(t, ctx)
 
-	for _, method := range []string{SKILLS_LIST, SKILLS_GET} {
-		t.Run(method, func(t *testing.T) {
-			_, err := ProcessMethod(ctx, "id", method, group.Group{}, primitiveMgr, []byte(`{}`), nil)
-			if err == nil {
-				t.Fatalf("ProcessMethod(%q) = nil error, want method not found", method)
-			}
-			if want := fmt.Sprintf("invalid method %s", method); err.Error() != want {
-				t.Errorf("error = %q, want %q", err, want)
-			}
-		})
+	undeclared := skillsValidMeta()
+	undeclared.MetaClientCapabilities = &ClientCapabilities{}
+
+	tcs := []struct {
+		name     string
+		disabled []string
+		meta     *RequestMetaObject
+	}{
+		{name: "disabled by server", disabled: []string{SkillsExtensionURI}, meta: skillsValidMeta()},
+		{name: "not declared by client", meta: undeclared},
+	}
+	for _, tc := range tcs {
+		Initialize(tc.disabled)
+		calls := map[string]func() (any, error){
+			SKILLS_LIST: func() (any, error) {
+				body, err := json.Marshal(ListSkillsRequest{
+					Request: jsonrpc.Request{Method: SKILLS_LIST},
+					Params:  RequestParams{Meta: tc.meta},
+				})
+				if err != nil {
+					t.Fatalf("unable to marshal body: %s", err)
+				}
+				return skillsListHandler(ctx, "id", primitiveMgr, body,
+					http.Header{"Mcp-Method": []string{SKILLS_LIST}})
+			},
+			SKILLS_GET: func() (any, error) {
+				body, err := json.Marshal(GetSkillRequest{
+					Request: jsonrpc.Request{Method: SKILLS_GET},
+					Params: GetSkillRequestParams{
+						RequestParams: RequestParams{Meta: tc.meta},
+						URI:           "skill://analytics-guide/SKILL.md",
+					},
+				})
+				if err != nil {
+					t.Fatalf("unable to marshal body: %s", err)
+				}
+				return skillsGetHandler(ctx, "id", primitiveMgr, body,
+					http.Header{"Mcp-Method": []string{SKILLS_GET}, "Mcp-Name": []string{"skill://analytics-guide/SKILL.md"}})
+			},
+		}
+		for method, call := range calls {
+			t.Run(tc.name+"/"+method, func(t *testing.T) {
+				res, err := call()
+				if err == nil {
+					t.Fatalf("%s handler = nil error, want missing client capability", method)
+				}
+				rpcErr, ok := res.(jsonrpc.JSONRPCError)
+				if !ok {
+					t.Fatalf("response is %T, want jsonrpc.JSONRPCError", res)
+				}
+				if rpcErr.Error.Code != jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY {
+					t.Errorf("error code = %d, want %d", rpcErr.Error.Code, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY)
+				}
+			})
+		}
 	}
 }

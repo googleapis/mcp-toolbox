@@ -64,17 +64,9 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 		return groupsListHandler(ctx, id, primitiveMgr, body, header)
 	case GROUPS_GET:
 		return groupsGetHandler(ctx, id, primitiveMgr, body, header)
-	case SKILLS_LIST, SKILLS_GET:
-		// A disabled extension must not answer. Unlike the Toolbox extension,
-		// which gates on what the client declared, skills/* is switched off
-		// server-side by --disable-ext, so the method simply does not exist.
-		if _, ok := ServerExtensions[SkillsExtensionURI]; !ok {
-			err := fmt.Errorf("invalid method %s", method)
-			return jsonrpc.NewError(id, jsonrpc.METHOD_NOT_FOUND, err.Error(), nil), err
-		}
-		if method == SKILLS_LIST {
-			return skillsListHandler(ctx, id, primitiveMgr, body, header)
-		}
+	case SKILLS_LIST:
+		return skillsListHandler(ctx, id, primitiveMgr, body, header)
+	case SKILLS_GET:
 		return skillsGetHandler(ctx, id, primitiveMgr, body, header)
 	default:
 		err := fmt.Errorf("invalid method %s", method)
@@ -148,9 +140,15 @@ func validateHeader(id jsonrpc.RequestId, header http.Header, method, name strin
 // extension. Methods that are only part of the extension must not be served to
 // clients that did not declare it.
 func validateToolboxExtension(id jsonrpc.RequestId, params RequestParams, method string) (any, error) {
+	return validateExtension(id, params, method, ToolboxExtensionURI)
+}
+
+// validateExtension rejects a method whose extension is not enabled on both
+// sides: declared by the client and not disabled on the server.
+func validateExtension(id jsonrpc.RequestId, params RequestParams, method, extURI string) (any, error) {
 	supportedExts := ParseSupportedExtensions(params.Meta.MetaClientCapabilities.Extensions)
-	if _, ok := supportedExts[ToolboxExtensionURI]; !ok {
-		err := fmt.Errorf("missing required client capability: method %q requires %s extension which is not supported by the client", method, ToolboxExtensionURI)
+	if _, ok := supportedExts[extURI]; !ok {
+		err := fmt.Errorf("missing required client capability: method %q requires %s extension which is not supported by the client", method, extURI)
 		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 	return nil, nil
@@ -1261,6 +1259,10 @@ func skillsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	if err != nil {
 		return validateErr, err
 	}
+	extErr, err := validateExtension(id, req.Params, SKILLS_LIST, SkillsExtensionURI)
+	if err != nil {
+		return extErr, err
+	}
 
 	if genAIAttrs := util.GenAIMetricAttrsFromContext(ctx); genAIAttrs != nil {
 		genAIAttrs.OperationName = "list_skills"
@@ -1307,6 +1309,10 @@ func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
 	if err != nil {
 		return validateErr, err
+	}
+	extErr, err := validateExtension(id, req.Params.RequestParams, SKILLS_GET, SkillsExtensionURI)
+	if err != nil {
+		return extErr, err
 	}
 
 	uri := req.Params.URI

@@ -2671,7 +2671,9 @@ func TestMcpSkillsMethods(t *testing.T) {
 			"version": "client-temp-version",
 			"name":    "client-name",
 		},
-		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+		"io.modelcontextprotocol/clientCapabilities": map[string]any{
+			"extensions": map[string]any{"io.modelcontextprotocol/skills": map[string]any{}},
+		},
 	}
 
 	call := func(t *testing.T, method string, params map[string]any, mcpName string) map[string]any {
