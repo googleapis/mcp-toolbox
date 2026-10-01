@@ -67,13 +67,7 @@ func initValkeyClient(ctx context.Context, addr []string) (valkey.Client, error)
 	return client, nil
 }
 
-func TestValkeyToolEndpoints(t *testing.T) {
-	setupValkeyTest(t, "--enable-api")
-	tests.RunToolGetTest(t)
-	runValkeyCallTests(t)
-}
-
-func setupValkeyTest(t *testing.T, args ...string) {
+func setupValkeyTest(t *testing.T) {
 	t.Helper()
 
 	sourceConfig := getValkeyVars(t)
@@ -94,7 +88,7 @@ func setupValkeyTest(t *testing.T, args ...string) {
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetRedisValkeyToolsConfig(sourceConfig, ValkeyToolType)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
