@@ -433,9 +433,7 @@ func TestUpdateServer(t *testing.T) {
 	newGroups := map[string]group.Group{
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
-	// A real resource, not nil: SetPrimitives rebuilds the skill registry from
-	// this map, so it reads every value's URI.
-	newResources := map[string]resources.Resource{"example-resource": testutils.MockResource1}
+	newResources := map[string]resources.Resource{"example-resource": nil}
 	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
 	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 	if err != nil {
@@ -471,11 +469,9 @@ func TestUpdateServer(t *testing.T) {
 		t.Errorf("error updating server, prompts (-want +got):\n%s", diff)
 	}
 
-	// Compared by identity, not by cmp.Diff: a real resource carries unexported
-	// fields that cmp refuses to walk.
 	gotResource, _ := s.PrimitiveMgr.GetResource("example-resource")
-	if gotResource != newResources["example-resource"] {
-		t.Errorf("error updating server, resources: got %v, want %v", gotResource, newResources["example-resource"])
+	if diff := cmp.Diff(gotResource, newResources["example-resource"]); diff != "" {
+		t.Errorf("error updating server, resources (-want +got):\n%s", diff)
 	}
 
 	gotTemplate, _ := s.PrimitiveMgr.GetResourceTemplate("example-template")
@@ -1733,9 +1729,9 @@ func TestInitializeConfigs(t *testing.T) {
 		}
 	})
 
-	// A SKILL.md configured as "guide" must reach a client as the skill it
-	// declares, so a listing names the skill rather than the file backing it.
-	t.Run("publishes a skill under its frontmatter identity", func(t *testing.T) {
+	// A SKILL.md configured as "guide" must be listed to clients under the
+	// skill name from its frontmatter, not under "guide".
+	t.Run("lists a SKILL.md under its frontmatter name", func(t *testing.T) {
 		const (
 			skillMD   = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
 			queriesMD = "# Common queries\n"
@@ -1775,18 +1771,19 @@ func TestInitializeConfigs(t *testing.T) {
 		if got := doc.GetDescription(); got != "Query the warehouse" {
 			t.Errorf("GetDescription() = %q, want the frontmatter description", got)
 		}
-		// Configured as text/plain above, so this can only come from the wrapper.
+		// The config says text/plain, so text/markdown here proves the
+		// SKILL.md override is applied.
 		if got := doc.GetMimeType(); got != "text/markdown" {
 			t.Errorf("GetMimeType() = %q, want text/markdown", got)
 		}
 
-		// A supporting file keeps the identity the operator gave it.
+		// Other files in the skill keep their config name.
 		if got := resourcesMap["queries"].GetName(); got != "queries" {
 			t.Errorf("supporting file GetName() = %q, want queries", got)
 		}
 
-		// The wrapper is only worth anything if resources/list carries it, so
-		// assert on the manifest a client actually receives.
+		// Check the resources/list result too, since that is what a client
+		// actually sees.
 		g := group.NewGroup(group.GroupConfig{ResourceNames: []string{"guide", "queries"}})
 		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil,
 			map[string]group.Group{g.Name: g})

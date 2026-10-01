@@ -272,8 +272,8 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if res.IsUI() {
 			continue
 		}
-		// The resource names itself; a skill's SKILL.md reports the name its
-		// frontmatter declares, not the config key it is registered under.
+		// Use res.GetName(), not the config key, so a SKILL.md is listed
+		// under the skill name from its frontmatter.
 		mcpManifest = append(mcpManifest, generateResourceManifest(res.GetName(), res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
 	}
 	return ListResourcesResult{
@@ -377,15 +377,19 @@ const (
 // host that fails to verify a digest recovers by asking again. Returning the
 // startup value would give it nothing to recover to.
 func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveManager) (ListSkillsResult, error) {
-	entries, err := skills.Discover(ctx, pMgr.SkillRegistry())
+	// Skills are grouped per request from the resources map, the only record of
+	// which files make up a skill, so a reload shows up on the next request.
+	entries, err := skills.Discover(ctx, pMgr.Resources())
 	if err != nil {
 		return ListSkillsResult{}, err
 	}
-	if entries == nil {
-		entries = []skills.Entry{}
+	// A nil slice would marshal to null; the wire shape is a list.
+	list := make([]Skill, 0, len(entries))
+	for _, e := range entries {
+		list = append(list, generateSkillManifest(e))
 	}
 	return ListSkillsResult{
-		Skills: entries,
+		Skills: list,
 		Result: Result{
 			ResultType: resultTypeComplete,
 		},
@@ -396,29 +400,16 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 	}, nil
 }
 
-// GenerateGetSkillResult rebuilds one skill by URI, reporting whether it exists.
-//
-// It rebuilds the whole catalogue to answer for one skill, so an unreadable file
-// in any skill fails this request too. That keeps Discover fail-fast and a
-// broken config loud.
-func GenerateGetSkillResult(ctx context.Context, pMgr *primitives.PrimitiveManager, uri string) (GetSkillResult, bool, error) {
-	entries, err := skills.Discover(ctx, pMgr.SkillRegistry())
-	if err != nil {
-		return GetSkillResult{}, false, err
+// generateSkillManifest converts a skill to the wire type skills/list and
+// skills/get publish.
+func generateSkillManifest(e skills.Entry) Skill {
+	refs := make([]SkillResourceRef, 0, len(e.Resources.Refs))
+	for _, r := range e.Resources.Refs {
+		refs = append(refs, SkillResourceRef{URI: r.URI, Digest: r.Digest, Size: r.Size})
 	}
-	for _, e := range entries {
-		if e.URI == uri {
-			return GetSkillResult{
-				Skill: e,
-				Result: Result{
-					ResultType: resultTypeComplete,
-				},
-				CacheableResult: CacheableResult{
-					TtlMs:      skillsTTLMs,
-					CacheScope: skillsCacheScope,
-				},
-			}, true, nil
-		}
+	return Skill{
+		URI:         e.URI,
+		Frontmatter: e.Frontmatter,
+		Resources:   SkillResources{Refs: refs, Dynamic: e.Resources.Dynamic},
 	}
-	return GetSkillResult{}, false, nil
 }

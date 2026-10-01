@@ -187,7 +187,7 @@ func TestSkillRoot(t *testing.T) {
 		{desc: "unparseable uri", uri: "skill://\x7f/SKILL.md"},
 		{desc: "empty", uri: ""},
 		// Each decoded path ends with SKILL.md, but the raw uri does not.
-		// NewRegistry rejects these too.
+		// Skill discovery rejects these too.
 		{desc: "query", uri: "skill://analytics-guide/SKILL.md?v=2"},
 		{desc: "fragment", uri: "skill://analytics-guide/SKILL.md#intro"},
 		{desc: "percent-encoded dot", uri: "skill://analytics-guide/SKILL%2Emd"},
@@ -303,53 +303,6 @@ func TestValidateSkillURI(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestResourceConfigBaseSkillDoc checks that a SKILL.md reports its frontmatter
-// identity once SetSkillDoc is called, and its config identity otherwise.
-func TestResourceConfigBaseSkillDoc(t *testing.T) {
-	newBase := func() resources.ResourceConfigBase {
-		return resources.ResourceConfigBase{
-			ConfigBase: resources.ConfigBase{
-				Name:        "guide",
-				Description: "configured description",
-				MimeType:    "text/plain",
-			},
-			URI: "skill://analytics-guide/SKILL.md",
-		}
-	}
-
-	t.Run("config values before SetSkillDoc", func(t *testing.T) {
-		c := newBase()
-		if got := c.GetName(); got != "guide" {
-			t.Errorf("GetName() = %q, want %q", got, "guide")
-		}
-		if got := c.GetDescription(); got != "configured description" {
-			t.Errorf("GetDescription() = %q, want %q", got, "configured description")
-		}
-		if got := c.GetMimeType(); got != "text/plain" {
-			t.Errorf("GetMimeType() = %q, want %q", got, "text/plain")
-		}
-	})
-
-	t.Run("frontmatter values after SetSkillDoc", func(t *testing.T) {
-		c := newBase()
-		var setter resources.SkillDocSetter = &c
-		setter.SetSkillDoc("analytics-guide", "Query the warehouse")
-		if got := c.GetName(); got != "analytics-guide" {
-			t.Errorf("GetName() = %q, want %q", got, "analytics-guide")
-		}
-		if got := c.GetDescription(); got != "Query the warehouse" {
-			t.Errorf("GetDescription() = %q, want %q", got, "Query the warehouse")
-		}
-		if got := c.GetMimeType(); got != "text/markdown" {
-			t.Errorf("GetMimeType() = %q, want %q", got, "text/markdown")
-		}
-		// The config fields themselves are untouched.
-		if c.Name != "guide" || c.Description != "configured description" || c.MimeType != "text/plain" {
-			t.Errorf("config fields changed: %+v", c.ConfigBase)
-		}
-	})
 }
 
 func TestGetBaseDirFromContext(t *testing.T) {

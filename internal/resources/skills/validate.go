@@ -32,35 +32,29 @@ type Skill struct {
 	Frontmatter map[string]any
 }
 
-// Validate checks every skill in reg so a misconfigured skill fails
+// Validate checks every skill in resourcesMap so a misconfigured skill fails
 // the load instead of a later skills/list. It hashes nothing and reads only
 // each skill's SKILL.md: membership comes from URIs, and sizes come from each
 // resource's GetSize, which is a stat for a file resource.
 //
-// It applies the same rules as Discover apart from the digest format, and warns
-// once when two skills share a frontmatter name.
-//
-// For each valid skill it also sets the frontmatter name and description on
-// the SKILL.md resource, through resources.SkillDocSetter.
-func Validate(ctx context.Context, reg *Registry) ([]Skill, error) {
-	if reg.Len() == 0 {
+// It applies the same rules as Discover apart from the digest format. It warns
+// once when two skills share a frontmatter name, and once for skill:// resources
+// that belong to no skill.
+func Validate(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Skill, error) {
+	roots := skillRoots(resourcesMap)
+	// Before the early return: a config whose only skill:// files are typos has
+	// no skills, and is exactly the case the warning is for.
+	members, orphans := skillMembers(resourcesMap, roots)
+	if err := warnOnOrphans(ctx, orphans); err != nil {
+		return nil, err
+	}
+	if len(roots) == 0 {
 		return nil, nil
 	}
 
-	found := make([]Skill, 0, reg.Len())
-	for _, skillURI := range reg.URIs() {
-		var s Skill
-		var err error
-		if reg.IsDynamic(skillURI) {
-			doc, ok := reg.Doc(skillURI)
-			if !ok {
-				return nil, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
-			}
-			s, err = validateDynamicSkill(ctx, skillURI, doc)
-		} else {
-			members, _ := reg.Members(skillURI)
-			s, err = validateSkill(ctx, skillURI, members)
-		}
+	found := make([]Skill, 0, len(roots))
+	for _, root := range roots {
+		s, err := validateSkill(ctx, root, members[root])
 		if err != nil {
 			return nil, err
 		}
@@ -75,7 +69,16 @@ func Validate(ctx context.Context, reg *Registry) ([]Skill, error) {
 
 // validateSkill checks one skill's limits and structure, then reads and checks
 // its SKILL.md.
-func validateSkill(ctx context.Context, skillURI string, members []resources.Resource) (Skill, error) {
+func validateSkill(ctx context.Context, root string, members []resources.Resource) (Skill, error) {
+	skillURI := root + "/" + resources.SkillFile
+	if doc, dynamic := skillDoc(members, skillURI); dynamic {
+		// A dynamic skill is checked the way Discover builds its entry: the file
+		// count does not apply, and only SKILL.md is read.
+		if doc == nil {
+			return Skill{}, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
+		}
+		return checkDoc(ctx, skillURI, doc, Manifest{Dynamic: true})
+	}
 	if len(members) > MaxRefs {
 		return Skill{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
 	}
@@ -107,13 +110,6 @@ func validateSkill(ctx context.Context, skillURI string, members []resources.Res
 	return checkDoc(ctx, skillURI, doc, Manifest{Refs: refs})
 }
 
-// validateDynamicSkill checks a dynamic skill the way Discover builds its
-// entry: the file count does not apply, and only SKILL.md is read, bounded by
-// the size limit.
-func validateDynamicSkill(ctx context.Context, skillURI string, doc resources.Resource) (Skill, error) {
-	return checkDoc(ctx, skillURI, doc, Manifest{Dynamic: true})
-}
-
 // checkDoc reads and parses SKILL.md, then applies every entry rule except the
 // digest format.
 func checkDoc(ctx context.Context, skillURI string, doc resources.Resource, m Manifest) (Skill, error) {
@@ -130,11 +126,6 @@ func checkDoc(ctx context.Context, skillURI string, doc resources.Resource, m Ma
 	if err := e.Validate(false); err != nil {
 		return Skill{}, err
 	}
-	setter, ok := doc.(resources.SkillDocSetter)
-	if !ok {
-		return Skill{}, fmt.Errorf("skill %q: resource type %T cannot back a %s", skillURI, doc, resources.SkillFile)
-	}
-	setter.SetSkillDoc(frontmatter["name"].(string), frontmatter["description"].(string))
 	return Skill{URI: skillURI, Frontmatter: frontmatter}, nil
 }
 
@@ -142,7 +133,7 @@ func checkDoc(ctx context.Context, skillURI string, doc resources.Resource, m Ma
 // from the frontmatter name. Validate already publishes the SKILL.md under the
 // frontmatter name. A group lists its resources by config key, so a key that
 // differs from the skill is hard to maintain. Call it one time, at startup.
-func WarnOnDocNameMismatch(ctx context.Context, found []Skill, reg *Registry) error {
+func WarnOnDocNameMismatch(ctx context.Context, found []Skill, resourcesMap map[string]resources.Resource) error {
 	if len(found) == 0 {
 		return nil
 	}
@@ -151,12 +142,25 @@ func WarnOnDocNameMismatch(ctx context.Context, found []Skill, reg *Registry) er
 		return fmt.Errorf("checking the names of the skill documents: %w", err)
 	}
 
-	for _, e := range found {
-		key, ok := reg.Key(e.URI)
+	keys := make(map[string]string, len(found))
+	for key, res := range resourcesMap {
+		uri := res.GetURI()
+		if _, ok := resources.SkillRoot(uri); !ok {
+			continue
+		}
+		// Two config keys can address one URI. Keep the lowest, so the warning
+		// does not depend on map order.
+		if prev, seen := keys[uri]; !seen || key < prev {
+			keys[uri] = key
+		}
+	}
+
+	for _, s := range found {
+		key, ok := keys[s.URI]
 		if !ok {
 			continue
 		}
-		name, ok := e.Frontmatter["name"].(string)
+		name, ok := s.Frontmatter["name"].(string)
 		if !ok || name == key {
 			continue
 		}

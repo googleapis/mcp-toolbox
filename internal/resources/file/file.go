@@ -31,6 +31,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 )
 
 const (
@@ -261,13 +262,27 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 	if size > *c.MaxSize {
 		size = *c.MaxSize
 	}
-	return &FileResource{
+	r := &FileResource{
 		Config:          *c,
 		Size:            size,
 		absPath:         absPath,
 		resolvedBaseDir: resolvedBaseDir,
 		isRelative:      isRelative,
-	}, nil
+	}
+
+	// SEP-2640 lists a SKILL.md under the name and description in its
+	// frontmatter, so read them now. If the frontmatter is invalid, keep the
+	// config values; skills.Validate will fail startup and explain why.
+	if skills.IsDoc(c.URI) {
+		content, err := r.Read(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read %s for resource %q: %w", c.URI, c.Name, err)
+		}
+		if s, ok := content.(string); ok {
+			r.skillName, r.skillDescription, _ = skills.DocIdentity(s)
+		}
+	}
+	return r, nil
 }
 
 // FileResource handles reading content from a local file.
@@ -278,6 +293,38 @@ type FileResource struct {
 	absPath         string
 	resolvedBaseDir string
 	isRelative      bool
+
+	// skillName and skillDescription come from a SKILL.md's frontmatter.
+	// They are empty for all other resources.
+	skillName        string
+	skillDescription string
+}
+
+// GetName returns the frontmatter name for a SKILL.md, and the config name
+// otherwise.
+func (r *FileResource) GetName() string {
+	if r.skillName != "" {
+		return r.skillName
+	}
+	return r.Name
+}
+
+// GetDescription returns the frontmatter description for a SKILL.md, and the
+// config description otherwise.
+func (r *FileResource) GetDescription() string {
+	if r.skillName != "" {
+		return r.skillDescription
+	}
+	return r.Description
+}
+
+// GetMimeType returns text/markdown for a SKILL.md, as SEP-2640 requires, and
+// the configured MIME type otherwise.
+func (r *FileResource) GetMimeType() string {
+	if r.skillName != "" {
+		return skills.DocMimeType
+	}
+	return r.MimeType
 }
 
 // GetSize returns the configured maximum size of the file.

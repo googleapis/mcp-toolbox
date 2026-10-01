@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -27,31 +28,22 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
+// DocMimeType is the MIME type SEP-2640 requires for every SKILL.md.
+const DocMimeType = "text/markdown"
+
 // Discover builds one Entry per skill, reading and hashing every file. It runs
 // per request, so the digests always describe current content. Startup uses
 // Validate instead, which hashes nothing.
-func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
-	if reg.Len() == 0 {
+func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Entry, error) {
+	roots := skillRoots(resourcesMap)
+	if len(roots) == 0 {
 		return nil, nil
 	}
+	members, _ := skillMembers(resourcesMap, roots)
 
-	entries := make([]Entry, 0, reg.Len())
-	for _, skillURI := range reg.URIs() {
-		var e Entry
-		var err error
-		if reg.IsDynamic(skillURI) {
-			// A dynamic skill publishes no digests, so Discover does not read its
-			// supporting files. It reads only the SKILL.md, for the frontmatter
-			// every entry carries.
-			doc, ok := reg.Doc(skillURI)
-			if !ok {
-				return nil, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
-			}
-			e, err = buildDynamicEntry(ctx, skillURI, doc)
-		} else {
-			members, _ := reg.Members(skillURI)
-			e, err = buildEntry(ctx, skillURI, members)
-		}
+	entries := make([]Entry, 0, len(roots))
+	for _, root := range roots {
+		e, err := buildEntry(ctx, root, members[root])
 		if err != nil {
 			return nil, err
 		}
@@ -63,26 +55,107 @@ func Discover(ctx context.Context, reg *Registry) ([]Entry, error) {
 	return entries, nil
 }
 
-// buildDynamicEntry assembles the entry for a skill that publishes the
-// "dynamic" marker in place of a file list.
-//
-// The file count does not apply: SEP-2640 counts it over the entries of a
-// manifest, and a dynamic skill has none. The size limit still bounds the one
-// file this reads, because Discover runs on every request.
-func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
-	content, err := readBounded(ctx, doc, MaxTotalSize)
-	if err != nil {
-		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+// Get builds the Entry for the skill whose SKILL.md is at uri, reading and
+// hashing only that skill's files. It reports false when no SKILL.md in the map
+// has that URI.
+func Get(ctx context.Context, resourcesMap map[string]resources.Resource, uri string) (Entry, bool, error) {
+	root, ok := resources.SkillRoot(uri)
+	if !ok || !slices.Contains(skillRoots(resourcesMap), root) {
+		return Entry{}, false, nil
 	}
-	frontmatter, err := parseFrontmatter(content)
+	// Membership walks each file's ancestors, so grouping against this one root
+	// finds the same files as grouping against every root.
+	members, _ := skillMembers(resourcesMap, []string{root})
+	e, err := buildEntry(ctx, root, members[root])
 	if err != nil {
-		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+		return Entry{}, false, err
 	}
-	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Dynamic: true}}, nil
+	if err := e.Validate(true); err != nil {
+		return Entry{}, false, err
+	}
+	return e, true, nil
 }
 
-// buildEntry hashes every file of one skill and assembles its entry.
-func buildEntry(ctx context.Context, skillURI string, members []resources.Resource) (Entry, error) {
+// A list of root dir of every skill in the map, sorted
+func skillRoots(resourcesMap map[string]resources.Resource) []string {
+	var roots []string
+	for _, res := range resourcesMap {
+		if root, ok := resources.SkillRoot(res.GetURI()); ok {
+			roots = append(roots, root)
+		}
+	}
+	sort.Strings(roots)
+	return roots
+}
+
+// skillMembers groups every resource under the skills that contain it, sorted by
+// URI. It also returns the skill:// URIs under no skill, sorted: no manifest
+// carries them, and most often their URI has a typo.
+func skillMembers(resourcesMap map[string]resources.Resource, roots []string) (members map[string][]resources.Resource, orphans []string) {
+	// Segments per root, so membership can apply the same test the manifest
+	// validation applies. A root that is not a valid URI owns no files.
+	rootSegs := make(map[string][]string, len(roots))
+	for _, root := range roots {
+		if _, segs, err := resources.SkillURISegments(root); err == nil {
+			rootSegs[root] = segs
+		}
+	}
+
+	members = make(map[string][]resources.Resource, len(roots))
+	for _, res := range resourcesMap {
+		uri := res.GetURI()
+		if !strings.HasPrefix(uri, resources.SkillScheme+"://") {
+			continue
+		}
+		matched := false
+		// Walk the URI's ancestors rather than every root, so the scan costs
+		// path depth instead of the number of skills.
+		for i := strings.LastIndex(uri, "/"); i > 0; i = strings.LastIndex(uri[:i], "/") {
+			// underSkill is the test Entry.Validate applies to every ref. A
+			// looser rule here admits a member the validation then rejects,
+			// which fails startup for the whole config.
+			if segs, ok := rootSegs[uri[:i]]; ok && underSkill(uri, resources.SkillScheme, segs) {
+				members[uri[:i]] = append(members[uri[:i]], res)
+				matched = true
+			}
+		}
+		// A SKILL.md defines a skill rather than belonging to one.
+		if !matched && !strings.HasSuffix(uri, "/"+resources.SkillFile) {
+			orphans = append(orphans, uri)
+		}
+	}
+	for _, m := range members {
+		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
+	}
+	sort.Strings(orphans)
+	return members, orphans
+}
+
+// skillDoc returns a skill's SKILL.md resource, and reports whether the skill
+// publishes the "dynamic" marker in place of a manifest of digests.
+//
+// A nested dynamic skill makes every enclosing skill dynamic. Membership puts a
+// nested skill's files in every enclosing skill's set, so an enclosing skill's
+// digests cannot be stable either.
+func skillDoc(members []resources.Resource, skillURI string) (doc resources.Resource, dynamic bool) {
+	for _, res := range members {
+		if res.IsDynamic() {
+			dynamic = true
+		}
+		if res.GetURI() == skillURI {
+			doc = res
+		}
+	}
+	return doc, dynamic
+}
+
+// buildEntry hashes every file under root and assembles its entry.
+func buildEntry(ctx context.Context, root string, members []resources.Resource) (Entry, error) {
+	skillURI := root + "/" + resources.SkillFile
+	doc, dynamic := skillDoc(members, skillURI)
+	if dynamic {
+		return buildDynamicEntry(ctx, skillURI, doc)
+	}
 	if len(members) > MaxRefs {
 		return Entry{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
 	}
@@ -116,6 +189,27 @@ func buildEntry(ctx context.Context, skillURI string, members []resources.Resour
 	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}, nil
 }
 
+// buildDynamicEntry assembles the entry for a skill that publishes the
+// "dynamic" marker in place of a file list.
+//
+// The file count does not apply: SEP-2640 counts it over the entries of a
+// manifest, and a dynamic skill has none. The size limit still bounds the one
+// file this reads, because Discover runs on every request.
+func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
+	if doc == nil {
+		return Entry{}, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
+	}
+	content, err := readBounded(ctx, doc, MaxTotalSize)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	frontmatter, err := parseFrontmatter(content)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Dynamic: true}}, nil
+}
+
 // readBounded reads one resource, and rejects content larger than remaining
 // bytes. Callers pass the budget they have left, not the limit, so a huge size
 // hint cannot wrap a running total negative.
@@ -134,27 +228,39 @@ func readBounded(ctx context.Context, res resources.Resource, remaining int64) (
 	return content, nil
 }
 
-// ReadError reports a skill file the server could not read. Its cause names the
-// server's own file paths, so a caller answering a client sends URI alone.
-type ReadError struct {
-	URI string
-	Err error
-}
-
-func (e *ReadError) Error() string { return fmt.Sprintf("unable to read %q: %s", e.URI, e.Err) }
-
-func (e *ReadError) Unwrap() error { return e.Err }
-
 func readString(ctx context.Context, res resources.Resource) (string, error) {
 	got, err := res.Read(ctx, nil)
 	if err != nil {
-		return "", &ReadError{URI: res.GetURI(), Err: err}
+		return "", fmt.Errorf("unable to read %q: %w", res.GetURI(), err)
 	}
 	content, ok := got.(string)
 	if !ok {
 		return "", fmt.Errorf("%q returned %T, want text content", res.GetURI(), got)
 	}
 	return content, nil
+}
+
+// IsDoc reports whether uri points to a skill's SKILL.md file.
+func IsDoc(uri string) bool {
+	return strings.HasPrefix(uri, resources.SkillScheme+"://") && strings.HasSuffix(uri, "/"+resources.SkillFile)
+}
+
+// DocIdentity returns the name and description from a SKILL.md's frontmatter.
+// SEP-2640 lists a SKILL.md under these values instead of its config name.
+//
+// ok is false if the frontmatter can't be parsed, or if name or description
+// is missing or not a string. Validate reports the exact problem at startup.
+func DocIdentity(content string) (name, description string, ok bool) {
+	fm, err := parseFrontmatter(content)
+	if err != nil {
+		return "", "", false
+	}
+	name, nameOK := fm["name"].(string)
+	description, descOK := fm["description"].(string)
+	if !nameOK || !descOK || name == "" {
+		return "", "", false
+	}
+	return name, description, true
 }
 
 // Extracts the leading YAML frontmatter of a SKILL.md.
@@ -192,6 +298,19 @@ func cutAtDelimiter(rest string) (string, bool) {
 		}
 		offset = len(rest) - len(tail)
 	}
+}
+
+// warnOnOrphans reports skill:// resources that belong to no skill.
+func warnOnOrphans(ctx context.Context, orphans []string) error {
+	if len(orphans) == 0 {
+		return nil
+	}
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("checking for orphaned skill files: %w", err)
+	}
+	logger.WarnContext(ctx, fmt.Sprintf("resources %s use the %s:// scheme but no %s is above them, so they belong to no skill; check the URI for a typo", strings.Join(orphans, ", "), resources.SkillScheme, resources.SkillFile))
+	return nil
 }
 
 // warnOnDuplicateNames reports skills sharing a frontmatter name.

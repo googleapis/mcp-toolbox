@@ -17,7 +17,6 @@
 package skills
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -25,8 +24,6 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 )
-
-const DynamicMarker = "dynamic"
 
 // Per-skill limits fixed by SEP-2640, both inclusive.
 const (
@@ -42,27 +39,16 @@ const (
 
 // ResourceRef is one file in a skill's manifest.
 type ResourceRef struct {
-	URI    string `json:"uri"`
-	Digest string `json:"digest"` // "sha256:" followed by 64 lowercase hex characters
-	Size   int64  `json:"size"`
+	URI    string
+	Digest string // "sha256:" followed by 64 lowercase hex characters
+	Size   int64
 }
 
-// Manifest is a skill's complete file list, or the marker: "dynamic".
+// Manifest is a skill's complete file list, or Dynamic when the skill
+// publishes none.
 type Manifest struct {
 	Refs    []ResourceRef
 	Dynamic bool
-}
-
-// MarshalJSON emits the file list, or the string "dynamic".
-func (m Manifest) MarshalJSON() ([]byte, error) {
-	if m.Dynamic {
-		return json.Marshal(DynamicMarker)
-	}
-	// Empty Refs means unpopulated, not a skill with no files.
-	if len(m.Refs) == 0 {
-		return json.Marshal([]ResourceRef{})
-	}
-	return json.Marshal(m.Refs)
 }
 
 // Validate applies every manifest rule. checkDigests is false only for startup
@@ -109,19 +95,20 @@ func (m Manifest) Validate(checkDigests bool) error {
 	return nil
 }
 
-// Entry is one skill as skills/list and skills/get publish it.
+// Entry is one skill, built and validated here. The MCP layer converts it to
+// its wire type for skills/list and skills/get.
 type Entry struct {
 	// URI addresses the skill's SKILL.md, not its root directory.
-	URI string `json:"uri"`
+	URI string
 	// Frontmatter is the SKILL.md YAML frontmatter verbatim
-	Frontmatter map[string]any `json:"frontmatter"`
-	Resources   Manifest       `json:"resources"`
+	Frontmatter map[string]any
+	Resources   Manifest
 }
 
 // Validate checks the rules relating a manifest to the skill's own identity.
 // checkDigests is passed through to Manifest.Validate.
 func (e Entry) Validate(checkDigests bool) error {
-	scheme, segs, err := uriSegments(e.URI)
+	scheme, segs, err := resources.SkillURISegments(e.URI)
 	if err != nil {
 		return fmt.Errorf("invalid skill entry %q: uri %w", e.URI, err)
 	}
@@ -150,7 +137,7 @@ func (e Entry) validateFrontmatter(name string) error {
 		return fmt.Errorf("invalid skill entry %q: %w", e.URI, err)
 	}
 	// Check the uri segment
-	if err := validSkillName(fmName); err != nil {
+	if err := resources.ValidSkillName(fmName); err != nil {
 		return fmt.Errorf("invalid skill entry %q: frontmatter name %w", e.URI, err)
 	}
 	desc, err := requiredString(e.Frontmatter, "description")
@@ -184,18 +171,12 @@ func (e Entry) validateRefs(scheme string, root []string) error {
 	return nil
 }
 
-// uriSegments and validSkillName moved to resources so that resource types can
-// check a skill URI at config decode. These keep the existing call sites.
-func uriSegments(raw string) (string, []string, error) { return resources.SkillURISegments(raw) }
-
 // underSkill reports whether ref names a file inside the skill rooted at the
 // given scheme and skill path.
 func underSkill(ref, scheme string, root []string) bool {
-	s, segs, err := uriSegments(ref)
+	s, segs, err := resources.SkillURISegments(ref)
 	return err == nil && s == scheme && len(segs) > len(root) && slices.Equal(segs[:len(root)], root)
 }
-
-func validSkillName(s string) error { return resources.ValidSkillName(s) }
 
 // validDigest matches SEP-2640's sha256:{hex} form, {hex} being 64 lowercase
 // hex characters.

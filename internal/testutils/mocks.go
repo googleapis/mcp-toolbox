@@ -285,6 +285,8 @@ func RegisterMockResource() {
 type MockResourceConfig struct {
 	resources.ResourceConfigBase `yaml:",inline"`
 	Size                         *int64 `yaml:"-"`
+	// Content is what Read returns. Empty means "mock resource data".
+	Content string `yaml:"-"`
 }
 
 func (m *MockResourceConfig) ResourceConfigType() string {
@@ -308,6 +310,9 @@ func (m MockResource) GetSize() *int64                                { return m
 func (m MockResource) GetAnnotations() *resources.ResourceAnnotations { return m.config.Annotations }
 
 func (m MockResource) Read(ctx context.Context, params map[string]any) (any, error) {
+	if m.config.Content != "" {
+		return m.config.Content, nil
+	}
 	return "mock resource data", nil
 }
 
@@ -387,6 +392,22 @@ func NewMockResource(name, uri, title, description, mimeType string, size *int64
 			Size:               size,
 		},
 	}
+}
+
+// NewMockTextResource creates a text/markdown mock resource whose Read
+// returns content.
+func NewMockTextResource(name, uri, content string) MockResource {
+	res := NewMockResource(name, uri, "", "", "text/markdown", nil, nil)
+	res.config.Content = content
+	return res
+}
+
+// NewMockDynamicTextResource creates a text/markdown mock resource whose skill
+// publishes the "dynamic" marker in place of a file list.
+func NewMockDynamicTextResource(name, uri, content string) MockResource {
+	res := NewMockTextResource(name, uri, content)
+	res.config.Dynamic = true
+	return res
 }
 
 func NewMockResourceTemplate(name, uriTemplate, title, description, mimeType string, annotations *resources.ResourceAnnotations) MockResourceTemplate {
