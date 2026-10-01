@@ -84,7 +84,7 @@ func TestDiscover(t *testing.T) {
 			"skill://analytics-guide-v2/SKILL.md", skillMD("analytics-guide-v2", "A different skill")),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	entries, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -140,9 +140,11 @@ func TestDiscoverNestedSkill(t *testing.T) {
 			skillMD("billing", "Billing workflows")),
 		"child": textResource(t, ctx, "child", "skill://acme/billing/refunds/SKILL.md",
 			skillMD("refunds", "Refund workflows")),
+		"note": textResource(t, ctx, "note",
+			"skill://acme/billing/refunds/notes.md", "# Refund notes\n"),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	entries, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -159,16 +161,16 @@ func TestDiscoverNestedSkill(t *testing.T) {
 	if !ok {
 		t.Fatal("enclosing skill missing from the entries")
 	}
-	if n := len(parent.Resources.Refs); n != 2 {
-		t.Errorf("enclosing manifest has %d refs, want 2 — a nested skill's files stay listed in it", n)
+	if n := len(parent.Resources.Refs); n != 3 {
+		t.Errorf("enclosing manifest has %d refs, want 3 — a nested skill's files stay listed in it", n)
 	}
 
 	child, ok := byURI["skill://acme/billing/refunds/SKILL.md"]
 	if !ok {
 		t.Fatal("nested skill missing from the entries")
 	}
-	if n := len(child.Resources.Refs); n != 1 {
-		t.Errorf("nested manifest has %d refs, want 1", n)
+	if n := len(child.Resources.Refs); n != 2 {
+		t.Errorf("nested manifest has %d refs, want 2", n)
 	}
 }
 
@@ -215,7 +217,7 @@ func TestDiscoverErrors(t *testing.T) {
 			resourcesMap := map[string]resources.Resource{
 				"s": textResource(t, ctx, "s", tc.uri, tc.content),
 			}
-			_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+			_, err := skills.Discover(ctx, resourcesMap)
 			if err == nil {
 				t.Fatalf("Discover() = nil, want error containing %q", tc.wantErr)
 			}
@@ -239,24 +241,7 @@ func TestDiscoverNoSkills(t *testing.T) {
 		"orphan": textResource(t, ctx, "orphan", "skill://guide/references/orphan.md", "hello"),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
-	if err != nil {
-		t.Fatalf("Discover() = %v, want nil", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("got %d entries, want none", len(entries))
-	}
-}
-
-// TestDiscoverNilRegistry covers a caller that never built a registry. The config
-// declares no skills, and that is not an error.
-func TestDiscoverNilRegistry(t *testing.T) {
-	ctx, err := testutils.ContextWithNewLogger()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	entries, err := skills.Discover(ctx, nil)
+	entries, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -279,7 +264,7 @@ func TestDiscoverCRLFFrontmatter(t *testing.T) {
 		"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", content),
 	}
 
-	entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	entries, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
@@ -323,7 +308,7 @@ func TestDiscoverDoesNotWarn(t *testing.T) {
 		"a": textResource(t, ctx, "a", "skill://acme/guide/SKILL.md", skillMD("guide", "One")),
 		"b": textResource(t, ctx, "b", "skill://other/guide/SKILL.md", skillMD("guide", "Two")),
 	}
-	if _, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap)); err != nil {
+	if _, err := skills.Discover(ctx, resourcesMap); err != nil {
 		t.Fatalf("Discover() = %v, want nil", err)
 	}
 	if got := stderr.String(); strings.Contains(got, "share the name") {
@@ -352,7 +337,7 @@ func TestDiscoverSkipsUnrefableURIs(t *testing.T) {
 				"extra": textResource(t, ctx, "extra", tc.uri, "unrelated"),
 			}
 
-			entries, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+			entries, err := skills.Discover(ctx, resourcesMap)
 			if err != nil {
 				t.Fatalf("Discover() = %v, want nil", err)
 			}
@@ -398,7 +383,7 @@ func TestDiscoverFrontmatterDelimiters(t *testing.T) {
 			m := map[string]resources.Resource{
 				"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", tc.content),
 			}
-			_, err := skills.Discover(ctx, skills.NewRegistry(m))
+			_, err := skills.Discover(ctx, m)
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Fatalf("Discover() = %v, want nil", err)
@@ -458,7 +443,7 @@ func TestDiscoverUnreadableResource(t *testing.T) {
 				"s": textResource(t, ctx, "s", "skill://guide/SKILL.md", skillMD("guide", "A guide")),
 				"d": tc.res,
 			}
-			_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+			_, err := skills.Discover(ctx, resourcesMap)
 			if err == nil {
 				t.Fatalf("Discover() = nil, want an error containing %q", tc.wantErr)
 			}
@@ -487,7 +472,7 @@ func TestDiscoverTooManyFiles(t *testing.T) {
 		resourcesMap[uri] = badResource{uri: uri, content: []byte("unreadable")}
 	}
 
-	_, err := skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	_, err := skills.Discover(ctx, resourcesMap)
 	if err == nil {
 		t.Fatal("Discover() = nil, want an error")
 	}
@@ -526,7 +511,7 @@ func TestDiscoverRejectsOversizeSkillWhileReading(t *testing.T) {
 		}
 	}
 
-	_, err = skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	_, err = skills.Discover(ctx, resourcesMap)
 	if err == nil {
 		t.Fatal("Discover() = nil, want a total-size error")
 	}
@@ -571,7 +556,7 @@ func TestDiscoverRejectsOversizeFileBeforeReading(t *testing.T) {
 		},
 	}
 
-	_, err = skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	_, err = skills.Discover(ctx, resourcesMap)
 	if err == nil {
 		t.Fatal("Discover() = nil, want a total-size error")
 	}
@@ -603,7 +588,7 @@ func TestDiscoverRejectsOversizeTextSkill(t *testing.T) {
 			"skill://analytics-guide/refs/"+name+".md", chunkContent)
 	}
 
-	_, err = skills.Discover(ctx, skills.NewRegistry(resourcesMap))
+	_, err = skills.Discover(ctx, resourcesMap)
 	if err == nil {
 		t.Fatal("Discover() = nil, want a total-size error")
 	}

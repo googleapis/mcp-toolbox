@@ -104,7 +104,7 @@ func TestValidate(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := skills.Validate(ctx, skills.NewRegistry(tc.resources(t)))
+			got, err := skills.Validate(ctx, tc.resources(t))
 			if err != nil {
 				t.Fatalf("Validate() = %v, want nil", err)
 			}
@@ -187,7 +187,7 @@ func TestValidateErrors(t *testing.T) {
 			if ctx == nil {
 				ctx = loggerCtx
 			}
-			_, err := skills.Validate(ctx, skills.NewRegistry(tc.resources(t)))
+			_, err := skills.Validate(ctx, tc.resources(t))
 			if err == nil {
 				t.Fatalf("Validate() = nil, want error containing %q", tc.wantErr)
 			}
@@ -227,7 +227,7 @@ func TestValidateDuplicateNameWarning(t *testing.T) {
 			for _, uri := range tc.uris {
 				resourcesMap[uri] = skillAt(t, ctx, uri, "A skill")
 			}
-			if _, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap)); err != nil {
+			if _, err := skills.Validate(ctx, resourcesMap); err != nil {
 				t.Fatalf("Validate() = %v, want nil", err)
 			}
 
@@ -244,6 +244,82 @@ func TestValidateDuplicateNameWarning(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestValidateOrphanWarning checks that Validate warns about skill:// resources
+// no SKILL.md sits above, and only those. Most often such a URI has a typo.
+func TestValidateOrphanWarning(t *testing.T) {
+	tcs := []struct {
+		desc     string
+		extra    map[string]string // resource URI to content, beside one skill
+		wantWarn []string          // nil means no warning
+	}{
+		{
+			desc: "typo and name-prefix sibling",
+			extra: map[string]string{
+				// A typo in the skill path: close to the skill, under none.
+				"skill://analytcs-guide/references/joins.md": "# Joins\n",
+				// A name prefix of the skill, not a path prefix.
+				"skill://analytics-guide-v2/notes.md": "# Notes\n",
+				// Not addressed by skill://, so it is never an orphan.
+				"file://project-docs": "unrelated",
+			},
+			wantWarn: []string{"skill://analytcs-guide/references/joins.md", "skill://analytics-guide-v2/notes.md", "belong to no skill"},
+		},
+		{
+			desc:  "every skill:// file is under a skill",
+			extra: map[string]string{"skill://analytics-guide/references/queries.md": "# Common queries\n"},
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx, stderr := bufferLoggerCtx(t)
+			resourcesMap := map[string]resources.Resource{
+				"guide": skillAt(t, ctx, "skill://analytics-guide/SKILL.md", "A skill"),
+			}
+			for uri, content := range tc.extra {
+				resourcesMap[uri] = textResource(t, ctx, uri, uri, content)
+			}
+			if _, err := skills.Validate(ctx, resourcesMap); err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+
+			out := stderr.String()
+			if tc.wantWarn == nil {
+				if strings.Contains(out, "belong to no skill") {
+					t.Errorf("unexpected orphan warning: %q", out)
+				}
+				return
+			}
+			for _, want := range tc.wantWarn {
+				if !strings.Contains(out, want) {
+					t.Errorf("warning %q does not mention %q", out, want)
+				}
+			}
+			if strings.Contains(out, "project-docs") {
+				t.Errorf("warning %q names a resource outside the skill:// scheme", out)
+			}
+		})
+	}
+}
+
+// TestValidateOrphanWarningWithoutSkills covers a config with no SKILL.md at
+// all, whose skill:// files are therefore all orphans. Validate must still warn.
+func TestValidateOrphanWarningWithoutSkills(t *testing.T) {
+	ctx, stderr := bufferLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"notes": textResource(t, ctx, "notes", "skill://guide/notes.md", "# Notes\n"),
+	}
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if len(found) != 0 {
+		t.Errorf("Validate() found %d skills, want none", len(found))
+	}
+	if out := stderr.String(); !strings.Contains(out, "skill://guide/notes.md") {
+		t.Errorf("log %q does not warn about skill://guide/notes.md", out)
 	}
 }
 
