@@ -36,14 +36,20 @@ type Skill struct {
 // each skill's SKILL.md: membership comes from URIs, and sizes come from each
 // resource's GetSize, which is a stat for a file resource.
 //
-// It applies the same rules as Discover apart from the digest format, and warns
-// once when two skills share a frontmatter name.
+// It applies the same rules as Discover apart from the digest format. It warns
+// once when two skills share a frontmatter name, and once for skill:// resources
+// that belong to no skill.
 func Validate(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Skill, error) {
 	roots := skillRoots(resourcesMap)
+	// Before the early return: a config whose only skill:// files are typos has
+	// no skills, and is exactly the case the warning is for.
+	members, orphans := skillMembers(resourcesMap, roots)
+	if err := warnOnOrphans(ctx, orphans); err != nil {
+		return nil, err
+	}
 	if len(roots) == 0 {
 		return nil, nil
 	}
-	members := skillMembers(resourcesMap, roots)
 
 	found := make([]Skill, 0, len(roots))
 	for _, root := range roots {

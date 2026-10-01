@@ -40,7 +40,7 @@ func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) (
 	if len(roots) == 0 {
 		return nil, nil
 	}
-	members := skillMembers(resourcesMap, roots)
+	members, _ := skillMembers(resourcesMap, roots)
 
 	entries := make([]Entry, 0, len(roots))
 	for _, root := range roots {
@@ -73,8 +73,9 @@ func skillRoots(resourcesMap map[string]resources.Resource) []string {
 }
 
 // skillMembers groups every resource under the skills that contain it, sorted by
-// URI.
-func skillMembers(resourcesMap map[string]resources.Resource, roots []string) map[string][]resources.Resource {
+// URI. It also returns the skill:// URIs under no skill, sorted: no manifest
+// carries them, and most often their URI has a typo.
+func skillMembers(resourcesMap map[string]resources.Resource, roots []string) (members map[string][]resources.Resource, orphans []string) {
 	// Segments per root, so membership can apply the same test the manifest
 	// validation applies. A root that is not a valid URI owns no files.
 	rootSegs := make(map[string][]string, len(roots))
@@ -84,12 +85,13 @@ func skillMembers(resourcesMap map[string]resources.Resource, roots []string) ma
 		}
 	}
 
-	members := make(map[string][]resources.Resource, len(roots))
+	members = make(map[string][]resources.Resource, len(roots))
 	for _, res := range resourcesMap {
 		uri := res.GetURI()
 		if !strings.HasPrefix(uri, resources.SkillScheme+"://") {
 			continue
 		}
+		matched := false
 		// Walk the URI's ancestors rather than every root, so the scan costs
 		// path depth instead of the number of skills.
 		for i := strings.LastIndex(uri, "/"); i > 0; i = strings.LastIndex(uri[:i], "/") {
@@ -98,13 +100,19 @@ func skillMembers(resourcesMap map[string]resources.Resource, roots []string) ma
 			// which fails startup for the whole config.
 			if segs, ok := rootSegs[uri[:i]]; ok && underSkill(uri, resources.SkillScheme, segs) {
 				members[uri[:i]] = append(members[uri[:i]], res)
+				matched = true
 			}
+		}
+		// A SKILL.md defines a skill rather than belonging to one.
+		if !matched && !strings.HasSuffix(uri, "/"+skillFile) {
+			orphans = append(orphans, uri)
 		}
 	}
 	for _, m := range members {
 		sort.Slice(m, func(i, j int) bool { return m[i].GetURI() < m[j].GetURI() })
 	}
-	return members
+	sort.Strings(orphans)
+	return members, orphans
 }
 
 // buildEntry hashes every file under root and assembles its entry.
@@ -221,6 +229,19 @@ func cutAtDelimiter(rest string) (string, bool) {
 		}
 		offset = len(rest) - len(tail)
 	}
+}
+
+// warnOnOrphans reports skill:// resources that belong to no skill.
+func warnOnOrphans(ctx context.Context, orphans []string) error {
+	if len(orphans) == 0 {
+		return nil
+	}
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("checking for orphaned skill files: %w", err)
+	}
+	logger.WarnContext(ctx, fmt.Sprintf("resources %s use the %s:// scheme but no %s is above them, so they belong to no skill; check the URI for a typo", strings.Join(orphans, ", "), resources.SkillScheme, skillFile))
+	return nil
 }
 
 // warnOnDuplicateNames reports skills sharing a frontmatter name.
