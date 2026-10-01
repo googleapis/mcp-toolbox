@@ -280,7 +280,7 @@ func TestParseFromYamlText(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(resources.ResourceConfigBase{})); diff != "" {
+			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Fatalf("incorrect parse (-want +got):\n%s", diff)
 			}
 		})
@@ -589,4 +589,46 @@ text: "{}"
 			t.Errorf("Expected URI 'custom://my-json-resource', got %q", resCfg.URI)
 		}
 	})
+}
+
+// TestTextResource_SkillDocIdentity checks that, after Initialize, a SKILL.md
+// reports the name and description from its frontmatter and the
+// text/markdown MIME type. Other resources keep their config values.
+func TestTextResource_SkillDocIdentity(t *testing.T) {
+	const skillMD = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
+	tcs := []struct {
+		desc, uri, text              string
+		wantName, wantDesc, wantMime string
+	}{
+		{"SKILL.md", "skill://analytics-guide/SKILL.md", skillMD, "analytics-guide", "Query the warehouse", "text/markdown"},
+		{"supporting file", "skill://analytics-guide/notes.md", skillMD, "guide", "configured", "text/plain"},
+		{"non-skill uri", "text://guide", skillMD, "guide", "configured", "text/plain"},
+		// Initialize doesn't fail here; it keeps the config values and
+		// skills.Validate rejects the file at startup.
+		{"SKILL.md without frontmatter", "skill://analytics-guide/SKILL.md", "# Guide\n", "guide", "configured", "text/plain"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := &text.Config{
+				ResourceConfigBase: resources.ResourceConfigBase{
+					ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", Description: "configured", MimeType: "text/plain"},
+					URI:        tc.uri,
+				},
+				Text: tc.text,
+			}
+			res, err := cfg.Initialize(context.Background())
+			if err != nil {
+				t.Fatalf("Initialize() = %v", err)
+			}
+			if got := res.GetName(); got != tc.wantName {
+				t.Errorf("GetName() = %q, want %q", got, tc.wantName)
+			}
+			if got := res.GetDescription(); got != tc.wantDesc {
+				t.Errorf("GetDescription() = %q, want %q", got, tc.wantDesc)
+			}
+			if got := res.GetMimeType(); got != tc.wantMime {
+				t.Errorf("GetMimeType() = %q, want %q", got, tc.wantMime)
+			}
+		})
+	}
 }

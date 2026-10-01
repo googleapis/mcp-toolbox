@@ -267,9 +267,7 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		l.WarnContext(ctx, fmt.Sprintf("resources %s use the %s:// scheme but no SKILL.md is above them, so they belong to no skill; check the URI for a typo", strings.Join(orphans, ", "), resources.SkillScheme))
 	}
 	// Nothing is hashed here; skills/list and skills/get compute digests per
-	// request. Validate also sets each SKILL.md's frontmatter name and
-	// description on its resource, so a client sees the skill rather than the
-	// filename.
+	// request.
 	if _, err := skills.Validate(ctx, skillReg); err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}

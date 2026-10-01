@@ -121,7 +121,7 @@ type Entry struct {
 // Validate checks the rules relating a manifest to the skill's own identity.
 // checkDigests is passed through to Manifest.Validate.
 func (e Entry) Validate(checkDigests bool) error {
-	scheme, segs, err := uriSegments(e.URI)
+	scheme, segs, err := resources.SkillURISegments(e.URI)
 	if err != nil {
 		return fmt.Errorf("invalid skill entry %q: uri %w", e.URI, err)
 	}
@@ -150,7 +150,7 @@ func (e Entry) validateFrontmatter(name string) error {
 		return fmt.Errorf("invalid skill entry %q: %w", e.URI, err)
 	}
 	// Check the uri segment
-	if err := validSkillName(fmName); err != nil {
+	if err := resources.ValidSkillName(fmName); err != nil {
 		return fmt.Errorf("invalid skill entry %q: frontmatter name %w", e.URI, err)
 	}
 	desc, err := requiredString(e.Frontmatter, "description")
@@ -184,18 +184,12 @@ func (e Entry) validateRefs(scheme string, root []string) error {
 	return nil
 }
 
-// uriSegments and validSkillName moved to resources so that resource types can
-// check a skill URI at config decode. These keep the existing call sites.
-func uriSegments(raw string) (string, []string, error) { return resources.SkillURISegments(raw) }
-
 // underSkill reports whether ref names a file inside the skill rooted at the
 // given scheme and skill path.
 func underSkill(ref, scheme string, root []string) bool {
-	s, segs, err := uriSegments(ref)
+	s, segs, err := resources.SkillURISegments(ref)
 	return err == nil && s == scheme && len(segs) > len(root) && slices.Equal(segs[:len(root)], root)
 }
-
-func validSkillName(s string) error { return resources.ValidSkillName(s) }
 
 // validDigest matches SEP-2640's sha256:{hex} form, {hex} being 64 lowercase
 // hex characters.

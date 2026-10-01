@@ -247,32 +247,27 @@ func TestValidateDuplicateNameWarning(t *testing.T) {
 	}
 }
 
-// TestValidatePublishesSkillDoc is the point of SetSkillDoc: after Validate, a
-// SKILL.md is published as the skill, not as a resource named after the file.
-// Each SKILL.md takes its own frontmatter identity, and every other resource
-// keeps its config identity.
-func TestValidatePublishesSkillDoc(t *testing.T) {
+// TestSkillDocIdentity checks that each SKILL.md reports the name and
+// description from its frontmatter, and that other resources keep their
+// config values. The text resource sets these in Initialize, so the test
+// doesn't call Validate.
+func TestSkillDocIdentity(t *testing.T) {
 	ctx := mustLoggerCtx(t)
 
-	// The configured names are deliberately unhelpful, so the assertions below
-	// cannot pass by accident.
+	// The config names differ from the frontmatter names on purpose, so the
+	// test can't pass by accident.
 	resourcesMap := map[string]resources.Resource{
 		"alpha": textResource(t, ctx, "SKILL.md", "skill://alpha-guide/SKILL.md", skillMD("alpha-guide", "Query the warehouse")),
 		"notes": textResource(t, ctx, "notes", "skill://alpha-guide/references/notes.md", "# Notes\n"),
 		"beta":  textResource(t, ctx, "beta", "skill://beta-guide/SKILL.md", skillMD("beta-guide", "Summarize the warehouse")),
 		"docs":  textResource(t, ctx, "docs", "file://project-docs", "unrelated"),
 	}
-	if _, err := skills.Validate(ctx, skills.NewRegistry(resourcesMap)); err != nil {
-		t.Fatalf("Validate() = %v, want nil", err)
-	}
 
-	// textResource configures text/markdown for every resource, so the MIME
-	// type branch is pinned in resources_test.go rather than here.
-	want := map[string]struct{ name, description, mimeType string }{
-		"alpha": {"alpha-guide", "Query the warehouse", "text/markdown"},
-		"beta":  {"beta-guide", "Summarize the warehouse", "text/markdown"},
-		"notes": {"notes", "", "text/markdown"},
-		"docs":  {"docs", "", "text/markdown"},
+	want := map[string]struct{ name, description string }{
+		"alpha": {"alpha-guide", "Query the warehouse"},
+		"beta":  {"beta-guide", "Summarize the warehouse"},
+		"notes": {"notes", ""},
+		"docs":  {"docs", ""},
 	}
 	for key, w := range want {
 		res := resourcesMap[key]
@@ -282,33 +277,48 @@ func TestValidatePublishesSkillDoc(t *testing.T) {
 		if got := res.GetDescription(); got != w.description {
 			t.Errorf("%s GetDescription() = %q, want %q", key, got, w.description)
 		}
-		if got := res.GetMimeType(); got != w.mimeType {
-			t.Errorf("%s GetMimeType() = %q, want %q", key, got, w.mimeType)
+	}
+}
+
+func TestIsDoc(t *testing.T) {
+	tcs := []struct {
+		uri  string
+		want bool
+	}{
+		{"skill://analytics-guide/SKILL.md", true},
+		{"skill://org/team/analytics-guide/SKILL.md", true},
+		{"skill://analytics-guide/references/queries.md", false},
+		{"skill://analytics-guide/NOTSKILL.md", false},
+		{"file://analytics-guide/SKILL.md", false},
+	}
+	for _, tc := range tcs {
+		if got := skills.IsDoc(tc.uri); got != tc.want {
+			t.Errorf("IsDoc(%q) = %v, want %v", tc.uri, got, tc.want)
 		}
 	}
 }
 
-// noSkillDoc reads as a valid SKILL.md but cannot record its frontmatter
-// identity: embedding the interface hides the backing resource's SetSkillDoc.
-type noSkillDoc struct {
-	resources.Resource
-}
-
-// TestValidateRejectsResourceWithoutSkillDoc checks that a resource type that
-// cannot publish the frontmatter identity fails the load rather than being
-// served under its config name.
-func TestValidateRejectsResourceWithoutSkillDoc(t *testing.T) {
-	ctx := mustLoggerCtx(t)
-	const uri = "skill://guide/SKILL.md"
-	backing := textResource(t, ctx, "guide", uri, skillMD("guide", "A guide"))
-
-	_, err := skills.Validate(ctx, skills.NewRegistry(map[string]resources.Resource{"guide": noSkillDoc{backing}}))
-	if err == nil {
-		t.Fatal("Validate() = nil, want an error")
+func TestDocIdentity(t *testing.T) {
+	tcs := []struct {
+		desc     string
+		content  string
+		wantName string
+		wantDesc string
+		wantOK   bool
+	}{
+		{desc: "valid", content: skillMD("guide", "A guide"), wantName: "guide", wantDesc: "A guide", wantOK: true},
+		{desc: "no frontmatter", content: "# Guide\n"},
+		{desc: "unclosed frontmatter", content: "---\nname: guide\n"},
+		{desc: "missing name", content: "---\ndescription: A guide\n---\n"},
+		{desc: "missing description", content: "---\nname: guide\n---\n"},
+		{desc: "non-string name", content: "---\nname: 7\ndescription: A guide\n---\n"},
 	}
-	for _, want := range []string{uri, "cannot back a SKILL.md"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("Validate() = %v, want error containing %q", err, want)
-		}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			name, desc, ok := skills.DocIdentity(tc.content)
+			if name != tc.wantName || desc != tc.wantDesc || ok != tc.wantOK {
+				t.Errorf("DocIdentity() = (%q, %q, %v), want (%q, %q, %v)", name, desc, ok, tc.wantName, tc.wantDesc, tc.wantOK)
+			}
+		})
 	}
 }

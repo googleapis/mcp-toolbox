@@ -38,9 +38,6 @@ type Skill struct {
 //
 // It applies the same rules as Discover apart from the digest format, and warns
 // once when two skills share a frontmatter name.
-//
-// For each valid skill it also sets the frontmatter name and description on
-// the SKILL.md resource, through resources.SkillDocSetter.
 func Validate(ctx context.Context, reg *Registry) ([]Skill, error) {
 	if reg.Len() == 0 {
 		return nil, nil
@@ -106,10 +103,5 @@ func validateSkill(ctx context.Context, skillURI string, members []resources.Res
 	if err := e.Validate(false); err != nil {
 		return Skill{}, err
 	}
-	setter, ok := doc.(resources.SkillDocSetter)
-	if !ok {
-		return Skill{}, fmt.Errorf("skill %q: resource type %T cannot back a %s", skillURI, doc, skillFile)
-	}
-	setter.SetSkillDoc(frontmatter["name"].(string), frontmatter["description"].(string))
 	return Skill{URI: skillURI, Frontmatter: frontmatter}, nil
 }

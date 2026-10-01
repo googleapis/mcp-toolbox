@@ -156,11 +156,6 @@ func (c ConfigBase) GetResourceUIMetadata() any {
 type ResourceConfigBase struct {
 	ConfigBase `yaml:",inline"`
 	URI        string `yaml:"uri,omitempty" validate:"omitempty,uri"`
-
-	// skillName and skillDescription hold a SKILL.md's frontmatter name and
-	// description. skills.Validate sets them through SetSkillDoc once the
-	// frontmatter passes; they stay empty for every other resource.
-	skillName, skillDescription string
 }
 
 // GetURI returns the URI of the resource configuration.
@@ -496,49 +491,4 @@ func validateUIScheme(ui bool, scheme, name, entity string) error {
 		}
 	}
 	return nil
-}
-
-// skillDocMimeType is what SEP-2640 fixes for a SKILL.md, whichever resource
-// type backs it.
-const skillDocMimeType = "text/markdown"
-
-// SkillDocSetter is implemented by a resource that can back a SKILL.md.
-// skills.Validate calls it once the SKILL.md frontmatter passes.
-type SkillDocSetter interface {
-	SetSkillDoc(name, description string)
-}
-
-// SetSkillDoc records a SKILL.md's frontmatter name and description, so the
-// resource is published under the skill's identity rather than its config
-// name. Otherwise a client sees a resource named after the file, which does
-// not identify the skill.
-func (c *ResourceConfigBase) SetSkillDoc(name, description string) {
-	c.skillName, c.skillDescription = name, description
-}
-
-// GetName returns the SKILL.md frontmatter name when one is set, and the
-// config name otherwise.
-func (c ResourceConfigBase) GetName() string {
-	if c.skillName != "" {
-		return c.skillName
-	}
-	return c.Name
-}
-
-// GetDescription returns the SKILL.md frontmatter description when one is
-// set, and the config description otherwise.
-func (c ResourceConfigBase) GetDescription() string {
-	if c.skillName != "" {
-		return c.skillDescription
-	}
-	return c.Description
-}
-
-// GetMimeType returns text/markdown for a SKILL.md, and the configured MIME
-// type otherwise.
-func (c ResourceConfigBase) GetMimeType() string {
-	if c.skillName != "" {
-		return skillDocMimeType
-	}
-	return c.MimeType
 }
