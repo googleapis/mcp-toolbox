@@ -2944,6 +2944,12 @@ func runExecuteSqlWithRestriction(t *testing.T, allowedTableFullName, disallowed
 				strings.Split(strings.Trim(disallowedTableFullName, "`"), ".")[1]),
 		},
 		{
+			name:           "invoke on non-existent disallowed dataset",
+			sql:            fmt.Sprintf("SELECT * FROM `%s.non_existent_disallowed_ds.no_such_table`", allowedProjectID),
+			wantStatusCode: http.StatusOK,
+			wantInError:    fmt.Sprintf("access to dataset '%s.non_existent_disallowed_ds' is not allowed", allowedProjectID),
+		},
+		{
 			name:           "disallowed create schema",
 			sql:            "CREATE SCHEMA another_dataset",
 			wantStatusCode: http.StatusOK,
