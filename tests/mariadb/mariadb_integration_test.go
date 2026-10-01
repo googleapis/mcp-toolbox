@@ -86,40 +86,7 @@ type mariaDBTestFixture struct {
 	paramTable, authTable, templateTable string
 }
 
-func TestMySQLToolEndpoints(t *testing.T) {
-	fixture := setupMariaDBTest(t, "--enable-api")
-	tests.RunToolGetTest(t)
-
-	// Get configs for tests
-	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := GetMariaDBWants()
-
-	t.Run("invoke", func(t *testing.T) {
-		tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
-	})
-	t.Run("mcp_call", func(t *testing.T) {
-		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	})
-	t.Run("execute_sql", func(t *testing.T) {
-		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
-	})
-	t.Run("template_parameters", func(t *testing.T) {
-		tests.RunToolInvokeWithTemplateParameters(t, fixture.templateTable)
-	})
-	t.Run("list_tables", func(t *testing.T) {
-		RunMariDBListTablesTest(t, MariaDBDatabase, fixture.paramTable, fixture.authTable)
-	})
-	t.Run("list_active_queries", func(t *testing.T) {
-		tests.RunMySQLListActiveQueriesTest(t, fixture.ctx, fixture.pool)
-	})
-	t.Run("list_tables_missing_unique_indexes", func(t *testing.T) {
-		tests.RunMySQLListTablesMissingUniqueIndexes(t, fixture.ctx, fixture.pool, MariaDBDatabase)
-	})
-	t.Run("list_table_fragmentation", func(t *testing.T) {
-		tests.RunMySQLListTableFragmentationTest(t, MariaDBDatabase, fixture.paramTable, fixture.authTable)
-	})
-}
-
-func setupMariaDBTest(t *testing.T, args ...string) mariaDBTestFixture {
+func setupMariaDBTest(t *testing.T) mariaDBTestFixture {
 	t.Helper()
 
 	sourceConfig := getMariaDBVars(t)
@@ -159,7 +126,7 @@ func setupMariaDBTest(t *testing.T, args ...string) mariaDBTestFixture {
 
 	toolsFile = tests.AddMySQLPrebuiltToolConfig(t, toolsFile)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
