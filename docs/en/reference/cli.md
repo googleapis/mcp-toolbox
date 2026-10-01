@@ -11,7 +11,6 @@ description: >
 | Flag (Short) | Flag (Long)                | Description                                                                                                                                                               | Default     |
 |--------------|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
 | `-a`         | `--address`                | Address of the interface the server will listen on.                                                                                                                       | `127.0.0.1` |
-|              | `--defer-source-connect`   | Connect to each source on first use instead of at startup.                                                                                                                | `false`     |
 |              | `--disable-ext`            | Specifies MCP extension URIs disabled on this server.                                                                                                                     |             |
 |              | `--disable-reload`         | Disables dynamic reloading config.                                                                                                                                        |             |
 | `-h`         | `--help`                   | help for toolbox                                                                                                                                                          |             |
@@ -245,37 +244,6 @@ reloading, use the `--disable-reload` flag.
 To launch Toolbox's interactive UI, use the `--ui` flag. This allows you to test
 tools and toolsets with features such as authorized parameters. To learn more,
 visit [Toolbox UI](../documentation/configuration/toolbox-ui/index.md).
-
-### Deferring Source Connections
-
-By default Toolbox connects to every configured source at startup and fails to
-start if any connection fails. Pass `--defer-source-connect` to defer each
-connection until the first tool call that needs it.
-
-```bash
-./toolbox --tools-file tools.yaml --defer-source-connect
-```
-
-This is useful when you want to inspect a tool catalog without provisioning
-databases, when cold start time matters, or when you would rather a broken
-source surface as a tool error the agent can read than as a server that never
-comes up. With the flag set:
-
-* Toolbox starts even when no source is reachable, and `tools/list` and
-  `/api/toolset` return the full catalog with complete schemas.
-* The first call to a tool connects its source. If that fails, the call returns
-  a tool error containing the connection failure and the server stays up. Only
-  successful connections are kept, so a source that comes up later starts
-  working without a restart.
-* A tool naming a source that does not exist, or one whose type it cannot use,
-  is still rejected at startup.
-
-Configuration is still validated at startup. A malformed value — an unparseable
-`queryTimeout`, an invalid `writeMode` — fails immediately, because detecting it
-takes no network.
-
-Environment variables are still required, since a source cannot connect without
-them, and an unset one fails startup as it does today.
 
 ### Disabling MCP Extensions
 

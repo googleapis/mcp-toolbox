@@ -153,6 +153,17 @@ A concise description of the changes (bug or feature), its impact, and a summary
 **3. Issue Reference**
 Use the format: `Fixes #<issue_number> 🦕`
 
+## Security
+
+Before proposing or making a change, check it for the vulnerability classes most relevant to this codebase:
+
+-   **SQL/query injection:** Never build a query by concatenating or `fmt.Sprintf`-ing a user-supplied tool parameter into a query string. Bind parameters using the source's parameterized-query API instead.
+-   **Credentials and secrets:** Never log, hardcode, or echo back a credential, API key, connection string, or token. Read secrets from config/environment, not from tool parameters.
+-   **Path/command injection:** Treat any user-supplied string used to build a file path or a shell/subprocess argument as untrusted; validate or reject it rather than passing it through unchecked.
+-   **Auth bypass:** A new or modified tool must still go through `BaseTool`'s `Authorized`/`authRequired`/`scopesRequired` handling — do not add a code path that skips it.
+
+If a change touches a `source` or `tool` implementation, call out the relevant point(s) above explicitly in the PR description rather than leaving them implicit.
+
 ## Adding New Features
 
 ### Adding a New Data Source
@@ -163,6 +174,7 @@ Use the format: `Fixes #<issue_number> 🦕`
 4.  Implement `Source` interface (`SourceType`, `ToConfig`).
 5.  Implement `init()` to register the source.
 6.  Add unit tests in `internal/sources/<newdb>/<newdb>_test.go`.
+7.  **Google Cloud Databases:** For every Google Cloud database, ensure a corresponding `product: <database>` label is added to `.github/labels.yaml`, routing is configured in `.github/blunderbuss.yml` (under both `assign_issues_by` and `assign_prs_by`), and the GitHub team is team-synced from an MDB group with write access to the repo.
 
 ### Adding a New Tool
 

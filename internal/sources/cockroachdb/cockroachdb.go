@@ -97,34 +97,20 @@ func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
-func (r Config) Initialize(ctx context.Context, tracer trace.Tracer, deferConnect bool) (sources.Source, error) {
+func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
 	retryBaseDelay, err := time.ParseDuration(r.RetryBaseDelay)
 	if err != nil {
 		return nil, fmt.Errorf("invalid retryBaseDelay: %w", err)
 	}
 
-	// Mirrors the sleeps initCockroachDBConnectionPoolWithRetry makes before it
-	// gives up, so the connect is not capped below its own retry budget and the
-	// later attempts fail on the database rather than on the deadline.
-	var opts []sources.Option
-	var backoff time.Duration
-	for attempt := 0; attempt < r.MaxRetries; attempt++ {
-		backoff += retryBaseDelay * time.Duration(math.Pow(2, float64(attempt)))
-	}
-	if backoff > 0 {
-		opts = append(opts, sources.WithMinConnectTimeout(backoff))
+	pool, err := initCockroachDBConnectionPoolWithRetry(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.MaxRetries, retryBaseDelay)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
 
 	s := &Source{
-		Config:         r,
-		retryBaseDelay: retryBaseDelay,
-		conn:           sources.NewConnectOnce[*pgxpool.Pool](ctx, r.Name, SourceType, tracer, opts...),
-	}
-	if deferConnect {
-		return s, nil
-	}
-	if _, err := s.PostgresPoolContext(ctx); err != nil {
-		return nil, err
+		Config: r,
+		Pool:   pool,
 	}
 	return s, nil
 }
@@ -133,21 +119,7 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	retryBaseDelay time.Duration
-	conn           *sources.ConnectOnce[*pgxpool.Pool]
-}
-
-// PostgresPoolContext returns the pool, connecting on first use. It is the
-// discriminator the postgres tools assert on.
-func (s *Source) PostgresPoolContext(ctx context.Context) (*pgxpool.Pool, error) {
-	return s.conn.Do(ctx, func(ctx context.Context) (*pgxpool.Pool, error) {
-		r := s.Config
-		pool, err := initCockroachDBConnectionPoolWithRetry(ctx, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.MaxRetries, s.retryBaseDelay)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create pool: %w", err)
-		}
-		return pool, nil
-	})
+	Pool *pgxpool.Pool
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -162,14 +134,18 @@ func (s *Source) ToConfig() sources.SourceConfig {
 	return s.Config
 }
 
+func (s *Source) CockroachDBPool() *pgxpool.Pool {
+	return s.Pool
+}
+
+func (s *Source) PostgresPool() *pgxpool.Pool {
+	return s.Pool
+}
+
 // ExecuteTxWithRetry executes a function within a transaction with automatic retry logic
 // using the official CockroachDB retry mechanism from cockroach-go/v2
 func (s *Source) ExecuteTxWithRetry(ctx context.Context, fn func(pgx.Tx) error) error {
-	pool, err := s.PostgresPoolContext(ctx)
-	if err != nil {
-		return err
-	}
-	return crdbpgx.ExecuteTx(ctx, pool, pgx.TxOptions{}, fn)
+	return crdbpgx.ExecuteTx(ctx, s.Pool, pgx.TxOptions{}, fn)
 }
 
 // Query executes a query using the connection pool with MCP security enforcement.
@@ -188,12 +164,7 @@ func (s *Source) Query(ctx context.Context, sql string, args ...interface{}) (pg
 		return nil, err
 	}
 
-	pool, err := s.PostgresPoolContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return pool.Query(ctx, modifiedSQL, args...)
+	return s.Pool.Query(ctx, modifiedSQL, args...)
 }
 
 // ============================================================================
@@ -501,7 +472,11 @@ func (s *Source) EmitTelemetry(ctx context.Context, event TelemetryEvent) {
 	}
 }
 
-func initCockroachDBConnectionPoolWithRetry(ctx context.Context, host, port, user, pass, dbname string, queryParams map[string]string, maxRetries int, baseDelay time.Duration) (*pgxpool.Pool, error) {
+func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string, queryParams map[string]string, maxRetries int, baseDelay time.Duration) (*pgxpool.Pool, error) {
+	//nolint:all
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		userAgent = "genai-toolbox"
