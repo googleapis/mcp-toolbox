@@ -32,7 +32,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
-	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
@@ -2644,16 +2643,12 @@ func TestMcpScopingByGroup(t *testing.T) {
 // asserted by shape rather than value, because they are recomputed per call and
 // a literal would pin the fixture's bytes rather than the behaviour.
 func TestMcpSkillsMethods(t *testing.T) {
-	ctx, err := testutils.ContextWithNewLogger()
-	if err != nil {
-		t.Fatal(err)
-	}
 	skillURI := "skill://analytics-guide/SKILL.md"
 	refURI := "skill://analytics-guide/references/queries.md"
 	resourcesMap := map[string]resources.Resource{
-		"guide": mcpTextResource(t, ctx, "guide", skillURI,
+		"guide": testutils.NewMockTextResource("guide", skillURI,
 			"---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# analytics-guide\n"),
-		"queries": mcpTextResource(t, ctx, "queries", refURI, "# Common queries\n"),
+		"queries": testutils.NewMockTextResource("queries", refURI, "# Common queries\n"),
 	}
 	// Tools only exist so the default group does: SetUpPrimitives builds no
 	// groups without them, and the request path resolves a group before
@@ -2777,20 +2772,4 @@ func TestMcpSkillsMethods(t *testing.T) {
 			t.Fatalf("unexpected response: got %#v, want %#v", got, want)
 		}
 	})
-}
-
-func mcpTextResource(t *testing.T, ctx context.Context, name, uri, content string) resources.Resource {
-	t.Helper()
-	cfg := &text.Config{
-		ResourceConfigBase: resources.ResourceConfigBase{
-			ConfigBase: resources.ConfigBase{Name: name, Type: "text", MimeType: "text/markdown"},
-			URI:        uri,
-		},
-		Text: content,
-	}
-	res, err := cfg.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("unable to initialize %q: %s", uri, err)
-	}
-	return res
 }

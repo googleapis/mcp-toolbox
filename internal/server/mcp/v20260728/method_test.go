@@ -27,7 +27,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
-	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -2281,37 +2280,16 @@ func TestGetResourceOrTemplateByURI(t *testing.T) {
 	})
 }
 
-// skillTextResource builds a resource whose Read returns real content, which a
-// SKILL.md needs. testutils.MockResource returns a fixed string, so it cannot
-// carry frontmatter.
-func skillTextResource(t *testing.T, ctx context.Context, name, uri, content string) resources.Resource {
-	t.Helper()
-	cfg := &text.Config{
-		ResourceConfigBase: resources.ResourceConfigBase{
-			ConfigBase: resources.ConfigBase{Name: name, Type: "text", MimeType: "text/markdown"},
-			URI:        uri,
-		},
-		Text: content,
-	}
-	res, err := cfg.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("unable to initialize %q: %s", uri, err)
-	}
-	return res
-}
-
-// skillsTestPrimitives builds a manager holding one skill with one supporting
-// file, plus a resource outside any skill.
-func skillsTestPrimitives(t *testing.T, ctx context.Context) *primitives.PrimitiveManager {
-	t.Helper()
-	resourcesMap := map[string]resources.Resource{
-		"guide": skillTextResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md",
+// skillsTestResources holds one skill with one supporting file, plus a
+// resource outside any skill.
+func skillsTestResources() map[string]resources.Resource {
+	return map[string]resources.Resource{
+		"guide": testutils.NewMockTextResource("guide", "skill://analytics-guide/SKILL.md",
 			"---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# analytics-guide\n"),
-		"queries": skillTextResource(t, ctx, "queries", "skill://analytics-guide/references/queries.md",
+		"queries": testutils.NewMockTextResource("queries", "skill://analytics-guide/references/queries.md",
 			"# Common queries\n"),
-		"plain": skillTextResource(t, ctx, "plain", "text:///not-a-skill", "unrelated"),
+		"plain": testutils.NewMockTextResource("plain", "text:///not-a-skill", "unrelated"),
 	}
-	return primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
 }
 
 func skillsTestContext(t *testing.T) context.Context {
@@ -2337,75 +2315,134 @@ func skillsValidMeta() *RequestMetaObject {
 	}
 }
 
+// skillsMetaWithoutExtension is valid metadata from a client that did not
+// declare the skills extension.
+func skillsMetaWithoutExtension() *RequestMetaObject {
+	meta := skillsValidMeta()
+	meta.MetaClientCapabilities = &ClientCapabilities{}
+	return meta
+}
+
+// checkSkillsError asserts that a handler failed with a JSON-RPC error whose
+// message contains wantMsg and, when wantCode is set, carries that code.
+func checkSkillsError(t *testing.T, res any, err error, wantCode int, wantMsg string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("handler = nil error, want one containing %q", wantMsg)
+	}
+	if !strings.Contains(err.Error(), wantMsg) {
+		t.Errorf("error = %q, want it to contain %q", err, wantMsg)
+	}
+	if wantCode == 0 {
+		return
+	}
+	rpcErr, ok := res.(jsonrpc.JSONRPCError)
+	if !ok {
+		t.Fatalf("response is %T, want jsonrpc.JSONRPCError", res)
+	}
+	if rpcErr.Error.Code != wantCode {
+		t.Errorf("error code = %d, want %d", rpcErr.Error.Code, wantCode)
+	}
+}
+
 func TestSkillsListHandler(t *testing.T) {
 	ctx := skillsTestContext(t)
-	Initialize(nil)
-	primitiveMgr := skillsTestPrimitives(t, ctx)
+	t.Cleanup(func() { Initialize(nil) })
+	listHeader := http.Header{"Mcp-Method": []string{SKILLS_LIST}}
 
 	tests := []struct {
-		name        string
-		rawBody     []byte
-		body        ListSkillsRequest
-		header      http.Header
-		wantErr     bool
-		errContains string
-		wantURIs    []string
+		name      string
+		rawBody   []byte
+		meta      *RequestMetaObject // nil means skillsValidMeta()
+		noMeta    bool
+		header    http.Header // nil means listHeader
+		resources map[string]resources.Resource
+		disabled  []string
+		wantCode  int
+		wantErr   string
+		wantURIs  []string
 	}{
 		{
-			name:        "invalid json body",
-			rawBody:     []byte(`{invalid json}`),
-			wantErr:     true,
-			errContains: "invalid mcp skills/list request",
+			name:    "invalid json body",
+			rawBody: []byte(`{invalid json}`),
+			wantErr: "invalid mcp skills/list request",
 		},
 		{
-			name: "missing metadata",
-			body: ListSkillsRequest{
-				Request: jsonrpc.Request{Method: SKILLS_LIST},
-				Params:  RequestParams{},
-			},
-			header:      http.Header{"Mcp-Method": []string{SKILLS_LIST}},
-			wantErr:     true,
-			errContains: "_meta error: missing required fields in request metadata",
+			name:     "missing metadata",
+			noMeta:   true,
+			wantCode: jsonrpc.INVALID_PARAMS,
+			wantErr:  "_meta error: missing required fields in request metadata",
 		},
 		{
-			name: "header method mismatch",
-			body: ListSkillsRequest{
-				Request: jsonrpc.Request{Method: SKILLS_LIST},
-				Params:  RequestParams{Meta: skillsValidMeta()},
-			},
-			header:      http.Header{"Mcp-Method": []string{"skills/get"}},
-			wantErr:     true,
-			errContains: "does not match body value",
+			name:    "header method mismatch",
+			header:  http.Header{"Mcp-Method": []string{SKILLS_GET}},
+			wantErr: "does not match body value",
 		},
 		{
-			name: "lists every skill, ignoring non-skill resources",
-			body: ListSkillsRequest{
-				Request: jsonrpc.Request{Method: SKILLS_LIST},
-				Params:  RequestParams{Meta: skillsValidMeta()},
+			name:     "extension not declared by client",
+			meta:     skillsMetaWithoutExtension(),
+			wantCode: jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY,
+			wantErr:  "missing required client capability",
+		},
+		{
+			name:     "extension disabled by server",
+			disabled: []string{SkillsExtensionURI},
+			wantCode: jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY,
+			wantErr:  "missing required client capability",
+		},
+		{
+			// The operator fixes the config from this message, so it is sent whole.
+			name: "config error reaches the client whole",
+			resources: map[string]resources.Resource{
+				"broken": testutils.NewMockTextResource("broken", "skill://broken/SKILL.md", "no frontmatter here\n"),
 			},
-			header:   http.Header{"Mcp-Method": []string{SKILLS_LIST}},
+			wantCode: jsonrpc.INTERNAL_ERROR,
+			wantErr:  `skill "skill://broken/SKILL.md": SKILL.md must open with YAML frontmatter delimited by ---`,
+		},
+		{
+			name: "empty catalogue",
+			resources: map[string]resources.Resource{
+				"plain": testutils.NewMockTextResource("plain", "text:///not-a-skill", "unrelated"),
+			},
+		},
+		{
+			name:     "lists every skill, ignoring non-skill resources",
 			wantURIs: []string{"skill://analytics-guide/SKILL.md"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			Initialize(tc.disabled)
+			resourcesMap := tc.resources
+			if resourcesMap == nil {
+				resourcesMap = skillsTestResources()
+			}
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
+
 			body := tc.rawBody
 			if body == nil {
+				meta := tc.meta
+				if meta == nil && !tc.noMeta {
+					meta = skillsValidMeta()
+				}
 				var err error
-				body, err = json.Marshal(tc.body)
+				body, err = json.Marshal(ListSkillsRequest{
+					Request: jsonrpc.Request{Method: SKILLS_LIST},
+					Params:  RequestParams{Meta: meta},
+				})
 				if err != nil {
 					t.Fatalf("unable to marshal body: %s", err)
 				}
 			}
-			res, err := skillsListHandler(ctx, "id", primitiveMgr, body, tc.header)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("skillsListHandler() = nil error, want one containing %q", tc.errContains)
-				}
-				if !strings.Contains(err.Error(), tc.errContains) {
-					t.Fatalf("error = %q, want it to contain %q", err, tc.errContains)
-				}
+			header := tc.header
+			if header == nil {
+				header = listHeader
+			}
+
+			res, err := skillsListHandler(ctx, "id", primitiveMgr, body, header)
+			if tc.wantErr != "" {
+				checkSkillsError(t, res, err, tc.wantCode, tc.wantErr)
 				return
 			}
 			if err != nil {
@@ -2436,8 +2473,15 @@ func TestSkillsListHandler(t *testing.T) {
 			if !slices.Equal(gotURIs, tc.wantURIs) {
 				t.Errorf("skills = %v, want %v", gotURIs, tc.wantURIs)
 			}
-			// The URI check above reports an unexpected empty result.
 			if len(result.Skills) == 0 {
+				// A nil slice would marshal to null; the wire shape is a list.
+				encoded, err := json.Marshal(result)
+				if err != nil {
+					t.Fatalf("unable to marshal result: %s", err)
+				}
+				if !strings.Contains(string(encoded), `"skills":[]`) {
+					t.Errorf("result marshalled to %s, want it to carry \"skills\":[]", encoded)
+				}
 				return
 			}
 			// The manifest must carry a fresh digest for every member.
@@ -2455,89 +2499,84 @@ func TestSkillsListHandler(t *testing.T) {
 
 func TestSkillsGetHandler(t *testing.T) {
 	ctx := skillsTestContext(t)
-	Initialize(nil)
-	primitiveMgr := skillsTestPrimitives(t, ctx)
+	t.Cleanup(func() { Initialize(nil) })
+	const skillURI = "skill://analytics-guide/SKILL.md"
 
 	tests := []struct {
-		name        string
-		rawBody     []byte
-		body        GetSkillRequest
-		header      http.Header
-		wantErr     bool
-		errContains string
+		name     string
+		rawBody  []byte
+		uri      string             // "" means skillURI
+		meta     *RequestMetaObject // nil means skillsValidMeta()
+		disabled []string
+		wantCode int
+		wantErr  string
 	}{
 		{
-			name:        "invalid json body",
-			rawBody:     []byte(`{invalid json}`),
-			wantErr:     true,
-			errContains: "invalid mcp skills/get request",
+			name:    "invalid json body",
+			rawBody: []byte(`{invalid json}`),
+			wantErr: "invalid mcp skills/get request",
 		},
 		{
-			name: "unknown uri",
-			body: GetSkillRequest{
-				Request: jsonrpc.Request{Method: SKILLS_GET},
-				Params: GetSkillRequestParams{
-					RequestParams: RequestParams{Meta: skillsValidMeta()},
-					URI:           "skill://nope/SKILL.md",
-				},
-			},
-			header: http.Header{
-				"Mcp-Method": []string{SKILLS_GET},
-				"Mcp-Name":   []string{"skill://nope/SKILL.md"},
-			},
-			wantErr:     true,
-			errContains: "unknown skill: skill://nope/SKILL.md",
+			name:     "extension not declared by client",
+			meta:     skillsMetaWithoutExtension(),
+			wantCode: jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY,
+			wantErr:  "missing required client capability",
 		},
 		{
-			name: "a supporting file is not a skill",
-			body: GetSkillRequest{
-				Request: jsonrpc.Request{Method: SKILLS_GET},
-				Params: GetSkillRequestParams{
-					RequestParams: RequestParams{Meta: skillsValidMeta()},
-					URI:           "skill://analytics-guide/references/queries.md",
-				},
-			},
-			header: http.Header{
-				"Mcp-Method": []string{SKILLS_GET},
-				"Mcp-Name":   []string{"skill://analytics-guide/references/queries.md"},
-			},
-			wantErr:     true,
-			errContains: "unknown skill",
+			name:     "extension disabled by server",
+			disabled: []string{SkillsExtensionURI},
+			wantCode: jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY,
+			wantErr:  "missing required client capability",
+		},
+		{
+			name:     "unknown uri",
+			uri:      "skill://nope/SKILL.md",
+			wantCode: jsonrpc.INVALID_PARAMS,
+			wantErr:  "unknown skill: skill://nope/SKILL.md",
+		},
+		{
+			name:     "a supporting file is not a skill",
+			uri:      "skill://analytics-guide/references/queries.md",
+			wantCode: jsonrpc.INVALID_PARAMS,
+			wantErr:  "unknown skill",
 		},
 		{
 			name: "returns the skill",
-			body: GetSkillRequest{
-				Request: jsonrpc.Request{Method: SKILLS_GET},
-				Params: GetSkillRequestParams{
-					RequestParams: RequestParams{Meta: skillsValidMeta()},
-					URI:           "skill://analytics-guide/SKILL.md",
-				},
-			},
-			header: http.Header{
-				"Mcp-Method": []string{SKILLS_GET},
-				"Mcp-Name":   []string{"skill://analytics-guide/SKILL.md"},
-			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			Initialize(tc.disabled)
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, skillsTestResources(), nil, nil)
+
+			uri := tc.uri
+			if uri == "" {
+				uri = skillURI
+			}
 			body := tc.rawBody
 			if body == nil {
+				meta := tc.meta
+				if meta == nil {
+					meta = skillsValidMeta()
+				}
 				var err error
-				body, err = json.Marshal(tc.body)
+				body, err = json.Marshal(GetSkillRequest{
+					Request: jsonrpc.Request{Method: SKILLS_GET},
+					Params: GetSkillRequestParams{
+						RequestParams: RequestParams{Meta: meta},
+						URI:           uri,
+					},
+				})
 				if err != nil {
 					t.Fatalf("unable to marshal body: %s", err)
 				}
 			}
-			res, err := skillsGetHandler(ctx, "id", primitiveMgr, body, tc.header)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("skillsGetHandler() = nil error, want one containing %q", tc.errContains)
-				}
-				if !strings.Contains(err.Error(), tc.errContains) {
-					t.Fatalf("error = %q, want it to contain %q", err, tc.errContains)
-				}
+			header := http.Header{"Mcp-Method": []string{SKILLS_GET}, "Mcp-Name": []string{uri}}
+
+			res, err := skillsGetHandler(ctx, "id", primitiveMgr, body, header)
+			if tc.wantErr != "" {
+				checkSkillsError(t, res, err, tc.wantCode, tc.wantErr)
 				return
 			}
 			if err != nil {
@@ -2551,8 +2590,8 @@ func TestSkillsGetHandler(t *testing.T) {
 			if !ok {
 				t.Fatalf("result is %T, want GetSkillResult", response.Result)
 			}
-			if result.Skill.URI != "skill://analytics-guide/SKILL.md" {
-				t.Errorf("skill uri = %q, want the requested one", result.Skill.URI)
+			if result.Skill.URI != uri {
+				t.Errorf("skill uri = %q, want %q", result.Skill.URI, uri)
 			}
 			if result.ResultType != resultTypeComplete {
 				t.Errorf("resultType = %q, want %q", result.ResultType, resultTypeComplete)
@@ -2565,184 +2604,5 @@ func TestSkillsGetHandler(t *testing.T) {
 					result.TtlMs, result.CacheScope, skillsTTLMs, skillsCacheScope)
 			}
 		})
-	}
-}
-
-// TestSkillsListSendsConfigErrors checks that a misconfigured skill's message
-// reaches the client whole, so the operator can fix the config from it.
-func TestSkillsListSendsConfigErrors(t *testing.T) {
-	ctx := skillsTestContext(t)
-	Initialize(nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
-		map[string]resources.Resource{
-			"broken": skillTextResource(t, ctx, "broken", "skill://broken/SKILL.md", "no frontmatter here\n"),
-		}, nil, nil)
-
-	body, err := json.Marshal(ListSkillsRequest{
-		Request: jsonrpc.Request{Method: SKILLS_LIST},
-		Params:  RequestParams{Meta: skillsValidMeta()},
-	})
-	if err != nil {
-		t.Fatalf("unable to marshal body: %s", err)
-	}
-	res, err := skillsListHandler(ctx, "id", primitiveMgr, body,
-		http.Header{"Mcp-Method": []string{SKILLS_LIST}})
-	if err == nil {
-		t.Fatal("skillsListHandler() = nil error, want the bad frontmatter to fail the request")
-	}
-	rpcErr, ok := res.(jsonrpc.JSONRPCError)
-	if !ok {
-		t.Fatalf("response is %T, want jsonrpc.JSONRPCError", res)
-	}
-	want := `skill "skill://broken/SKILL.md": SKILL.md must open with YAML frontmatter delimited by ---`
-	if got := rpcErr.Error.Message; got != want {
-		t.Errorf("client message = %q, want %q", got, want)
-	}
-}
-
-// TestSkillsListEmptyCatalogue pins the wire shape when the config declares no
-// skill. A nil slice marshals to null, not to a list, so
-// GenerateListSkillsResult substitutes an empty slice.
-func TestSkillsListEmptyCatalogue(t *testing.T) {
-	ctx := skillsTestContext(t)
-	Initialize(nil)
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
-		map[string]resources.Resource{
-			"plain": skillTextResource(t, ctx, "plain", "text:///not-a-skill", "unrelated"),
-		}, nil, nil)
-
-	body, err := json.Marshal(ListSkillsRequest{
-		Request: jsonrpc.Request{Method: SKILLS_LIST},
-		Params:  RequestParams{Meta: skillsValidMeta()},
-	})
-	if err != nil {
-		t.Fatalf("unable to marshal body: %s", err)
-	}
-	res, err := skillsListHandler(ctx, "id", primitiveMgr, body, http.Header{"Mcp-Method": []string{SKILLS_LIST}})
-	if err != nil {
-		t.Fatalf("skillsListHandler() = %v, want nil", err)
-	}
-	result, ok := res.(jsonrpc.JSONRPCResponse).Result.(ListSkillsResult)
-	if !ok {
-		t.Fatalf("result is %T, want ListSkillsResult", res.(jsonrpc.JSONRPCResponse).Result)
-	}
-	if len(result.Skills) != 0 {
-		t.Errorf("skills = %v, want none", result.Skills)
-	}
-
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatalf("unable to marshal result: %s", err)
-	}
-	if !strings.Contains(string(encoded), `"skills":[]`) {
-		t.Errorf("result marshalled to %s, want it to carry \"skills\":[]", encoded)
-	}
-}
-
-// TestSkillsFollowReload pins that skills/list and skills/get serve the skills
-// of the current resources map. Nothing derived from it is stored, so a reload
-// through SetPrimitives must show up on the next request.
-func TestSkillsFollowReload(t *testing.T) {
-	ctx := skillsTestContext(t)
-	Initialize(nil)
-	skillDoc := func(name string) resources.Resource {
-		return skillTextResource(t, ctx, name, "skill://"+name+"/SKILL.md",
-			"---\nname: "+name+"\ndescription: A skill\n---\n\n# "+name+"\n")
-	}
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil,
-		map[string]resources.Resource{"before": skillDoc("before")}, nil, nil)
-
-	listURIs := func() []string {
-		t.Helper()
-		result, err := GenerateListSkillsResult(ctx, primitiveMgr)
-		if err != nil {
-			t.Fatalf("GenerateListSkillsResult() = %v, want nil", err)
-		}
-		var uris []string
-		for _, e := range result.Skills {
-			uris = append(uris, e.URI)
-		}
-		return uris
-	}
-	if got, want := listURIs(), []string{"skill://before/SKILL.md"}; !slices.Equal(got, want) {
-		t.Fatalf("skills before reload = %v, want %v", got, want)
-	}
-
-	primitiveMgr.SetPrimitives(nil, nil, nil, nil, nil,
-		map[string]resources.Resource{"after": skillDoc("after")}, nil, nil)
-	if got, want := listURIs(), []string{"skill://after/SKILL.md"}; !slices.Equal(got, want) {
-		t.Errorf("skills after reload = %v, want %v", got, want)
-	}
-	if _, found, err := GenerateGetSkillResult(ctx, primitiveMgr, "skill://before/SKILL.md"); err != nil || found {
-		t.Errorf("GenerateGetSkillResult(removed skill) = found %v, err %v; want not found, nil", found, err)
-	}
-	if _, found, err := GenerateGetSkillResult(ctx, primitiveMgr, "skill://after/SKILL.md"); err != nil || !found {
-		t.Errorf("GenerateGetSkillResult(new skill) = found %v, err %v; want found, nil", found, err)
-	}
-}
-
-// TestSkillsMethodsDisabled pins the extension gate: skills/list and skills/get
-// answer MISSING_REQUIRED_CLIENT_CAPABILITY when the server disables the skills
-// extension (--disable-ext) or the client does not declare it.
-func TestSkillsMethodsDisabled(t *testing.T) {
-	ctx := skillsTestContext(t)
-	t.Cleanup(func() { Initialize(nil) })
-	primitiveMgr := skillsTestPrimitives(t, ctx)
-
-	undeclared := skillsValidMeta()
-	undeclared.MetaClientCapabilities = &ClientCapabilities{}
-
-	tcs := []struct {
-		name     string
-		disabled []string
-		meta     *RequestMetaObject
-	}{
-		{name: "disabled by server", disabled: []string{SkillsExtensionURI}, meta: skillsValidMeta()},
-		{name: "not declared by client", meta: undeclared},
-	}
-	for _, tc := range tcs {
-		Initialize(tc.disabled)
-		calls := map[string]func() (any, error){
-			SKILLS_LIST: func() (any, error) {
-				body, err := json.Marshal(ListSkillsRequest{
-					Request: jsonrpc.Request{Method: SKILLS_LIST},
-					Params:  RequestParams{Meta: tc.meta},
-				})
-				if err != nil {
-					t.Fatalf("unable to marshal body: %s", err)
-				}
-				return skillsListHandler(ctx, "id", primitiveMgr, body,
-					http.Header{"Mcp-Method": []string{SKILLS_LIST}})
-			},
-			SKILLS_GET: func() (any, error) {
-				body, err := json.Marshal(GetSkillRequest{
-					Request: jsonrpc.Request{Method: SKILLS_GET},
-					Params: GetSkillRequestParams{
-						RequestParams: RequestParams{Meta: tc.meta},
-						URI:           "skill://analytics-guide/SKILL.md",
-					},
-				})
-				if err != nil {
-					t.Fatalf("unable to marshal body: %s", err)
-				}
-				return skillsGetHandler(ctx, "id", primitiveMgr, body,
-					http.Header{"Mcp-Method": []string{SKILLS_GET}, "Mcp-Name": []string{"skill://analytics-guide/SKILL.md"}})
-			},
-		}
-		for method, call := range calls {
-			t.Run(tc.name+"/"+method, func(t *testing.T) {
-				res, err := call()
-				if err == nil {
-					t.Fatalf("%s handler = nil error, want missing client capability", method)
-				}
-				rpcErr, ok := res.(jsonrpc.JSONRPCError)
-				if !ok {
-					t.Fatalf("response is %T, want jsonrpc.JSONRPCError", res)
-				}
-				if rpcErr.Error.Code != jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY {
-					t.Errorf("error code = %d, want %d", rpcErr.Error.Code, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY)
-				}
-			})
-		}
 	}
 }
