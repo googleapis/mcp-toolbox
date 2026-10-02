@@ -35,8 +35,16 @@ import (
 	"github.com/googleapis/mcp-toolbox/tests"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// datalineageCleanupTimeout bounds the deletion of the lineage resources.
+// Cleanups detach from the test context's cancellation (it is already cancelled
+// when they run), so they need their own deadline to fail fast if the API stops
+// responding.
+const datalineageCleanupTimeout = 2 * time.Minute
 
 var (
 	DatalineageSourceType     = "datalineage"
@@ -67,20 +75,41 @@ func initLineageConnection(ctx context.Context) (*lineage.Client, error) {
 	return client, nil
 }
 
-func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineage.Client, project string, uuidStr string) (string, string, string, func(*testing.T)) {
+// setupDatalineageResources creates a lineage process, run and event linking a
+// source entity to a target entity. The process (and everything under it) is
+// deleted on cleanup; the cleanup is registered before the process is created
+// so a partially failed setup is still cleaned up.
+func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineage.Client, project string, uuidStr string) (string, string, string) {
+	t.Helper()
 	parent := fmt.Sprintf("projects/%s/locations/us", project)
 	processID := fmt.Sprintf("mcp-process-%s", uuidStr)
 	runID := fmt.Sprintf("mcp-run-%s", uuidStr)
 	eventID := fmt.Sprintf("mcp-event-%s", uuidStr)
+	processName := fmt.Sprintf("%s/processes/%s", parent, processID)
 
 	sourceFQN := fmt.Sprintf("custom:%s_source", uuidStr)
 	targetFQN := fmt.Sprintf("custom:%s_target", uuidStr)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), datalineageCleanupTimeout)
+		defer cancel()
+		op, err := client.DeleteProcess(cleanupCtx, &lineagepb.DeleteProcessRequest{Name: processName})
+		if err != nil {
+			if status.Code(err) != codes.NotFound {
+				t.Errorf("Failed to delete process %s: %v", processName, err)
+			}
+			return
+		}
+		if err := op.Wait(cleanupCtx); err != nil {
+			t.Logf("Warning: Failed to wait for delete process %s: %v", processName, err)
+		}
+	})
 
 	// 1. Create Process
 	createProcessReq := &lineagepb.CreateProcessRequest{
 		Parent: parent,
 		Process: &lineagepb.Process{
-			Name:        fmt.Sprintf("%s/processes/%s", parent, processID),
+			Name:        processName,
 			DisplayName: fmt.Sprintf("MCP Test Process %s", uuidStr),
 		},
 	}
@@ -128,22 +157,7 @@ func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineag
 		t.Fatalf("Failed to create lineage event %s: %v", eventID, err)
 	}
 
-	// Teardown function
-	teardown := func(t *testing.T) {
-		deleteProcessReq := &lineagepb.DeleteProcessRequest{
-			Name: process.GetName(),
-		}
-		op, err := client.DeleteProcess(ctx, deleteProcessReq)
-		if err != nil {
-			t.Errorf("Failed to delete process %s: %v", process.GetName(), err)
-			return
-		}
-		if err := op.Wait(ctx); err != nil {
-			t.Logf("Warning: Failed to wait for delete process %s: %v", process.GetName(), err)
-		}
-	}
-
-	return sourceFQN, targetFQN, process.GetName(), teardown
+	return sourceFQN, targetFQN, process.GetName()
 }
 
 func getDatalineageToolsConfig(sourceConfig map[string]any) map[string]any {
@@ -161,43 +175,150 @@ func getDatalineageToolsConfig(sourceConfig map[string]any) map[string]any {
 	}
 }
 
-func TestDatalineageToolEndpoints(t *testing.T) {
+// setupDatalineageTest creates the lineage resources used by the search tests
+// and returns the tools file along with the source and target FQNs and the
+// process name. The Lineage client is closed on cleanup.
+func setupDatalineageTest(t *testing.T, ctx context.Context) (map[string]any, string, string, string) {
+	t.Helper()
 	sourceConfig := getDatalineageVars(t)
 	project := sourceConfig["project"].(string)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
 
 	lineageClient, err := initLineageConnection(ctx)
 	if err != nil {
 		t.Fatalf("unable to create Lineage connection: %s", err)
 	}
-	defer lineageClient.Close()
+	t.Cleanup(func() {
+		if err := lineageClient.Close(); err != nil {
+			t.Errorf("unable to close Lineage client: %s", err)
+		}
+	})
 
 	uuidStr := strings.ReplaceAll(uuid.New().String(), "-", "")
-	sourceFQN, targetFQN, processName, teardownResources := setupDatalineageResources(t, ctx, lineageClient, project, uuidStr)
-	defer teardownResources(t)
+	sourceFQN, targetFQN, processName := setupDatalineageResources(t, ctx, lineageClient, project, uuidStr)
 
-	toolsFile := getDatalineageToolsConfig(sourceConfig)
+	return getDatalineageToolsConfig(sourceConfig), sourceFQN, targetFQN, processName
+}
 
+// datalineageTransport selects how the tests talk to the toolbox server: the
+// legacy REST API, or the MCP endpoint when isMCP is set.
+type datalineageTransport struct {
+	isMCP bool
+}
+
+// datalineageResult is the outcome of a tool invocation. result holds the tool
+// result as the REST API returns it. toolErr is set when the tool reported an
+// error: an MCP error result, or an error result over REST.
+type datalineageResult struct {
+	status  int
+	result  string
+	toolErr bool
+}
+
+// startServer starts the toolbox server with toolsFile and waits until it is
+// ready to serve. The REST API is only enabled for the non-MCP transport.
+func (tr datalineageTransport) startServer(t *testing.T, ctx context.Context, toolsFile map[string]any) {
+	t.Helper()
+	var args []string
+	if !tr.isMCP {
+		args = append(args, "--enable-api")
+	}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
-	defer cancel()
+	waitCtx, waitCancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer waitCancel()
 	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
+}
+
+// invoke calls toolName with args through the selected transport. It returns
+// an error only when the request itself fails, so callers that poll can retry.
+func (tr datalineageTransport) invoke(t *testing.T, ctx context.Context, toolName string, args map[string]any) (datalineageResult, error) {
+	t.Helper()
+	if tr.isMCP {
+		statusCode, mcpResp, err := tests.InvokeMCPTool(t, toolName, args, nil)
+		if err != nil {
+			return datalineageResult{}, err
+		}
+		if mcpResp.Error != nil {
+			return datalineageResult{status: statusCode, result: mcpResp.Error.Message, toolErr: true}, nil
+		}
+		var text strings.Builder
+		for _, content := range mcpResp.Result.Content {
+			text.WriteString(content.Text)
+		}
+		if mcpResp.Result.IsError {
+			return datalineageResult{status: statusCode, result: text.String(), toolErr: true}, nil
+		}
+		// The search tool returns a single JSON document, which the MCP server
+		// sends as one text content block.
+		if len(mcpResp.Result.Content) != 1 {
+			t.Fatalf("%s returned %d content blocks, want 1: %v", toolName, len(mcpResp.Result.Content), mcpResp.Result.Content)
+		}
+		return datalineageResult{status: statusCode, result: text.String()}, nil
+	}
+
+	reqBytes, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("error marshaling request body: %s", err)
+	}
+	api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		t.Fatalf("error creating request: %s", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return datalineageResult{}, err
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return datalineageResult{}, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return datalineageResult{status: resp.StatusCode, result: string(bodyBytes)}, nil
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		return datalineageResult{}, fmt.Errorf("error parsing response body %q: %w", string(bodyBytes), err)
+	}
+	if errVal, ok := body["error"]; ok && errVal != nil {
+		return datalineageResult{status: resp.StatusCode, result: fmt.Sprint(errVal), toolErr: true}, nil
+	}
+	resultStr, _ := body["result"].(string)
+	// Tool errors are returned over REST as a successful response whose result
+	// is an {"error": ...} object.
+	var errResult map[string]any
+	toolErr := json.Unmarshal([]byte(resultStr), &errResult) == nil && errResult["error"] != nil
+	return datalineageResult{status: resp.StatusCode, result: resultStr, toolErr: toolErr}, nil
+}
+
+func TestDatalineageToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	toolsFile, sourceFQN, targetFQN, processName := setupDatalineageTest(t, ctx)
+
+	tr := datalineageTransport{}
+	tr.startServer(t, ctx, toolsFile)
 
 	runDatalineageToolGetTest(t)
+	runDatalineageSearchTests(t, ctx, tr, sourceFQN, targetFQN, processName)
+}
 
+// runDatalineageSearchTests polls until the new lineage link is indexed, then
+// checks upstream search, process details and parameter validation.
+func runDatalineageSearchTests(t *testing.T, ctx context.Context, tr datalineageTransport, sourceFQN, targetFQN, processName string) {
 	reqBody := map[string]any{
 		"locations": []string{"us"},
 		"root_entities": []any{
@@ -210,72 +331,71 @@ func TestDatalineageToolEndpoints(t *testing.T) {
 	t.Log("Polling search lineage index for the new link with exponential backoff...")
 	// Poll up to 3 minutes for eventual consistency
 	pollTimeout := 3 * time.Minute
-	links, err := pollSearchLineage(t, "my-datalineage-search-tool", reqBody, sourceFQN, targetFQN, pollTimeout)
+	links, err := pollSearchLineage(t, ctx, tr, "my-datalineage-search-tool", reqBody, sourceFQN, targetFQN, pollTimeout)
 	if err != nil {
 		t.Fatalf("failed to find the link in search index within %s timeout: %v", pollTimeout, err)
 	}
 
 	runDatalineageSearchUpstreamTest(t, links, sourceFQN, targetFQN)
-	runDatalineageSearchWithProcessDetailsTest(t, sourceFQN, targetFQN, processName)
-	runDatalineageSearchValidationErrorTest(t, targetFQN)
+	runDatalineageSearchWithProcessDetailsTest(t, ctx, tr, sourceFQN, targetFQN, processName)
+	runDatalineageSearchValidationErrorTest(t, ctx, tr, targetFQN)
 }
 
-func pollSearchLineage(t *testing.T, toolName string, reqBody map[string]any, wantSourceFQN, wantTargetFQN string, timeout time.Duration) ([]map[string]any, error) {
-	reqBytes, _ := json.Marshal(reqBody)
+// sleepCtx waits for d, returning early with the context's error if ctx is
+// done first.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func pollSearchLineage(t *testing.T, ctx context.Context, tr datalineageTransport, toolName string, reqBody map[string]any, wantSourceFQN, wantTargetFQN string, timeout time.Duration) ([]map[string]any, error) {
 	startTime := time.Now()
 	delay := 2 * time.Second
 	maxDelay := 30 * time.Second
 
 	for time.Since(startTime) < timeout {
 		t.Logf("Querying search lineage index (elapsed: %s, next poll in %s)...", time.Since(startTime).Round(time.Second), delay)
-		resp, err := http.Post(
-			fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName),
-			"application/json",
-			bytes.NewBuffer(reqBytes),
-		)
-		if err == nil {
-			defer resp.Body.Close()
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			if resp.StatusCode == 200 {
-				var result map[string]interface{}
-				if err := json.Unmarshal(bodyBytes, &result); err == nil {
-					if errVal, ok := result["error"]; ok && errVal != nil {
-						t.Logf("  Tool returned error: %v", errVal)
-					} else {
-						resultStr, ok := result["result"].(string)
-						if ok && resultStr != "" && resultStr != "null" {
-							var searchResp struct {
-								Links       []map[string]any `json:"links"`
-								Unreachable []string         `json:"unreachable"`
-							}
-							if err := json.Unmarshal([]byte(resultStr), &searchResp); err == nil {
-								if len(searchResp.Unreachable) > 0 {
-									t.Logf("  Unreachable locations detected: %v", searchResp.Unreachable)
-								}
-								// Check if our link is in the list
-								for _, link := range searchResp.Links {
-									source, _ := link["source"].(map[string]any)
-									target, _ := link["target"].(map[string]any)
-									// Assert using snake_case as protobuf generates standard JSON tags in snake_case
-									if source["fully_qualified_name"] == wantSourceFQN && target["fully_qualified_name"] == wantTargetFQN {
-										t.Logf("Link successfully indexed after %s", time.Since(startTime).String())
-										return searchResp.Links, nil // Found!
-									}
-								}
-							} else {
-								t.Logf("  failed to unmarshal resultStr: %v", err)
-							}
-						}
-					}
-				}
-			} else {
-				t.Logf("  Server returned HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+		res, err := tr.invoke(t, ctx, toolName, reqBody)
+		switch {
+		case err != nil:
+			t.Logf("  request error: %v", err)
+		case res.status != http.StatusOK:
+			t.Logf("  Server returned HTTP %d: %s", res.status, res.result)
+		case res.toolErr:
+			t.Logf("  Tool returned error: %s", res.result)
+		case res.result != "" && res.result != "null":
+			var searchResp struct {
+				Links       []map[string]any `json:"links"`
+				Unreachable []string         `json:"unreachable"`
 			}
-		} else {
-			t.Logf("  HTTP POST error: %v", err)
+			if err := json.Unmarshal([]byte(res.result), &searchResp); err != nil {
+				t.Logf("  failed to unmarshal result %q: %v", res.result, err)
+				break
+			}
+			if len(searchResp.Unreachable) > 0 {
+				t.Logf("  Unreachable locations detected: %v", searchResp.Unreachable)
+			}
+			// Check if our link is in the list
+			for _, link := range searchResp.Links {
+				source, _ := link["source"].(map[string]any)
+				target, _ := link["target"].(map[string]any)
+				// Assert using snake_case as protobuf generates standard JSON tags in snake_case
+				if source["fully_qualified_name"] == wantSourceFQN && target["fully_qualified_name"] == wantTargetFQN {
+					t.Logf("Link successfully indexed after %s", time.Since(startTime).String())
+					return searchResp.Links, nil // Found!
+				}
+			}
 		}
 
-		time.Sleep(delay)
+		if err := sleepCtx(ctx, delay); err != nil {
+			return nil, err
+		}
 		// Exponential backoff
 		delay = delay * 2
 		if delay > maxDelay {
@@ -362,7 +482,7 @@ func runDatalineageSearchUpstreamTest(t *testing.T, links []map[string]any, sour
 	})
 }
 
-func runDatalineageSearchWithProcessDetailsTest(t *testing.T, sourceFQN, targetFQN, processName string) {
+func runDatalineageSearchWithProcessDetailsTest(t *testing.T, ctx context.Context, tr datalineageTransport, sourceFQN, targetFQN, processName string) {
 	t.Run("Search Lineage with Full Process Details (FieldMask)", func(t *testing.T) {
 		reqBody := map[string]any{
 			"locations": []string{"us"},
@@ -375,7 +495,6 @@ func runDatalineageSearchWithProcessDetailsTest(t *testing.T, sourceFQN, targetF
 			"max_process_per_link":    1,
 			"request_process_details": true,
 		}
-		reqBytes, _ := json.Marshal(reqBody)
 
 		// Poll for process details to appear (eventual consistency of joins in GCP backend)
 		startTime := time.Now()
@@ -384,36 +503,29 @@ func runDatalineageSearchWithProcessDetailsTest(t *testing.T, sourceFQN, targetF
 		found := false
 
 		for time.Since(startTime) < timeout {
-			resp, err := http.Post(
-				"http://127.0.0.1:5000/api/tool/my-datalineage-search-tool/invoke",
-				"application/json",
-				bytes.NewBuffer(reqBytes),
-			)
+			if err := ctx.Err(); err != nil {
+				t.Fatalf("context done while waiting for process details: %v", err)
+			}
+			res, err := tr.invoke(t, ctx, "my-datalineage-search-tool", reqBody)
 			if err != nil {
-				t.Logf("  HTTP POST error: %v", err)
-				time.Sleep(delay)
+				t.Logf("  request error: %v", err)
+				if err := sleepCtx(ctx, delay); err != nil {
+					t.Fatalf("context done while waiting for process details: %v", err)
+				}
 				continue
 			}
-			defer resp.Body.Close()
-
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			if resp.StatusCode != 200 {
-				t.Logf("  Server returned HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-				time.Sleep(delay)
+			if res.status != http.StatusOK || res.toolErr {
+				t.Logf("  Server returned HTTP %d (tool error: %v): %s", res.status, res.toolErr, res.result)
+				if err := sleepCtx(ctx, delay); err != nil {
+					t.Fatalf("context done while waiting for process details: %v", err)
+				}
 				continue
 			}
-
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Logf("  failed to decode response body: %v", err)
-				time.Sleep(delay)
-				continue
-			}
-
-			resultStr, ok := result["result"].(string)
-			if !ok || resultStr == "" || resultStr == "null" {
+			if res.result == "" || res.result == "null" {
 				t.Log("  Empty result in process details query, retrying...")
-				time.Sleep(delay)
+				if err := sleepCtx(ctx, delay); err != nil {
+					t.Fatalf("context done while waiting for process details: %v", err)
+				}
 				continue
 			}
 
@@ -421,9 +533,11 @@ func runDatalineageSearchWithProcessDetailsTest(t *testing.T, sourceFQN, targetF
 				Links       []map[string]any `json:"links"`
 				Unreachable []string         `json:"unreachable"`
 			}
-			if err := json.Unmarshal([]byte(resultStr), &searchResp); err != nil {
-				t.Logf("  failed to unmarshal search response: %v", err)
-				time.Sleep(delay)
+			if err := json.Unmarshal([]byte(res.result), &searchResp); err != nil {
+				t.Logf("  failed to unmarshal search response %q: %v", res.result, err)
+				if err := sleepCtx(ctx, delay); err != nil {
+					t.Fatalf("context done while waiting for process details: %v", err)
+				}
 				continue
 			}
 			links := searchResp.Links
@@ -461,7 +575,9 @@ func runDatalineageSearchWithProcessDetailsTest(t *testing.T, sourceFQN, targetF
 				break
 			}
 			t.Log("  Process details display_name not populated yet, retrying...")
-			time.Sleep(delay)
+			if err := sleepCtx(ctx, delay); err != nil {
+				t.Fatalf("context done while waiting for process details: %v", err)
+			}
 		}
 
 		if !found {
@@ -470,7 +586,7 @@ func runDatalineageSearchWithProcessDetailsTest(t *testing.T, sourceFQN, targetF
 	})
 }
 
-func runDatalineageSearchValidationErrorTest(t *testing.T, targetFQN string) {
+func runDatalineageSearchValidationErrorTest(t *testing.T, ctx context.Context, tr datalineageTransport, targetFQN string) {
 	t.Run("Search Lineage Validation Error (Missing max_process)", func(t *testing.T) {
 		reqBody := map[string]any{
 			"locations": []string{"us"},
@@ -483,36 +599,23 @@ func runDatalineageSearchValidationErrorTest(t *testing.T, targetFQN string) {
 			"request_process_details": true,
 			// max_process_per_link is omitted (defaults to 0)
 		}
-		reqBytes, _ := json.Marshal(reqBody)
 
-		resp, err := http.Post(
-			"http://127.0.0.1:5000/api/tool/my-datalineage-search-tool/invoke",
-			"application/json",
-			bytes.NewBuffer(reqBytes),
-		)
+		res, err := tr.invoke(t, ctx, "my-datalineage-search-tool", reqBody)
 		if err != nil {
 			t.Fatalf("unable to send request: %s", err)
 		}
-		defer resp.Body.Close()
 
-		// Validation errors (Agent errors) should return 200 OK with error in body
-		if resp.StatusCode != 200 {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			t.Fatalf("response status code is not 200. It is %d. Body: %s", resp.StatusCode, string(bodyBytes))
+		// Validation errors (Agent errors) should return 200 OK with the error
+		// in the body; over MCP they are reported as an error result.
+		if res.status != http.StatusOK {
+			t.Fatalf("response status code is not 200. It is %d. Body: %s", res.status, res.result)
+		}
+		if tr.isMCP && !res.toolErr {
+			t.Fatalf("expected an error result, got: %s", res.result)
 		}
 
-		var result map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			t.Fatalf("error parsing response body: %s", err)
-		}
-
-		resultStr, ok := result["result"].(string)
-		if !ok {
-			t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
-		}
-
-		if !strings.Contains(resultStr, "max_process_per_link must be greater than 0 when request_process_details is true") {
-			t.Fatalf("expected validation error message, got: %s", resultStr)
+		if !strings.Contains(res.result, "max_process_per_link must be greater than 0 when request_process_details is true") {
+			t.Fatalf("expected validation error message, got: %s", res.result)
 		}
 	})
 }
