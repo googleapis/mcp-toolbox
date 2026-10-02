@@ -169,9 +169,8 @@ attaches the same attributes as native
 [job labels](https://cloud.google.com/bigquery/docs/adding-labels#job-label)
 on every query job executed through the source's SQL execution path — the
 `bigquery-execute-sql`, `bigquery-sql`, `bigquery-forecast`, and
-`bigquery-analyze-contribution` tools. (The internal model-creation
-statement of `bigquery-analyze-contribution` runs outside that path and
-carries only the `mcp-toolbox-tool` label.) Labels appear in
+`bigquery-analyze-contribution` tools, including the internal
+model-creation statement of `bigquery-analyze-contribution`. Labels appear in
 `INFORMATION_SCHEMA.JOBS`, the Jobs API, audit logs, and billing exports —
 no query text parsing is needed to recover them.
 
