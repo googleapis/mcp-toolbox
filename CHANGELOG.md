@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.14.0](https://github.com/googleapis/mcp-toolbox/compare/v1.13.1...v1.14.0) (2026-10-02)
+
+
+### Features
+
+* **bigquery:** Support authorized views with dataset restrictions ([#2561](https://github.com/googleapis/mcp-toolbox/issues/2561)) ([441d4e7](https://github.com/googleapis/mcp-toolbox/commit/441d4e796ae4a7cae7673cb822481e9c63da920c))
+* **source/firestore:** Propagate requester header on collection listing for get_schema ([#4131](https://github.com/googleapis/mcp-toolbox/issues/4131)) ([0fa215a](https://github.com/googleapis/mcp-toolbox/commit/0fa215ac2ccf5576cc13a62fa3eb6df7efce99c3))
+* **sources/spanner:** Add support for Spanner Omni ([#4198](https://github.com/googleapis/mcp-toolbox/issues/4198)) ([a24e5e6](https://github.com/googleapis/mcp-toolbox/commit/a24e5e68567fa014a42fc6cc711faa82b964d4c0))
+* **tool/cloud-gemini-data-analytics-query:** Support Bigtable and Firestore references ([#4136](https://github.com/googleapis/mcp-toolbox/issues/4136)) ([3aff9a7](https://github.com/googleapis/mcp-toolbox/commit/3aff9a7d635f5dfb19de528b319cc7bbec398900))
+* **tool/looker:** Add looker-get-explore tool ([#4173](https://github.com/googleapis/mcp-toolbox/issues/4173)) ([ceb657e](https://github.com/googleapis/mcp-toolbox/commit/ceb657e0f01851834528d7e2fadbc4790913ce8d))
+
+
+### Bug Fixes
+
+* **test/alloydbainl:** Match query value instead of model-chosen alias ([#4125](https://github.com/googleapis/mcp-toolbox/issues/4125)) ([1b20eae](https://github.com/googleapis/mcp-toolbox/commit/1b20eaefcc452df0213c7aff1be54ca705de0d39))
+* **tool/bigquery:** Check lexically referenced datasets before dry run ([#4164](https://github.com/googleapis/mcp-toolbox/issues/4164)) ([912189f](https://github.com/googleapis/mcp-toolbox/commit/912189f6c842fdf8fc6ceb7d7a556cf9fa05286b))
+
 ## [1.13.1](https://github.com/googleapis/mcp-toolbox/compare/v1.13.0...v1.13.1) (2026-09-25)
 
 
