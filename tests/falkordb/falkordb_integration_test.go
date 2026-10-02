@@ -125,31 +125,36 @@ func newFalkorDBClient(t *testing.T) *falkordb.FalkorDB {
 	return client
 }
 
-// TestFalkorDBToolEndpoints sets up an integration test server and tests the
-// API endpoints of the FalkorDB tools: parameterized cypher, ad-hoc cypher
-// execution (including read-only enforcement, dry runs, and graph override),
-// schema extraction, and graph listing.
-func TestFalkorDBToolEndpoints(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+// setupFalkorDBInstance points the suite at a FalkorDB instance. It defaults to
+// an ephemeral container; the FALKORDB_* environment variables take precedence
+// when pointing the suite at an external instance. The package-level
+// connection variables are restored on cleanup so each test gets its own
+// container.
+func setupFalkorDBInstance(ctx context.Context, t *testing.T) {
+	t.Helper()
+	origHost, origPort, origGraph := FalkorDBHost, FalkorDBPort, FalkorDBGraph
+	t.Cleanup(func() {
+		FalkorDBHost, FalkorDBPort, FalkorDBGraph = origHost, origPort, origGraph
+	})
 
-	// Default to an ephemeral container; the FALKORDB_* environment variables
-	// take precedence when pointing the suite at an external instance.
 	if FalkorDBHost == "" {
 		host, port, cleanup := setupFalkorDBContainer(ctx, t)
 		t.Cleanup(cleanup)
 		FalkorDBHost, FalkorDBPort = host, port
 		FalkorDBGraph = "toolbox_test_graph"
 	}
+}
 
+// getFalkorDBToolsConfig returns the tools file shared by the FalkorDB
+// integration tests.
+func getFalkorDBToolsConfig(t *testing.T) map[string]any {
+	t.Helper()
 	sourceConfig := getFalkorDBVars(t)
-
-	args := []string{"--enable-api"}
 
 	emptyGraphSourceConfig := getFalkorDBVars(t)
 	emptyGraphSourceConfig["graph"] = "toolbox_nonexistent_graph"
 
-	toolsFile := map[string]any{
+	return map[string]any{
 		"sources": map[string]any{
 			"my-instance":       sourceConfig,
 			"my-empty-instance": emptyGraphSourceConfig,
@@ -208,6 +213,20 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 			},
 		},
 	}
+}
+
+// TestFalkorDBToolEndpoints sets up an integration test server and tests the
+// API endpoints of the FalkorDB tools: parameterized cypher, ad-hoc cypher
+// execution (including read-only enforcement, dry runs, and graph override),
+// schema extraction, and graph listing.
+func TestFalkorDBToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	setupFalkorDBInstance(ctx, t)
+
+	args := []string{"--enable-api"}
+	toolsFile := getFalkorDBToolsConfig(t)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
@@ -318,41 +337,89 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 	}
 
 	// Test tool `invoke` endpoints to verify their functionality.
-	invokeTcs := []struct {
-		name         string
-		api          string
-		requestBody  io.Reader
-		want         string
-		wantStatus   int
-		prepareData  func(t *testing.T)
-		validateFunc func(t *testing.T, body string)
-	}{
+	for _, tc := range getFalkorDBInvokeTestCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.prepareData != nil {
+				tc.prepareData(t)
+			}
+
+			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+			reqBytes, err := json.Marshal(tc.args)
+			if err != nil {
+				t.Fatalf("error marshaling request body: %s", err)
+			}
+			resp, err := http.Post(api, "application/json", bytes.NewBuffer(reqBytes))
+			if err != nil {
+				t.Fatalf("error when sending a request: %s", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				t.Fatalf("response status code: got %d, want %d: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+			}
+
+			var body map[string]any
+			err = json.NewDecoder(resp.Body).Decode(&body)
+			if err != nil {
+				t.Fatalf("error parsing response body")
+			}
+			got, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body")
+			}
+
+			switch {
+			case tc.wantContentErr != "":
+				if !strings.Contains(got, tc.wantContentErr) {
+					t.Errorf("expected %q in body: %s", tc.wantContentErr, got)
+				}
+			case tc.validateFunc != nil:
+				tc.validateFunc(t, got)
+			case got != tc.want:
+				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// falkorDBInvokeTestCase describes one tool invocation shared by the REST and
+// MCP FalkorDB integration tests.
+type falkorDBInvokeTestCase struct {
+	name           string
+	toolName       string
+	args           map[string]any
+	want           string
+	wantContentErr string
+	prepareData    func(t *testing.T)
+	validateFunc   func(t *testing.T, body string)
+}
+
+// getFalkorDBInvokeTestCases returns the tool invocations exercised by both the
+// REST and MCP FalkorDB integration tests.
+func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
+	return []falkorDBInvokeTestCase{
 		{
-			name:        "invoke my-simple-cypher-tool",
-			api:         "http://127.0.0.1:5000/api/tool/my-simple-cypher-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{}`)),
-			want:        "[{\"a\":1}]",
-			wantStatus:  http.StatusOK,
+			name:     "invoke my-simple-cypher-tool",
+			toolName: "my-simple-cypher-tool",
+			args:     map[string]any{},
+			want:     "[{\"a\":1}]",
 		},
 		{
-			name:        "invoke my-param-cypher-tool",
-			api:         "http://127.0.0.1:5000/api/tool/my-param-cypher-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"value": "hello"}`)),
-			want:        "[{\"echoed\":\"hello\"}]",
-			wantStatus:  http.StatusOK,
+			name:     "invoke my-param-cypher-tool",
+			toolName: "my-param-cypher-tool",
+			args:     map[string]any{"value": "hello"},
+			want:     "[{\"echoed\":\"hello\"}]",
 		},
 		{
-			name:        "invoke my-simple-execute-cypher-tool",
-			api:         "http://127.0.0.1:5000/api/tool/my-simple-execute-cypher-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"cypher": "RETURN 1 as a"}`)),
-			want:        "[{\"a\":1}]",
-			wantStatus:  http.StatusOK,
+			name:     "invoke my-simple-execute-cypher-tool",
+			toolName: "my-simple-execute-cypher-tool",
+			args:     map[string]any{"cypher": "RETURN 1 as a"},
+			want:     "[{\"a\":1}]",
 		},
 		{
-			name:        "invoke my-simple-execute-cypher-tool with write query",
-			api:         "http://127.0.0.1:5000/api/tool/my-simple-execute-cypher-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"cypher": "CREATE (:WriteTest {x: 1})"}`)),
-			wantStatus:  http.StatusOK,
+			name:     "invoke my-simple-execute-cypher-tool with write query",
+			toolName: "my-simple-execute-cypher-tool",
+			args:     map[string]any{"cypher": "CREATE (:WriteTest {x: 1})"},
 			prepareData: func(t *testing.T) {
 				client := newFalkorDBClient(t)
 				t.Cleanup(func() {
@@ -374,10 +441,9 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 			},
 		},
 		{
-			name:        "invoke my-simple-execute-cypher-tool with dry_run",
-			api:         "http://127.0.0.1:5000/api/tool/my-simple-execute-cypher-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"cypher": "MATCH (n) RETURN n", "dry_run": true}`)),
-			wantStatus:  http.StatusOK,
+			name:     "invoke my-simple-execute-cypher-tool with dry_run",
+			toolName: "my-simple-execute-cypher-tool",
+			args:     map[string]any{"cypher": "MATCH (n) RETURN n", "dry_run": true},
 			validateFunc: func(t *testing.T, body string) {
 				var result map[string]any
 				if err := json.Unmarshal([]byte(body), &result); err != nil {
@@ -393,21 +459,15 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 			},
 		},
 		{
-			name:        "invoke readonly tool with write query",
-			api:         "http://127.0.0.1:5000/api/tool/my-readonly-execute-cypher-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"cypher": "CREATE (:ReadOnlyViolation)"}`)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, "read-only") {
-					t.Errorf("expected read-only rejection in body: %s", body)
-				}
-			},
+			name:           "invoke readonly tool with write query",
+			toolName:       "my-readonly-execute-cypher-tool",
+			args:           map[string]any{"cypher": "CREATE (:ReadOnlyViolation)"},
+			wantContentErr: "read-only",
 		},
 		{
-			name:        "invoke graph override tool against another graph",
-			api:         "http://127.0.0.1:5000/api/tool/my-graph-override-execute-cypher-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(`{"cypher": "CREATE (:OverrideNode {x: 1}) RETURN 1 as ok", "graph": %q}`, "toolbox_override_test"))),
-			wantStatus:  http.StatusOK,
+			name:     "invoke graph override tool against another graph",
+			toolName: "my-graph-override-execute-cypher-tool",
+			args:     map[string]any{"cypher": "CREATE (:OverrideNode {x: 1}) RETURN 1 as ok", "graph": "toolbox_override_test"},
 			prepareData: func(t *testing.T) {
 				client := newFalkorDBClient(t)
 				t.Cleanup(func() {
@@ -432,10 +492,9 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 			},
 		},
 		{
-			name:        "invoke my-list-graphs-tool",
-			api:         "http://127.0.0.1:5000/api/tool/my-list-graphs-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{}`)),
-			wantStatus:  http.StatusOK,
+			name:     "invoke my-list-graphs-tool",
+			toolName: "my-list-graphs-tool",
+			args:     map[string]any{},
 			prepareData: func(t *testing.T) {
 				client := newFalkorDBClient(t)
 				if _, err := client.SelectGraph(FalkorDBGraph).Query("RETURN 1", nil, nil); err != nil {
@@ -464,10 +523,9 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 			},
 		},
 		{
-			name:        "invoke schema tool on nonexistent graph",
-			api:         "http://127.0.0.1:5000/api/tool/my-empty-graph-schema-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{}`)),
-			wantStatus:  http.StatusOK,
+			name:     "invoke schema tool on nonexistent graph",
+			toolName: "my-empty-graph-schema-tool",
+			args:     map[string]any{},
 			validateFunc: func(t *testing.T, body string) {
 				var schema map[string]any
 				if err := json.Unmarshal([]byte(body), &schema); err != nil {
@@ -486,10 +544,9 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 			},
 		},
 		{
-			name:        "invoke my-schema-tool with populated data",
-			api:         "http://127.0.0.1:5000/api/tool/my-schema-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{}`)),
-			wantStatus:  http.StatusOK,
+			name:     "invoke my-schema-tool with populated data",
+			toolName: "my-schema-tool",
+			args:     map[string]any{},
 			prepareData: func(t *testing.T) {
 				client := newFalkorDBClient(t)
 				graph := client.SelectGraph(FalkorDBGraph)
@@ -580,38 +637,5 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 				}
 			},
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.prepareData != nil {
-				tc.prepareData(t)
-			}
-
-			resp, err := http.Post(tc.api, "application/json", tc.requestBody)
-			if err != nil {
-				t.Fatalf("error when sending a request: %s", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != tc.wantStatus {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code: got %d, want %d: %s", resp.StatusCode, tc.wantStatus, string(bodyBytes))
-			}
-
-			var body map[string]any
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if tc.validateFunc != nil {
-				tc.validateFunc(t, got)
-			} else if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
 	}
 }
