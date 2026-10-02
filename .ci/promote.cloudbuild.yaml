@@ -1,0 +1,84 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+steps:
+  - id: "promote-docker"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor: ["-"]
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+
+      # Install jq (Required for parsing the API responses)
+      apt-get update && apt-get install -y jq
+
+      export VERSION=$(cat ./cmd/version.txt)
+      bash .ci/promote_artifacts.sh "${PROJECT_ID}" "${_REGION}" "${_STAGING_AR_REPO_NAME}" "${_PROD_AR_REPO_NAME}" "toolbox" "${VERSION}"
+
+  - id: "publish-npm-to-ar"
+    name: node:20
+    waitFor:
+      - "promote-docker"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/publish_npm_to_ar.sh
+
+  - id: "trigger-exit-gate-npm"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor:
+      - "publish-npm-to-ar"
+    env:
+      - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/trigger_exit_gate.sh npm
+
+  - id: "publish-pypi-to-ar"
+    name: python:3.12
+    waitFor:
+      - "promote-docker"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/publish_pypi_to_ar.sh
+
+  - id: "trigger-exit-gate-pypi"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor:
+      - "publish-pypi-to-ar"
+    env:
+      - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/trigger_exit_gate.sh pypi
+
+options:
+  automapSubstitutions: true
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+  pool:
+    name: projects/$PROJECT_ID/locations/us-central1/workerPools/run-release
+
+substitutions:
+  _REGION: us-central1
+  _STAGING_AR_REPO_NAME: toolbox-containers-staging
+  _PROD_AR_REPO_NAME: toolbox
+  _EXIT_GATE_PROJECT: "mcp-toolbox"
+  _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
+  _PUSH_TO_EXIT_GATES: "false"
