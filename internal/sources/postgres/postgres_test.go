@@ -16,6 +16,8 @@ package postgres_test
 
 import (
 	"context"
+	"net"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,6 +26,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources/postgres"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgproto3"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestParseFromYamlPostgres(t *testing.T) {
@@ -136,6 +140,32 @@ func TestParseFromYamlPostgres(t *testing.T) {
 					User:           "my_user",
 					Password:       "my_pass",
 					ConnectTimeout: intPtr(5),
+				},
+			},
+		},
+		{
+			desc: "example with readOnly",
+			in: `
+			kind: source
+			name: my-pg-instance
+			type: postgres
+			host: my-host
+			port: my-port
+			database: my_db
+			user: my_user
+			password: my_pass
+			readOnly: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-pg-instance": postgres.Config{
+					Name:     "my-pg-instance",
+					Type:     postgres.SourceType,
+					Host:     "my-host",
+					Port:     "my-port",
+					Database: "my_db",
+					User:     "my_user",
+					Password: "my_pass",
+					ReadOnly: true,
 				},
 			},
 		},
@@ -327,6 +357,352 @@ func TestParseQueryExecMode(t *testing.T) {
 			}
 			if !tc.wantErr && got != tc.want {
 				t.Errorf("parseQueryExecMode() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+type mockRow struct {
+	isSuper         bool
+	hasTableWrite   bool
+	hasSchemaCreate bool
+	err             error
+}
+
+func (m mockRow) Scan(dest ...any) error {
+	if m.err != nil {
+		return m.err
+	}
+	*(dest[0].(*bool)) = m.isSuper
+	*(dest[1].(*bool)) = m.hasTableWrite
+	*(dest[2].(*bool)) = m.hasSchemaCreate
+	return nil
+}
+
+type mockQuerier struct {
+	row mockRow
+}
+
+func (m mockQuerier) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return m.row
+}
+
+func TestVerifyReadOnlyPermissions(t *testing.T) {
+	tcs := []struct {
+		desc        string
+		row         mockRow
+		wantErr     bool
+		errContains string
+	}{
+		{
+			desc:    "valid strictly read-only user",
+			row:     mockRow{isSuper: false, hasTableWrite: false, hasSchemaCreate: false},
+			wantErr: false,
+		},
+		{
+			desc:        "superuser rejected",
+			row:         mockRow{isSuper: true, hasTableWrite: false, hasSchemaCreate: false},
+			wantErr:     true,
+			errContains: "is a superuser",
+		},
+		{
+			desc:        "user with table write grants rejected",
+			row:         mockRow{isSuper: false, hasTableWrite: true, hasSchemaCreate: false},
+			wantErr:     true,
+			errContains: "has table write privileges",
+		},
+		{
+			desc:        "user with schema CREATE privilege rejected",
+			row:         mockRow{isSuper: false, hasTableWrite: false, hasSchemaCreate: true},
+			wantErr:     true,
+			errContains: "has CREATE privilege",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := postgres.VerifyReadOnlyPermissions(context.Background(), mockQuerier{row: tc.row}, "test-source", "test-user")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("VerifyReadOnlyPermissions() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantErr && tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+				t.Errorf("VerifyReadOnlyPermissions() error = %q, want it to contain %q", err.Error(), tc.errContains)
+			}
+		})
+	}
+}
+
+func TestSource_IsReadOnly(t *testing.T) {
+	rwSource := &postgres.Source{Config: postgres.Config{ReadOnly: false}}
+	if rwSource.IsReadOnly() {
+		t.Errorf("expected IsReadOnly() == false, got true")
+	}
+
+	roSource := &postgres.Source{Config: postgres.Config{ReadOnly: true}}
+	if !roSource.IsReadOnly() {
+		t.Errorf("expected IsReadOnly() == true, got false")
+	}
+}
+
+func TestInitialize_ReadOnly_AllQueryExecModes(t *testing.T) {
+	modes := []string{
+		"cache_statement",
+		"cache_describe",
+		"describe_exec",
+		"exec",
+		"simple_protocol",
+	}
+
+	for _, mode := range modes {
+		t.Run("valid_reader_"+mode, func(t *testing.T) {
+			host, port, cleanup := startMockPostgresWireServer(t, false, false, false)
+			defer cleanup()
+
+			cfg := postgres.Config{
+				Name:          "ro-pg-" + mode,
+				Type:          postgres.SourceType,
+				Host:          host,
+				Port:          port,
+				User:          "reader",
+				Password:      "secret",
+				Database:      "mydb",
+				QueryExecMode: mode,
+				ReadOnly:      true,
+			}
+
+			src, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"))
+			if err != nil {
+				t.Fatalf("expected Initialize with queryExecMode %q to succeed for read-only user, got error: %v", mode, err)
+			}
+			if !src.IsReadOnly() {
+				t.Errorf("expected IsReadOnly() == true for mode %q", mode)
+			}
+		})
+
+		t.Run("superuser_blocked_"+mode, func(t *testing.T) {
+			host, port, cleanup := startMockPostgresWireServer(t, true, false, false)
+			defer cleanup()
+
+			cfg := postgres.Config{
+				Name:          "ro-pg-super-" + mode,
+				Type:          postgres.SourceType,
+				Host:          host,
+				Port:          port,
+				User:          "admin_user",
+				Password:      "secret",
+				Database:      "mydb",
+				QueryExecMode: mode,
+				ReadOnly:      true,
+			}
+
+			_, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"))
+			if err == nil {
+				t.Fatalf("expected Initialize with queryExecMode %q to fail closed for superuser", mode)
+			}
+			if !strings.Contains(err.Error(), "is a superuser") {
+				t.Errorf("expected error for mode %q to contain 'is a superuser', got: %v", mode, err)
+			}
+		})
+	}
+}
+
+func startMockPostgresWireServer(t *testing.T, isSuper, hasTableWrite, hasSchemaCreate bool) (string, string, func()) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to split host port: %v", err)
+	}
+
+	boolToByte := func(b bool) []byte {
+		if b {
+			return []byte{1}
+		}
+		return []byte{0}
+	}
+
+	boolToText := func(b bool) []byte {
+		if b {
+			return []byte("t")
+		}
+		return []byte("f")
+	}
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				backend := pgproto3.NewBackend(c, c)
+				if _, err := backend.ReceiveStartupMessage(); err != nil {
+					return
+				}
+				backend.Send(&pgproto3.AuthenticationOk{})
+				backend.Send(&pgproto3.ParameterStatus{Name: "standard_conforming_strings", Value: "on"})
+				backend.Send(&pgproto3.ParameterStatus{Name: "client_encoding", Value: "UTF8"})
+				backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+				if err := backend.Flush(); err != nil {
+					return
+				}
+
+				var isVerifyQuery bool
+				for {
+					msg, err := backend.Receive()
+					if err != nil {
+						return
+					}
+					switch m := msg.(type) {
+					case *pgproto3.Parse:
+						isVerifyQuery = strings.Contains(m.Query, "is_superuser")
+						backend.Send(&pgproto3.ParseComplete{})
+					case *pgproto3.Describe:
+						if m.ObjectType == 'S' {
+							if isVerifyQuery {
+								backend.Send(&pgproto3.ParameterDescription{ParameterOIDs: []uint32{25}})
+							} else {
+								backend.Send(&pgproto3.ParameterDescription{})
+							}
+						}
+						if isVerifyQuery {
+							backend.Send(&pgproto3.RowDescription{
+								Fields: []pgproto3.FieldDescription{
+									{Name: []byte("is_superuser"), DataTypeOID: 16, DataTypeSize: 1, Format: 1},
+									{Name: []byte("has_table_write"), DataTypeOID: 16, DataTypeSize: 1, Format: 1},
+									{Name: []byte("has_schema_create"), DataTypeOID: 16, DataTypeSize: 1, Format: 1},
+								},
+							})
+						} else {
+							backend.Send(&pgproto3.NoData{})
+						}
+					case *pgproto3.Bind:
+						backend.Send(&pgproto3.BindComplete{})
+					case *pgproto3.Execute:
+						if isVerifyQuery {
+							backend.Send(&pgproto3.DataRow{
+								Values: [][]byte{
+									boolToByte(isSuper),
+									boolToByte(hasTableWrite),
+									boolToByte(hasSchemaCreate),
+								},
+							})
+							backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+						} else {
+							backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("PING")})
+						}
+					case *pgproto3.Sync:
+						backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+						if err := backend.Flush(); err != nil {
+							return
+						}
+					case *pgproto3.Query:
+						if strings.Contains(m.String, "is_superuser") {
+							backend.Send(&pgproto3.RowDescription{
+								Fields: []pgproto3.FieldDescription{
+									{Name: []byte("is_superuser"), DataTypeOID: 16, DataTypeSize: 1, Format: 0},
+									{Name: []byte("has_table_write"), DataTypeOID: 16, DataTypeSize: 1, Format: 0},
+									{Name: []byte("has_schema_create"), DataTypeOID: 16, DataTypeSize: 1, Format: 0},
+								},
+							})
+							backend.Send(&pgproto3.DataRow{
+								Values: [][]byte{
+									boolToText(isSuper),
+									boolToText(hasTableWrite),
+									boolToText(hasSchemaCreate),
+								},
+							})
+						}
+						backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("SELECT 1")})
+						backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+						if err := backend.Flush(); err != nil {
+							return
+						}
+					case *pgproto3.Terminate:
+						return
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	return host, port, func() { _ = listener.Close() }
+}
+
+func TestInitialize_ReadOnly_WireProtocol(t *testing.T) {
+	tcs := []struct {
+		desc            string
+		isSuper         bool
+		hasTableWrite   bool
+		hasSchemaCreate bool
+		wantErr         bool
+		errContains     string
+	}{
+		{
+			desc:            "strictly read-only user connects and initializes successfully",
+			isSuper:         false,
+			hasTableWrite:   false,
+			hasSchemaCreate: false,
+			wantErr:         false,
+		},
+		{
+			desc:            "admin superuser fails closed at initialization",
+			isSuper:         true,
+			hasTableWrite:   false,
+			hasSchemaCreate: false,
+			wantErr:         true,
+			errContains:     "is a superuser",
+		},
+		{
+			desc:            "table writer fails closed at initialization",
+			isSuper:         false,
+			hasTableWrite:   true,
+			hasSchemaCreate: false,
+			wantErr:         true,
+			errContains:     "has table write privileges",
+		},
+		{
+			desc:            "schema creator fails closed at initialization",
+			isSuper:         false,
+			hasTableWrite:   false,
+			hasSchemaCreate: true,
+			wantErr:         true,
+			errContains:     "has CREATE privilege",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			host, port, cleanup := startMockPostgresWireServer(t, tc.isSuper, tc.hasTableWrite, tc.hasSchemaCreate)
+			defer cleanup()
+
+			cfg := postgres.Config{
+				Name:     "wire-test-pg",
+				Type:     postgres.SourceType,
+				Host:     host,
+				Port:     port,
+				User:     "test_user",
+				Password: "test_password",
+				Database: "test_db",
+				ReadOnly: true,
+			}
+
+			src, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Initialize() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantErr {
+				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
+					t.Errorf("Initialize() error = %q, want it to contain %q", err.Error(), tc.errContains)
+				}
+				return
+			}
+			if !src.IsReadOnly() {
+				t.Errorf("expected initialized source IsReadOnly() == true, got false")
 			}
 		})
 	}
