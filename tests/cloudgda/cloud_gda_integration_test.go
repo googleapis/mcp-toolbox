@@ -108,11 +108,16 @@ func getCloudGdaToolsConfig() map[string]any {
 	}
 }
 
-func TestCloudGdaToolEndpoints(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+// cloudGDACleanupTimeout bounds each cleanup operation. Cleanups detach from
+// the test context's cancellation (it is already cancelled when they run), so
+// they need their own deadline to fail fast if an API stops responding.
+const cloudGDACleanupTimeout = 2 * time.Minute
 
-	// Start a gRPC server
+// startCloudGdaMockServer starts an in-process Data Chat gRPC server and points
+// the source's client at it. The server is stopped and the client override
+// restored on cleanup.
+func startCloudGdaMockServer(t *testing.T) {
+	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
@@ -125,16 +130,16 @@ func TestCloudGdaToolEndpoints(t *testing.T) {
 			t.Logf("server executed: %v", err)
 		}
 	}()
-	defer s.Stop()
+	t.Cleanup(s.Stop)
 
 	// Configure toolbox to use the gRPC server
 	endpoint := lis.Addr().String()
 
 	// Override client creation
 	origFunc := source.NewDataChatClient
-	defer func() {
+	t.Cleanup(func() {
 		source.NewDataChatClient = origFunc
-	}()
+	})
 
 	source.NewDataChatClient = func(ctx context.Context, opts ...option.ClientOption) (*geminidataanalytics.DataChatClient, error) {
 		opts = append(opts,
@@ -143,22 +148,155 @@ func TestCloudGdaToolEndpoints(t *testing.T) {
 			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
 		return origFunc(ctx, opts...)
 	}
+}
 
-	args := []string{"--enable-api"}
-	toolsFile := getCloudGdaToolsConfig()
+// cloudGDATransport selects how the tests talk to the toolbox server: the
+// legacy REST API, or the MCP endpoint when isMCP is set.
+type cloudGDATransport struct {
+	isMCP bool
+}
+
+// cloudGDAResult is the outcome of a tool invocation. result holds the tool
+// result as the REST API returns it, or the error text when the call failed.
+// toolErr is set when MCP reported an error.
+type cloudGDAResult struct {
+	status  int
+	result  string
+	toolErr bool
+}
+
+// startServer starts the toolbox server with toolsFile and waits until it is
+// ready to serve. The REST API is only enabled for the non-MCP transport.
+func (tr cloudGDATransport) startServer(t *testing.T, ctx context.Context, toolsFile map[string]any) {
+	t.Helper()
+	var args []string
+	if !tr.isMCP {
+		args = append(args, "--enable-api")
+	}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
 	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
+}
+
+// invoke calls toolName with args and request headers through the selected
+// transport, honoring ctx for the request. It returns an error only when the
+// request itself fails, so callers can retry.
+func (tr cloudGDATransport) invoke(t *testing.T, ctx context.Context, toolName string, args map[string]any, headers map[string]string) (cloudGDAResult, error) {
+	t.Helper()
+	url := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+	var payload any = args
+	reqHeaders := map[string]string{"Content-Type": "application/json"}
+	for k, v := range headers {
+		reqHeaders[k] = v
+	}
+	if tr.isMCP {
+		url = "http://127.0.0.1:5000/mcp"
+		payload = tests.NewMCPCallToolRequest(uuid.New().String(), toolName, args)
+		reqHeaders = tests.NewMCPRequestHeader(t, headers)
+	}
+
+	reqBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unable to marshal request body: %s", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		t.Fatalf("unable to create request: %s", err)
+	}
+	for k, v := range reqHeaders {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return cloudGDAResult{}, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return cloudGDAResult{}, err
+	}
+
+	if !tr.isMCP {
+		if resp.StatusCode != http.StatusOK {
+			return cloudGDAResult{status: resp.StatusCode, result: string(respBody)}, nil
+		}
+		var body map[string]any
+		if err := json.Unmarshal(respBody, &body); err != nil {
+			t.Fatalf("error parsing response body %q: %s", string(respBody), err)
+		}
+		result, ok := body["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body: %s", string(respBody))
+		}
+		return cloudGDAResult{status: resp.StatusCode, result: result}, nil
+	}
+
+	var mcpResp tests.MCPCallToolResponse
+	if err := json.Unmarshal(respBody, &mcpResp); err != nil {
+		if resp.StatusCode != http.StatusOK {
+			return cloudGDAResult{status: resp.StatusCode, result: string(respBody), toolErr: true}, nil
+		}
+		t.Fatalf("error parsing MCP response body %q: %s", string(respBody), err)
+	}
+	if mcpResp.Error != nil {
+		return cloudGDAResult{status: resp.StatusCode, result: mcpResp.Error.Message, toolErr: true}, nil
+	}
+	var text strings.Builder
+	for _, content := range mcpResp.Result.Content {
+		text.WriteString(content.Text)
+	}
+	if mcpResp.Result.IsError || len(mcpResp.Result.Content) <= 1 {
+		return cloudGDAResult{status: resp.StatusCode, result: text.String(), toolErr: mcpResp.Result.IsError}, nil
+	}
+	// Multiple content blocks are rows of a []any result; flatten them into the
+	// JSON array the REST API returns.
+	rows := []any{}
+	for _, content := range mcpResp.Result.Content {
+		var item any
+		if err := json.Unmarshal([]byte(content.Text), &item); err != nil {
+			rows = append(rows, content.Text)
+			continue
+		}
+		if slice, ok := item.([]any); ok {
+			rows = append(rows, slice...)
+		} else {
+			rows = append(rows, item)
+		}
+	}
+	b, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatalf("error marshaling MCP result: %s", err)
+	}
+	return cloudGDAResult{status: resp.StatusCode, result: string(b)}, nil
+}
+
+// mustInvoke invokes toolName and fails the test if the request can't be sent.
+func (tr cloudGDATransport) mustInvoke(t *testing.T, ctx context.Context, toolName string, args map[string]any, headers map[string]string) cloudGDAResult {
+	t.Helper()
+	res, err := tr.invoke(t, ctx, toolName, args, headers)
+	if err != nil {
+		t.Fatalf("unable to send request: %s", err)
+	}
+	return res
+}
+
+func TestCloudGdaToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	startCloudGdaMockServer(t)
+	cloudGDATransport{}.startServer(t, ctx, getCloudGdaToolsConfig())
 
 	toolName := "cloud-gda-query"
 
@@ -238,7 +376,49 @@ func initBigQueryConnection(project string) (*bigqueryapi.Client, error) {
 	return client, nil
 }
 
-func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, createStatement, insertStatement, datasetName string, tableName string) func(*testing.T) {
+// setupBigQueryTable creates the dataset (if needed) and table used by the data
+// agents. The table is dropped, and the dataset deleted if empty, on cleanup;
+// the cleanup is registered first so a partially failed setup is still cleaned
+// up.
+func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, createStatement, insertStatement, datasetName string, tableName string) {
+	t.Helper()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cloudGDACleanupTimeout)
+		defer cancel()
+
+		// tear down table
+		dropSQL := fmt.Sprintf("drop table if exists %s", tableName)
+		dropJob, err := client.Query(dropSQL).Run(cleanupCtx)
+		if err != nil {
+			t.Errorf("Failed to start drop table job for %s: %v", tableName, err)
+			return
+		}
+		dropStatus, err := dropJob.Wait(cleanupCtx)
+		if err != nil {
+			t.Errorf("Failed to wait for drop table job for %s: %v", tableName, err)
+			return
+		}
+		if err := dropStatus.Err(); err != nil {
+			t.Errorf("Error dropping table %s: %v", tableName, err)
+		}
+
+		// tear down dataset
+		datasetToTeardown := client.Dataset(datasetName)
+		tablesIterator := datasetToTeardown.Tables(cleanupCtx)
+		_, err = tablesIterator.Next()
+
+		if err == iterator.Done {
+			if err := datasetToTeardown.Delete(cleanupCtx); err != nil {
+				t.Errorf("Failed to delete dataset %s: %v", datasetName, err)
+			}
+		} else if err != nil {
+			if apiErr, ok := err.(*googleapi.Error); ok && apiErr.Code == http.StatusNotFound {
+				return
+			}
+			t.Errorf("Failed to list tables in dataset %s to check emptiness: %v.", datasetName, err)
+		}
+	})
+
 	// Create dataset
 	dataset := client.Dataset(datasetName)
 	_, err := dataset.Metadata(ctx)
@@ -280,37 +460,6 @@ func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.C
 		}
 		if err := insertStatus.Err(); err != nil {
 			t.Fatalf("Insert job for %s failed: %v", tableName, err)
-		}
-	}
-
-	return func(t *testing.T) {
-		// tear down table
-		dropSQL := fmt.Sprintf("drop table %s", tableName)
-		dropJob, err := client.Query(dropSQL).Run(ctx)
-		if err != nil {
-			t.Errorf("Failed to start drop table job for %s: %v", tableName, err)
-			return
-		}
-		dropStatus, err := dropJob.Wait(ctx)
-		if err != nil {
-			t.Errorf("Failed to wait for drop table job for %s: %v", tableName, err)
-			return
-		}
-		if err := dropStatus.Err(); err != nil {
-			t.Errorf("Error dropping table %s: %v", tableName, err)
-		}
-
-		// tear down dataset
-		datasetToTeardown := client.Dataset(datasetName)
-		tablesIterator := datasetToTeardown.Tables(ctx)
-		_, err = tablesIterator.Next()
-
-		if err == iterator.Done {
-			if err := datasetToTeardown.Delete(ctx); err != nil {
-				t.Errorf("Failed to delete dataset %s: %v", datasetName, err)
-			}
-		} else if err != nil {
-			t.Errorf("Failed to list tables in dataset %s to check emptiness: %v.", datasetName, err)
 		}
 	}
 }
@@ -471,41 +620,10 @@ func deleteDataAgent(t *testing.T, ctx context.Context, client *http.Client, age
 	}
 }
 
-func TestCloudGDAConservationalAnalyticsTools(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	projectID := getCloudGDAProject(t)
-	client, err := initBigQueryConnection(projectID)
-	if err != nil {
-		t.Fatalf("unable to create BigQuery client: %s", err)
-	}
-
-	// Setup dataset and table for Data Agent
-	datasetName := fmt.Sprintf("data_agent_test_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
-	tableName := "test_table"
-	tableNameParam := fmt.Sprintf("`%s.%s.%s`", projectID, datasetName, tableName)
-
-	createTableStmt := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING)", tableNameParam)
-	teardownTable := setupBigQueryTable(t, ctx, client, createTableStmt, "", datasetName, tableNameParam)
-	// Runs before the data agents are deleted, because t.Cleanup functions run
-	// after the deferred ones. Deleting an agent does not touch its datasource,
-	// so dropping the dataset first is safe.
-	defer teardownTable(t)
-
-	// Create Data Agent
-	dataAgentDisplayName := fmt.Sprintf("test-agent-%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
-	dataAgentID := setupDataAgent(t, ctx, projectID, datasetName, tableName, dataAgentDisplayName)
-
-	// A second agent guarantees the project holds more than one accessible data
-	// agent, which is what makes the page size assertions below deterministic
-	// instead of dependent on whatever the project already contains. Its
-	// deletion is registered by setupDataAgent.
-	secondDataAgentDisplayName := fmt.Sprintf("test-agent-%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
-	setupDataAgent(t, ctx, projectID, datasetName, tableName, secondDataAgentDisplayName)
-
-	// Configure tools with cloud-gemini-data-analytics source
-	toolsFile := map[string]any{
+// getConversationalAnalyticsToolsConfig returns the tools file shared by the
+// conversational analytics integration tests.
+func getConversationalAnalyticsToolsConfig(projectID string) map[string]any {
+	return map[string]any{
 		"sources": map[string]any{
 			"my-instance": map[string]any{
 				"type":      "cloud-gemini-data-analytics",
@@ -574,28 +692,70 @@ func TestCloudGDAConservationalAnalyticsTools(t *testing.T) {
 			},
 		},
 	}
+}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+// setupConversationalAnalyticsTest creates the BigQuery table and two data
+// agents used by the conversational analytics tests. It returns the tools file,
+// the first agent's ID, and both agents' display names. All resources are
+// deleted and the BigQuery client closed on cleanup.
+func setupConversationalAnalyticsTest(t *testing.T, ctx context.Context) (map[string]any, string, string, string) {
+	t.Helper()
+	projectID := getCloudGDAProject(t)
+	client, err := initBigQueryConnection(projectID)
 	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
+		t.Fatalf("unable to create BigQuery client: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("unable to close BigQuery client: %s", err)
+		}
+	})
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Setup dataset and table for Data Agent
+	datasetName := fmt.Sprintf("data_agent_test_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
+	tableName := "test_table"
+	tableNameParam := fmt.Sprintf("`%s.%s.%s`", projectID, datasetName, tableName)
+
+	createTableStmt := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING)", tableNameParam)
+	// The data agents are deleted before the table and dataset, since their
+	// cleanups are registered later. Deleting an agent does not touch its
+	// datasource, so either order is safe.
+	setupBigQueryTable(t, ctx, client, createTableStmt, "", datasetName, tableNameParam)
+
+	// Create Data Agent
+	dataAgentDisplayName := fmt.Sprintf("test-agent-%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
+	dataAgentID := setupDataAgent(t, ctx, projectID, datasetName, tableName, dataAgentDisplayName)
+
+	// A second agent guarantees the project holds more than one accessible data
+	// agent, which is what makes the page size assertions below deterministic
+	// instead of dependent on whatever the project already contains. Its
+	// deletion is registered by setupDataAgent.
+	secondDataAgentDisplayName := fmt.Sprintf("test-agent-%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
+	setupDataAgent(t, ctx, projectID, datasetName, tableName, secondDataAgentDisplayName)
+
+	return getConversationalAnalyticsToolsConfig(projectID), dataAgentID, dataAgentDisplayName, secondDataAgentDisplayName
+}
+
+func TestCloudGDAConservationalAnalyticsTools(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
 
+	toolsFile, dataAgentID, dataAgentDisplayName, secondDataAgentDisplayName := setupConversationalAnalyticsTest(t, ctx)
+
+	tr := cloudGDATransport{}
+	tr.startServer(t, ctx, toolsFile)
+
+	runConversationalAnalyticsTests(t, ctx, tr, dataAgentID, dataAgentDisplayName, secondDataAgentDisplayName)
+}
+
+// runConversationalAnalyticsTests runs the list, get and ask data agent checks.
+func runConversationalAnalyticsTests(t *testing.T, ctx context.Context, tr cloudGDATransport, dataAgentID, dataAgentDisplayName, secondDataAgentDisplayName string) {
 	// Both agents created above must come back from a single default call,
 	// which is what fetching every page automatically is supposed to give.
-	runListAccessibleDataAgentsInvokeTest(t, dataAgentDisplayName, secondDataAgentDisplayName)
-	runListAccessibleDataAgentsPageSizeTest(t, 1)
-	runGetDataAgentInfoInvokeTest(t, dataAgentID, dataAgentDisplayName)
-	runAskDataAgentInvokeTest(t, dataAgentID)
+	runListAccessibleDataAgentsInvokeTest(t, ctx, tr, dataAgentDisplayName, secondDataAgentDisplayName)
+	runListAccessibleDataAgentsPageSizeTest(t, ctx, tr, 1)
+	runGetDataAgentInfoInvokeTest(t, ctx, tr, dataAgentID, dataAgentDisplayName)
+	runAskDataAgentInvokeTest(t, ctx, tr, dataAgentID)
 }
 
 type listDataAgentsResult struct {
@@ -618,7 +778,7 @@ func (r listDataAgentsResult) contains(displayName string) bool {
 // runListAccessibleDataAgentsInvokeTest checks the default invocation, which
 // takes no pagination parameters and therefore has to fetch every page on its
 // own and return all accessible data agents in one response.
-func runListAccessibleDataAgentsInvokeTest(t *testing.T, dataAgentDisplayNames ...string) {
+func runListAccessibleDataAgentsInvokeTest(t *testing.T, ctx context.Context, tr cloudGDATransport, dataAgentDisplayNames ...string) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -632,41 +792,41 @@ func runListAccessibleDataAgentsInvokeTest(t *testing.T, dataAgentDisplayNames .
 
 	invokeTcs := []struct {
 		name          string
-		api           string
+		toolName      string
 		requestHeader map[string]string
 		want          []string
 		isErr         bool
 	}{
 		{
 			name:          "invoke my-list-accessible-data-agents-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-list-accessible-data-agents-tool/invoke",
+			toolName:      "my-list-accessible-data-agents-tool",
 			requestHeader: map[string]string{},
 			want:          dataAgentDisplayNames,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-auth-list-accessible-data-agents-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-accessible-data-agents-tool/invoke",
+			toolName:      "my-auth-list-accessible-data-agents-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
 			want:          dataAgentDisplayNames,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-auth-list-accessible-data-agents-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-list-accessible-data-agents-tool/invoke",
+			toolName:      "my-auth-list-accessible-data-agents-tool",
 			requestHeader: map[string]string{},
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-client-auth-list-accessible-data-agents-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-accessible-data-agents-tool/invoke",
+			toolName:      "my-client-auth-list-accessible-data-agents-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
 			want:          dataAgentDisplayNames,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-client-auth-list-accessible-data-agents-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-list-accessible-data-agents-tool/invoke",
+			toolName:      "my-client-auth-list-accessible-data-agents-tool",
 			requestHeader: map[string]string{},
 			isErr:         true,
 		},
@@ -675,15 +835,14 @@ func runListAccessibleDataAgentsInvokeTest(t *testing.T, dataAgentDisplayNames .
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.isErr {
-				resp := invokeListAccessibleDataAgents(t, tc.api, tc.requestHeader, 0, "")
-				defer resp.Body.Close()
-				if resp.StatusCode == http.StatusOK {
-					t.Fatalf("expected an error response, got status %d", resp.StatusCode)
+				res := invokeListAccessibleDataAgents(t, ctx, tr, tc.toolName, tc.requestHeader, 0, "")
+				if res.status == http.StatusOK {
+					t.Fatalf("expected an error response, got status %d: %s", res.status, res.result)
 				}
 				return
 			}
 
-			result := listAccessibleDataAgents(t, tc.api, tc.requestHeader, 0, "")
+			result := listAccessibleDataAgents(t, ctx, tr, tc.toolName, tc.requestHeader, 0, "")
 			for _, want := range tc.want {
 				if !result.contains(want) {
 					t.Errorf("data agent %q is missing from the %d data agents returned by a single default call", want, len(result.DataAgents))
@@ -700,11 +859,11 @@ func runListAccessibleDataAgentsInvokeTest(t *testing.T, dataAgentDisplayNames .
 // setting pageSize must hand control back to the caller, one page at a time.
 // It relies on the test having created at least pageSize+1 data agents, so the
 // assertions never depend on what the project already contained.
-func runListAccessibleDataAgentsPageSizeTest(t *testing.T, pageSize int) {
-	api := "http://127.0.0.1:5000/api/tool/my-list-accessible-data-agents-tool/invoke"
+func runListAccessibleDataAgentsPageSizeTest(t *testing.T, ctx context.Context, tr cloudGDATransport, pageSize int) {
+	toolName := "my-list-accessible-data-agents-tool"
 
 	t.Run("invoke my-list-accessible-data-agents-tool with page size", func(t *testing.T) {
-		firstPage := listAccessibleDataAgents(t, api, map[string]string{}, pageSize, "")
+		firstPage := listAccessibleDataAgents(t, ctx, tr, toolName, map[string]string{}, pageSize, "")
 		if len(firstPage.DataAgents) != pageSize {
 			t.Fatalf("got %d data agents, want exactly the %d that were asked for", len(firstPage.DataAgents), pageSize)
 		}
@@ -712,7 +871,7 @@ func runListAccessibleDataAgentsPageSizeTest(t *testing.T, pageSize int) {
 			t.Fatalf("no nextPageToken for a page of %d data agents, but the test created more than that", pageSize)
 		}
 
-		secondPage := listAccessibleDataAgents(t, api, map[string]string{}, pageSize, firstPage.NextPageToken)
+		secondPage := listAccessibleDataAgents(t, ctx, tr, toolName, map[string]string{}, pageSize, firstPage.NextPageToken)
 		if len(secondPage.DataAgents) == 0 || len(secondPage.DataAgents) > pageSize {
 			t.Fatalf("got %d data agents on the second page, want between 1 and %d", len(secondPage.DataAgents), pageSize)
 		}
@@ -733,37 +892,22 @@ func runListAccessibleDataAgentsPageSizeTest(t *testing.T, pageSize int) {
 	})
 }
 
-func listAccessibleDataAgents(t *testing.T, api string, requestHeader map[string]string, pageSize int, pageToken string) listDataAgentsResult {
+func listAccessibleDataAgents(t *testing.T, ctx context.Context, tr cloudGDATransport, toolName string, requestHeader map[string]string, pageSize int, pageToken string) listDataAgentsResult {
 	t.Helper()
 
-	resp := invokeListAccessibleDataAgents(t, api, requestHeader, pageSize, pageToken)
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("error reading response body: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var body map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &body); err != nil {
-		t.Fatalf("error parsing response body")
-	}
-	result, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("unable to find result in response body")
+	res := invokeListAccessibleDataAgents(t, ctx, tr, toolName, requestHeader, pageSize, pageToken)
+	if res.status != http.StatusOK || res.toolErr {
+		t.Fatalf("response status code is not 200 (tool error: %v), got %d: %s", res.toolErr, res.status, res.result)
 	}
 
 	var parsed listDataAgentsResult
-	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
-		t.Fatalf("error parsing tool result %q as JSON: %v", result, err)
+	if err := json.Unmarshal([]byte(res.result), &parsed); err != nil {
+		t.Fatalf("error parsing tool result %q as JSON: %v", res.result, err)
 	}
 	return parsed
 }
 
-func invokeListAccessibleDataAgents(t *testing.T, api string, requestHeader map[string]string, pageSize int, pageToken string) *http.Response {
+func invokeListAccessibleDataAgents(t *testing.T, ctx context.Context, tr cloudGDATransport, toolName string, requestHeader map[string]string, pageSize int, pageToken string) cloudGDAResult {
 	t.Helper()
 
 	requestBody := map[string]any{}
@@ -773,27 +917,10 @@ func invokeListAccessibleDataAgents(t *testing.T, api string, requestHeader map[
 	if pageToken != "" {
 		requestBody["page_token"] = pageToken
 	}
-	bodyBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		t.Fatalf("unable to marshal request body: %s", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, api, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		t.Fatalf("unable to create request: %s", err)
-	}
-	req.Header.Add("Content-type", "application/json")
-	for k, v := range requestHeader {
-		req.Header.Add(k, v)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("unable to send request: %s", err)
-	}
-	return resp
+	return tr.mustInvoke(t, ctx, toolName, requestBody, requestHeader)
 }
 
-func runGetDataAgentInfoInvokeTest(t *testing.T, dataAgentName, dataAgentDisplayName string) {
+func runGetDataAgentInfoInvokeTest(t *testing.T, ctx context.Context, tr cloudGDATransport, dataAgentName, dataAgentDisplayName string) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -807,86 +934,66 @@ func runGetDataAgentInfoInvokeTest(t *testing.T, dataAgentName, dataAgentDisplay
 
 	invokeTcs := []struct {
 		name          string
-		api           string
+		toolName      string
 		requestHeader map[string]string
-		requestBody   io.Reader
+		args          map[string]any
 		want          string
 		isErr         bool
 	}{
 		{
 			name:          "invoke my-get-data-agent-info-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-get-data-agent-info-tool/invoke",
+			toolName:      "my-get-data-agent-info-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"data_agent_id": "%s"}`, dataAgentName))),
+			args:          map[string]any{"data_agent_id": dataAgentName},
 			want:          dataAgentDisplayName,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-auth-get-data-agent-info-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-data-agent-info-tool/invoke",
+			toolName:      "my-auth-get-data-agent-info-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"data_agent_id": "%s"}`, dataAgentName))),
+			args:          map[string]any{"data_agent_id": dataAgentName},
 			want:          dataAgentDisplayName,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-auth-get-data-agent-info-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-get-data-agent-info-tool/invoke",
+			toolName:      "my-auth-get-data-agent-info-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"data_agent_id": "%s"}`, dataAgentName))),
+			args:          map[string]any{"data_agent_id": dataAgentName},
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-client-auth-get-data-agent-info-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-data-agent-info-tool/invoke",
+			toolName:      "my-client-auth-get-data-agent-info-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"data_agent_id": "%s"}`, dataAgentName))),
+			args:          map[string]any{"data_agent_id": dataAgentName},
 			want:          dataAgentDisplayName,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-client-auth-get-data-agent-info-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-get-data-agent-info-tool/invoke",
+			toolName:      "my-client-auth-get-data-agent-info-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf(`{"data_agent_id": "%s"}`, dataAgentName))),
+			args:          map[string]any{"data_agent_id": dataAgentName},
 			isErr:         true,
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
+			res := tr.mustInvoke(t, ctx, tc.toolName, tc.args, tc.requestHeader)
+			if res.status != http.StatusOK || res.toolErr {
+				if tc.isErr && res.status != http.StatusOK {
 					return
 				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+				t.Fatalf("response status code is not 200 (tool error: %v), got %d: %s", res.toolErr, res.status, res.result)
+			}
+			if tc.isErr {
+				t.Fatalf("expected an error response, got status %d", res.status)
 			}
 
-			var body map[string]interface{}
-			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
+			got := res.result
 			if !strings.Contains(got, tc.want) {
 				t.Fatalf("expected %q to contain %q, but it did not", got, tc.want)
 			}
@@ -894,7 +1001,7 @@ func runGetDataAgentInfoInvokeTest(t *testing.T, dataAgentName, dataAgentDisplay
 	}
 }
 
-func runAskDataAgentInvokeTest(t *testing.T, dataAgentID string) {
+func runAskDataAgentInvokeTest(t *testing.T, ctx context.Context, tr cloudGDATransport, dataAgentID string) {
 	const maxRetries = 3
 	const requestTimeout = 340 * time.Second
 
@@ -913,90 +1020,77 @@ func runAskDataAgentInvokeTest(t *testing.T, dataAgentID string) {
 
 	invokeTcs := []struct {
 		name          string
-		api           string
+		toolName      string
 		requestHeader map[string]string
-		requestBody   string
+		args          map[string]any
 		want          string
 		isErr         bool
 	}{
 		{
 			name:          "invoke my-ask-data-agent-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-ask-data-agent-tool/invoke",
+			toolName:      "my-ask-data-agent-tool",
 			requestHeader: map[string]string{},
-			requestBody:   fmt.Sprintf(`{"user_query_with_context": "What are the names in the table?", "data_agent_id": "%s"}`, dataAgentID),
+			args:          map[string]any{"user_query_with_context": "What are the names in the table?", "data_agent_id": dataAgentID},
 			want:          dataAgentWant,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-auth-ask-data-agent-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-ask-data-agent-tool/invoke",
+			toolName:      "my-auth-ask-data-agent-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   fmt.Sprintf(`{"user_query_with_context": "What are the names in the table?", "data_agent_id": "%s"}`, dataAgentID),
+			args:          map[string]any{"user_query_with_context": "What are the names in the table?", "data_agent_id": dataAgentID},
 			want:          dataAgentWant,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-auth-ask-data-agent-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-ask-data-agent-tool/invoke",
+			toolName:      "my-auth-ask-data-agent-tool",
 			requestHeader: map[string]string{},
-			requestBody:   fmt.Sprintf(`{"user_query_with_context": "What are the names in the table?", "data_agent_id": "%s"}`, dataAgentID),
+			args:          map[string]any{"user_query_with_context": "What are the names in the table?", "data_agent_id": dataAgentID},
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-client-auth-ask-data-agent-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-ask-data-agent-tool/invoke",
+			toolName:      "my-client-auth-ask-data-agent-tool",
 			requestHeader: map[string]string{"Authorization": accessToken},
-			requestBody:   fmt.Sprintf(`{"user_query_with_context": "What are the names in the table?", "data_agent_id": "%s"}`, dataAgentID),
+			args:          map[string]any{"user_query_with_context": "What are the names in the table?", "data_agent_id": dataAgentID},
 			want:          dataAgentWant,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-client-auth-ask-data-agent-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-client-auth-ask-data-agent-tool/invoke",
+			toolName:      "my-client-auth-ask-data-agent-tool",
 			requestHeader: map[string]string{},
-			requestBody:   fmt.Sprintf(`{"user_query_with_context": "What are the names in the table?", "data_agent_id": "%s"}`, dataAgentID),
+			args:          map[string]any{"user_query_with_context": "What are the names in the table?", "data_agent_id": dataAgentID},
 			isErr:         true,
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			var resp *http.Response
+			var res cloudGDAResult
 			var err error
-			bodyBytes := []byte(tc.requestBody)
-
-			req, err := http.NewRequest(http.MethodPost, tc.api, nil)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Set("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
 
 			for i := 0; i < maxRetries; i++ {
-				ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-				defer cancel()
-
-				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-				req.GetBody = func() (io.ReadCloser, error) {
-					return io.NopCloser(bytes.NewReader(bodyBytes)), nil
-				}
-				reqWithCtx := req.WithContext(ctx)
-
-				resp, err = http.DefaultClient.Do(reqWithCtx)
+				reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+				res, err = tr.invoke(t, reqCtx, tc.toolName, tc.args, tc.requestHeader)
+				cancel()
 				if err != nil {
 					// Retry on time out.
 					if os.IsTimeout(err) {
 						t.Logf("Request timed out (attempt %d/%d), retrying...", i+1, maxRetries)
-						time.Sleep(5 * time.Second)
+						if err := sleepCtx(ctx, 5*time.Second); err != nil {
+							t.Fatalf("context done while retrying: %v", err)
+						}
 						continue
 					}
 					t.Fatalf("unable to send request: %s", err)
 				}
-				if resp.StatusCode == http.StatusServiceUnavailable {
+				if res.status == http.StatusServiceUnavailable {
 					t.Logf("Received 503 Service Unavailable (attempt %d/%d), retrying...", i+1, maxRetries)
-					time.Sleep(15 * time.Second)
+					if err := sleepCtx(ctx, 15*time.Second); err != nil {
+						t.Fatalf("context done while retrying: %v", err)
+					}
 					continue
 				}
 				break
@@ -1005,30 +1099,36 @@ func runAskDataAgentInvokeTest(t *testing.T, dataAgentID string) {
 			if err != nil {
 				t.Fatalf("Request failed after %d retries: %v", maxRetries, err)
 			}
-			defer resp.Body.Close()
 
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
+			if res.status != http.StatusOK || res.toolErr {
+				if tc.isErr && res.status != http.StatusOK {
 					return
 				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+				t.Fatalf("response status code is not 200 (tool error: %v), got %d: %s", res.toolErr, res.status, res.result)
+			}
+			if tc.isErr {
+				t.Fatalf("expected an error response, got status %d", res.status)
 			}
 
-			var body map[string]interface{}
-			if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
-				t.Fatalf("error parsing response body: %v", err)
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
+			got := res.result
 
 			wantPattern := regexp.MustCompile(tc.want)
 			if !wantPattern.MatchString(got) {
 				t.Fatalf("response did not match the expected pattern.\nFull response:\n%s", got)
 			}
 		})
+	}
+}
+
+// sleepCtx waits for d, returning early with the context's error if ctx is
+// done first.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
