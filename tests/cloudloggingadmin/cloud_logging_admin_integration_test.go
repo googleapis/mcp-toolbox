@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -82,30 +83,39 @@ func initLogConnection(project string) (*logging.Client, error) {
 	return client, nil
 }
 
-func TestLogAdminToolEndpoints(t *testing.T) {
+// setupLogAdminTest writes test log entries and waits until they are visible,
+// returning the tools file and the test log name. The clients are closed and
+// the test log is deleted on cleanup.
+func setupLogAdminTest(t *testing.T, ctx context.Context) (map[string]any, string) {
+	t.Helper()
 	sourceConfig := getLogAdminVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
 
 	adminClient, err := initLogAdminConnection(LogAdminProject)
 	if err != nil {
 		t.Fatalf("unable to connect to logs: %s", err)
 	}
-	defer adminClient.Close()
+	t.Cleanup(func() {
+		if err := adminClient.Close(); err != nil {
+			t.Errorf("unable to close Cloud Logging Admin client: %s", err)
+		}
+	})
 
 	loggingClient, err := initLogConnection(LogAdminProject)
 	if err != nil {
 		t.Fatalf("unable to connect to logging: %s", err)
 	}
-	defer loggingClient.Close()
+	t.Cleanup(func() {
+		if err := loggingClient.Close(); err != nil {
+			t.Errorf("unable to close Cloud Logging client: %s", err)
+		}
+	})
 
 	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")
 	logName := fmt.Sprintf("toolbox-integration-test-%s", testUUID)
 
-	// set up test logs and wait for logs to be ingested.
-	defer teardownTestLogs(t, ctx, adminClient, logName)
+	// set up test logs and wait for logs to be ingested. The teardown is
+	// registered first so a partially failed setup is still cleaned up.
+	t.Cleanup(func() { teardownTestLogs(t, ctx, adminClient, logName) })
 	setupTestLogs(t, loggingClient, logName)
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -114,12 +124,38 @@ func TestLogAdminToolEndpoints(t *testing.T) {
 		t.Fatalf("test log %s was not visible before timeout: %v", logName, err)
 	}
 
-	toolsFile := getCloudLoggingAdminToolsConfig(sourceConfig)
+	return getCloudLoggingAdminToolsConfig(sourceConfig), logName
+}
+
+// logAdminTransport selects how the tests talk to the toolbox server: the
+// legacy REST API, or the MCP endpoint when isMCP is set.
+type logAdminTransport struct {
+	isMCP bool
+}
+
+// logAdminResult is the outcome of a tool invocation. result holds the tool
+// result as the REST API returns it. toolErr is set when the tool call was
+// rejected: an MCP error, or an error result over REST.
+type logAdminResult struct {
+	status  int
+	result  string
+	toolErr bool
+}
+
+// startServer starts the toolbox server with toolsFile and waits until it is
+// ready to serve. The REST API is only enabled for the non-MCP transport.
+func (tr logAdminTransport) startServer(t *testing.T, ctx context.Context, toolsFile map[string]any) {
+	t.Helper()
+	var args []string
+	if !tr.isMCP {
+		args = append(args, "--enable-api")
+	}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
 	serverWaitCtx, serverWaitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer serverWaitCancel()
@@ -128,12 +164,98 @@ func TestLogAdminToolEndpoints(t *testing.T) {
 		t.Logf("toolbox command logs:\n%s", out)
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
+}
 
-	runListLogNamesTest(t)
-	runAuthListLogNamesTest(t)
-	runListResourceTypesTest(t)
-	runQueryLogsTest(t, logName)
-	runQueryLogsErrorTest(t)
+// invoke calls toolName with args and request headers through the selected
+// transport.
+func (tr logAdminTransport) invoke(t *testing.T, ctx context.Context, toolName string, args map[string]any, headers map[string]string) logAdminResult {
+	t.Helper()
+	if tr.isMCP {
+		statusCode, mcpResp, err := tests.InvokeMCPTool(t, toolName, args, headers)
+		if err != nil {
+			return logAdminResult{status: statusCode, result: err.Error(), toolErr: true}
+		}
+		if mcpResp.Error != nil {
+			return logAdminResult{status: statusCode, result: mcpResp.Error.Message, toolErr: true}
+		}
+		var text strings.Builder
+		for _, content := range mcpResp.Result.Content {
+			text.WriteString(content.Text)
+		}
+		if mcpResp.Result.IsError {
+			return logAdminResult{status: statusCode, result: text.String(), toolErr: true}
+		}
+		// Cloud Logging Admin results are a single JSON document, which the MCP
+		// server sends as one text content block.
+		if len(mcpResp.Result.Content) != 1 {
+			t.Fatalf("%s returned %d content blocks, want 1: %v", toolName, len(mcpResp.Result.Content), mcpResp.Result.Content)
+		}
+		return logAdminResult{status: statusCode, result: text.String()}
+	}
+
+	reqBytes, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("error marshaling request body: %s", err)
+	}
+	api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		t.Fatalf("error creating request: %s", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("error when sending a request: %s", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("error reading response body: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return logAdminResult{status: resp.StatusCode, result: string(respBody)}
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(respBody, &body); err != nil {
+		t.Fatalf("error parsing response body %q: %s", string(respBody), err)
+	}
+	if errVal, ok := body["error"]; ok && errVal != nil {
+		return logAdminResult{status: resp.StatusCode, result: fmt.Sprint(errVal), toolErr: true}
+	}
+	result, ok := body["result"].(string)
+	if !ok {
+		t.Fatalf("expected result to be string, got body: %s", string(respBody))
+	}
+	// Tool errors are returned over REST as a successful response whose result
+	// is an {"error": ...} object.
+	var errResult map[string]any
+	toolErr := json.Unmarshal([]byte(result), &errResult) == nil && errResult["error"] != nil
+	return logAdminResult{status: resp.StatusCode, result: result, toolErr: toolErr}
+}
+
+func TestLogAdminToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
+	defer cancel()
+
+	toolsFile, logName := setupLogAdminTest(t, ctx)
+
+	tr := logAdminTransport{}
+	tr.startServer(t, ctx, toolsFile)
+
+	runLogAdminTests(t, ctx, tr, logName)
+}
+
+// runLogAdminTests runs the Cloud Logging Admin tool checks.
+func runLogAdminTests(t *testing.T, ctx context.Context, tr logAdminTransport, logName string) {
+	runListLogNamesTest(t, ctx, tr)
+	runAuthListLogNamesTest(t, ctx, tr)
+	runListResourceTypesTest(t, ctx, tr)
+	runQueryLogsTest(t, ctx, tr, logName)
+	runQueryLogsErrorTest(t, ctx, tr)
 }
 
 func setupTestLogs(t *testing.T, client *logging.Client, logName string) {
@@ -212,108 +334,69 @@ func getCloudLoggingAdminToolsConfig(sourceConfig map[string]any) map[string]any
 	}
 }
 
-func runListLogNamesTest(t *testing.T) {
+// checkLogNamesResult asserts the result is a non-empty JSON array of log names.
+func checkLogNamesResult(t *testing.T, res logAdminResult) {
+	t.Helper()
+	if res.status != http.StatusOK || res.toolErr {
+		t.Fatalf("expected status 200, got %d: %s", res.status, res.result)
+	}
+
+	var logs []string
+	if err := json.Unmarshal([]byte(res.result), &logs); err != nil {
+		t.Fatalf("expected result to be a JSON array of strings, got %q: %v", res.result, err)
+	}
+	if len(logs) == 0 {
+		t.Errorf("expected result to contain at least one log")
+	}
+}
+
+func runListLogNamesTest(t *testing.T, ctx context.Context, tr logAdminTransport) {
 	t.Run("list-log-names", func(t *testing.T) {
-		resp, respBody := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/list-log-names/invoke", bytes.NewBuffer([]byte(`{}`)), nil)
-		defer resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			t.Fatalf("expected status 200, got %d", resp.StatusCode)
-		}
-
-		var body map[string]interface{}
-		if err := json.Unmarshal(respBody, &body); err != nil {
-			t.Fatalf("error parsing response body: %v", err)
-		}
-
-		result, ok := body["result"].(string)
-		if !ok {
-			t.Fatalf("expected result to be string")
-		}
-
-		var logs []string
-		if err := json.Unmarshal([]byte(result), &logs); err != nil {
-			t.Fatalf("expected result to be a JSON array of strings: %v", err)
-		}
-		if len(logs) == 0 {
-			t.Errorf("expected result to contain at least one log")
-		}
+		checkLogNamesResult(t, tr.invoke(t, ctx, "list-log-names", map[string]any{}, nil))
 	})
 }
 
-func runAuthListLogNamesTest(t *testing.T) {
+func runAuthListLogNamesTest(t *testing.T, ctx context.Context, tr logAdminTransport) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
 	}
 	requestHeader := map[string]string{"my-google-auth_token": idToken}
 	t.Run("auth-list-log-names", func(t *testing.T) {
-		resp, respBody := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/auth-list-log-names/invoke", bytes.NewBuffer([]byte(`{}`)), requestHeader)
-		defer resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			t.Fatalf("expected status 200, got %d", resp.StatusCode)
-		}
-
-		var body map[string]interface{}
-		if err := json.Unmarshal(respBody, &body); err != nil {
-			t.Fatalf("error parsing response body: %v", err)
-		}
-
-		result, ok := body["result"].(string)
-		if !ok {
-			t.Fatalf("expected result to be string")
-		}
-
-		var logs []string
-		if err := json.Unmarshal([]byte(result), &logs); err != nil {
-			t.Fatalf("expected result to be a JSON array of strings: %v", err)
-		}
-		if len(logs) == 0 {
-			t.Errorf("expected result to contain at least one log")
-		}
+		checkLogNamesResult(t, tr.invoke(t, ctx, "auth-list-log-names", map[string]any{}, requestHeader))
 	})
 	t.Run("auth-list-log-names-missing-header", func(t *testing.T) {
-		resp, _ := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/auth-list-log-names/invoke", bytes.NewBuffer([]byte(`{}`)), nil)
-		if resp.StatusCode != 401 {
-			t.Fatalf("expected status 401 (Unauthorized), got %d", resp.StatusCode)
+		res := tr.invoke(t, ctx, "auth-list-log-names", map[string]any{}, nil)
+		if res.status != http.StatusUnauthorized {
+			t.Fatalf("expected status 401 (Unauthorized), got %d", res.status)
+		}
+		if tr.isMCP && !strings.Contains(res.result, "unauthorized Tool call") {
+			t.Fatalf("expected an unauthorized tool call error, got: %s", res.result)
 		}
 	})
 }
 
-func runListResourceTypesTest(t *testing.T) {
+func runListResourceTypesTest(t *testing.T, ctx context.Context, tr logAdminTransport) {
 	t.Run("list-resource-types", func(t *testing.T) {
-		resp, respBody := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/list-resource-types/invoke", bytes.NewBuffer([]byte(`{}`)), nil)
-
-		if resp.StatusCode != 200 {
-			t.Fatalf("expected status 200, got %d", resp.StatusCode)
-		}
-
-		var body map[string]interface{}
-		if err := json.Unmarshal(respBody, &body); err != nil {
-			t.Fatalf("error parsing response body")
-		}
-
-		result, ok := body["result"].(string)
-		if !ok {
-			t.Fatalf("expected result to be string")
+		res := tr.invoke(t, ctx, "list-resource-types", map[string]any{}, nil)
+		if res.status != http.StatusOK || res.toolErr {
+			t.Fatalf("expected status 200, got %d: %s", res.status, res.result)
 		}
 
 		expectedTypes := []string{"global", "gce_instance", "gcs_bucket", "project"}
 		for _, resourceType := range expectedTypes {
-			if !strings.Contains(result, resourceType) {
+			if !strings.Contains(res.result, resourceType) {
 				t.Errorf("expected '%s' resource type in result, but it was missing", resourceType)
 			}
 		}
 	})
 }
 
-func runQueryLogsTest(t *testing.T, logName string) {
+func runQueryLogsTest(t *testing.T, ctx context.Context, tr logAdminTransport, logName string) {
 	baseFilter := fmt.Sprintf(`logName="projects/%s/logs/%s"`, LogAdminProject, logName)
 
 	t.Run("query-logs-simple", func(t *testing.T) {
-		requestBody := fmt.Sprintf(`{"filter": %q, "limit": 10}`, baseFilter)
-		result := invokeQueryTool(t, requestBody)
+		result := invokeQueryTool(t, ctx, tr, map[string]any{"filter": baseFilter, "limit": 10})
 
 		if !strings.Contains(result, "test entry") {
 			t.Errorf("expected test entries in result: %s", result)
@@ -321,8 +404,7 @@ func runQueryLogsTest(t *testing.T, logName string) {
 	})
 
 	t.Run("query-logs-newest-first", func(t *testing.T) {
-		requestBody := fmt.Sprintf(`{"filter": %q, "limit": 10, "newestFirst": true}`, baseFilter)
-		result := invokeQueryTool(t, requestBody)
+		result := invokeQueryTool(t, ctx, tr, map[string]any{"filter": baseFilter, "limit": 10, "newestFirst": true})
 
 		idx3 := strings.Index(result, "test entry 3")
 		idx1 := strings.Index(result, "test entry 1")
@@ -337,8 +419,7 @@ func runQueryLogsTest(t *testing.T, logName string) {
 	})
 
 	t.Run("query-logs-verbose", func(t *testing.T) {
-		requestBody := fmt.Sprintf(`{"filter": %q, "limit": 10, "verbose": true}`, baseFilter)
-		result := invokeQueryTool(t, requestBody)
+		result := invokeQueryTool(t, ctx, tr, map[string]any{"filter": baseFilter, "limit": 10, "verbose": true})
 
 		if !strings.Contains(result, `"labels":`) {
 			t.Errorf("expected 'labels' field in verbose output, got: %s", result)
@@ -349,33 +430,24 @@ func runQueryLogsTest(t *testing.T, logName string) {
 	})
 }
 
-func invokeQueryTool(t *testing.T, requestBody string) string {
+func invokeQueryTool(t *testing.T, ctx context.Context, tr logAdminTransport, args map[string]any) string {
 	t.Helper()
-	resp, respBody := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/query-logs/invoke", bytes.NewBuffer([]byte(requestBody)), nil)
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	res := tr.invoke(t, ctx, "query-logs", args, nil)
+	if res.status != http.StatusOK || res.toolErr {
+		t.Fatalf("expected status 200, got %d: %s", res.status, res.result)
 	}
-
-	var body map[string]interface{}
-	if err := json.Unmarshal(respBody, &body); err != nil {
-		t.Fatalf("error parsing response body")
-	}
-
-	result, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("expected result to be string")
-	}
-	return result
+	return res.result
 }
 
-func runQueryLogsErrorTest(t *testing.T) {
+func runQueryLogsErrorTest(t *testing.T, ctx context.Context, tr logAdminTransport) {
 	t.Run("query-logs-error", func(t *testing.T) {
-		requestBody := `{"filter": "INVALID_FILTER_SYNTAX :::", "limit": 10}`
-		resp, _ := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/query-logs/invoke", bytes.NewBuffer([]byte(requestBody)), nil)
-		if resp.StatusCode != 200 {
-			t.Errorf("expected 200 OK")
+		res := tr.invoke(t, ctx, "query-logs", map[string]any{"filter": "INVALID_FILTER_SYNTAX :::", "limit": 10}, nil)
+		if res.status != http.StatusOK {
+			t.Errorf("expected 200 OK, got %d: %s", res.status, res.result)
+		}
+		// Over MCP an invalid filter must be reported as an error result.
+		if tr.isMCP && !res.toolErr {
+			t.Errorf("expected an error result, got: %s", res.result)
 		}
 	})
 }
