@@ -21,6 +21,16 @@ following parameters:
   DATASET, MODEL, ROUTINE, TABLE, VIEW.
 - `pageSize` - Number of results in the search page. Defaults to `5`.
 
+The tool's results are also constrained by the `allowedDatasets` restriction on
+the `bigquery` source:
+
+- **Without `allowedDatasets` restriction:** The search can return entries from
+  any dataset in the project.
+- **With `allowedDatasets` restriction:** Entries whose dataset is not in the
+  allowed list are removed from the results before they are returned. Entries
+  that are not scoped to a dataset (such as connections) are also excluded while
+  a restriction is in effect.
+
 ## Compatible Sources
 
 {{< compatible-sources >}}
