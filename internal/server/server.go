@@ -852,7 +852,14 @@ func (s *Server) ServeStdio(ctx context.Context, stdin io.Reader, stdout io.Writ
 // connections. It uses http.Server.Shutdown() and has the same functionality.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.DebugContext(ctx, "shutting down the server.")
-	return s.srv.Shutdown(ctx)
+	err := s.srv.Shutdown(ctx)
+	// After the HTTP drain, so nothing is still serving a request against a
+	// source being released. A close failure is logged rather than returned:
+	// the server is already down, and it must not mask a drain error.
+	if cerr := s.PrimitiveMgr.CloseSources(ctx); cerr != nil {
+		s.logger.WarnContext(ctx, fmt.Sprintf("unable to close sources: %s", cerr))
+	}
+	return err
 }
 
 func (s *Server) Addr() string {
