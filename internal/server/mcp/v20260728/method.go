@@ -45,7 +45,7 @@ import (
 func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g group.Group, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
 	switch method {
 	case SERVER_DISCOVER:
-		return serverDiscoverHandler(ctx, id, body, header)
+		return serverDiscoverHandler(ctx, id, primitiveMgr, body, header)
 	case TOOLS_LIST:
 		return toolsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case TOOLS_CALL:
@@ -185,7 +185,7 @@ func getResultMetadata(ctx context.Context, curMeta map[string]any) (map[string]
 	return newMeta, nil
 }
 
-func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, body []byte, header http.Header) (any, error) {
+func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
 	enableDraft, ok := util.EnableDraftSpecsFromContext(ctx)
 	if !ok {
 		err := fmt.Errorf("unable to retrieve enableDraftSpecs from context")
@@ -204,6 +204,13 @@ func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, body []byt
 	validateErr, err := validateMetadata(id, req.Params, header == nil)
 	if err != nil {
 		return validateErr, err
+	}
+
+	var instructions string
+	if primitiveMgr != nil {
+		if g, ok := primitiveMgr.GetGroup(""); ok {
+			instructions = g.Description
+		}
 	}
 
 	toolsListChanged := false
@@ -233,6 +240,7 @@ func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, body []byt
 				ListChanged *bool `json:"listChanged,omitempty"`
 			}{},
 		},
+		Instructions: instructions,
 	}
 	res := jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
