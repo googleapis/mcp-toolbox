@@ -149,6 +149,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cloudmonitoring"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cloudsql/cloudsqlcloneinstance"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cloudsql/cloudsqlconnectgce"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/cloudsql/cloudsqlconnectgke"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cloudsql/cloudsqlcreatebackup"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cloudsql/cloudsqlcreatedatabase"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/cloudsql/cloudsqlcreateusers"
