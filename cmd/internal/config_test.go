@@ -33,6 +33,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	cloudgdasrc "github.com/googleapis/mcp-toolbox/internal/sources/cloudgda"
 	cloudsqlpgsrc "github.com/googleapis/mcp-toolbox/internal/sources/cloudsqlpg"
 	httpsrc "github.com/googleapis/mcp-toolbox/internal/sources/http"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -2632,7 +2633,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"conversational_analytics_tools": group.GroupConfig{
 					Name:      "conversational_analytics_tools",
-					ToolNames: []string{"list_accessible_data_agents", "get_data_agent_info", "ask_data_agent"},
+					ToolNames: []string{"list_accessible_data_agents", "get_data_agent_info", "ask_data_agent", "create_data_agent", "update_data_agent", "delete_data_agent"},
 				},
 			},
 		},
@@ -2705,6 +2706,59 @@ func TestPrebuiltTools(t *testing.T) {
 					}
 				}
 			})
+		})
+	}
+}
+
+func TestPrebuiltConversationalAnalyticsReadOnly(t *testing.T) {
+	raw, err := prebuiltconfigs.Get("conversational-analytics-with-data-agent")
+	if err != nil {
+		t.Fatalf("failed to load prebuilt config: %v", err)
+	}
+	t.Setenv("CLOUD_GDA_PROJECT", "your_gcp_project_id")
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	tcs := []struct {
+		name   string
+		setEnv bool
+		value  string
+		want   bool
+	}{
+		{name: "unset defaults to false", want: false},
+		{name: "true enables read-only mode", setEnv: true, value: "true", want: true},
+		{name: "false disables read-only mode", setEnv: true, value: "false", want: false},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			// t.Setenv registers restoring the original value, so the variable can
+			// then be unset to exercise the prebuilt's default.
+			t.Setenv("CLOUD_GDA_READONLY", tc.value)
+			if !tc.setEnv {
+				if err := os.Unsetenv("CLOUD_GDA_READONLY"); err != nil {
+					t.Fatalf("failed to unset CLOUD_GDA_READONLY: %v", err)
+				}
+			}
+
+			parser := ConfigParser{}
+			configFile, err := parser.ParseConfig(ctx, raw)
+			if err != nil {
+				t.Fatalf("failed to parse prebuilt config: %v", err)
+			}
+			srcCfg, found := configFile.Sources["conversational-analytics-source"]
+			if !found {
+				t.Fatalf("source %q not found in prebuilt config", "conversational-analytics-source")
+			}
+			src, ok := srcCfg.(cloudgdasrc.Config)
+			if !ok {
+				t.Fatalf("expected source config of type %T, got %T", cloudgdasrc.Config{}, srcCfg)
+			}
+			if src.ReadOnly != tc.want {
+				t.Errorf("ReadOnly = %t, want %t", src.ReadOnly, tc.want)
+			}
 		})
 	}
 }

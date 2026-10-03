@@ -17,6 +17,7 @@ name: conversational-analytics-source
 type: cloud-gemini-data-analytics
 projectId: ${CLOUD_GDA_PROJECT}
 useClientOAuth: ${CLOUD_GDA_USE_CLIENT_OAUTH:false}
+readOnly: ${CLOUD_GDA_READONLY:false}
 ---
 kind: tool
 name: list_accessible_data_agents
@@ -51,9 +52,36 @@ description: |
   queries and provides detailed responses based on the agent's configured
   data sources.
 ---
+kind: tool
+name: create_data_agent
+type: conversational-analytics-create-data-agent
+source: conversational-analytics-source
+location: ${CLOUD_GDA_LOCATION:global}
+description: |
+  Create a new Data Agent for conversational analytics using the specified configuration.
+---
+kind: tool
+name: update_data_agent
+type: conversational-analytics-update-data-agent
+source: conversational-analytics-source
+location: ${CLOUD_GDA_LOCATION:global}
+description: |
+  Update an existing Data Agent for conversational analytics using the specified configuration and update mask.
+---
+kind: tool
+name: delete_data_agent
+type: conversational-analytics-delete-data-agent
+source: conversational-analytics-source
+location: ${CLOUD_GDA_LOCATION:global}
+description: |
+  Delete an existing Data Agent in conversational analytics using its ID.
+---
 kind: toolset
 name: conversational_analytics_tools
 tools:
 - list_accessible_data_agents
 - get_data_agent_info
 - ask_data_agent
+- create_data_agent
+- update_data_agent
+- delete_data_agent
