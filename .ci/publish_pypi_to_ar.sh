@@ -43,7 +43,7 @@ readonly DIST_DIR="${PYPI_DIR}/dist"
 
 # Install build + upload tooling. keyrings.google-artifactregistry-auth is the
 # keyring backend that twine uses to obtain a short-lived AR token from ADC.
-pip install --quiet --upgrade build twine keyring keyrings.google-artifactregistry-auth
+pip install --index-url https://us-central1-python.pkg.dev/${PROJECT_ID}/pypi-remote/simple/ --quiet build==1.6.1 twine==7.0.0 keyring==25.7.0 keyrings.google-artifactregistry-auth==1.1.2
 
 # Start each build run with empty dist/ to make the final upload deterministic.
 rm -rf "${DIST_DIR}"

@@ -12,9 +12,20 @@
 # limitations under the License.
 
 steps:
+
+  - id: "download-dependencies"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor: ['-']
+    script: |
+        #!/usr/bin/env bash
+        set -e
+        # Download zig for docker build and cross-compilation
+        gcloud storage cp gs://toolbox-build-assets/dependencies/zig-x86_64-linux-0.15.2.tar.xz ./zig.tar.xz
+        echo "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239  ./zig.tar.xz" | sha256sum -c -
+
   - id: "install-dependencies"
-    name: golang:1
-    waitFor: ["-"]
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
+    waitFor: ["download-dependencies"]
     env:
       - "GOPATH=/gopath"
     volumes:
@@ -24,7 +35,7 @@ steps:
       go get -d ./...
 
   - id: "run-tests"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "install-dependencies"
     env:
@@ -46,7 +57,7 @@ steps:
       mv in-progress-junit-report.xml junit-report.xml
 
   - id: "build-docker"
-    name: "gcr.io/cloud-builders/docker"
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/gcr.io/cloud-builders/docker@sha256:001fb4a870a84485cf198c80002f7af42f6456f2dbc261d70a0b5f0111470df4"
     waitFor:
       - "run-tests"
     script: |
@@ -64,7 +75,7 @@ steps:
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
         --build-arg BUILD_TYPE=container.release \
-        --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
+        --build-arg _AR_REPO_NAME=${_AR_REPO_NAME} --build-arg PROJECT_ID=${PROJECT_ID} --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
         $TAGS \
         --push .
 
@@ -73,8 +84,8 @@ steps:
       docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
 
   - id: "install-zig"
-    name: golang:1
-    waitFor: ["-"]
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
+    waitFor: ["download-dependencies"]
     volumes:
       - name: "zig"
         path: "/zig-tools"
@@ -82,12 +93,11 @@ steps:
       #!/usr/bin/env bash
       set -e
       apt-get update && apt-get install -y xz-utils
-      curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz
-      tar -xf zig.tar.xz -C /zig-tools --strip-components=1
+      tar -xf ./zig.tar.xz -C /zig-tools --strip-components=1
 
   - id: "install-macos-sdk"
     name: "gcr.io/cloud-builders/gcloud:latest"
-    waitFor: ["-"]
+    waitFor: ["download-dependencies"]
     volumes:
       - name: "macos-sdk"
         path: "/macos-sdk"
@@ -103,7 +113,7 @@ steps:
       tar -xf sdk.tar.xz -C /macos-sdk/MacOSX14.5.sdk --strip-components=1
 
   - id: "build-linux-amd64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -133,7 +143,7 @@ steps:
       gcloud storage cp toolbox.linux.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/linux/amd64/toolbox
 
   - id: "build-linux-amd64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -163,7 +173,7 @@ steps:
       gcloud storage cp toolbox.geminicli.linux.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/linux/amd64/toolbox
 
   - id: "build-darwin-arm64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -200,7 +210,7 @@ steps:
       gcloud storage cp toolbox.darwin.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-arm64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -237,7 +247,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-amd64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -274,7 +284,7 @@ steps:
       gcloud storage cp toolbox.darwin.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/amd64/toolbox
 
   - id: "build-darwin-amd64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -311,7 +321,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/amd64/toolbox
 
   - id: "build-windows-amd64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -341,7 +351,7 @@ steps:
       gcloud storage cp toolbox.windows.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-amd64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -371,7 +381,7 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-arm64"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -401,7 +411,7 @@ steps:
       gcloud storage cp toolbox.windows.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/arm64/toolbox.exe
 
   - id: "build-windows-arm64-geminicli"
-    name: golang:1
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/golang:1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -431,7 +441,7 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/arm64/toolbox.exe
 
   - id: "publish-npm-to-ar"
-    name: node:20
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5"
     waitFor:
       - "build-linux-amd64"
       - "build-darwin-arm64"
@@ -456,7 +466,7 @@ steps:
       bash .ci/trigger_exit_gate.sh npm
 
   - id: "publish-pypi-to-ar"
-    name: python:3.12
+    name: "us-central1-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO_NAME}/python:3.12@sha256:4d1caded1f729ae443eb803f26ffde7b61e696aeaef62f099abb6dd6b14257c7"
     waitFor:
       - "build-linux-amd64"
       - "build-darwin-arm64"
