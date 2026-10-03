@@ -35,7 +35,7 @@ readonly AR_HOST="us-npm.pkg.dev"
 # Write to $HOME so npm finds it as user config from inside any package dir.
 # A .npmrc at /workspace would be ignored — npm's per-project .npmrc must sit
 # next to package.json, and each platform package has its own package.json.
-cat > "$HOME/.npmrc" <<EOF
+cat >> "$HOME/.npmrc" <<EOF
 @toolbox-sdk:registry=${AR_REGISTRY}
 //${AR_HOST}/:always-auth=true
 EOF
@@ -56,6 +56,12 @@ publish_pkg() {
 
   if npm view "${npm_name}@${version}" version --registry "${AR_REGISTRY}" 2>/dev/null | grep -q .; then
     echo "Skipping ${npm_name}@${version}: already in AR"
+    return
+  fi
+
+  if [[ "${PUSH_TO_EXIT_GATES}" == "false" ]]; then
+    echo "Dry run: Built ${npm_name}@${version}, skipping npm publish. Running npm pack to verify..."
+    (cd "npm/${pkg}" && npm pack)
     return
   fi
 
