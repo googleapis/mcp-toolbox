@@ -131,14 +131,14 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "allowed absolute path",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  validFile,
+			requestPath:  filepath.ToSlash(validFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      false,
 		},
 		{
 			name:         "denied path outside sandbox",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  secretFile,
+			requestPath:  filepath.ToSlash(secretFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "security violation",
@@ -146,7 +146,7 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "symlink escape attempt",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  symlinkToSecret,
+			requestPath:  filepath.ToSlash(symlinkToSecret),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "security violation",
@@ -154,14 +154,14 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "file size limit exceeded",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  largeFile,
+			requestPath:  filepath.ToSlash(largeFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      false, // just truncates, no error
 		},
 		{
 			name:         "custom file size limit exceeded",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  largeFile,
+			requestPath:  filepath.ToSlash(largeFile),
 			uriTemplate:  "file://{path}",
 			maxSize:      func() *int64 { i := int64(10); return &i }(),
 			wantErr:      false,
@@ -169,7 +169,7 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "hidden file without allowed paths",
 			allowedPaths: nil,
-			requestPath:  hiddenFile,
+			requestPath:  filepath.ToSlash(hiddenFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "security violation",
@@ -178,21 +178,21 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "hidden file succeeds when inside explicitly allowed paths",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  hiddenFile,
+			requestPath:  filepath.ToSlash(hiddenFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      false,
 		},
 		{
 			name:         "visible file succeeds when no allowed paths",
 			allowedPaths: nil,
-			requestPath:  validFile,
+			requestPath:  filepath.ToSlash(validFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      false,
 		},
 		{
 			name:         "file inside hidden directory fails without allowed paths",
 			allowedPaths: nil,
-			requestPath:  hiddenDirFile,
+			requestPath:  filepath.ToSlash(hiddenDirFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "security violation",
@@ -200,7 +200,7 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "unsupported binary extension rejected",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  binFile,
+			requestPath:  filepath.ToSlash(binFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "file extension not allowed",
@@ -257,14 +257,14 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "traversal: embedded in filename is safe",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  filepath.Join(sandboxDir, "file..txt"),
+			requestPath:  filepath.ToSlash(filepath.Join(sandboxDir, "file..txt")),
 			uriTemplate:  "file://{path}",
 			wantErr:      false,
 		},
 		{
 			name:         "non-existent file returns error",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  nonExistentFile,
+			requestPath:  filepath.ToSlash(nonExistentFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "file not found",
@@ -272,7 +272,7 @@ func TestFileTemplate(t *testing.T) {
 		{
 			name:         "directory target rejected",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  subDir,
+			requestPath:  filepath.ToSlash(subDir),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "non-regular file",
@@ -298,7 +298,7 @@ func TestFileTemplate(t *testing.T) {
 		}{
 			name:         "missing read permissions returns error",
 			allowedPaths: []string{sandboxDir},
-			requestPath:  noPermFile,
+			requestPath:  filepath.ToSlash(noPermFile),
 			uriTemplate:  "file://{path}",
 			wantErr:      true,
 			errContains:  "failed to open file",
