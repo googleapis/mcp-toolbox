@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbfind"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
@@ -228,7 +229,7 @@ func TestRuntimeCollection(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to initialize tool: %s", err)
 			}
-			params, err := tool.GetParameters(nil)
+			params, err := tool.GetParameters(&mongodbcommon.MockSource{})
 			if err != nil {
 				t.Fatalf("unable to get parameters: %s", err)
 			}
@@ -250,4 +251,89 @@ func TestRuntimeCollection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCollectionScoping(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	scoped := &mongodbcommon.MockSource{AllowedCollections: map[string][]string{"crm": {"customers", "orders"}}}
+
+	newTool := func(t *testing.T, collection string, allowedValues []string) tools.Tool {
+		t.Helper()
+		cfg := mongodbfind.Config{
+			ConfigBase:              tools.ConfigBase{Name: "example_tool", Description: "some description"},
+			Database:                "crm",
+			Collection:              collection,
+			CollectionAllowedValues: allowedValues,
+			Limit:                   1,
+		}
+		tool, err := cfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("unable to initialize tool: %s", err)
+		}
+		return tool
+	}
+
+	t.Run("fixed collection inside the source allow-list is accepted", func(t *testing.T) {
+		if err := newTool(t, "orders", nil).ValidateSource(scoped); err != nil {
+			t.Fatalf("expected no error, got: %s", err)
+		}
+	})
+
+	t.Run("fixed collection outside the source allow-list is rejected", func(t *testing.T) {
+		if err := newTool(t, "secrets", nil).ValidateSource(scoped); err == nil {
+			t.Fatal("expected ValidateSource to reject a collection outside the source allow-list")
+		}
+	})
+
+	t.Run("tool values disjoint from the source allow-list are rejected", func(t *testing.T) {
+		if err := newTool(t, "", []string{"secrets"}).ValidateSource(scoped); err == nil {
+			t.Fatal("expected ValidateSource to reject a tool scope outside the source allow-list")
+		}
+	})
+
+	t.Run("runtime parameter is narrowed to the source allow-list", func(t *testing.T) {
+		params, err := newTool(t, "", nil).GetParameters(scoped)
+		if err != nil {
+			t.Fatalf("unable to get parameters: %s", err)
+		}
+		if diff := cmp.Diff([]any{"customers", "orders"}, collectionParam(params).AllowedValues); diff != "" {
+			t.Fatalf("unexpected allowed values (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("runtime parameter is narrowed to the intersection", func(t *testing.T) {
+		params, err := newTool(t, "", []string{"orders", "secrets"}).GetParameters(scoped)
+		if err != nil {
+			t.Fatalf("unable to get parameters: %s", err)
+		}
+		if diff := cmp.Diff([]any{"orders"}, collectionParam(params).AllowedValues); diff != "" {
+			t.Fatalf("unexpected allowed values (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("manifest carries the narrowed parameter", func(t *testing.T) {
+		manifest, err := newTool(t, "", nil).Manifest(scoped)
+		if err != nil {
+			t.Fatalf("unable to get manifest: %s", err)
+		}
+		for _, p := range manifest.Parameters {
+			if p.Name == "collection" {
+				return
+			}
+		}
+		t.Fatal("expected the collection parameter in the manifest")
+	})
+
+	t.Run("unrestricted source leaves the tool scope untouched", func(t *testing.T) {
+		params, err := newTool(t, "", []string{"anything"}).GetParameters(&mongodbcommon.MockSource{})
+		if err != nil {
+			t.Fatalf("unable to get parameters: %s", err)
+		}
+		if diff := cmp.Diff([]any{"anything"}, collectionParam(params).AllowedValues); diff != "" {
+			t.Fatalf("unexpected allowed values (-want +got):\n%s", diff)
+		}
+	})
 }

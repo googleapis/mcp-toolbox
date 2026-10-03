@@ -503,6 +503,7 @@ type ParameterMcpManifest struct {
 	Description          string                `json:"description"`
 	Items                *ParameterMcpManifest `json:"items,omitempty"`
 	Default              any                   `json:"default,omitempty"`
+	Enum                 []any                 `json:"enum,omitempty"`
 	AdditionalProperties any                   `json:"additionalProperties,omitempty"`
 }
 
@@ -610,12 +611,28 @@ func MatchStringOrRegex(input, target any) bool {
 	return re.MatchString(inputS)
 }
 
+// literalEnum returns allowedValues as a JSON Schema enum, or nil unless every entry is a literal string.
+// Regex entries cannot be expressed as an enum, and some LLM function-calling schemas only accept string enums.
+func literalEnum(allowedValues []any) []any {
+	if len(allowedValues) == 0 {
+		return nil
+	}
+	for _, v := range allowedValues {
+		s, ok := v.(string)
+		if !ok || regexp.QuoteMeta(s) != s {
+			return nil
+		}
+	}
+	return allowedValues
+}
+
 // McpManifest returns the MCP manifest for the Parameter.
 func (p *CommonParameter) McpManifest() (ParameterMcpManifest, []string) {
 	authServiceNames := getAuthServiceNames(p.AuthServices)
 	return ParameterMcpManifest{
 		Type:        p.Type,
 		Description: p.Desc,
+		Enum:        literalEnum(p.GetAllowedValues()),
 	}, authServiceNames
 }
 
