@@ -63,9 +63,137 @@ description: |
   Parameters:
   - model_name (required): The name of the LookML model, obtained from `get_models`.
 ---
+kind: tool
+name: create_agent
+type: looker-create-agent
+source: looker-source
+description: |
+  Create a new Conversational Analytics Agent.
+---
+kind: tool
+name: delete_agent
+type: looker-delete-agent
+source: looker-source
+description: |
+  Delete a Conversational Analytics Agent.
+---
+kind: tool
+name: get_agent
+type: looker-get-agent
+source: looker-source
+description: |
+  Retrieve details of a specific Conversational Analytics Agent.
+---
+kind: tool
+name: list_agents
+type: looker-list-agents
+source: looker-source
+description: |
+  List all Conversational Analytics Agents.
+---
+kind: tool
+name: update_agent
+type: looker-update-agent
+source: looker-source
+description: |
+  Update an existing Conversational Analytics Agent.
+---
+kind: tool
+name: create_conversation
+type: looker-create-conversation
+source: looker-source
+description: |
+  Create a new conversation for Conversational Analytics.
+---
+kind: tool
+name: delete_conversation
+type: looker-delete-conversation
+source: looker-source
+description: |
+  Delete a conversation.
+---
+kind: tool
+name: get_conversation
+type: looker-get-conversation
+source: looker-source
+description: |
+  Retrieve a specific conversation.
+---
+kind: tool
+name: update_conversation
+type: looker-update-conversation
+source: looker-source
+description: |
+  Update a conversation.
+---
+kind: tool
+name: list_conversations
+type: looker-list-conversations
+source: looker-source
+description: |
+  List or search conversations.
+---
+kind: tool
+name: create_conversation_message
+type: looker-create-conversation-message
+source: looker-source
+description: |
+  Create one or more messages in a conversation.
+---
+kind: tool
+name: list_conversation_messages
+type: looker-list-conversation-messages
+source: looker-source
+description: |
+  Get all messages in a conversation.
+---
+kind: tool
+name: delete_conversation_message
+type: looker-delete-conversation-message
+source: looker-source
+description: |
+  Delete a specific message from a conversation.
+---
+kind: tool
+name: get_conversation_message
+type: looker-get-conversation-message
+source: looker-source
+description: |
+  Retrieve a specific message from a conversation.
+---
+kind: tool
+name: update_conversation_message
+type: looker-update-conversation-message
+source: looker-source
+description: |
+  Update a specific message in a conversation.
+---
+kind: tool
+name: conversational_analytics_chat
+type: looker-conversational-analytics-chat
+source: looker-source
+description: |
+  Send a message to a conversation and get the generated response from the agent.
+---
 kind: toolset
 name: looker_conversational_analytics_tools
 tools:
 - ask_data_insights
 - get_models
 - get_explores
+- create_agent
+- delete_agent
+- get_agent
+- list_agents
+- update_agent
+- create_conversation
+- delete_conversation
+- get_conversation
+- update_conversation
+- list_conversations
+- create_conversation_message
+- list_conversation_messages
+- delete_conversation_message
+- get_conversation_message
+- update_conversation_message
+- conversational_analytics_chat
