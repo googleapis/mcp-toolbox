@@ -270,7 +270,9 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if res.IsUI() {
 			continue
 		}
-		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
+		// Use res.GetName(), not the config key, so a SKILL.md is listed
+		// under the skill name from its frontmatter.
+		mcpManifest = append(mcpManifest, generateResourceManifest(res.GetName(), res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
 	}
 	return ListResourcesResult{
 		Resources: mcpManifest,

@@ -128,6 +128,93 @@ func TestDecodeConfig(t *testing.T) {
 	})
 }
 
+func TestValidateScheme(t *testing.T) {
+	tcs := []struct {
+		desc         string
+		uri          string
+		nativeScheme string
+		wantErr      string
+	}{
+		{desc: "native scheme", uri: "file://queries.md", nativeScheme: "file"},
+		{desc: "skill scheme", uri: "skill://analytics-guide/references/queries.md", nativeScheme: "file"},
+		// url.Parse lowercases the scheme, so case never reaches the comparison.
+		{desc: "uppercase native scheme", uri: "FILE://Queries.md", nativeScheme: "file"},
+		{desc: "uppercase skill scheme", uri: "SKILL://Analytics-Guide/queries.md", nativeScheme: "file"},
+		// The helper is not file-specific: any resource type may pass its own scheme.
+		{desc: "other native scheme", uri: "text://greeting", nativeScheme: "text"},
+		{desc: "foreign scheme", uri: "query://queries.md", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "native scheme of another resource", uri: "text://greeting", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "no scheme", uri: "queries.md", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "unparseable uri", uri: "file://\x7f", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := resources.ValidateScheme(tc.uri, tc.nativeScheme)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateScheme(%q, %q): got %v, want nil", tc.uri, tc.nativeScheme, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateScheme(%q, %q): got nil, want %q", tc.uri, tc.nativeScheme, tc.wantErr)
+			}
+			if err.Error() != tc.wantErr {
+				t.Errorf("ValidateScheme(%q, %q): got %q, want %q", tc.uri, tc.nativeScheme, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateSkillURI(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		uri     string
+		wantErr string
+	}{
+		{desc: "SKILL.md", uri: "skill://analytics-guide/SKILL.md"},
+		{desc: "nested skill path", uri: "skill://org/team/analytics-guide/SKILL.md"},
+		{desc: "supporting file", uri: "skill://analytics-guide/references/queries.md"},
+		// Only skill:// URIs are checked; other schemes keep their own rules.
+		{desc: "non-skill uri with a query", uri: "text://anything?x=1"},
+		{desc: "non-skill uri with an uppercase name", uri: "file://org/Bad_Name/SKILL.md"},
+		{
+			desc:    "invalid skill name",
+			uri:     "skill://org/Bad_Name/SKILL.md",
+			wantErr: `skill name "Bad_Name" may only contain lowercase letters, digits, and hyphens`,
+		},
+		{
+			desc:    "skill name with consecutive hyphens",
+			uri:     "skill://analytics--guide/SKILL.md",
+			wantErr: `skill name "analytics--guide" contains consecutive hyphens`,
+		},
+		{desc: "query", uri: "skill://analytics-guide/SKILL.md?x=1", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "fragment", uri: "skill://analytics-guide/SKILL.md#top", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "userinfo", uri: "skill://user@analytics-guide/SKILL.md", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "empty segment", uri: "skill://analytics-guide//SKILL.md", wantErr: "has an empty or relative path segment"},
+		{desc: "relative segment", uri: "skill://analytics-guide/../SKILL.md", wantErr: "has an empty or relative path segment"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := resources.ValidateSkillURI(tc.uri)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateSkillURI(%q): got %v, want nil", tc.uri, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateSkillURI(%q): got nil, want %q", tc.uri, tc.wantErr)
+			}
+			if err.Error() != tc.wantErr {
+				t.Errorf("ValidateSkillURI(%q): got %q, want %q", tc.uri, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestGetBaseDirFromContext(t *testing.T) {
 	ctx := context.Background()
 

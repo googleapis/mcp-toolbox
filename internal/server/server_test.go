@@ -48,9 +48,10 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
-	_ "github.com/googleapis/mcp-toolbox/internal/resources/text"
+	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
+	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/postgres"
@@ -1664,6 +1665,147 @@ func TestInitializeConfigs(t *testing.T) {
 		_, _, err := server.InitializeOfflineConfigs(ctx, cfg)
 		if err != nil {
 			t.Fatalf("expected InitializeOfflineConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("fails to start when a skill is invalid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					// The text has no frontmatter. Validate rejects it.
+					Text: "# Just a heading\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail on an invalid skill")
+		}
+		if !strings.Contains(err.Error(), "frontmatter") {
+			t.Errorf("error = %v, want it to name the frontmatter problem", err)
+		}
+	})
+
+	// The test above passes even if validation rejects every skill. This test
+	// checks the opposite case. A correct skill must reach the server.
+	t.Run("starts when a skill is valid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n",
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: "# Common queries\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+		for _, name := range []string{"guide", "queries"} {
+			if _, ok := resourcesMap[name]; !ok {
+				t.Errorf("resource %q missing from the map", name)
+			}
+		}
+	})
+
+	// A SKILL.md configured as "guide" must be listed to clients under the
+	// skill name from its frontmatter, not under "guide".
+	t.Run("lists a SKILL.md under its frontmatter name", func(t *testing.T) {
+		const (
+			skillMD   = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
+			queriesMD = "# Common queries\n"
+		)
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/plain"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: skillMD,
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: queriesMD,
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+
+		doc := resourcesMap["guide"]
+		if doc == nil {
+			t.Fatal("the SKILL.md resource is missing from the map")
+		}
+		if got := doc.GetName(); got != "analytics-guide" {
+			t.Errorf("GetName() = %q, want the frontmatter name", got)
+		}
+		if got := doc.GetDescription(); got != "Query the warehouse" {
+			t.Errorf("GetDescription() = %q, want the frontmatter description", got)
+		}
+		// The config says text/plain, so text/markdown here proves the
+		// SKILL.md override is applied.
+		if got := doc.GetMimeType(); got != "text/markdown" {
+			t.Errorf("GetMimeType() = %q, want text/markdown", got)
+		}
+
+		// Other files in the skill keep their config name.
+		if got := resourcesMap["queries"].GetName(); got != "queries" {
+			t.Errorf("supporting file GetName() = %q, want queries", got)
+		}
+
+		// Check the resources/list result too, since that is what a client
+		// actually sees.
+		g := group.NewGroup(group.GroupConfig{ResourceNames: []string{"guide", "queries"}})
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil,
+			map[string]group.Group{g.Name: g})
+		listed, err := v20260728.GenerateListResourcesResult(pMgr, g)
+		if err != nil {
+			t.Fatalf("GenerateListResourcesResult() = %v, want nil", err)
+		}
+		skillSize, queriesSize := int64(len(skillMD)), int64(len(queriesMD))
+		want := []v20260728.Resource{
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "analytics-guide"},
+				Uri:          "skill://analytics-guide/SKILL.md",
+				Description:  "Query the warehouse",
+				MimeType:     "text/markdown",
+				Size:         &skillSize,
+			},
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "queries"},
+				Uri:          "skill://analytics-guide/references/queries.md",
+				MimeType:     "text/markdown",
+				Size:         &queriesSize,
+			},
+		}
+		if diff := cmp.Diff(want, listed.Resources); diff != "" {
+			t.Errorf("resources/list mismatch (-want +got):\n%s", diff)
 		}
 	})
 }

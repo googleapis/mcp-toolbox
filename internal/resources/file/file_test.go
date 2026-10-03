@@ -105,6 +105,79 @@ func TestParseFromYamlFile(t *testing.T) {
 				},
 			},
 		},
+		{
+			// A file resource may also be addressed under skill://, which is
+			// what lets a skill's files be declared by hand.
+			desc: "skill scheme uri",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: queries
+			type: file
+			uri: skill://analytics-guide/references/queries.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			want: server.ResourceConfigs{
+				"queries": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "queries",
+							Type:        "file",
+							Annotations: &resources.ResourceAnnotations{Priority: func(f float64) *float64 { return &f }(1.0)},
+						},
+						URI: "skill://analytics-guide/references/queries.md",
+					},
+					Path: filepath.ToSlash(validPath),
+				},
+			},
+		},
+		{
+			// Schemes and hosts are case-insensitive per RFC 3986 §3.1 and §3.2.2,
+			// so both are normalized to lowercase on the way in. The path is not.
+			desc: "uppercase native scheme is normalized",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: queries
+			type: file
+			uri: FILE://Queries
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			want: server.ResourceConfigs{
+				"queries": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "queries",
+							Type:        "file",
+							Annotations: &resources.ResourceAnnotations{Priority: func(f float64) *float64 { return &f }(1.0)},
+						},
+						URI: "file://queries",
+					},
+					Path: filepath.ToSlash(validPath),
+				},
+			},
+		},
+		{
+			desc: "uppercase skill scheme is normalized",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: queries
+			type: file
+			uri: SKILL://Analytics-Guide/references/queries.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			want: server.ResourceConfigs{
+				"queries": &file.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "queries",
+							Type:        "file",
+							Annotations: &resources.ResourceAnnotations{Priority: func(f float64) *float64 { return &f }(1.0)},
+						},
+						URI: "skill://analytics-guide/references/queries.md",
+					},
+					Path: filepath.ToSlash(validPath),
+				},
+			},
+		},
 	}
 
 	for _, tc := range tcs {
@@ -153,6 +226,39 @@ func TestFailParseFromYaml(t *testing.T) {
 			err: "Field validation for 'Path' failed on the 'required' tag",
 		},
 		{
+			desc: "foreign scheme",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: query://my-file
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "must be 'file' or 'skill'",
+		},
+		{
+			desc: "text scheme",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: text://my-file
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "must be 'file' or 'skill'",
+		},
+		{
+			desc: "uppercase foreign scheme",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: QUERY://my-file
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "must be 'file' or 'skill'",
+		},
+		{
 			desc: "maxSize zero",
 			in: fmt.Sprintf(`
 			kind: resource
@@ -195,6 +301,28 @@ func TestFailParseFromYaml(t *testing.T) {
 			maxSize: 50MB
 			`, filepath.ToSlash(validPath)),
 			err: "cannot unmarshal",
+		},
+		{
+			desc: "skill uri with an invalid skill name",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: skill://org/Bad_Name/SKILL.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: `invalid skill uri "skill://org/Bad_Name/SKILL.md" for resource "my-file": skill name "Bad_Name" may only contain lowercase letters, digits, and hyphens`,
+		},
+		{
+			desc: "skill uri with an empty path segment",
+			in: fmt.Sprintf(`
+			kind: resource
+			name: my-file
+			type: file
+			uri: skill://analytics-guide//SKILL.md
+			path: %s
+			`, filepath.ToSlash(validPath)),
+			err: "has an empty or relative path segment",
 		},
 	}
 
@@ -927,4 +1055,52 @@ path: %s
 			}
 		}
 	})
+}
+
+// TestFileResource_SkillDocIdentity checks that, after Initialize, a SKILL.md
+// reports the name and description from its frontmatter and the
+// text/markdown MIME type. Other resources keep their config values.
+func TestFileResource_SkillDocIdentity(t *testing.T) {
+	tmpDir := t.TempDir()
+	skillPath := filepath.Join(tmpDir, "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte("---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	notesPath := filepath.Join(tmpDir, "notes.txt")
+	if err := os.WriteFile(notesPath, []byte("notes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tcs := []struct {
+		desc, uri, path              string
+		wantName, wantDesc, wantMime string
+	}{
+		{"SKILL.md", "skill://analytics-guide/SKILL.md", skillPath, "analytics-guide", "Query the warehouse", "text/markdown"},
+		{"supporting file", "skill://analytics-guide/notes.txt", notesPath, "guide", "configured", "text/plain"},
+		{"non-skill uri", "file://notes", skillPath, "guide", "configured", "text/plain"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := &file.Config{
+				ResourceConfigBase: resources.ResourceConfigBase{
+					ConfigBase: resources.ConfigBase{Name: "guide", Type: "file", Description: "configured", MimeType: "text/plain"},
+					URI:        tc.uri,
+				},
+				Path: tc.path,
+			}
+			res, err := cfg.Initialize(context.Background())
+			if err != nil {
+				t.Fatalf("Initialize() = %v", err)
+			}
+			if got := res.GetName(); got != tc.wantName {
+				t.Errorf("GetName() = %q, want %q", got, tc.wantName)
+			}
+			if got := res.GetDescription(); got != tc.wantDesc {
+				t.Errorf("GetDescription() = %q, want %q", got, tc.wantDesc)
+			}
+			if got := res.GetMimeType(); got != tc.wantMime {
+				t.Errorf("GetMimeType() = %q, want %q", got, tc.wantMime)
+			}
+		})
+	}
 }
