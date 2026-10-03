@@ -1201,6 +1201,7 @@ func runDataplexSearchEntriesToolInvokeTest(t *testing.T, tableName string, data
 		expectResult   bool
 		wantContentKey string
 		wantCount      int
+		wantEmptySlice bool
 	}{
 		{
 			name:           "Success - Entry Found",
@@ -1266,6 +1267,17 @@ func runDataplexSearchEntriesToolInvokeTest(t *testing.T, tableName string, data
 			expectResult:   false,
 			wantContentKey: "",
 		},
+		{
+			// Regression: a well-formed query that matches nothing must
+			// serialize as an empty JSON array, not null.
+			name:           "Success - No Match Returns Empty Slice",
+			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-search-entries-tool/invoke",
+			requestHeader:  map[string]string{},
+			requestBody:    bytes.NewBuffer([]byte(`{"query":"displayname=no_such_entry_9f3b7c system=bigquery"}`)),
+			wantStatusCode: 200,
+			expectResult:   true,
+			wantEmptySlice: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1286,6 +1298,12 @@ func runDataplexSearchEntriesToolInvokeTest(t *testing.T, tableName string, data
 				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			if !tc.expectResult && (resultStr == "" || resultStr == "[]") {
+				return
+			}
+			if tc.wantEmptySlice {
+				if resultStr != "[]" {
+					t.Fatalf("expected an empty slice for a no-match query, but got: %s", resultStr)
+				}
 				return
 			}
 			var entries []interface{}

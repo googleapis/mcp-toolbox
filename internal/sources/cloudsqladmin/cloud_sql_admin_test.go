@@ -16,6 +16,10 @@ package cloudsqladmin_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -23,6 +27,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/cloudsqladmin"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"google.golang.org/api/option"
+	sqladmin "google.golang.org/api/sqladmin/v1"
 )
 
 func TestParseFromYamlCloudSQLAdmin(t *testing.T) {
@@ -142,6 +148,56 @@ func TestFailParseFromYaml(t *testing.T) {
 			errStr := err.Error()
 			if errStr != tc.err {
 				t.Fatalf("unexpected error: got %q, want %q", errStr, tc.err)
+			}
+		})
+	}
+}
+
+// Regression: empty list responses must serialize as an empty JSON array,
+// not null.
+func TestEmptyListSerializesAsEmptySlice(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"items": []}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	svc, err := sqladmin.NewService(ctx, option.WithEndpoint(srv.URL+"/"), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("unable to create stub sqladmin service: %s", err)
+	}
+	s := &cloudsqladmin.Source{Service: svc}
+
+	tcs := []struct {
+		desc string
+		call func() (any, error)
+	}{
+		{
+			desc: "ListDatabase",
+			call: func() (any, error) { return s.ListDatabase(ctx, "p", "i", "") },
+		},
+		{
+			desc: "ListInstance",
+			call: func() (any, error) { return s.ListInstance(ctx, "p", "") },
+		},
+	}
+	for _, tc := range tcs {
+		tc := tc
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Parallel()
+			got, err := tc.call()
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+			out, err := json.Marshal(got)
+			if err != nil {
+				t.Fatalf("unable to marshal result: %s", err)
+			}
+			if string(out) != "[]" {
+				t.Fatalf("empty list should serialize as [], got %s", string(out))
 			}
 		})
 	}
