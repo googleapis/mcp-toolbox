@@ -762,3 +762,153 @@ body {
         vertical-align: baseline;
     }
 }
+
+/* MCP Apps UI Components */
+.tool-name-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.mcp-app-badge {
+    display: inline-flex;
+    align-items: center;
+    background: linear-gradient(135deg, #1a73e8 0%, #7b1fa2 100%);
+    color: #ffffff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 12px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.response-view-tabs {
+    display: flex;
+    gap: 8px;
+    margin-left: 12px;
+}
+
+.response-view-tab {
+    background: #f1f3f4;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #5f6368;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.response-view-tab:hover {
+    background: #e8eaed;
+    color: #202124;
+}
+
+.response-view-tab.active {
+    background: var(--toolbox-blue);
+    border-color: var(--toolbox-blue);
+    color: #ffffff;
+}
+
+.mcp-app-container {
+    margin-top: 10px;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    background-color: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.mcp-app-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 0.82rem;
+    width: 100%;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+.mcp-app-uri {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #5f6368;
+}
+
+.mcp-app-uri code {
+    background: #e8f0fe;
+    color: #1a73e8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85rem;
+}
+
+.mcp-app-status {
+    font-weight: 600;
+    color: #137333;
+    background-color: #e6f4ea;
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+.mcp-app-iframe {
+    width: 100%;
+    min-height: 480px;
+    border: none;
+    display: block;
+    background-color: #ffffff;
+    flex: 1 1 auto;
+    box-sizing: border-box;
+    transition: height 0.15s ease-out;
+}
+
+.mcp-app-container.mcp-app-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    z-index: 2147483647 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background-color: #ffffff;
+}
+
+.mcp-app-container.mcp-app-fullscreen .mcp-app-topbar {
+    border-radius: 0 !important;
+    flex-shrink: 0;
+}
+
+.mcp-app-container.mcp-app-fullscreen .mcp-app-iframe {
+    width: 100% !important;
+    height: 100% !important;
+    flex: 1 1 100% !important;
+    min-height: 0 !important;
+    border: none !important;
+}
+
+body.mcp-app-fullscreen-active {
+    overflow: hidden !important;
+}
+
