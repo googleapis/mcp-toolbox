@@ -20,9 +20,6 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 -   `cmd/`: Application entry points.
 -   `internal/sources/`: Implementations of database sources (e.g., Postgres, BigQuery).
 -   `internal/tools/`: Implementations of specific tools for each source.
--   `internal/prompts/`: Implementations of MCP prompts.
--   `internal/resources/`: Implementations of MCP resources and resource templates (e.g., text, file).
--   `internal/group/`: Implementations of groups scoping tools, prompts, resources, and resource templates.
 -   `tests/`: Integration tests.
 -   `evals/`: Evalsets and harness configs for evaluating the prebuilt tool configs with [EvalBench](https://github.com/googlecloudplatform/evalbench); run by `.ci/evals.cloudbuild.yaml`.
 -   `docs/en`: Project documentation. Separated logically into:
@@ -153,17 +150,6 @@ A concise description of the changes (bug or feature), its impact, and a summary
 **3. Issue Reference**
 Use the format: `Fixes #<issue_number> 🦕`
 
-## Security
-
-Before proposing or making a change, check it for the vulnerability classes most relevant to this codebase:
-
--   **SQL/query injection:** Never build a query by concatenating or `fmt.Sprintf`-ing a user-supplied tool parameter into a query string. Bind parameters using the source's parameterized-query API instead.
--   **Credentials and secrets:** Never log, hardcode, or echo back a credential, API key, connection string, or token. Read secrets from config/environment, not from tool parameters.
--   **Path/command injection:** Treat any user-supplied string used to build a file path or a shell/subprocess argument as untrusted; validate or reject it rather than passing it through unchecked.
--   **Auth bypass:** A new or modified tool must still go through `BaseTool`'s `Authorized`/`authRequired`/`scopesRequired` handling — do not add a code path that skips it.
-
-If a change touches a `source` or `tool` implementation, call out the relevant point(s) above explicitly in the PR description rather than leaving them implicit.
-
 ## Adding New Features
 
 ### Adding a New Data Source
@@ -174,12 +160,11 @@ If a change touches a `source` or `tool` implementation, call out the relevant p
 4.  Implement `Source` interface (`SourceType`, `ToConfig`).
 5.  Implement `init()` to register the source.
 6.  Add unit tests in `internal/sources/<newdb>/<newdb>_test.go`.
-7.  **Google Cloud Databases:** For every Google Cloud database, ensure a corresponding `product: <database>` label is added to `.github/labels.yaml`, routing is configured in `.github/blunderbuss.yml` (under both `assign_issues_by` and `assign_prs_by`), and the GitHub team is team-synced from an MDB group with write access to the repo.
 
 ### Adding a New Tool
 
 1.  Create a new directory: `internal/tools/<newdb>/<toolname>`.
-2.  Define a `Config` struct that **embeds `tools.ConfigBase`** (with `yaml:",inline"`). This supplies the shared `name`, `description`, `authRequired`, `scopesRequired`, and `annotations` fields and the applicable getters — add only tool-specific fields and do not redeclare the shared ones.
+2.  Define a `Config` struct that **embeds `tools.ConfigBase`** (with `yaml:",inline"`). This supplies the shared `name`, `description`, `authRequired`, and `scopesRequired` fields and their getters — add only tool-specific fields and do not redeclare the shared ones.
 3.  Define a `Tool` struct that **embeds `tools.BaseTool[Config]`**. Do *not* re-declare the boilerplate `Tool` methods (`GetName`, `GetDescription`, `Manifest`, `GetParameters`, `Authorized`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, `EmbedParams`, etc.) — they are inherited from `BaseTool`.
 4.  Implement `ToolConfig` interface (`ToolConfigType`, `Initialize`). In `Initialize`, construct the tool via `tools.NewBaseTool(cfg, annotations, manifest, staticParameters)`.
 5.  Implement only the methods `BaseTool` does not provide: `Invoke` and `ToConfig`. Override an inherited method (e.g. `EmbedParams`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`) **only** when the tool's behavior differs from the default.
@@ -192,7 +177,6 @@ Refer to `internal/tools/postgres/postgressql/postgressql.go` for the canonical 
 
 -   **For a new source:** Add source documentation to `docs/en/integrations/<source_name>/source.md`. Ensure the root `_index.md` file contains **strictly only frontmatter** and no markdown body text.
 -   **For a new native tool:** Add tool documentation to `docs/en/integrations/<source_name>/tools/<tool_name>.md`. Ensure the `tools/_index.md` file contains **strictly only frontmatter**.
--   **For a new resource:** Add resource documentation to `docs/en/documentation/configuration/resources/<resource_type>.md`.
 -   **Adding Integration Samples:** Add integration-specific samples to `docs/en/integrations/<source_name>/samples/`. Ensure the `samples/_index.md` file contains **strictly only frontmatter**.
 -   **Tool Inheritance (Shared Tools):** Managed databases (e.g., Cloud SQL Postgres) that use the tools of their underlying engine (e.g., Postgres) map their inherited tools by utilizing the `shared_tools` frontmatter parameter inside their `tools/_index.md` file. This file must contain only frontmatter.
 -   **New Top-Level Directories:** If adding a completely new top-level section to the documentation site, you must update the "Diátaxis Narrative Framework" section inside both `.hugo/layouts/index.llms.txt` and `.hugo/layouts/index.llms-full.txt` to keep the AI context synced with the site structure.
@@ -260,3 +244,37 @@ Sample code is aggregated visually in the UI via the Samples section, but the ph
 ##### Asset Constraints (`docs/`)
 
 1.  **File Size Limits:** Never add files larger than 24MB to the `docs/` directory.
+
+## Security Review
+
+Before opening a PR, review the change against the security surfaces below.
+Flag anything you cannot verify instead of assuming it is safe.
+
+-   **Bind, don't format:** User-supplied values must flow through
+    `parameters.GetParams` and reach the driver as bound arguments (see
+    `internal/tools/postgres/postgressql/postgressql.go`). Never `fmt.Sprintf`
+    a parameter value into a statement.
+-   **Template parameters are not bound:** `parameters.ResolveTemplateParams`
+    substitutes `templateParameters` straight into the statement. Constrain
+    them with `allowedValues` (or `minValue`/`maxValue`) and validate
+    identifiers (e.g. `bigquerycommon.ValidTableID`, `ValidColumnName`).
+    `escape` alone does *not* make a template parameter safe.
+-   **Honor resource allow-lists:** Tools that accept a resource identifier must
+    check the source's allow-list (e.g. `BigQueryAllowedDatasets()`) before
+    issuing a request, and return an access-denied error otherwise.
+-   **BigQuery write modes:** New BigQuery query paths must respect the source's
+    write mode (`WriteModeBlocked`, `WriteModeProtected`) instead of bypassing it.
+-   **Auth-bound parameters:** Values declared with `authServices` must be
+    resolved from verified claims (`parseFromAuthService`) and must never be
+    overridable by a client-supplied parameter value.
+-   **Credentials and tokens:** Never log, persist, or include source credentials, client
+    OAuth tokens (`useClientOAuth`, the `Authorization` header), or auth claims in trace attributes.
+    Keep them out of manifests, tool results, and error strings - errors are
+    returned to the model.
+-   **Outbound requests:** New outbound HTTP paths must use the SSRF-guarded
+    client in `internal/sources/http/http.go` (`SSRFGuard.IsIPBlocked` plus the
+    redirect re-validation in `CheckRedirect`), not a bare `http.Client`.
+    Preserve the `getURL` checks in `internal/tools/http/http.go`: relative
+    paths only, no `..` segments, no host override.
+-   **Reporting:** Do *not* open a public issue or PR for an exploitable
+    vulnerability. Follow `SECURITY.md` instead.
