@@ -1,0 +1,139 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package cassandra
+
+import (
+	"context"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/tests"
+)
+
+// setupCassandraMCPServer sets up the test tables and starts a Toolbox server
+// serving the Cassandra tools over the MCP endpoint. Every teardown step is
+// registered with t.Cleanup, so nothing leaks if setup fails partway through.
+// Cleanups run LIFO, so the server stops before the tables it queries are
+// dropped, and the session is closed last.
+func setupCassandraMCPServer(t *testing.T, ctx context.Context) string {
+	session, err := initCassandraSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+
+	sourceConfig := getCassandraVars(t)
+
+	paramTableName := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+
+	if err = initTable(paramTableName, session); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dropTable(session, paramTableName) })
+
+	if err = initTable(tableNameAuth, session); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dropTable(session, tableNameAuth) })
+
+	if err = initTable(tableNameTemplateParam, session); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dropTable(session, tableNameTemplateParam) })
+
+	paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt := createParamToolInfo(paramTableName)
+	_, _, authToolStmt := getCassandraAuthToolInfo(tableNameAuth)
+	toolsFile := tests.GetToolsConfig(sourceConfig, CassandraToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
+
+	tmplSelectCombined, tmplSelectFilterCombined := getCassandraTmplToolInfo()
+	tmpSelectAll := "SELECT * FROM {{.tableName}} where id = 1"
+	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, CassandraToolType, tmplSelectCombined, tmplSelectFilterCombined, tmpSelectAll)
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	// Registered last so it runs first. StartCmd's cleanup only removes the
+	// temporary config file, so Close is what stops the server and closes its
+	// pipes, before the tables it queries are dropped.
+	t.Cleanup(func() {
+		cmd.Close()
+		cleanup()
+	})
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	return tableNameTemplateParam
+}
+
+func TestCassandraMCPListTools(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	setupCassandraMCPServer(t, ctx)
+
+	// Cassandra registers no execute-sql tool, so the manifest is the base
+	// tools plus the template parameter tools.
+	expectedTools := tests.GetBaseMCPExpectedTools()
+	expectedTools = append(expectedTools, tests.GetTemplateParamMCPExpectedTools()...)
+
+	t.Run("verify tools/list registry returns complete manifest", func(t *testing.T) {
+		tests.RunMCPToolsListMethod(t, expectedTools)
+	})
+}
+
+func TestCassandraMCPCallTool(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	tableNameTemplateParam := setupCassandraMCPServer(t, ctx)
+
+	selectIdNameWant, selectIdNullWant, selectArrayParamWant, mcpMyFailToolWant, mcpSelect1Want, mcpMyToolIdWant := getCassandraWants()
+	selectAllWant, selectIdWant, selectNameWant := getCassandraTmplWants()
+
+	// CQL has no `SELECT 1`, so the select-1 cases stay disabled, and the row
+	// expectations from the legacy test are carried over unchanged.
+	tests.RunToolInvokeTest(t, "", tests.DisableSelect1Test(),
+		tests.DisableOptionalNullParamTest(),
+		tests.WithMyToolId3NameAliceWant(selectIdNameWant),
+		tests.WithMyToolById4Want(selectIdNullWant),
+		tests.WithMyArrayToolWant(selectArrayParamWant),
+		tests.DisableSelect1AuthTest(),
+		tests.WithMCP())
+	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
+		tests.DisableSelectFilterTest(),
+		tests.WithSelectAllWant(selectAllWant),
+		tests.DisableDdlTest(), tests.DisableInsertTest(),
+		tests.WithTmplSelectId1Want(selectIdWant),
+		tests.WithTmplSelectNameWant(selectNameWant),
+		tests.WithMCPTemplate())
+
+	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
+		tests.WithMcpMyToolId3NameAliceWant(mcpMyToolIdWant),
+		tests.WithMcpMySecureToolWant(selectIdNameWant),
+		tests.DisableMcpSelect1AuthTest())
+}
