@@ -1421,11 +1421,12 @@ func (p *MapParameter) McpManifest() (ParameterMcpManifest, []string) {
 	authServiceNames := getAuthServiceNames(p.AuthServices)
 	var additionalProperties any
 	if p.ValueType != "" {
-		_, err := getPrototypeParameter(p.ValueType)
+		prototype, err := getPrototypeParameter(p.ValueType)
 		if err != nil {
 			panic(err)
 		}
-		valueSchema := map[string]any{"type": p.ValueType}
+		valueManifest, _ := prototype.McpManifest()
+		valueSchema := map[string]any{"type": valueManifest.Type}
 		additionalProperties = valueSchema
 	} else {
 		// If no valueType is given, allow any properties.
