@@ -1,0 +1,108 @@
+{
+  "scenarios": [
+    {
+      "id": "alloydbpg-admin-01",
+      "starting_prompt": "We need an isolated AlloyDB cluster for testing. Create a cluster named ${ALLOYDB_POSTGRES_CLUSTER} in location ${ALLOYDB_POSTGRES_REGION} on the 'default' network with initial user 'postgres' and password 'EvalTestPass123!'. Tell me once the operation has actually finished.",
+      "conversation_plan": "The user wants the cluster creation confirmed as complete, not just started. If the assistant only reports that the cluster was requested, ask it to confirm the operation finished. Then end the conversation. Success Criteria: the assistant calls create_cluster to create cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION} on the 'default' network with initial user 'postgres' and calls wait_for_operation to confirm the cluster creation operation has completed. Failure Criteria: the assistant reports the cluster is created without calling wait_for_operation, or fails to call create_cluster with the requested parameters.",
+      "expected_trajectory": [
+        "toolbox__create_cluster",
+        "toolbox__wait_for_operation"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "alloydbpg-admin-02",
+      "starting_prompt": "We need additional read capacity on AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}. Create a READ_POOL instance named ${ALLOYDB_POSTGRES_INSTANCE} with 1 node, and tell me once the operation has actually finished.",
+      "conversation_plan": "The user wants the instance creation confirmed as complete, not just started. If the assistant only reports that the instance was requested, ask it to confirm the operation finished. Then end the conversation. Success Criteria: the assistant calls create_instance to create a READ_POOL instance named ${ALLOYDB_POSTGRES_INSTANCE} with 1 node in cluster ${ALLOYDB_POSTGRES_CLUSTER} and calls wait_for_operation to confirm the instance creation operation has completed. Failure Criteria: the assistant reports the instance is ready without calling wait_for_operation, or fails to call create_instance with instanceType READ_POOL and nodeCount 1.",
+      "expected_trajectory": [
+        "toolbox__create_instance",
+        "toolbox__wait_for_operation"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "alloydbpg-admin-03",
+      "starting_prompt": "Create a new database user named ${ALLOYDB_POSTGRES_USER} on AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}. Set the user type to ALLOYDB_IAM_USER.",
+      "conversation_plan": "The user wants to create a new IAM user on the cluster. Accept confirmation and end the conversation. Success Criteria: the assistant calls create_user to create user ${ALLOYDB_POSTGRES_USER} on cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION} with userType set to ALLOYDB_IAM_USER. Failure Criteria: the assistant fails to call create_user, uses ALLOYDB_BUILT_IN instead of ALLOYDB_IAM_USER, or asks for a password when creating an IAM user.",
+      "expected_trajectory": [
+        "toolbox__create_user"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-04",
+      "starting_prompt": "I am auditing our AlloyDB fleet in this project. Which clusters do we have in ${ALLOYDB_POSTGRES_REGION}, and what is the network and status of ${ALLOYDB_POSTGRES_CLUSTER}?",
+      "conversation_plan": "The user wants a cluster fleet listing followed by details for one named cluster. Accept a short summary and end the conversation. Success Criteria: the assistant calls list_clusters to list the AlloyDB clusters in ${ALLOYDB_POSTGRES_REGION} and calls get_cluster to retrieve the network and status for ${ALLOYDB_POSTGRES_CLUSTER}. Failure Criteria: the assistant guesses cluster details without calling get_cluster, or skips listing the clusters in the region.",
+      "expected_trajectory": [
+        "toolbox__list_clusters",
+        "toolbox__get_cluster"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-05",
+      "starting_prompt": "Which instances exist in our AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}, and what instance type and state is ${ALLOYDB_POSTGRES_INSTANCE} running with?",
+      "conversation_plan": "The user wants an instance listing for the cluster followed by details for one named instance. Accept a short summary and end the conversation. Success Criteria: the assistant calls list_instances to list the instances in cluster ${ALLOYDB_POSTGRES_CLUSTER} and calls get_instance to retrieve the instance type and state for ${ALLOYDB_POSTGRES_INSTANCE}. Failure Criteria: the assistant guesses instance details without calling get_instance, or skips listing the cluster's instances.",
+      "expected_trajectory": [
+        "toolbox__list_instances",
+        "toolbox__get_instance"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-06",
+      "starting_prompt": "We are conducting an access audit for AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION}. Which users exist, and what are the details and user type for the ${ALLOYDB_POSTGRES_USER} user?",
+      "conversation_plan": "The user wants a user listing for the cluster followed by details for the ${ALLOYDB_POSTGRES_USER} user. Accept a short summary and end the conversation. Success Criteria: the assistant calls list_users to list the users in cluster ${ALLOYDB_POSTGRES_CLUSTER} and calls get_user to retrieve the details and user type for ${ALLOYDB_POSTGRES_USER}. Failure Criteria: the assistant guesses user details without calling get_user, or skips listing the cluster's users.",
+      "expected_trajectory": [
+        "toolbox__list_users",
+        "toolbox__get_user"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-07",
+      "starting_prompt": "Give me a complete topology and access inventory for our AlloyDB environment in ${ALLOYDB_POSTGRES_REGION}: list all clusters in the region, get the full configuration of cluster ${ALLOYDB_POSTGRES_CLUSTER}, list all instances in that cluster, and list all database users configured on it.",
+      "conversation_plan": "The user wants a comprehensive single-turn inventory across clusters, cluster details, instances, and database users. Accept the consolidated summary and end the conversation. Success Criteria: the assistant calls list_clusters for ${ALLOYDB_POSTGRES_REGION}, get_cluster for ${ALLOYDB_POSTGRES_CLUSTER}, list_instances for ${ALLOYDB_POSTGRES_CLUSTER}, and list_users for ${ALLOYDB_POSTGRES_CLUSTER}. Failure Criteria: the assistant omits any of list_clusters, get_cluster, list_instances, or list_users, or fabricates inventory details without calling the corresponding tools.",
+      "expected_trajectory": [
+        "toolbox__list_clusters",
+        "toolbox__get_cluster",
+        "toolbox__list_instances",
+        "toolbox__list_users"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-admin-08",
+      "starting_prompt": "We are preparing AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} in ${ALLOYDB_POSTGRES_REGION} for a production readiness review. First, check the cluster's current state and network configuration.",
+      "conversation_plan": "Turn 2: ask which instances are provisioned in ${ALLOYDB_POSTGRES_CLUSTER} and request the detailed state and instance type of ${ALLOYDB_POSTGRES_INSTANCE}. Turn 3: ask to list all database users on the cluster and inspect the user type and roles of ${ALLOYDB_POSTGRES_USER}. Then end the conversation. Success Criteria: the assistant calls get_cluster in turn 1, calls list_instances and get_instance for ${ALLOYDB_POSTGRES_INSTANCE} in turn 2, and calls list_users and get_user for ${ALLOYDB_POSTGRES_USER} in turn 3. Failure Criteria: the assistant skips any of the required inspection tools across turns or answers from assumptions without querying the cluster, instance, or user tools.",
+      "expected_trajectory": [
+        "toolbox__get_cluster",
+        "toolbox__list_instances",
+        "toolbox__get_instance",
+        "toolbox__list_users",
+        "toolbox__get_user"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "alloydbpg-admin-09",
+      "starting_prompt": "An application service cannot connect to instance ${ALLOYDB_POSTGRES_INSTANCE} in AlloyDB cluster ${ALLOYDB_POSTGRES_CLUSTER} (${ALLOYDB_POSTGRES_REGION}) using account ${ALLOYDB_POSTGRES_USER}. First, verify the status and network settings of both the cluster ${ALLOYDB_POSTGRES_CLUSTER} and the instance ${ALLOYDB_POSTGRES_INSTANCE}.",
+      "conversation_plan": "Turn 2: ask the assistant to inspect the user ${ALLOYDB_POSTGRES_USER} on cluster ${ALLOYDB_POSTGRES_CLUSTER} to confirm the account exists and check its authentication type and database roles. Accept the findings and end the conversation. Success Criteria: the assistant calls get_cluster for ${ALLOYDB_POSTGRES_CLUSTER} and get_instance for ${ALLOYDB_POSTGRES_INSTANCE} in turn 1, then calls get_user for ${ALLOYDB_POSTGRES_USER} in turn 2. Failure Criteria: the assistant diagnoses the issue without calling get_cluster and get_instance in turn 1, or fails to call get_user for ${ALLOYDB_POSTGRES_USER} in turn 2.",
+      "expected_trajectory": [
+        "toolbox__get_cluster",
+        "toolbox__get_instance",
+        "toolbox__get_user"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    }
+  ]
+}
