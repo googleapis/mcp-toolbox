@@ -399,6 +399,17 @@ func resolveWatcherInputs(toolsFile string, toolsFiles []string, toolsFolder str
 	return watchDirs, watchedFiles
 }
 
+// telemetryShutdownTimeout bounds how long the final telemetry flush may take.
+const telemetryShutdownTimeout = 10 * time.Second
+
+// shutdownTelemetryContext builds the context used to flush telemetry on the way
+// out. By then the signal handler has already cancelled ctx, and the OTel SDK
+// skips the final collection on a cancelled context. WithoutCancel keeps the
+// logger values the exporters read from ctx; the timeout bounds a stuck exporter.
+func shutdownTelemetryContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), telemetryShutdownTimeout)
+}
+
 func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
@@ -428,7 +439,9 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 		return err
 	}
 	defer func() {
-		_ = shutdown(ctx)
+		shutdownCtx, cancelShutdown := shutdownTelemetryContext(ctx)
+		defer cancelShutdown()
+		_ = shutdown(shutdownCtx)
 	}()
 
 	isCustomConfigured, err := opts.LoadConfig(ctx, &internal.ConfigParser{})
