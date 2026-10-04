@@ -39,8 +39,8 @@ cloud.google.com/go/monitoring v1.29.0 h1:AHhDsFaSax1/4k+qlIDX/SDGe6hggnfXJ9dkgD
 cloud.google.com/go/monitoring v1.29.0/go.mod h1:72NOVjJXHY/HBfoLT0+qlCZBT059+9VXLeAnL2PeeVM=
 cloud.google.com/go/resourcemanager v1.15.0 h1:OwcTLrKaly0SMPoYHssPG4FBzRF0tyimeySOFD/YPJ0=
 cloud.google.com/go/resourcemanager v1.15.0/go.mod h1:ve0VNxPoDU6XxDuEMCjkineb0YzXQXx3mOWwnNckGDE=
-cloud.google.com/go/spanner v1.92.0 h1:cfeMNmtFjz+OYzQVCIuGBw4Cik4CbF2ptXMuRQcUar0=
-cloud.google.com/go/spanner v1.92.0/go.mod h1:rCDPfWXNX0h+t484r+crCEaaMKbJfoWkHRDKU3H3+oY=
+cloud.google.com/go/spanner v1.95.1 h1:9HYr+AAeAOubn0NZAYv34dFHQ3NbIUcWHZmgJvufPzk=
+cloud.google.com/go/spanner v1.95.1/go.mod h1:Z2+83J5oVDmd1n5ntVMmjEuiNoXOpAyNeG7y1tuEHk0=
 cloud.google.com/go/storage v1.62.3 h1:SZq1t23NCI+e96dH77Dg3PEfsNNEjqO8zE5AnD8gVD0=
 cloud.google.com/go/storage v1.62.3/go.mod h1:cpYz/kRVZ+UQAF1uHeea10/9ewcRbxGoGNKsS9daSXA=
 cloud.google.com/go/trace v1.16.0 h1:GmQovzFc5F0CNfl0VLgL64aoTtu7xsM0YajW2GlG9+E=
