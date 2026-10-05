@@ -59,6 +59,12 @@ publish_pkg() {
     return
   fi
 
+  if [[ "${PUSH_TO_EXIT_GATES}" == "false" ]]; then
+    echo "Dry run: Built ${npm_name}@${version}, skipping npm publish. Running npm pack to verify..."
+    (cd "npm/${pkg}" && npm pack)
+    return
+  fi
+
   (cd "npm/${pkg}" && npm publish --registry "${AR_REGISTRY}")
 }
 

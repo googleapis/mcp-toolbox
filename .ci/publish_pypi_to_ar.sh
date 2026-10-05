@@ -83,6 +83,10 @@ build_wheel "toolbox.darwin.amd64"  "macosx_10_14_x86_64"  "toolbox"
 build_wheel "toolbox.windows.amd64" "win_amd64"            "toolbox.exe"
 build_wheel "toolbox.windows.arm64" "win_arm64"            "toolbox.exe"
 
-twine upload \
-  --repository-url "${AR_URL}" \
-  "${DIST_DIR}"/*.whl
+if [[ "${PUSH_TO_EXIT_GATES}" == "false" ]]; then
+  echo "Dry run: Built PyPI wheels, skipping twine upload."
+else
+  twine upload \
+    --repository-url "${AR_URL}" \
+    "${DIST_DIR}"/*.whl
+fi

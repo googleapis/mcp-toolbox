@@ -110,6 +110,13 @@ steps:
         export TAGS="$TAGS -t ${_DOCKER_URI}:latest"
       fi
 
+      if [[ "${_PUSH_TO_EXIT_GATES:-false}" != "true" ]]; then
+        echo "Dry run: Skipping docker push."
+        export PUSH_ARGS=""
+      else
+        export PUSH_ARGS="--push"
+      fi
+
       # Build and push
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
@@ -120,7 +127,12 @@ steps:
         --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
         --secret id=airlock_token,src=/workspace/.airlock_token \
         $TAGS \
-        --push .
+        $PUSH_ARGS .
+
+      if [[ "${_PUSH_TO_EXIT_GATES:-false}" != "true" ]]; then
+        echo "Dry run: Skipping docker pull/tag for provenance."
+        exit 0
+      fi
 
       # Pull the image to ensure it's available for provenance generation.
       docker pull ${_DOCKER_URI}:$VERSION
@@ -482,6 +494,7 @@ steps:
       - "build-windows-arm64"
     env:
       - "HOME=/workspace"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_npm_to_ar.sh
@@ -511,6 +524,7 @@ steps:
     env:
       - "HOME=/workspace"
       - "PIP_INDEX_URL=https://us-python.pkg.dev/${_AIRLOCK_AR_PROJECT}/python-3p-trusted/simple/"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_pypi_to_ar.sh
