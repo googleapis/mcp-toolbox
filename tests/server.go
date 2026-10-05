@@ -69,7 +69,7 @@ func StartCmd(ctx context.Context, toolsFile map[string]any, args ...string) (*C
 		return nil, nil, fmt.Errorf("unable to write config: %s", err)
 	}
 
-	args = append(args, "--config", path)
+	args = append(args, "--config", path, "--enable-draft-specs")
 
 	ctx, cancel := context.WithCancel(ctx)
 	// Open a pipe for tracking the output from the cmd

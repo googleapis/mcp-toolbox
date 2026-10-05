@@ -97,7 +97,7 @@ func main() {
 	}
 
 	// Set up the generative model with the available tool.
-	modelName := "gemini-2.0-flash"
+	modelName := "gemini-3.6-flash"
 
 	// Create the initial content prompt for the model.
 	messageHistory := []*genai.Content{
@@ -157,7 +157,7 @@ func main() {
 			toolResponseParts = append(toolResponseParts, genai.NewPartFromFunctionResponse(fc.Name, responseMap))
 		}
 		// Add all accumulated tool responses for this turn to the message history.
-		toolResponseContent := genai.NewContentFromParts(toolResponseParts, "function")
+		toolResponseContent := genai.NewContentFromParts(toolResponseParts, genai.RoleUser)
 		messageHistory = append(messageHistory, toolResponseContent)
 
 		finalResponse, err := client.Models.GenerateContent(ctx, modelName, messageHistory, &genai.GenerateContentConfig{})

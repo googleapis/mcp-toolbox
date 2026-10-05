@@ -65,11 +65,14 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 
 	instanceAdminClient, err := initBigtableInstanceAdminClient(ctx, tracer, r.Name, r.Project)
 	if err != nil {
+		client.Close()
 		return nil, fmt.Errorf("unable to create instance admin client: %w", err)
 	}
 
 	adminClient, err := initBigtableAdminClient(ctx, tracer, r.Name, r.Project, r.Instance)
 	if err != nil {
+		client.Close()
+		instanceAdminClient.Close()
 		return nil, fmt.Errorf("unable to create admin client: %w", err)
 	}
 
@@ -89,6 +92,10 @@ type Source struct {
 	Client        *bigtable.Client
 	InstanceAdmin *bigtable.InstanceAdminClient
 	Admin         *bigtable.AdminClient
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {

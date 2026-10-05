@@ -51,10 +51,9 @@ type compatibleSource interface {
 // Configuration for the get-instance tool.
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	BaseURL          string                 `yaml:"baseURL"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
+	BaseURL          string `yaml:"baseURL"`
 }
 
 // validate interface

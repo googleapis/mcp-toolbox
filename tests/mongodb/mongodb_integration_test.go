@@ -602,6 +602,31 @@ func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[str
 				"database":       MongoDbDatabase,
 				"limit":          10,
 			},
+			"my-secure-tool": map[string]any{
+				"type":          toolType,
+				"source":        "my-instance",
+				"description":   "Tool to test secure parameters.",
+				"authRequired":  []string{},
+				"collection":    "test_collection",
+				"filterPayload": `{ "$or": [ { "id": 1, "name": {{json .name }} }, { "id": {{ .id }}, "name": "Sid" } ] }`,
+				"filterParams": []map[string]any{
+					{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user id",
+					},
+					{
+						"name":        "name",
+						"type":        "string",
+						"description": "user name",
+						"secure":      true,
+					},
+				},
+				"projectPayload": `{ "_id": 0, "id": 1, "name" : 1 }`,
+				"sortPayload":    `{ "id": 1 }`,
+				"database":       MongoDbDatabase,
+				"limit":          10,
+			},
 			"my-tool-by-id": map[string]any{
 				"type":          toolType,
 				"source":        "my-instance",

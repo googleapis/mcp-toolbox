@@ -110,7 +110,7 @@ func TestLogAdminToolEndpoints(t *testing.T) {
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer waitCancel()
-	if err := waitForCloudLoggingEntries(waitCtx, adminClient, LogAdminProject, logName); err != nil {
+	if err := waitForCloudLoggingEntries(waitCtx, adminClient, LogAdminProject, logName, 3); err != nil {
 		t.Fatalf("test log %s was not visible before timeout: %v", logName, err)
 	}
 
@@ -137,21 +137,25 @@ func TestLogAdminToolEndpoints(t *testing.T) {
 }
 
 func setupTestLogs(t *testing.T, client *logging.Client, logName string) {
+	now := time.Now().Truncate(time.Second)
 	logger := client.Logger(logName)
 	logger.Log(logging.Entry{
-		Payload:  map[string]string{"test_id": logName, "message": "test entry 1"},
-		Severity: logging.Info,
-		Labels:   map[string]string{"env": "test", "run_id": "1"},
+		Timestamp: now,
+		Payload:   map[string]string{"test_id": logName, "message": "test entry 1"},
+		Severity:  logging.Info,
+		Labels:    map[string]string{"env": "test", "run_id": "1"},
 	})
 
 	logger.Log(logging.Entry{
-		Payload:  map[string]string{"test_id": logName, "message": "test entry 2"},
-		Severity: logging.Warning,
+		Timestamp: now.Add(1 * time.Second),
+		Payload:   map[string]string{"test_id": logName, "message": "test entry 2"},
+		Severity:  logging.Warning,
 	})
 
 	logger.Log(logging.Entry{
-		Payload:  map[string]string{"test_id": logName, "message": "test entry 3"},
-		Severity: logging.Error,
+		Timestamp: now.Add(2 * time.Second),
+		Payload:   map[string]string{"test_id": logName, "message": "test entry 3"},
+		Severity:  logging.Error,
 	})
 	if err := logger.Flush(); err != nil {
 		t.Fatalf("failed to flush logs: %v", err)
