@@ -476,6 +476,7 @@ steps:
       - "build-windows-arm64"
     env:
       - "HOME=/workspace"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_npm_to_ar.sh
@@ -505,6 +506,7 @@ steps:
     env:
       - "HOME=/workspace"
       - "PIP_INDEX_URL=https://us-python.pkg.dev/${_AIRLOCK_AR_PROJECT}/python-3p-trusted/simple/"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_pypi_to_ar.sh
