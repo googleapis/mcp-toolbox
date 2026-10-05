@@ -9,21 +9,25 @@ description: >
 
 ## About
 
-The `looker-query` tool runs a query using the Looker
-semantic model.
+The `looker-query` tool runs an inline query using the Looker
+semantic model or executes a saved Looker query by ID/slug.
 
-`looker-query` takes ten parameters:
+`looker-query` takes the following parameters (provide either `query_id` OR `model` + `explore` + `fields`):
 
-1. the `model`
-2. the `explore`
-3. the `fields` list
-4. an optional set of `filters`
-5. an optional `filter_expression`
-6. an optional `dynamic_fields`
-7. an optional set of `pivots`
-8. an optional set of `sorts`
-9. an optional `limit`
-10. an optional `tz`
+1. an optional `query_id` (numeric ID or slug of a saved query)
+2. the `model` (required if `query_id` is not provided)
+3. the `explore` (required if `query_id` is not provided)
+4. the `fields` list (required if `query_id` is not provided)
+5. an optional set of `filters`
+6. an optional `filter_expression`
+7. an optional `dynamic_fields`
+8. an optional set of `pivots`
+9. an optional set of `sorts`
+10. an optional `limit`
+11. an optional `tz`
+12. an optional `result_format` (`json` or `json_detail`, default `json`)
+13. an optional `vis_config`
+14. an optional `generate_drill_links`
 
 Starting in Looker v25.18, these queries can be identified in Looker's
 System Activity. In the History explore, use the field API Client Name
@@ -41,12 +45,13 @@ name: query
 type: looker-query
 source: looker-source
 description: |
-  This tool runs a query against a LookML model and returns the results in JSON format.
+  This tool runs a query against a LookML model or executes a saved query by ID/slug and returns the results in JSON format.
 
-  Required Parameters:
-  - model_name: The name of the LookML model (from `get_models`).
-  - explore_name: The name of the explore (from `get_explores`).
-  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query.
+  Parameters (provide either `query_id` OR `model` + `explore` + `fields`):
+  - query_id (optional): The unique identifier (numeric ID or slug) of a saved Looker query to execute. If provided, `model`, `explore`, and `fields` are not required.
+  - model: The name of the LookML model (from `get_models`). Required if `query_id` is not provided.
+  - explore: The name of the explore (from `get_explores`). Required if `query_id` is not provided.
+  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query. Required if `query_id` is not provided.
 
   Optional Parameters:
   - pivots: A list of fields to pivot the results by. These fields must also be included in the `fields` list.
@@ -76,7 +81,10 @@ description: |
       - Custom Measure: `[{"measure": "sum_of_revenue", "label": "Sum of Revenue", "based_on": "training.revenue", "type": "sum", "_type_hint": "number"}]`
   - sorts: A list of fields to sort by, optionally including direction (e.g., `["view.field desc"]`).
   - limit: Row limit (default 500). Use "-1" for unlimited.
-  - query_timezone: specific timezone for the query (e.g. `America/Los_Angeles`).
+  - tz: Specific timezone for the query (e.g. `America/Los_Angeles`).
+  - result_format: Output format (`'json'` or `'json_detail'`, default `'json'`).
+  - vis_config: Optional visualization configuration JSON string to associate with the query response.
+  - generate_drill_links: Optional flag indicating whether to generate drill links in the query result.
 
   Note: Use `get_dimensions`, `get_measures`, `get_filters`, and `get_parameters` to find valid fields.
 

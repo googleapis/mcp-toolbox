@@ -23,6 +23,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	lkr "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquery"
+	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
 func TestParseFromYamlLookerQuery(t *testing.T) {
@@ -107,4 +108,88 @@ func TestFailParseFromYamlLookerQuery(t *testing.T) {
 		})
 	}
 
+}
+
+func TestBuildWriteQueryWithOverrides(t *testing.T) {
+	baseFilters := map[string]any{
+		"orders.status": "completed",
+		"customer.city": "Springfield",
+	}
+	baseSorts := []string{"orders.count desc"}
+	filterConfig := map[string]any{"some": "config"}
+	clientId := "abc1234567890123456789"
+	limit := "100"
+
+	baseQuery := v4.Query{
+		Model:        "cypress_mysql",
+		View:         "customer",
+		Filters:      &baseFilters,
+		Sorts:        &baseSorts,
+		FilterConfig: &filterConfig,
+		ClientId:     &clientId,
+		Limit:        &limit,
+	}
+
+	filterOverrides := map[string]any{
+		"customer.last_name": "Simpson",
+		"customer.city":      "", // Empty string override clears default city filter
+	}
+	sortOverrides := []string{"customer.last_name asc"}
+
+	wq := lkr.BuildWriteQueryWithOverrides(baseQuery, filterOverrides, sortOverrides)
+
+	if wq.FilterConfig != nil {
+		t.Errorf("expected FilterConfig to be nil so it does not override Filters, got %v", wq.FilterConfig)
+	}
+	if wq.ClientId != nil {
+		t.Errorf("expected ClientId to be nil, got %v", wq.ClientId)
+	}
+	if wq.Filters == nil {
+		t.Fatalf("expected Filters to be non-nil")
+	}
+	wantFilters := map[string]any{
+		"orders.status":      "completed",
+		"customer.city":      "",
+		"customer.last_name": "Simpson",
+	}
+	if diff := cmp.Diff(wantFilters, *wq.Filters); diff != "" {
+		t.Errorf("unexpected filters diff (-want +got):\n%s", diff)
+	}
+	if wq.Sorts == nil || len(*wq.Sorts) != 1 || (*wq.Sorts)[0] != "customer.last_name asc" {
+		t.Errorf("expected Sorts override [\"customer.last_name asc\"], got %v", wq.Sorts)
+	}
+}
+
+func TestInitializeIncludesSavedQueryParameters(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "query",
+			Description: "Execute an inline or saved query",
+		},
+		Type:   "looker-query",
+		Source: "looker-source",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	manifest := tool.StaticManifest()
+	paramByName := make(map[string]bool)
+	for _, p := range manifest.Parameters {
+		paramByName[p.Name] = true
+		if p.Name == "query_id" || p.Name == "model" || p.Name == "explore" || p.Name == "fields" || p.Name == "generate_drill_links" {
+			if p.Required {
+				t.Errorf("expected parameter %q to be optional (Required=false) at schema level", p.Name)
+			}
+		}
+	}
+	for _, expected := range []string{"query_id", "model", "explore", "fields", "result_format", "vis_config", "generate_drill_links"} {
+		if !paramByName[expected] {
+			t.Errorf("expected parameter %q in tool manifest, got %+v", expected, manifest.Parameters)
+		}
+	}
 }
