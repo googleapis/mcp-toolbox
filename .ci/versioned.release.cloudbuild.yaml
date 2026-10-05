@@ -12,7 +12,6 @@
 # limitations under the License.
 
 steps:
-  # --- Setup Airlock Authentication ---
   - id: "setup-airlock-auth"
     name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ["-"]
