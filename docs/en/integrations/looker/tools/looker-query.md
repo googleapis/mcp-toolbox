@@ -4,7 +4,7 @@ type: docs
 weight: 1
 description: >
   "looker-query" runs an inline query using the Looker
-  semantic model.
+  semantic model or executes a saved Looker query by ID/slug.
 ---
 
 ## About
@@ -64,6 +64,7 @@ description: |
       (e.g. `first_touch`, not `"first_touch"`).
     - Use `not null` instead of `-NULL`.
     - If a value contains a comma, enclose it in single quotes (e.g., `'New York, NY'`).
+    - To retrieve valid filter values for a suggestible field, use the 'get_field_value_suggestions' tool.
   - filter_expression: A Looker expression filter string (custom filter). This allows complex logic and comparing fields.
     - Reference fields using `${view.field_name}` syntax.
     - Supports logical operators (`AND`, `OR`, `NOT`) and comparison operators.

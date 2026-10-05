@@ -29,7 +29,7 @@ description: "Details of the Looker prebuilt configuration."
     *   `get_filters`: Retrieves the list of filters in an explore.
     *   `get_parameters`: Retrieves the list of parameters in an explore.
     *   `get_field_value_suggestions`: Retrieves distinct value suggestions for a field.
-    *   `query`: Runs a query against the LookML model.
+    *   `query`: Runs an inline query against the LookML model or executes a saved query by ID/slug.
     *   `query_sql`: Generates the SQL for a query.
     *   `query_url`: Generates a URL for a query in Looker.
     *   `get_looks`: Searches for saved looks.
