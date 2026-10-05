@@ -12,11 +12,36 @@
 # limitations under the License.
 
 steps:
-  - id: "install-dependencies"
-    name: golang:1
+  # --- Setup Airlock Authentication ---
+  - id: "setup-airlock-auth"
+    name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ["-"]
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      TOKEN=$(gcloud auth print-access-token)
+      
+      # Write auth files to the persistent /workspace directory
+      echo "machine us-go.pkg.dev login oauth2accesstoken password $TOKEN" > /workspace/.netrc
+      echo "machine us-python.pkg.dev login oauth2accesstoken password $TOKEN" >> /workspace/.netrc
+      
+      cat > /workspace/.npmrc <<EOL
+      registry=https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:always-auth=true
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:_authToken=$TOKEN
+      EOL
+
+      echo "$TOKEN" > /workspace/.airlock_token
+
+  - id: "install-dependencies"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    waitFor: 
+      - "setup-airlock-auth"
     env:
       - "GOPATH=/gopath"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -24,11 +49,14 @@ steps:
       go get -d ./...
 
   - id: "run-tests"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "install-dependencies"
     env:
       - "GOPATH=/gopath"
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
     volumes:
       - name: "go"
         path: "/gopath"
@@ -47,13 +75,17 @@ steps:
 
   - id: "build-docker"
     name: "gcr.io/cloud-builders/docker"
+    env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
     waitFor:
       - "run-tests"
     script: |
       #!/usr/bin/env bash
       set -e
       export VERSION=$(cat ./cmd/version.txt)
-      docker buildx create --name container-builder --driver docker-container --bootstrap --use
+
+      docker buildx create --name container-builder --driver docker-container --driver-opt network=cloudbuild --bootstrap --use
 
       export TAGS="-t ${_DOCKER_URI}:$VERSION"
       if [[ "$_PUSH_LATEST" == "true" ]]; then
@@ -63,38 +95,42 @@ steps:
       # Build and push
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
+        --build-arg BASE_IMAGE="us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1" \
         --build-arg BUILD_TYPE=container.release \
+        --build-arg GOPROXY=${GOPROXY} \
+        --build-arg GONOSUMDB=${GONOSUMDB} \
         --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
+        --secret id=airlock_token,src=/workspace/.airlock_token \
         $TAGS \
         --push .
 
       # Pull the image to ensure it's available for provenance generation.
-      docker pull ${_DOCKER_URI}:${VERSION}
-      docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
+      docker pull ${_DOCKER_URI}:$VERSION
+      docker tag ${_DOCKER_URI}:$VERSION ${_DOCKER_URI}:latest
 
   - id: "install-zig"
-    name: golang:1
-    waitFor: ["-"]
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    waitFor: ["setup-airlock-auth"]
     volumes:
       - name: "zig"
         path: "/zig-tools"
     script: |
       #!/usr/bin/env bash
       set -e
-      apt-get update && apt-get install -y xz-utils
+      bash .ci/setup_apt.sh ${_AIRLOCK_AR_PROJECT} && apt-get update && apt-get install -y xz-utils
       curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz
       tar -xf zig.tar.xz -C /zig-tools --strip-components=1
 
   - id: "install-macos-sdk"
     name: "gcr.io/cloud-builders/gcloud:latest"
-    waitFor: ["-"]
+    waitFor: ["setup-airlock-auth"]
     volumes:
       - name: "macos-sdk"
         path: "/macos-sdk"
     script: |
       #!/usr/bin/env bash
       set -e
-      apt-get update && apt-get install -y xz-utils
+      bash .ci/setup_apt.sh ${_AIRLOCK_AR_PROJECT} && apt-get update && apt-get install -y xz-utils
       echo "Downloading macOS 14.5 SDK..."
       gcloud storage cp gs://${_ASSETS_BUCKET}/MacOSX14.5.tar.xz sdk.tar.xz
 
@@ -103,7 +139,7 @@ steps:
       tar -xf sdk.tar.xz -C /macos-sdk/MacOSX14.5.sdk --strip-components=1
 
   - id: "build-linux-amd64"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -133,7 +169,7 @@ steps:
       gcloud storage cp toolbox.linux.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/linux/amd64/toolbox
 
   - id: "build-linux-amd64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -163,7 +199,7 @@ steps:
       gcloud storage cp toolbox.geminicli.linux.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/linux/amd64/toolbox
 
   - id: "build-darwin-arm64"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -200,7 +236,7 @@ steps:
       gcloud storage cp toolbox.darwin.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-arm64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -237,7 +273,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-amd64"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -274,7 +310,7 @@ steps:
       gcloud storage cp toolbox.darwin.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/amd64/toolbox
 
   - id: "build-darwin-amd64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -311,7 +347,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/amd64/toolbox
 
   - id: "build-windows-amd64"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -341,7 +377,7 @@ steps:
       gcloud storage cp toolbox.windows.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-amd64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -371,7 +407,7 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-arm64"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -401,7 +437,7 @@ steps:
       gcloud storage cp toolbox.windows.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/arm64/toolbox.exe
 
   - id: "build-windows-arm64-geminicli"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -431,13 +467,16 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/arm64/toolbox.exe
 
   - id: "publish-npm-to-ar"
-    name: node:20
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/node@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5"
     waitFor:
+      - "setup-airlock-auth"
       - "build-linux-amd64"
       - "build-darwin-arm64"
       - "build-darwin-amd64"
       - "build-windows-amd64"
       - "build-windows-arm64"
+    env:
+      - "HOME=/workspace"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_npm_to_ar.sh
@@ -456,13 +495,17 @@ steps:
       bash .ci/trigger_exit_gate.sh npm
 
   - id: "publish-pypi-to-ar"
-    name: python:3.12
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
     waitFor:
+      - "setup-airlock-auth"
       - "build-linux-amd64"
       - "build-darwin-arm64"
       - "build-darwin-amd64"
       - "build-windows-amd64"
       - "build-windows-arm64"
+    env:
+      - "HOME=/workspace"
+      - "PIP_INDEX_URL=https://us-python.pkg.dev/${_AIRLOCK_AR_PROJECT}/python-3p-trusted/simple/"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_pypi_to_ar.sh
@@ -499,6 +542,7 @@ options:
 
 substitutions:
   _REGION: us-central1
+  _AIRLOCK_AR_PROJECT: artifact-foundry-prod
   _AR_HOSTNAME: ${_REGION}-docker.pkg.dev
   _AR_REPO_NAME: toolbox
   _BUCKET_NAME: mcp-toolbox-for-databases
