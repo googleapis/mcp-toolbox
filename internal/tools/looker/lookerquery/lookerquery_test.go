@@ -15,16 +15,32 @@
 package lookerquery_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	lkr "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquery"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
+
+type fakeLookerSource struct{}
+
+func (f fakeLookerSource) SourceType() string                  { return "looker" }
+func (f fakeLookerSource) ToConfig() sources.SourceConfig      { return nil }
+func (f fakeLookerSource) IsReadOnly() bool                    { return false }
+func (f fakeLookerSource) UseClientAuthorization() bool        { return false }
+func (f fakeLookerSource) GetAuthTokenHeaderName() string      { return "Authorization" }
+func (f fakeLookerSource) LookerApiSettings() *rtl.ApiSettings { return nil }
+func (f fakeLookerSource) GetLookerSDK(context.Context, string) (*v4.LookerSDK, error) {
+	return &v4.LookerSDK{}, nil
+}
 
 func TestParseFromYamlLookerQuery(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
@@ -192,4 +208,51 @@ func TestInitializeIncludesSavedQueryParameters(t *testing.T) {
 			t.Errorf("expected parameter %q in tool manifest, got %+v", expected, manifest.Parameters)
 		}
 	}
+}
+
+func TestInvokeValidationErrors(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "query",
+			Description: "Execute an inline or saved query",
+		},
+		Type:   "looker-query",
+		Source: "looker-source",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	t.Run("invalid vis_config JSON", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "query_id", Value: "123"},
+			{Name: "vis_config", Value: "{not-valid-json"},
+		}
+		_, tbErr := tool.Invoke(ctx, fakeLookerSource{}, params, "")
+		if tbErr == nil {
+			t.Fatalf("expected error for invalid vis_config JSON, got nil")
+		}
+		if !strings.Contains(tbErr.Error(), "invalid vis_config JSON") {
+			t.Errorf("expected error to contain %q, got %q", "invalid vis_config JSON", tbErr.Error())
+		}
+	})
+
+	t.Run("invalid sorts slice elements for saved query", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "query_id", Value: "123"},
+			{Name: "sorts", Value: []any{12345}},
+		}
+		_, tbErr := tool.Invoke(ctx, fakeLookerSource{}, params, "")
+		if tbErr == nil {
+			t.Fatalf("expected error for non-string sorts element, got nil")
+		}
+		if !strings.Contains(tbErr.Error(), "can't convert sorts to array of strings") {
+			t.Errorf("expected error to contain %q, got %q", "can't convert sorts to array of strings", tbErr.Error())
+		}
+	})
 }

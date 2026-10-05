@@ -249,9 +249,10 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	var visConfigObj any
 	if vcStr, ok := paramsMap["vis_config"].(string); ok && strings.TrimSpace(vcStr) != "" {
 		var parsed any
-		if err := json.Unmarshal([]byte(vcStr), &parsed); err == nil {
-			visConfigObj = parsed
+		if err := json.Unmarshal([]byte(vcStr), &parsed); err != nil {
+			return nil, util.NewAgentError("invalid vis_config JSON", err)
 		}
+		visConfigObj = parsed
 	}
 
 	var generateDrillLinks *bool
@@ -284,9 +285,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 
 		var sortOverrides []string
 		if sSlice, ok := paramsMap["sorts"].([]any); ok && len(sSlice) > 0 {
-			if converted, err := parameters.ConvertAnySliceToTyped(sSlice, "string"); err == nil {
-				sortOverrides = converted.([]string)
+			converted, err := parameters.ConvertAnySliceToTyped(sSlice, "string")
+			if err != nil {
+				return nil, util.NewAgentError("can't convert sorts to array of strings", err)
 			}
+			sortOverrides = converted.([]string)
 		}
 
 		hasOverrides := len(filterOverrides) > 0 || len(sortOverrides) > 0
