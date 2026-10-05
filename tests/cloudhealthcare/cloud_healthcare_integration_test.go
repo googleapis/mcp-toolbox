@@ -195,7 +195,7 @@ func TestHealthcareToolEndpoints(t *testing.T) {
 	runFHIRFetchPageToolInvokeTest(t, nextURL, `"total":1`)
 
 	runGetDICOMStoreToolInvokeTest(t, dicomStoreID, dicomStoreWant)
-	runGetDICOMStoreMetricsToolInvokeTest(t, dicomStoreID, `"structuredStorageSizeBytes"`)
+	runGetDICOMStoreMetricsToolInvokeTest(t, dicomStoreID, dicomStoreWant)
 	runSearchDICOMStudiesToolInvokeTest(t, dicomStoreID)
 	runSearchDICOMSeriesToolInvokeTest(t, dicomStoreID)
 	runSearchDICOMInstancesToolInvokeTest(t, dicomStoreID)

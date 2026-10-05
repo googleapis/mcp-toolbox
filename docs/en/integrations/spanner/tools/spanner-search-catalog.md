@@ -20,6 +20,9 @@ following parameters:
 - `types` - The type of the data. Accepted values are: DATABASE, TABLE, VIEW.
 - `pageSize` - Number of results in the search page. Defaults to `5`.
 
+This tool is not supported for [Spanner Omni](../source.md#spanner-omni)
+sources, because Spanner Omni databases are not registered in Knowledge Catalog.
+
 ## Compatible Sources
 
 {{< compatible-sources >}}

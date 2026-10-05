@@ -40,6 +40,7 @@ func (m mockParameter) GetRequired() bool                              { return 
 func (m mockParameter) GetAuthServices() []parameters.ParamAuthService { return nil }
 func (m mockParameter) GetEmbeddedBy() string                          { return "" }
 func (m mockParameter) GetValueFromParam() string                      { return "" }
+func (m mockParameter) GetSecure() bool                                { return false }
 func (m mockParameter) Parse(any) (any, error)                         { return nil, nil }
 func (m mockParameter) Manifest() parameters.ParameterManifest         { return parameters.ParameterManifest{} }
 func (m mockParameter) McpManifest() (parameters.ParameterMcpManifest, []string) {

@@ -83,6 +83,10 @@ type Source struct {
 	endpoint   string
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceKind
 }

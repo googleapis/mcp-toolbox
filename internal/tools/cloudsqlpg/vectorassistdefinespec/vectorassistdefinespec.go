@@ -102,7 +102,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			nil,
+			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewWriteAnnotations),
 			tools.Manifest{Description: cfg.Description, Parameters: allParameters.Manifest(), AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),

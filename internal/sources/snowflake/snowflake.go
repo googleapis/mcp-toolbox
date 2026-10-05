@@ -68,6 +68,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 
 	err = db.PingContext(ctx)
 	if err != nil {
+		db.Close()
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -83,6 +84,10 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	DB *sqlx.DB
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {

@@ -59,6 +59,13 @@ The Cloud SQL for MySQL MCP server provides the following tools:
 
 ## Custom MCP Server Configuration
 
+The MCP server is configured using environment variables.
+
+```bash
+export CLOUD_SQL_MYSQL_PROJECT="<your-gcp-project-id>"
+export CLOUD_SQL_MYSQL_READONLY="true"  # Optional: `true`, `false`. Defaults to `false`. When set to `true`, write-capable admin tools (create_instance, create_user, create_database, clone_instance, create_backup, restore_backup) are suppressed.
+```
+
 Add the following configuration to your MCP client (e.g., `settings.json` for Gemini CLI, `mcp_config.json` for Antigravity):
 
 ```json
