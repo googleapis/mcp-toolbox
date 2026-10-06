@@ -36,12 +36,16 @@ IMAGE_DIGEST=$(gcloud artifacts docker tags list "${STAGING_IMAGE_URI}" \
   --project="${PROJECT_ID}" \
   --filter="tag ~ /tags/(v?${VERSION#v})$" \
   --format="value(version)" 2>/dev/null | head -n 1 || true)
+IMAGE_DIGEST="${IMAGE_DIGEST##*/}"
 
 if [[ -z "${IMAGE_DIGEST}" ]]; then
-  TAG_RESP=$(curl -fsSL \
-    -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-    "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${STAGING_REPO}/packages/${PACKAGE_NAME}/tags/${VERSION}" 2>/dev/null || true)
-  IMAGE_DIGEST=$(echo "${TAG_RESP}" | jq -r '.version // empty' | awk -F'/' '{print $NF}')
+  for CANDIDATE_TAG in "v${VERSION#v}" "${VERSION#v}"; do
+    TAG_RESP=$(curl -fsSL \
+      -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+      "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${STAGING_REPO}/packages/${PACKAGE_NAME}/tags/${CANDIDATE_TAG}" 2>/dev/null || true)
+    IMAGE_DIGEST=$(echo "${TAG_RESP}" | jq -r '.version // empty' | awk -F'/' '{print $NF}')
+    [[ -n "${IMAGE_DIGEST}" ]] && break
+  done
 fi
 
 if [[ -z "${IMAGE_DIGEST}" ]]; then
@@ -97,13 +101,17 @@ PAYLOAD=$(cat <<EOF
 EOF
 )
 
-RESP=$(curl -fsSL -X POST \
+RESP=$(curl -sSL -X POST \
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \
   -H "Content-Type: application/json" \
   "${PROMOTE_URL}" \
   -d "${PAYLOAD}")
 
 echo "Promote API response: ${RESP}"
+if [[ "$(echo "${RESP}" | jq -r '.error // empty')" != "" ]]; then
+  echo "ERROR: Promote API request failed: ${RESP}" >&2
+  exit 1
+fi
 
 OP_NAME=$(echo "${RESP}" | jq -r '.name // empty')
 if [[ -n "${OP_NAME}" ]]; then
