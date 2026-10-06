@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"google.golang.org/genproto/googleapis/type/latlng"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestParseFromYamlFirestore(t *testing.T) {
@@ -401,5 +402,59 @@ func TestExtractFieldTypes(t *testing.T) {
 	}
 	if !fieldsMap["profile.website"]["string"] {
 		t.Errorf("expected fieldsMap[profile.website] to have 'string'")
+	}
+}
+
+func TestWithRequesterMetadata(t *testing.T) {
+	ctx := context.Background()
+	ctx = withRequesterMetadata(ctx, firestoreAPIRequesterQueryData)
+
+	md, ok := metadata.FromOutgoingContext(ctx)
+	if !ok {
+		t.Fatalf("expected outgoing metadata to be present")
+	}
+
+	values := md.Get(firestoreAPIRequesterHeader)
+	if len(values) != 1 || values[0] != firestoreAPIRequesterQueryData {
+		t.Errorf("got %v, want [%s]", values, firestoreAPIRequesterQueryData)
+	}
+}
+
+func TestWithRequesterMetadata_PreservesExisting(t *testing.T) {
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "existing-header", "existing-value")
+	ctx = withRequesterMetadata(ctx, firestoreAPIRequesterQueryData)
+
+	md, ok := metadata.FromOutgoingContext(ctx)
+	if !ok {
+		t.Fatalf("expected outgoing metadata to be present")
+	}
+
+	if got := md.Get("existing-header"); len(got) != 1 || got[0] != "existing-value" {
+		t.Errorf("got existing-header %v, want ['existing-value']", got)
+	}
+	if got := md.Get(firestoreAPIRequesterHeader); len(got) != 1 || got[0] != firestoreAPIRequesterQueryData {
+		t.Errorf("got requester header %v, want [%s]", got, firestoreAPIRequesterQueryData)
+	}
+}
+
+func TestBuildPipelineRequest(t *testing.T) {
+	ctx := context.Background()
+	body := []byte(`{"test":"payload"}`)
+	req, err := buildPipelineRequest(ctx, "https://firestore.googleapis.com/test", body, "mcp-toolbox", "my-project", "my-database")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := req.Header.Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q, want 'application/json'", got)
+	}
+	if got := req.Header.Get("User-Agent"); got != "mcp-toolbox" {
+		t.Errorf("User-Agent = %q, want 'mcp-toolbox'", got)
+	}
+	if got := req.Header.Get("x-goog-request-params"); got != "project_id=my-project&database_id=my-database" {
+		t.Errorf("x-goog-request-params = %q, want 'project_id=my-project&database_id=my-database'", got)
+	}
+	if got := req.Header.Get(firestoreAPIRequesterHeader); got != firestoreAPIRequesterQueryData {
+		t.Errorf("%s = %q, want %q", firestoreAPIRequesterHeader, got, firestoreAPIRequesterQueryData)
 	}
 }

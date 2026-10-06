@@ -198,6 +198,63 @@ annotations:
 	}
 }
 
+func TestResourceTemplateConfigBase_Validate_SchemeNormalization(t *testing.T) {
+	tests := []struct {
+		name        string
+		uriTemplate string
+		wantErr     bool
+		wantURI     string
+	}{
+		{
+			name:        "UppercaseScheme",
+			uriTemplate: "FILE://Queries/{path}",
+			wantURI:     "file://Queries/{path}",
+		},
+		{
+			name:        "MixedCaseScheme",
+			uriTemplate: "File://queries/{path}",
+			wantURI:     "file://queries/{path}",
+		},
+		{
+			name:        "AlreadyLowercase",
+			uriTemplate: "file://queries/{path}",
+			wantURI:     "file://queries/{path}",
+		},
+		{
+			name:        "NoVariable",
+			uriTemplate: "FILE://static/resource",
+			wantURI:     "file://static/resource",
+		},
+		{
+			name:        "MissingSchemeSeparator",
+			uriTemplate: "not-a-uri",
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := resources.ResourceTemplateConfigBase{
+				ConfigBase:  resources.ConfigBase{Name: "test", Type: "file"},
+				URITemplate: tt.uriTemplate,
+			}
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for URITemplate %q, got nil", tt.uriTemplate)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for URITemplate %q: %v", tt.uriTemplate, err)
+			}
+			if cfg.URITemplate != tt.wantURI {
+				t.Errorf("expected normalized URITemplate %q, got %q", tt.wantURI, cfg.URITemplate)
+			}
+		})
+	}
+}
+
 func TestStrictDecoding_Error(t *testing.T) {
 	raw := map[string]any{
 		"name":               "testResource",

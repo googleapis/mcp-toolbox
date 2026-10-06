@@ -613,6 +613,40 @@ steps:
           exit 0
         fi
 
+  - id: "spanner-omni"
+    name: golang:1
+    waitFor: ["install-dependencies", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+      - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
+    secretEnv: ["CLIENT_ID", "API_KEY"]
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)spanner/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Spanner Omni tests..."
+          # The Omni test is behind the omni_only build tag, so it needs its own
+          # binary. It's built in omni/ because the coverage script expects
+          # ./spanner.test.
+          mkdir -p omni
+          go test -c -race -cover -tags omni_only \
+            -coverpkg=./internal/sources/...,./internal/tools/... \
+            -o omni/spanner.test ./tests/spanner
+          cd omni && ../.ci/test_with_coverage.sh \
+            "Spanner Omni" \
+            spanner \
+            spanner
+        else
+          echo "No relevant changes for Spanner Omni. Skipping shard."
+          exit 0
+        fi
+
   - id: "neo4j"
     name: golang:1
     waitFor: ["compile-test-binary", "detect-changes"]

@@ -15,11 +15,11 @@ require (
 	cloud.google.com/go/dataplex v1.35.0
 	cloud.google.com/go/dataproc/v2 v2.23.0
 	cloud.google.com/go/firestore v1.22.0
-	cloud.google.com/go/geminidataanalytics v1.4.0
+	cloud.google.com/go/geminidataanalytics v1.5.0
 	cloud.google.com/go/logging v1.18.0
 	cloud.google.com/go/longrunning v1.2.0
 	cloud.google.com/go/resourcemanager v1.15.0
-	cloud.google.com/go/spanner v1.92.0
+	cloud.google.com/go/spanner v1.95.1
 	cloud.google.com/go/storage v1.62.3
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/FalkorDB/falkordb-go/v2 v2.1.0
