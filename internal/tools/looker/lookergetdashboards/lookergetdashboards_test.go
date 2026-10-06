@@ -235,3 +235,220 @@ func TestInvokeLookerGetDashboards(t *testing.T) {
 		t.Errorf("expected certification_metadata to be omitted when nil, got %v", second["certification_metadata"])
 	}
 }
+
+func TestInvokeLookerGetDashboardsWithLookmlDashboards(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithUserAgent(ctx, "test-agent")
+
+	var requestedLookmlFields string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/4.0/dashboards/search"):
+			titleParam := r.URL.Query().Get("title")
+			if titleParam != "" && titleParam != "%" && !strings.Contains(strings.ToLower("Executive Sales Dashboard"), strings.ToLower(strings.Trim(titleParam, "%"))) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`[]`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[
+				{
+					"id": "101",
+					"title": "Executive Sales Dashboard",
+					"description": "Official Q3 revenue numbers"
+				}
+			]`))
+		case strings.HasSuffix(r.URL.Path, "/api/4.0/dashboards/lookml/search"):
+			requestedLookmlFields = r.URL.Query().Get("fields")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[
+				{
+					"id": "thelook::business_pulse",
+					"title": "Business Pulse",
+					"description": "Core e-commerce KPIs"
+				},
+				{
+					"id": "thelook::customer_overview",
+					"title": "Customer Overview",
+					"description": "Cohort retention metrics"
+				}
+			]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	srcCfg := looker.Config{
+		Name:            "test-looker",
+		Type:            "looker",
+		BaseURL:         ts.URL,
+		UseClientOAuth:  "true",
+		Timeout:         "5s",
+		SslVerification: false,
+	}
+	src, err := srcCfg.Initialize(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to initialize source: %v", err)
+	}
+
+	toolCfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "get_dashboards",
+			Description: "test description",
+		},
+		Type:   "looker-get-dashboards",
+		Source: "test-looker",
+	}
+	tool, err := toolCfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	t.Run("returns both user-defined and LookML dashboards", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "title", Value: "%"},
+			{Name: "desc", Value: ""},
+			{Name: "limit", Value: 100},
+			{Name: "offset", Value: 0},
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		if requestedLookmlFields != "id,title,description,certification_metadata" {
+			t.Errorf("expected LookML fields query param 'id,title,description,certification_metadata', got %q", requestedLookmlFields)
+		}
+		gotList, ok := got.([]any)
+		if !ok || len(gotList) != 3 {
+			t.Fatalf("expected 3 results (1 user-defined + 2 LookML), got %#v", got)
+		}
+		second := gotList[1].(map[string]any)
+		if second["id"] != "thelook::business_pulse" || second["title"] != "Business Pulse" {
+			t.Errorf("unexpected LookML dashboard: %v", second)
+		}
+	})
+
+	t.Run("matches LookML dashboard by LookML ID (model::dashboard_name)", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "title", Value: "thelook::business_pulse"},
+			{Name: "desc", Value: ""},
+			{Name: "limit", Value: 100},
+			{Name: "offset", Value: 0},
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		gotList, ok := got.([]any)
+		if !ok || len(gotList) != 1 {
+			t.Fatalf("expected 1 LookML dashboard matching ID, got %#v", got)
+		}
+		first := gotList[0].(map[string]any)
+		if first["id"] != "thelook::business_pulse" {
+			t.Errorf("expected id 'thelook::business_pulse', got %v", first["id"])
+		}
+	})
+
+	t.Run("matches LookML dashboard by display title wildcard and description", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "title", Value: "%Customer%"},
+			{Name: "desc", Value: "%Cohort%"},
+			{Name: "limit", Value: 100},
+			{Name: "offset", Value: 0},
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		gotList, ok := got.([]any)
+		if !ok || len(gotList) != 1 {
+			t.Fatalf("expected 1 LookML dashboard matching title and desc, got %#v", got)
+		}
+		first := gotList[0].(map[string]any)
+		if first["id"] != "thelook::customer_overview" {
+			t.Errorf("expected id 'thelook::customer_overview', got %v", first["id"])
+		}
+	})
+
+	t.Run("respects limit across combined dashboards", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "title", Value: "%"},
+			{Name: "desc", Value: ""},
+			{Name: "limit", Value: 2},
+			{Name: "offset", Value: 0},
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		gotList, ok := got.([]any)
+		if !ok || len(gotList) != 2 {
+			t.Fatalf("expected 2 results due to limit=2, got %#v", got)
+		}
+	})
+
+	t.Run("respects offset across combined dashboards", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "title", Value: "%"},
+			{Name: "desc", Value: ""},
+			{Name: "limit", Value: 2},
+			{Name: "offset", Value: 1},
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		gotList, ok := got.([]any)
+		if !ok || len(gotList) != 2 {
+			t.Fatalf("expected 2 LookML results after skipping 1 UDD with offset=1, got %#v", got)
+		}
+		first := gotList[0].(map[string]any)
+		second := gotList[1].(map[string]any)
+		if first["id"] != "thelook::business_pulse" || second["id"] != "thelook::customer_overview" {
+			t.Errorf("expected LookML dashboards after offset=1, got %v and %v", first["id"], second["id"])
+		}
+	})
+
+	t.Run("matches LookML dashboard with single-character underscore wildcard without percent", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "title", Value: "P_lse"},
+			{Name: "desc", Value: ""},
+			{Name: "limit", Value: 100},
+			{Name: "offset", Value: 0},
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		gotList, ok := got.([]any)
+		if !ok || len(gotList) != 1 {
+			t.Fatalf("expected 1 LookML dashboard matching 'P_lse', got %#v", got)
+		}
+		first := gotList[0].(map[string]any)
+		if first["id"] != "thelook::business_pulse" {
+			t.Errorf("expected id 'thelook::business_pulse', got %v", first["id"])
+		}
+	})
+
+	t.Run("normalizes negative limit and offset to zero", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "title", Value: "%"},
+			{Name: "desc", Value: ""},
+			{Name: "limit", Value: -5},
+			{Name: "offset", Value: -2},
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		gotList, ok := got.([]any)
+		if !ok || len(gotList) != 3 {
+			t.Fatalf("expected all 3 dashboards when limit < 0 is normalized to 0, got %#v", got)
+		}
+	})
+}
