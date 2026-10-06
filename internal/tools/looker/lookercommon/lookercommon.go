@@ -541,3 +541,17 @@ func CreateViewsFromTables(ctx context.Context, l *v4.LookerSDK, projectId strin
 	logger.DebugContext(ctx, fmt.Sprintf("generating views with request: query=%v body=%v error=%v", query, reqBody.Tables, err))
 	return err
 }
+
+// SearchLookmlDashboards calls GET /4.0/dashboards/lookml/search and unmarshals
+// the response into []v4.Dashboard.
+// Note: The generated v4.LookerSDK.SearchLookmlDashboards method cannot be used
+// because Looker's OpenAPI spec declares its return type as a single DashboardLookml
+// object whereas the endpoint actually returns a JSON array of Dashboard objects.
+func SearchLookmlDashboards(l *v4.LookerSDK, params map[string]any, options *rtl.ApiSettings) ([]v4.Dashboard, error) {
+	var result []v4.Dashboard
+	err := l.AuthSession.Do(&result, "GET", "/4.0", "/dashboards/lookml/search", params, nil, options)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
