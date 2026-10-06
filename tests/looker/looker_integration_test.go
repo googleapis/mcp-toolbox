@@ -2566,7 +2566,9 @@ func TestLooker(t *testing.T) {
 	wantResult = "[]"
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_schedule_failures"}`), wantResult)
 
-	wantResult = "[{\"Feature\":\"Unsupported in Looker (Google Cloud core)\"}]"
+	// Newer Looker (Google Cloud core) instances no longer throw an "Unsupported" API error for
+	// legacy features, but instead return an empty list.
+	wantResult = "[]"
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_legacy_features"}`), wantResult)
 
 	wantResult = "\"Project\":\"the_look\""
