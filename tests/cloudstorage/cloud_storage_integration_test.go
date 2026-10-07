@@ -65,23 +65,33 @@ func getCloudStorageVars(t *testing.T) map[string]any {
 	}
 }
 
-func TestCloudStorageToolEndpoints(t *testing.T) {
-	sourceConfig := getCloudStorageVars(t)
+func setupCloudStorageFixture(t *testing.T) (context.Context, *storage.Client, string) {
+	t.Helper()
+	if CloudStorageProject == "" {
+		t.Fatal("'CLOUD_STORAGE_PROJECT' not set")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		t.Fatalf("unable to create Cloud Storage client: %s", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	// Bucket names must be globally unique and match [a-z0-9_.-]{3,63}.
 	bucketName := "toolbox-it-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:20]
 	t.Logf("Using test bucket %q", bucketName)
 
 	teardown := setupCloudStorageTestData(t, ctx, client, CloudStorageProject, bucketName)
-	defer teardown(t)
+	t.Cleanup(func() { teardown(t) })
+
+	return ctx, client, bucketName
+}
+
+func TestCloudStorageToolEndpoints(t *testing.T) {
+	sourceConfig := getCloudStorageVars(t)
+	ctx, client, bucketName := setupCloudStorageFixture(t)
 
 	configuredDownloadDir := t.TempDir()
 	toolsFile := getCloudStorageToolsConfig(sourceConfig, bucketName, configuredDownloadDir)
@@ -2313,5 +2323,235 @@ func cleanupGCSBucket(ctx context.Context, t *testing.T, client *storage.Client,
 	}
 	if err := bkt.Delete(cleanupCtx); err != nil && !errors.Is(err, storage.ErrBucketNotExist) {
 		t.Logf("cleanup: failed deleting bucket %q: %v", bucket, err)
+	}
+}
+
+func getCloudStorageResourcesConfig(bucketName string) map[string]any {
+	return map[string]any{
+		"resources": map[string]any{
+			"my_gcs_hello": map[string]any{
+				"type":        "gcs",
+				"uri":         fmt.Sprintf("gs://%s/%s", bucketName, helloObject),
+				"description": "GCS hello text resource.",
+			},
+			"my_gcs_json": map[string]any{
+				"type":        "gcs",
+				"uri":         fmt.Sprintf("gs://%s/%s", bucketName, jsonObject),
+				"description": "GCS nested JSON resource.",
+			},
+			"my_gcs_truncated": map[string]any{
+				"type":        "gcs",
+				"uri":         fmt.Sprintf("gs://%s/%s", bucketName, downloadObject),
+				"description": "GCS resource with small maxSize.",
+				"maxSize":     8,
+			},
+		},
+	}
+}
+
+func TestCloudStorageResources(t *testing.T) {
+	ctx, _, bucket := setupCloudStorageFixture(t)
+
+	resourcesFile := getCloudStorageResourcesConfig(bucket)
+
+	cmd, cleanup, err := tests.StartCmd(ctx, resourcesFile)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	sessionId := tests.RunInitialize(t, "2025-11-25")
+	headers := tests.NewMCPRequestHeader(t, nil)
+	if sessionId != "" {
+		headers["Mcp-Session-Id"] = sessionId
+	}
+	mcpURL := "http://127.0.0.1:5000/mcp"
+
+	t.Run("resources/list returns configured GCS resources with metadata", func(t *testing.T) {
+		reqBody := `{"jsonrpc":"2.0","id":"list-gcs-resources","method":"resources/list"}`
+		resp, respBody := tests.RunRequest(t, http.MethodPost, mcpURL, bytes.NewBufferString(reqBody), headers)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		var listResp struct {
+			Result struct {
+				Resources []struct {
+					Name        string `json:"name"`
+					URI         string `json:"uri"`
+					Description string `json:"description"`
+					MimeType    string `json:"mimeType"`
+					Size        int64  `json:"size"`
+				} `json:"resources"`
+			} `json:"result"`
+			Error *struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(respBody, &listResp); err != nil {
+			t.Fatalf("failed to unmarshal resources/list response: %v (raw: %s)", err, string(respBody))
+		}
+		if listResp.Error != nil {
+			t.Fatalf("resources/list returned error: %+v", listResp.Error)
+		}
+
+		byName := make(map[string]struct {
+			URI      string
+			MimeType string
+			Size     int64
+		})
+		for _, r := range listResp.Result.Resources {
+			byName[r.Name] = struct {
+				URI      string
+				MimeType string
+				Size     int64
+			}{URI: r.URI, MimeType: r.MimeType, Size: r.Size}
+		}
+
+		wantResources := []struct {
+			name     string
+			wantURI  string
+			wantMime string
+			wantSize int64
+		}{
+			{
+				name:     "my_gcs_hello",
+				wantURI:  fmt.Sprintf("gs://%s/%s", bucket, helloObject),
+				wantMime: "text/plain",
+				wantSize: int64(len(helloBody)),
+			},
+			{
+				name:     "my_gcs_json",
+				wantURI:  fmt.Sprintf("gs://%s/%s", bucket, jsonObject),
+				wantMime: "application/json",
+				wantSize: int64(len(jsonBody)),
+			},
+			{
+				name:     "my_gcs_truncated",
+				wantURI:  fmt.Sprintf("gs://%s/%s", bucket, downloadObject),
+				wantMime: "text/plain",
+				wantSize: 8,
+			},
+		}
+
+		for _, tc := range wantResources {
+			got, ok := byName[tc.name]
+			if !ok {
+				t.Errorf("expected resource %q in resources/list, got %+v", tc.name, listResp.Result.Resources)
+				continue
+			}
+			if got.URI != tc.wantURI {
+				t.Errorf("resource %q URI = %q, want %q", tc.name, got.URI, tc.wantURI)
+			}
+			if !strings.HasPrefix(got.MimeType, tc.wantMime) {
+				t.Errorf("resource %q MimeType = %q, want prefix %q", tc.name, got.MimeType, tc.wantMime)
+			}
+			if got.Size != tc.wantSize {
+				t.Errorf("resource %q Size = %d, want %d", tc.name, got.Size, tc.wantSize)
+			}
+		}
+	})
+
+	readCases := []struct {
+		name       string
+		uri        string
+		wantText   string
+		wantMime   string
+		wantErrStr string
+	}{
+		{
+			name:     "read text resource",
+			uri:      fmt.Sprintf("gs://%s/%s", bucket, helloObject),
+			wantText: helloBody,
+			wantMime: "text/plain",
+		},
+		{
+			name:     "read nested JSON resource",
+			uri:      fmt.Sprintf("gs://%s/%s", bucket, jsonObject),
+			wantText: jsonBody,
+			wantMime: "application/json",
+		},
+		{
+			name:     "read truncated resource with maxSize=8",
+			uri:      fmt.Sprintf("gs://%s/%s", bucket, downloadObject),
+			wantText: "download\n\n...[TRUNCATED BY SERVER: Payload exceeded 8 byte safety limit]...",
+			wantMime: "text/plain",
+		},
+		{
+			name:       "read unregistered resource URI returns error",
+			uri:        fmt.Sprintf("gs://%s/seed/unregistered.txt", bucket),
+			wantErrStr: "resource lookup failed",
+		},
+	}
+
+	for _, tc := range readCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reqPayload := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "read-" + tc.name,
+				"method":  "resources/read",
+				"params": map[string]any{
+					"uri": tc.uri,
+				},
+			}
+			reqBytes, err := json.Marshal(reqPayload)
+			if err != nil {
+				t.Fatalf("failed to marshal request: %v", err)
+			}
+
+			resp, respBody := tests.RunRequest(t, http.MethodPost, mcpURL, bytes.NewBuffer(reqBytes), headers)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+			}
+
+			var readResp struct {
+				Result struct {
+					Contents []struct {
+						URI      string `json:"uri"`
+						MimeType string `json:"mimeType"`
+						Text     string `json:"text"`
+					} `json:"contents"`
+				} `json:"result"`
+				Error *struct {
+					Code    int    `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(respBody, &readResp); err != nil {
+				t.Fatalf("failed to unmarshal resources/read response: %v (raw: %s)", err, string(respBody))
+			}
+
+			if tc.wantErrStr != "" {
+				if readResp.Error == nil || !strings.Contains(readResp.Error.Message, tc.wantErrStr) {
+					t.Fatalf("expected error containing %q, got %+v (raw: %s)", tc.wantErrStr, readResp.Error, string(respBody))
+				}
+				return
+			}
+			if readResp.Error != nil {
+				t.Fatalf("unexpected resources/read error: %+v", readResp.Error)
+			}
+			if len(readResp.Result.Contents) != 1 {
+				t.Fatalf("expected 1 content item, got %d", len(readResp.Result.Contents))
+			}
+			got := readResp.Result.Contents[0]
+			if got.URI != tc.uri {
+				t.Errorf("URI = %q, want %q", got.URI, tc.uri)
+			}
+			if !strings.HasPrefix(got.MimeType, tc.wantMime) {
+				t.Errorf("MimeType = %q, want prefix %q", got.MimeType, tc.wantMime)
+			}
+			if got.Text != tc.wantText {
+				t.Errorf("Text = %q, want %q", got.Text, tc.wantText)
+			}
+		})
 	}
 }
