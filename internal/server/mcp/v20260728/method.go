@@ -1320,7 +1320,11 @@ func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 		genAIAttrs.OperationName = "get_skill"
 	}
 
-	entry, found, err := skills.Get(ctx, primitiveMgr.Resources(), uri)
+	resourcesMap, err := skillResources(primitiveMgr)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	entry, found, err := skills.Get(ctx, resourcesMap, uri)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}

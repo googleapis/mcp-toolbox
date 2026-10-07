@@ -2323,6 +2323,17 @@ func skillsMetaWithoutExtension() *RequestMetaObject {
 	return meta
 }
 
+// defaultGroupOf returns a groups map holding only the default group, seeded
+// with every resource in resourcesMap, as server startup seeds it.
+func defaultGroupOf(resourcesMap map[string]resources.Resource) map[string]group.Group {
+	names := make([]string, 0, len(resourcesMap))
+	for name := range resourcesMap {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return map[string]group.Group{"": group.NewGroup(group.GroupConfig{Name: "", ResourceNames: names})}
+}
+
 // checkSkillsError asserts that a handler failed with a JSON-RPC error whose
 // message contains wantMsg and, when wantCode is set, carries that code.
 func checkSkillsError(t *testing.T, res any, err error, wantCode int, wantMsg string) {
@@ -2418,7 +2429,7 @@ func TestSkillsListHandler(t *testing.T) {
 			if resourcesMap == nil {
 				resourcesMap = skillsTestResources()
 			}
-			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, defaultGroupOf(resourcesMap))
 
 			body := tc.rawBody
 			if body == nil {
@@ -2572,7 +2583,7 @@ func TestSkillsGetHandler(t *testing.T) {
 			if resourcesMap == nil {
 				resourcesMap = skillsTestResources()
 			}
-			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, defaultGroupOf(resourcesMap))
 
 			uri := tc.uri
 			if uri == "" {

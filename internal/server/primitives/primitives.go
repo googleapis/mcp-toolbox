@@ -142,19 +142,6 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.groups = groupsMap
 }
 
-// Resources returns a copy of the resources map. The map is copied; the
-// resources in it are shared. The skill handlers group this copy per request,
-// so nothing derived from resources is stored.
-func (r *PrimitiveManager) Resources() map[string]resources.Resource {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	copiedMap := make(map[string]resources.Resource, len(r.resources))
-	for k, v := range r.resources {
-		copiedMap[k] = v
-	}
-	return copiedMap
-}
-
 // AuthServices returns a copy of the auth services map
 func (r *PrimitiveManager) AuthServices() map[string]auth.AuthService {
 	r.mu.RLock()
