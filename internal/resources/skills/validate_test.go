@@ -200,64 +200,38 @@ func TestValidateErrors(t *testing.T) {
 	}
 }
 
-// TestValidateDuplicateNameWarning checks that Validate warns when two skills
-// share a frontmatter name, and only then. Entry validation ties the name to
-// the final skill-path segment, so a duplicate can only arise from differing
-// parent paths.
-func TestValidateDuplicateNameWarning(t *testing.T) {
+// TestValidateWarnings checks the two warnings Validate logs, and that each
+// appears only when it should:
+//   - Two skills share a frontmatter name. Entry validation ties the name to
+//     the final skill-path segment, so a duplicate can only arise from
+//     differing parent paths.
+//   - A skill:// resource has no SKILL.md above it. Most often such a URI has
+//     a typo.
+func TestValidateWarnings(t *testing.T) {
 	tcs := []struct {
-		desc     string
-		uris     []string
-		wantWarn []string // nil means no warning
+		desc      string
+		skills    []string          // SKILL.md URIs
+		files     map[string]string // other resource URI to content
+		wantFound int
+		wantWarn  []string // substrings the log must contain
+		noWarn    []string // substrings the log must not contain
 	}{
 		{
-			desc:     "same name under different parents",
-			uris:     []string{"skill://acme/guide/SKILL.md", "skill://other/guide/SKILL.md"},
-			wantWarn: []string{"skill://acme/guide/SKILL.md", "skill://other/guide/SKILL.md", `share the name \"guide\"`},
+			desc:      "same name under different parents",
+			skills:    []string{"skill://acme/guide/SKILL.md", "skill://other/guide/SKILL.md"},
+			wantFound: 2,
+			wantWarn:  []string{"skill://acme/guide/SKILL.md", "skill://other/guide/SKILL.md", `share the name \"guide\"`},
 		},
 		{
-			desc: "distinct names",
-			uris: []string{"skill://acme/guide/SKILL.md", "skill://acme/other/SKILL.md"},
+			desc:      "distinct names",
+			skills:    []string{"skill://acme/guide/SKILL.md", "skill://acme/other/SKILL.md"},
+			wantFound: 2,
+			noWarn:    []string{"share the name"},
 		},
-	}
-	for _, tc := range tcs {
-		t.Run(tc.desc, func(t *testing.T) {
-			ctx, stderr := bufferLoggerCtx(t)
-			resourcesMap := map[string]resources.Resource{}
-			for _, uri := range tc.uris {
-				resourcesMap[uri] = skillAt(t, ctx, uri, "A skill")
-			}
-			if _, err := skills.Validate(ctx, resourcesMap); err != nil {
-				t.Fatalf("Validate() = %v, want nil", err)
-			}
-
-			out := stderr.String()
-			if tc.wantWarn == nil {
-				if strings.Contains(out, "share the name") {
-					t.Errorf("unexpected duplicate-name warning: %q", out)
-				}
-				return
-			}
-			for _, want := range tc.wantWarn {
-				if !strings.Contains(out, want) {
-					t.Errorf("warning %q does not mention %q", out, want)
-				}
-			}
-		})
-	}
-}
-
-// TestValidateOrphanWarning checks that Validate warns about skill:// resources
-// no SKILL.md sits above, and only those. Most often such a URI has a typo.
-func TestValidateOrphanWarning(t *testing.T) {
-	tcs := []struct {
-		desc     string
-		extra    map[string]string // resource URI to content, beside one skill
-		wantWarn []string          // nil means no warning
-	}{
 		{
-			desc: "typo and name-prefix sibling",
-			extra: map[string]string{
+			desc:   "orphans from a typo and a name-prefix sibling",
+			skills: []string{"skill://analytics-guide/SKILL.md"},
+			files: map[string]string{
 				// A typo in the skill path: close to the skill, under none.
 				"skill://analytcs-guide/references/joins.md": "# Joins\n",
 				// A name prefix of the skill, not a path prefix.
@@ -265,61 +239,54 @@ func TestValidateOrphanWarning(t *testing.T) {
 				// Not addressed by skill://, so it is never an orphan.
 				"file://project-docs": "unrelated",
 			},
-			wantWarn: []string{"skill://analytcs-guide/references/joins.md", "skill://analytics-guide-v2/notes.md", "belong to no skill"},
+			wantFound: 1,
+			wantWarn:  []string{"skill://analytcs-guide/references/joins.md", "skill://analytics-guide-v2/notes.md", "belong to no skill"},
+			noWarn:    []string{"project-docs"},
 		},
 		{
-			desc:  "every skill:// file is under a skill",
-			extra: map[string]string{"skill://analytics-guide/references/queries.md": "# Common queries\n"},
+			desc:      "every skill:// file is under a skill",
+			skills:    []string{"skill://analytics-guide/SKILL.md"},
+			files:     map[string]string{"skill://analytics-guide/references/queries.md": "# Common queries\n"},
+			wantFound: 1,
+			noWarn:    []string{"belong to no skill"},
+		},
+		{
+			// With no SKILL.md at all, every skill:// file is an orphan.
+			desc:     "orphans without any skill",
+			files:    map[string]string{"skill://guide/notes.md": "# Notes\n"},
+			wantWarn: []string{"skill://guide/notes.md", "belong to no skill"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			ctx, stderr := bufferLoggerCtx(t)
-			resourcesMap := map[string]resources.Resource{
-				"guide": skillAt(t, ctx, "skill://analytics-guide/SKILL.md", "A skill"),
+			resourcesMap := map[string]resources.Resource{}
+			for _, uri := range tc.skills {
+				resourcesMap[uri] = skillAt(t, ctx, uri, "A skill")
 			}
-			for uri, content := range tc.extra {
+			for uri, content := range tc.files {
 				resourcesMap[uri] = textResource(t, ctx, uri, uri, content)
 			}
-			if _, err := skills.Validate(ctx, resourcesMap); err != nil {
+			found, err := skills.Validate(ctx, resourcesMap)
+			if err != nil {
 				t.Fatalf("Validate() = %v, want nil", err)
+			}
+			if len(found) != tc.wantFound {
+				t.Errorf("Validate() found %d skills, want %d", len(found), tc.wantFound)
 			}
 
 			out := stderr.String()
-			if tc.wantWarn == nil {
-				if strings.Contains(out, "belong to no skill") {
-					t.Errorf("unexpected orphan warning: %q", out)
-				}
-				return
-			}
 			for _, want := range tc.wantWarn {
 				if !strings.Contains(out, want) {
-					t.Errorf("warning %q does not mention %q", out, want)
+					t.Errorf("log %q does not mention %q", out, want)
 				}
 			}
-			if strings.Contains(out, "project-docs") {
-				t.Errorf("warning %q names a resource outside the skill:// scheme", out)
+			for _, unwanted := range tc.noWarn {
+				if strings.Contains(out, unwanted) {
+					t.Errorf("log %q unexpectedly mentions %q", out, unwanted)
+				}
 			}
 		})
-	}
-}
-
-// TestValidateOrphanWarningWithoutSkills covers a config with no SKILL.md at
-// all, whose skill:// files are therefore all orphans. Validate must still warn.
-func TestValidateOrphanWarningWithoutSkills(t *testing.T) {
-	ctx, stderr := bufferLoggerCtx(t)
-	resourcesMap := map[string]resources.Resource{
-		"notes": textResource(t, ctx, "notes", "skill://guide/notes.md", "# Notes\n"),
-	}
-	found, err := skills.Validate(ctx, resourcesMap)
-	if err != nil {
-		t.Fatalf("Validate() = %v, want nil", err)
-	}
-	if len(found) != 0 {
-		t.Errorf("Validate() found %d skills, want none", len(found))
-	}
-	if out := stderr.String(); !strings.Contains(out, "skill://guide/notes.md") {
-		t.Errorf("log %q does not warn about skill://guide/notes.md", out)
 	}
 }
 
