@@ -17,8 +17,10 @@ package skills
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // Skill is what startup validation learns about one skill. It carries no
@@ -36,14 +38,24 @@ type Skill struct {
 // each skill's SKILL.md: membership comes from URIs, and sizes come from each
 // resource's GetSize, which is a stat for a file resource.
 //
-// It applies the same rules as Discover apart from the digest format, and warns
-// once when two skills share a frontmatter name.
+// It applies the same rules as Discover apart from the digest format. It warns
+// once when two skills share a frontmatter name, and once for skill:// resources
+// that belong to no skill.
 func Validate(ctx context.Context, resourcesMap map[string]resources.Resource) ([]Skill, error) {
 	roots := skillRoots(resourcesMap)
+	// Before the early return: a config whose only skill:// files are typos has
+	// no skills, and is exactly the case the warning is for.
+	members, orphans := skillMembers(resourcesMap, roots)
+	if len(orphans) > 0 {
+		logger, err := util.LoggerFromContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("checking for orphaned skill files: %w", err)
+		}
+		logger.WarnContext(ctx, fmt.Sprintf("resources %s use the %s:// scheme but no %s is above them, so they belong to no skill; check the URI for a typo", strings.Join(orphans, ", "), resources.SkillScheme, skillFile))
+	}
 	if len(roots) == 0 {
 		return nil, nil
 	}
-	members := skillMembers(resourcesMap, roots)
 
 	found := make([]Skill, 0, len(roots))
 	for _, root := range roots {

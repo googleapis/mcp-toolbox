@@ -140,6 +140,8 @@ func TestDiscoverNestedSkill(t *testing.T) {
 			skillMD("billing", "Billing workflows")),
 		"child": textResource(t, ctx, "child", "skill://acme/billing/refunds/SKILL.md",
 			skillMD("refunds", "Refund workflows")),
+		"note": textResource(t, ctx, "note",
+			"skill://acme/billing/refunds/notes.md", "# Refund notes\n"),
 	}
 
 	entries, err := skills.Discover(ctx, resourcesMap)
@@ -159,16 +161,16 @@ func TestDiscoverNestedSkill(t *testing.T) {
 	if !ok {
 		t.Fatal("enclosing skill missing from the entries")
 	}
-	if n := len(parent.Resources.Refs); n != 2 {
-		t.Errorf("enclosing manifest has %d refs, want 2 — a nested skill's files stay listed in it", n)
+	if n := len(parent.Resources.Refs); n != 3 {
+		t.Errorf("enclosing manifest has %d refs, want 3 — a nested skill's files stay listed in it", n)
 	}
 
 	child, ok := byURI["skill://acme/billing/refunds/SKILL.md"]
 	if !ok {
 		t.Fatal("nested skill missing from the entries")
 	}
-	if n := len(child.Resources.Refs); n != 1 {
-		t.Errorf("nested manifest has %d refs, want 1", n)
+	if n := len(child.Resources.Refs); n != 2 {
+		t.Errorf("nested manifest has %d refs, want 2", n)
 	}
 }
 
