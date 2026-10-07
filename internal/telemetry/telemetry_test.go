@@ -109,7 +109,7 @@ func TestGCPExportersDoNotSelfTrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create metric exporter: %v", err)
 	}
-	reader := metric.NewManualReader()
+	reader := metric.NewPeriodicReader(metricExporter)
 	mp := metric.NewMeterProvider(metric.WithReader(reader))
 	defer func() {
 		_ = mp.Shutdown(context.Background())
