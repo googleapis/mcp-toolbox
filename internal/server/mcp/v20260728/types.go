@@ -849,16 +849,33 @@ type GetSkillResult struct {
 	Skill Skill `json:"skill"`
 }
 
-// Skill is one skill as skills/list and skills/get publish it.
-type Skill struct {
+// Skill is one skill as skills/list and skills/get publish it. It is either a
+// StaticSkill or a DynamicSkill; the unexported method keeps out other types.
+type Skill interface {
+	isSkill()
+}
+
+// StaticSkill is a skill that publishes its complete file list.
+type StaticSkill struct {
+	// URI addresses the skill's SKILL.md, not its root directory.
+	URI string `json:"uri"`
+	// Frontmatter is the SKILL.md YAML frontmatter verbatim.
+	Frontmatter map[string]any     `json:"frontmatter"`
+	Resources   []SkillResourceRef `json:"resources"`
+}
+
+// DynamicSkill is a skill that publishes no file list.
+type DynamicSkill struct {
 	// URI addresses the skill's SKILL.md, not its root directory.
 	URI string `json:"uri"`
 	// Frontmatter is the SKILL.md YAML frontmatter verbatim.
 	Frontmatter map[string]any `json:"frontmatter"`
-	// Resources is the skill's complete file list ([]SkillResourceRef), or
-	// the string "dynamic".
-	Resources any `json:"resources"`
+	// Resources is always skillsDynamicMarker.
+	Resources string `json:"resources"`
 }
+
+func (StaticSkill) isSkill()  {}
+func (DynamicSkill) isSkill() {}
 
 // skillsDynamicMarker replaces the file list of a skill that publishes none.
 const skillsDynamicMarker = "dynamic"

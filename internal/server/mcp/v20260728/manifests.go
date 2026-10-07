@@ -403,16 +403,13 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 // generateSkillManifest converts a skill to the wire type skills/list and
 // skills/get publish.
 func generateSkillManifest(e skills.Entry) Skill {
-	s := Skill{URI: e.URI, Frontmatter: e.Frontmatter}
 	if e.Resources.Dynamic {
-		s.Resources = skillsDynamicMarker
-		return s
+		return DynamicSkill{URI: e.URI, Frontmatter: e.Frontmatter, Resources: skillsDynamicMarker}
 	}
 	// Non-nil, so an unpopulated list marshals to [] rather than null.
 	refs := make([]SkillResourceRef, 0, len(e.Resources.Refs))
 	for _, r := range e.Resources.Refs {
 		refs = append(refs, SkillResourceRef{URI: r.URI, Digest: r.Digest, Size: r.Size})
 	}
-	s.Resources = refs
-	return s
+	return StaticSkill{URI: e.URI, Frontmatter: e.Frontmatter, Resources: refs}
 }

@@ -2467,8 +2467,13 @@ func TestSkillsListHandler(t *testing.T) {
 					result.TtlMs, result.CacheScope, skillsTTLMs, skillsCacheScope)
 			}
 			var gotURIs []string
-			for _, e := range result.Skills {
-				gotURIs = append(gotURIs, e.URI)
+			for _, s := range result.Skills {
+				switch s := s.(type) {
+				case StaticSkill:
+					gotURIs = append(gotURIs, s.URI)
+				case DynamicSkill:
+					gotURIs = append(gotURIs, s.URI)
+				}
 			}
 			if !slices.Equal(gotURIs, tc.wantURIs) {
 				t.Errorf("skills = %v, want %v", gotURIs, tc.wantURIs)
@@ -2484,10 +2489,11 @@ func TestSkillsListHandler(t *testing.T) {
 				}
 				return
 			}
-			refs, ok := result.Skills[0].Resources.([]SkillResourceRef)
+			skill, ok := result.Skills[0].(StaticSkill)
 			if !ok {
-				t.Fatalf("resources is %T, want []SkillResourceRef", result.Skills[0].Resources)
+				t.Fatalf("skill is %T, want StaticSkill", result.Skills[0])
 			}
+			refs := skill.Resources
 			// The manifest must carry a fresh digest for every member.
 			for _, ref := range refs {
 				if !strings.HasPrefix(ref.Digest, "sha256:") {
@@ -2608,8 +2614,12 @@ func TestSkillsGetHandler(t *testing.T) {
 			if !ok {
 				t.Fatalf("result is %T, want GetSkillResult", response.Result)
 			}
-			if result.Skill.URI != uri {
-				t.Errorf("skill uri = %q, want %q", result.Skill.URI, uri)
+			skill, ok := result.Skill.(StaticSkill)
+			if !ok {
+				t.Fatalf("skill is %T, want StaticSkill", result.Skill)
+			}
+			if skill.URI != uri {
+				t.Errorf("skill uri = %q, want %q", skill.URI, uri)
 			}
 			if result.ResultType != resultTypeComplete {
 				t.Errorf("resultType = %q, want %q", result.ResultType, resultTypeComplete)
