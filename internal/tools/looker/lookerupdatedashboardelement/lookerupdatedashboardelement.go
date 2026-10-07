@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -71,7 +70,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
 	}
 
-	params := lookercommon.GetQueryParameters()
+	params := lookercommon.GetDashboardElementQueryParameters()
 
 	dashboardIdParam := parameters.NewStringParameter("dashboard_id", "The ID of the dashboard containing the element.")
 	params = append(params, dashboardIdParam)
@@ -94,6 +93,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		parameters.WithArrayRequired(false),
 	)
 	params = append(params, dashFilters)
+	params = append(params, lookercommon.GetDashboardElementParameters()...)
 
 	return Tool{
 		BaseTool: tools.NewBaseTool(
@@ -107,11 +107,6 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 // validate interface
 var _ tools.Tool = Tool{}
-
-var (
-	dataType string = "data"
-	visType  string = "vis"
-)
 
 type Tool struct {
 	tools.BaseTool[Config]
@@ -145,109 +140,26 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	logger.DebugContext(ctx, "params = ", params)
 
-	wq, err := lookercommon.ProcessQueryArgs(ctx, params)
-	if err != nil {
-		return nil, util.NewAgentError("error building query request", err)
-	}
-
 	paramsMap := params.AsMap()
 
 	dashboardElementId, ok := paramsMap["dashboard_element_id"].(string)
-	if !ok {
+	if !ok || dashboardElementId == "" {
 		return nil, util.NewAgentError("dashboard_element_id parameter missing or invalid", nil)
 	}
 
 	dashboardId, ok := paramsMap["dashboard_id"].(string)
-	if !ok {
+	if !ok || dashboardId == "" {
 		return nil, util.NewAgentError("dashboard_id parameter missing or invalid", nil)
 	}
-
-	title, ok := paramsMap["title"].(string)
-	if !ok {
-		title = ""
-	}
-
-	visConfig, ok := paramsMap["vis_config"].(map[string]any)
-	if !ok {
-		visConfig = make(map[string]any)
-	}
-	wq.VisConfig = &visConfig
 
 	sdk, err := source.GetLookerSDK(ctx, string(accessToken))
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
-	if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, source.LookerApiSettings()); escErr != nil {
-		logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
-	}
 
-	qresp, err := sdk.CreateQuery(*wq, "id", source.LookerApiSettings())
-	if err != nil {
-		if strings.Contains(err.Error(), "status=401") {
-			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
-		}
-		return nil, util.ProcessGeneralError(err)
-	}
-
-	dashFilters := []any{}
-	if v, ok := paramsMap["dashboard_filters"]; ok {
-		if v != nil {
-			if df, ok := v.([]any); ok {
-				dashFilters = df
-			}
-		}
-	}
-
-	var filterables []v4.ResultMakerFilterables
-	for _, m := range dashFilters {
-		f, ok := m.(map[string]any)
-		if !ok {
-			return nil, util.NewAgentError("invalid dashboard filter structure", nil)
-		}
-		name, ok := f["dashboard_filter_name"].(string)
-		if !ok {
-			return nil, util.NewAgentError("error processing dashboard filter: missing dashboard_filter_name", nil)
-		}
-		field, ok := f["field"].(string)
-		if !ok {
-			return nil, util.NewAgentError("error processing dashboard filter: missing field", nil)
-		}
-		listener := v4.ResultMakerFilterablesListen{
-			DashboardFilterName: &name,
-			Field:               &field,
-		}
-		listeners := []v4.ResultMakerFilterablesListen{listener}
-
-		filter := v4.ResultMakerFilterables{
-			Listen: &listeners,
-		}
-
-		filterables = append(filterables, filter)
-	}
-
-	if len(filterables) == 0 {
-		filterables = nil
-	}
-
-	wrm := v4.WriteResultMakerWithIdVisConfigAndDynamicFields{
-		Query:       wq,
-		VisConfig:   &visConfig,
-		Filterables: &filterables,
-	}
-
-	wde := v4.WriteDashboardElement{
-		DashboardId: &dashboardId,
-		Title:       &title,
-		ResultMaker: &wrm,
-		Query:       wq,
-		QueryId:     qresp.Id,
-	}
-
-	switch len(visConfig) {
-	case 0:
-		wde.Type = &dataType
-	default:
-		wde.Type = &visType
+	wde, toolboxErr := lookercommon.BuildWriteDashboardElement(ctx, sdk, dashboardId, params, source.LookerApiSettings())
+	if toolboxErr != nil {
+		return nil, toolboxErr
 	}
 
 	resp, err := sdk.UpdateDashboardElement(dashboardElementId, wde, "", source.LookerApiSettings())
