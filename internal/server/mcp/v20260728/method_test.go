@@ -2484,13 +2484,17 @@ func TestSkillsListHandler(t *testing.T) {
 				}
 				return
 			}
+			refs, ok := result.Skills[0].Resources.([]SkillResourceRef)
+			if !ok {
+				t.Fatalf("resources is %T, want []SkillResourceRef", result.Skills[0].Resources)
+			}
 			// The manifest must carry a fresh digest for every member.
-			for _, ref := range result.Skills[0].Resources.Refs {
+			for _, ref := range refs {
 				if !strings.HasPrefix(ref.Digest, "sha256:") {
 					t.Errorf("ref %q digest = %q, want a sha256: prefix", ref.URI, ref.Digest)
 				}
 			}
-			if got := len(result.Skills[0].Resources.Refs); got != 2 {
+			if got := len(refs); got != 2 {
 				t.Errorf("got %d refs, want 2 (SKILL.md and its supporting file)", got)
 			}
 		})

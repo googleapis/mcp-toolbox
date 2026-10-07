@@ -15,8 +15,6 @@
 package v20260728
 
 import (
-	"encoding/json"
-
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -857,29 +855,13 @@ type Skill struct {
 	URI string `json:"uri"`
 	// Frontmatter is the SKILL.md YAML frontmatter verbatim.
 	Frontmatter map[string]any `json:"frontmatter"`
-	Resources   SkillResources `json:"resources"`
+	// Resources is the skill's complete file list ([]SkillResourceRef), or
+	// the string "dynamic".
+	Resources any `json:"resources"`
 }
 
 // skillsDynamicMarker replaces the file list of a skill that publishes none.
 const skillsDynamicMarker = "dynamic"
-
-// SkillResources is a skill's complete file list, or the marker "dynamic".
-type SkillResources struct {
-	Refs    []SkillResourceRef
-	Dynamic bool
-}
-
-// MarshalJSON emits the file list, or the string "dynamic".
-func (r SkillResources) MarshalJSON() ([]byte, error) {
-	if r.Dynamic {
-		return json.Marshal(skillsDynamicMarker)
-	}
-	// Empty Refs means unpopulated, not a skill with no files.
-	if len(r.Refs) == 0 {
-		return json.Marshal([]SkillResourceRef{})
-	}
-	return json.Marshal(r.Refs)
-}
 
 // SkillResourceRef is one file in a skill's file list.
 type SkillResourceRef struct {
