@@ -31,6 +31,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	tracesdk "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	"google.golang.org/api/option"
 )
 
 // setupOTelSDK bootstraps the OpenTelemetry pipeline.
@@ -127,11 +128,7 @@ func newTracerProvider(ctx context.Context, r *resource.Resource, telemetryOTLP 
 		traceOpts = append(traceOpts, tracesdk.WithBatcher(otlpExporter))
 	}
 	if telemetryGCP {
-		gcpExporterOpts := []texporter.Option{}
-		if telemetryGCPProject != "" {
-			gcpExporterOpts = append(gcpExporterOpts, texporter.WithProjectID(telemetryGCPProject))
-		}
-		gcpExporter, err := texporter.New(gcpExporterOpts...)
+		gcpExporter, err := texporter.New(gcpTraceExporterOpts(telemetryGCPProject)...)
 		if err != nil {
 			return nil, wrapGCPProjectHint(err)
 		}
@@ -141,6 +138,28 @@ func newTracerProvider(ctx context.Context, r *resource.Resource, telemetryOTLP 
 
 	traceProvider := tracesdk.NewTracerProvider(traceOpts...)
 	return traceProvider, nil
+}
+
+func gcpTraceExporterOpts(telemetryGCPProject string, extraClientOpts ...option.ClientOption) []texporter.Option {
+	clientOpts := append([]option.ClientOption{option.WithTelemetryDisabled()}, extraClientOpts...)
+	gcpExporterOpts := []texporter.Option{
+		texporter.WithTraceClientOptions(clientOpts),
+	}
+	if telemetryGCPProject != "" {
+		gcpExporterOpts = append(gcpExporterOpts, texporter.WithProjectID(telemetryGCPProject))
+	}
+	return gcpExporterOpts
+}
+
+func gcpMetricExporterOpts(telemetryGCPProject string, extraClientOpts ...option.ClientOption) []mexporter.Option {
+	clientOpts := append([]option.ClientOption{option.WithTelemetryDisabled()}, extraClientOpts...)
+	gcpExporterOpts := []mexporter.Option{
+		mexporter.WithMonitoringClientOptions(clientOpts...),
+	}
+	if telemetryGCPProject != "" {
+		gcpExporterOpts = append(gcpExporterOpts, mexporter.WithProjectID(telemetryGCPProject))
+	}
+	return gcpExporterOpts
 }
 
 // newMeterProvider creates MeterProvider.
@@ -157,11 +176,7 @@ func newMeterProvider(ctx context.Context, r *resource.Resource, telemetryOTLP s
 		metricOpts = append(metricOpts, metric.WithReader(metric.NewPeriodicReader(otlpExporter)))
 	}
 	if telemetryGCP {
-		gcpExporterOpts := []mexporter.Option{}
-		if telemetryGCPProject != "" {
-			gcpExporterOpts = append(gcpExporterOpts, mexporter.WithProjectID(telemetryGCPProject))
-		}
-		gcpExporter, err := mexporter.New(gcpExporterOpts...)
+		gcpExporter, err := mexporter.New(gcpMetricExporterOpts(telemetryGCPProject)...)
 		if err != nil {
 			return nil, wrapGCPProjectHint(err)
 		}
