@@ -253,19 +253,6 @@ func cutAtDelimiter(rest string) (string, bool) {
 	}
 }
 
-// warnOnOrphans reports skill:// resources that belong to no skill.
-func warnOnOrphans(ctx context.Context, orphans []string) error {
-	if len(orphans) == 0 {
-		return nil
-	}
-	logger, err := util.LoggerFromContext(ctx)
-	if err != nil {
-		return fmt.Errorf("checking for orphaned skill files: %w", err)
-	}
-	logger.WarnContext(ctx, fmt.Sprintf("resources %s use the %s:// scheme but no %s is above them, so they belong to no skill; check the URI for a typo", strings.Join(orphans, ", "), resources.SkillScheme, skillFile))
-	return nil
-}
-
 // warnOnDuplicateNames reports skills sharing a frontmatter name.
 func warnOnDuplicateNames(ctx context.Context, found []Skill) error {
 	logger, err := util.LoggerFromContext(ctx)
