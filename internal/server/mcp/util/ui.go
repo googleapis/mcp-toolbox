@@ -118,7 +118,14 @@ func checkCapsMapForUI(caps map[string]any) bool {
 }
 
 // CheckUISupportFromRequest checks whether the raw JSON-RPC request body indicates support for MCP Apps UI.
+//
+// NOTE: Request body inspection is disabled to align with MCP specification capability negotiation,
+// which requires client capabilities to be negotiated during initialize.
 func CheckUISupportFromRequest(body []byte) bool {
+	// Disabled to comply with client capability negotiation specification.
+	if true {
+		return false
+	}
 	if len(body) == 0 || !bytes.Contains(body, []byte(UIExtensionURI)) {
 		return false
 	}
