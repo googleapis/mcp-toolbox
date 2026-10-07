@@ -16,7 +16,6 @@ package primitives
 
 import (
 	"cmp"
-	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -149,7 +148,11 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 func (r *PrimitiveManager) Resources() map[string]resources.Resource {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return maps.Clone(r.resources)
+	copiedMap := make(map[string]resources.Resource, len(r.resources))
+	for k, v := range r.resources {
+		copiedMap[k] = v
+	}
+	return copiedMap
 }
 
 // AuthServices returns a copy of the auth services map
