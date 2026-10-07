@@ -137,13 +137,6 @@ func validateHeader(id jsonrpc.RequestId, header http.Header, method, name strin
 	return nil, nil
 }
 
-// validateToolboxExtension checks that the client negotiated the Toolbox
-// extension. Methods that are only part of the extension must not be served to
-// clients that did not declare it.
-func validateToolboxExtension(id jsonrpc.RequestId, params RequestParams, method string) (any, error) {
-	return validateExtension(id, params, method, ToolboxExtensionURI)
-}
-
 // validateExtension rejects a method whose extension is not enabled on both
 // sides: declared by the client and not disabled on the server.
 func validateExtension(id jsonrpc.RequestId, params RequestParams, method, extURI string) (any, error) {
@@ -846,7 +839,7 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	if err != nil {
 		return validateErr, err
 	}
-	extErr, err := validateToolboxExtension(id, req.Params, GROUPS_LIST)
+	extErr, err := validateExtension(id, req.Params, GROUPS_LIST, ToolboxExtensionURI)
 	if err != nil {
 		return extErr, err
 	}
@@ -899,7 +892,7 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	if err != nil {
 		return validateErr, err
 	}
-	extErr, err := validateToolboxExtension(id, req.Params.RequestParams, GROUPS_GET)
+	extErr, err := validateExtension(id, req.Params.RequestParams, GROUPS_GET, ToolboxExtensionURI)
 	if err != nil {
 		return extErr, err
 	}
@@ -931,7 +924,7 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
 	supportsUI := CheckUISupport(supportedExts)
-	// validateToolboxExtension above already established that the client
+	// validateExtension above already established that the client
 	// declared the extension, so secure params are always supported here.
 	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, true, supportsUI)
 	if err != nil {
