@@ -59,12 +59,22 @@ echo "Polling for BCID attestations on ${STAGING_IMAGE_URI}@${IMAGE_DIGEST}..."
 POLL_START=$SECONDS
 POLL_TIMEOUT="${POLL_TIMEOUT:-600}"
 ATTESTATION_FOUND=false
+TARGET_VERSION="projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${STAGING_REPO}/packages/${PACKAGE_NAME}/versions/${IMAGE_DIGEST}"
 
 while (( SECONDS - POLL_START < POLL_TIMEOUT )); do
-  OCCURRENCES=$(gcloud container metadata occurrences list \
+  OCCURRENCES=$(gcloud artifacts attachments list \
     --project="${PROJECT_ID}" \
-    --occurrence-filter="kind=\"ATTESTATION\" AND resourceUrl=\"https://${STAGING_IMAGE_URI}@${IMAGE_DIGEST}\"" \
-    --format="value(name)" 2>/dev/null || true)
+    --location="${LOCATION}" \
+    --repository="${STAGING_REPO}" \
+    --filter="target=\"${TARGET_VERSION}\" AND type=\"application/vnd.in-toto.verification_summary+dsse\"" \
+    --format="value(name)" 2>/dev/null | head -n 1 || true)
+
+  if [[ -z "${OCCURRENCES}" ]]; then
+    OCCURRENCES=$(curl -fsSL -G \
+      -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+      --data-urlencode "filter=target=\"${TARGET_VERSION}\" AND type=\"application/vnd.in-toto.verification_summary+dsse\"" \
+      "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${STAGING_REPO}/attachments" 2>/dev/null | jq -r '.attachments[0].name // empty' || true)
+  fi
 
   if [[ -z "${OCCURRENCES}" ]]; then
     OCCURRENCES=$(curl -fsSL -G \
