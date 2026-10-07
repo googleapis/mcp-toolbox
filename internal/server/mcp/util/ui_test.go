@@ -261,8 +261,9 @@ func TestCheckUISupportFromRequest(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := CheckUISupportFromRequest(tc.body)
-			if got != tc.supportsUI {
-				t.Errorf("CheckUISupportFromRequest() = %v, want %v", got, tc.supportsUI)
+			// CheckUISupportFromRequest is currently disabled to comply with capability negotiation spec.
+			if got != false {
+				t.Errorf("CheckUISupportFromRequest() = %v, want false (disabled)", got)
 			}
 		})
 	}
