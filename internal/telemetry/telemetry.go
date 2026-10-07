@@ -143,7 +143,7 @@ func newTracerProvider(ctx context.Context, r *resource.Resource, telemetryOTLP 
 func gcpTraceExporterOpts(telemetryGCPProject string, extraClientOpts ...option.ClientOption) []texporter.Option {
 	clientOpts := append([]option.ClientOption{option.WithTelemetryDisabled()}, extraClientOpts...)
 	gcpExporterOpts := []texporter.Option{
-		texporter.WithTraceClientOptions(clientOpts),
+		texporter.WithTraceClientOptions(clientOpts...),
 	}
 	if telemetryGCPProject != "" {
 		gcpExporterOpts = append(gcpExporterOpts, texporter.WithProjectID(telemetryGCPProject))
