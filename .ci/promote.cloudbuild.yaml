@@ -23,13 +23,36 @@ steps:
       # Install jq (Required for parsing the API responses)
       apt-get update && apt-get install -y jq
 
-      export VERSION=$(cat ./cmd/version.txt)
+      export VERSION="${TAG_NAME:-$(cat ./cmd/version.txt)}"
       bash .ci/promote_artifacts.sh "${PROJECT_ID}" "${_REGION}" "${_STAGING_AR_REPO_NAME}" "${_PROD_AR_REPO_NAME}" "toolbox" "${VERSION}"
+
+  - id: "fetch-binaries"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor:
+      - "promote-docker"
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+      VERSION="v$(cat ./cmd/version.txt)"
+      BUCKET="gs://${_BUCKET_NAME}/${VERSION}"
+      FALLBACK_BUCKET="gs://${_UNSIGNED_BUCKET_NAME}/${VERSION}"
+
+      fetch_bin() {
+        local remote_path="$1" local_path="$2"
+        gcloud storage cp "${BUCKET}/${remote_path}" "${local_path}" || \
+          gcloud storage cp "${FALLBACK_BUCKET}/${remote_path}" "${local_path}"
+      }
+
+      fetch_bin "linux/amd64/toolbox"       toolbox.linux.amd64
+      fetch_bin "darwin/arm64/toolbox"      toolbox.darwin.arm64
+      fetch_bin "darwin/amd64/toolbox"      toolbox.darwin.amd64
+      fetch_bin "windows/amd64/toolbox.exe" toolbox.windows.amd64
+      fetch_bin "windows/arm64/toolbox.exe" toolbox.windows.arm64
 
   - id: "publish-npm-to-ar"
     name: node:20
     waitFor:
-      - "promote-docker"
+      - "fetch-binaries"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_npm_to_ar.sh
@@ -50,7 +73,7 @@ steps:
   - id: "publish-pypi-to-ar"
     name: python:3.12
     waitFor:
-      - "promote-docker"
+      - "fetch-binaries"
     script: |
       #!/usr/bin/env bash
       bash .ci/publish_pypi_to_ar.sh
@@ -79,6 +102,8 @@ substitutions:
   _REGION: us-central1
   _STAGING_AR_REPO_NAME: toolbox-containers-staging
   _PROD_AR_REPO_NAME: toolbox
+  _BUCKET_NAME: mcp-toolbox-for-databases
+  _UNSIGNED_BUCKET_NAME: mcp-toolbox-for-databases-unsigned
   _EXIT_GATE_PROJECT: "mcp-toolbox"
   _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
   _PUSH_TO_EXIT_GATES: "false"
