@@ -2652,9 +2652,14 @@ func TestMcpSkillsMethods(t *testing.T) {
 	}
 	// Tools only exist so the default group does: SetUpPrimitives builds no
 	// groups without them, and the request path resolves a group before
-	// dispatch. Skills are not group-scoped, so they do not affect the result.
+	// dispatch.
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
 	toolsMap, promptsMap, _, resourceTemplatesMap, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	// Skills read their files through the default group, which server startup
+	// seeds with every non-UI resource.
+	defaultCfg := groups[""].GroupConfig
+	defaultCfg.ResourceNames = []string{"guide", "queries"}
+	groups[""] = group.NewGroup(defaultCfg)
 	r, shutdown := setUpServer(t, "mcp", toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups)
 	defer shutdown()
 	ts := runServer(r, false)

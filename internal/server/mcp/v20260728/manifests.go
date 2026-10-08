@@ -377,9 +377,12 @@ const (
 // host that fails to verify a digest recovers by asking again. Returning the
 // startup value would give it nothing to recover to.
 func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveManager) (ListSkillsResult, error) {
-	// Skills are grouped per request from the resources map, the only record of
-	// which files make up a skill, so a reload shows up on the next request.
-	entries, err := skills.Discover(ctx, pMgr.Resources())
+	// Skills are grouped per request, so a reload shows up on the next request.
+	resourcesMap, err := skillResources(pMgr)
+	if err != nil {
+		return ListSkillsResult{}, err
+	}
+	entries, err := skills.Discover(ctx, resourcesMap)
 	if err != nil {
 		return ListSkillsResult{}, err
 	}
@@ -403,13 +406,32 @@ func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveMan
 // generateSkillManifest converts a skill to the wire type skills/list and
 // skills/get publish.
 func generateSkillManifest(e skills.Entry) Skill {
+	if e.Resources.Dynamic {
+		return DynamicSkill{URI: e.URI, Frontmatter: e.Frontmatter, Resources: skillsDynamicMarker}
+	}
+	// Non-nil, so an unpopulated list marshals to [] rather than null.
 	refs := make([]SkillResourceRef, 0, len(e.Resources.Refs))
 	for _, r := range e.Resources.Refs {
 		refs = append(refs, SkillResourceRef{URI: r.URI, Digest: r.Digest, Size: r.Size})
 	}
-	return Skill{
-		URI:         e.URI,
-		Frontmatter: e.Frontmatter,
-		Resources:   SkillResources{Refs: refs, Dynamic: e.Resources.Dynamic},
+	return StaticSkill{URI: e.URI, Frontmatter: e.Frontmatter, Resources: refs}
+}
+
+// skillResources returns the resources skills/list and skills/get group into
+// skills: those of the default group, which holds every non-UI resource. The
+// catalogue is server-wide, so no other group narrows it.
+func skillResources(pMgr *primitives.PrimitiveManager) (map[string]resources.Resource, error) {
+	g, ok := pMgr.GetGroup("")
+	if !ok {
+		return nil, fmt.Errorf("default group not found")
 	}
+	resourcesMap := make(map[string]resources.Resource, len(g.ResourceNames))
+	for _, name := range g.ResourceNames {
+		// A name can be missing only if a reload lands between the two
+		// lookups; the next request sees the new config whole.
+		if res, ok := pMgr.GetResource(name); ok {
+			resourcesMap[name] = res
+		}
+	}
+	return resourcesMap, nil
 }

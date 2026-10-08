@@ -2323,6 +2323,17 @@ func skillsMetaWithoutExtension() *RequestMetaObject {
 	return meta
 }
 
+// defaultGroupOf returns a groups map holding only the default group, seeded
+// with every resource in resourcesMap, as server startup seeds it.
+func defaultGroupOf(resourcesMap map[string]resources.Resource) map[string]group.Group {
+	names := make([]string, 0, len(resourcesMap))
+	for name := range resourcesMap {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return map[string]group.Group{"": group.NewGroup(group.GroupConfig{Name: "", ResourceNames: names})}
+}
+
 // checkSkillsError asserts that a handler failed with a JSON-RPC error whose
 // message contains wantMsg and, when wantCode is set, carries that code.
 func checkSkillsError(t *testing.T, res any, err error, wantCode int, wantMsg string) {
@@ -2418,7 +2429,7 @@ func TestSkillsListHandler(t *testing.T) {
 			if resourcesMap == nil {
 				resourcesMap = skillsTestResources()
 			}
-			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, defaultGroupOf(resourcesMap))
 
 			body := tc.rawBody
 			if body == nil {
@@ -2467,8 +2478,13 @@ func TestSkillsListHandler(t *testing.T) {
 					result.TtlMs, result.CacheScope, skillsTTLMs, skillsCacheScope)
 			}
 			var gotURIs []string
-			for _, e := range result.Skills {
-				gotURIs = append(gotURIs, e.URI)
+			for _, s := range result.Skills {
+				switch s := s.(type) {
+				case StaticSkill:
+					gotURIs = append(gotURIs, s.URI)
+				case DynamicSkill:
+					gotURIs = append(gotURIs, s.URI)
+				}
 			}
 			if !slices.Equal(gotURIs, tc.wantURIs) {
 				t.Errorf("skills = %v, want %v", gotURIs, tc.wantURIs)
@@ -2484,13 +2500,18 @@ func TestSkillsListHandler(t *testing.T) {
 				}
 				return
 			}
+			skill, ok := result.Skills[0].(StaticSkill)
+			if !ok {
+				t.Fatalf("skill is %T, want StaticSkill", result.Skills[0])
+			}
+			refs := skill.Resources
 			// The manifest must carry a fresh digest for every member.
-			for _, ref := range result.Skills[0].Resources.Refs {
+			for _, ref := range refs {
 				if !strings.HasPrefix(ref.Digest, "sha256:") {
 					t.Errorf("ref %q digest = %q, want a sha256: prefix", ref.URI, ref.Digest)
 				}
 			}
-			if got := len(result.Skills[0].Resources.Refs); got != 2 {
+			if got := len(refs); got != 2 {
 				t.Errorf("got %d refs, want 2 (SKILL.md and its supporting file)", got)
 			}
 		})
@@ -2562,7 +2583,7 @@ func TestSkillsGetHandler(t *testing.T) {
 			if resourcesMap == nil {
 				resourcesMap = skillsTestResources()
 			}
-			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
+			primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, defaultGroupOf(resourcesMap))
 
 			uri := tc.uri
 			if uri == "" {
@@ -2604,8 +2625,12 @@ func TestSkillsGetHandler(t *testing.T) {
 			if !ok {
 				t.Fatalf("result is %T, want GetSkillResult", response.Result)
 			}
-			if result.Skill.URI != uri {
-				t.Errorf("skill uri = %q, want %q", result.Skill.URI, uri)
+			skill, ok := result.Skill.(StaticSkill)
+			if !ok {
+				t.Fatalf("skill is %T, want StaticSkill", result.Skill)
+			}
+			if skill.URI != uri {
+				t.Errorf("skill uri = %q, want %q", skill.URI, uri)
 			}
 			if result.ResultType != resultTypeComplete {
 				t.Errorf("resultType = %q, want %q", result.ResultType, resultTypeComplete)
@@ -2637,7 +2662,7 @@ func TestSkillsMethodsDynamicSkill(t *testing.T) {
 	resourcesMap["report"] = testutils.NewMockDynamicTextResource("report", dynamicURI,
 		"---\nname: live-report\ndescription: Summarize the current run\n---\n\n# live-report\n")
 	resourcesMap["rows"] = testutils.NewMockTextResource("rows", "skill://live-report/rows.csv", "a,b\n1,2\n")
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, nil)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, defaultGroupOf(resourcesMap))
 
 	// resourcesOf marshals one entry the way the server does and returns the
 	// resources field. The assertion then sees the JSON type a client sees.
@@ -2645,13 +2670,13 @@ func TestSkillsMethodsDynamicSkill(t *testing.T) {
 		t.Helper()
 		raw, err := json.Marshal(s)
 		if err != nil {
-			t.Fatalf("unable to marshal skill %q: %s", s.URI, err)
+			t.Fatalf("unable to marshal skill %#v: %s", s, err)
 		}
 		var decoded struct {
 			Resources any `json:"resources"`
 		}
 		if err := json.Unmarshal(raw, &decoded); err != nil {
-			t.Fatalf("unable to unmarshal skill %q: %s", s.URI, err)
+			t.Fatalf("unable to unmarshal skill %#v: %s", s, err)
 		}
 		return decoded.Resources
 	}
@@ -2675,8 +2700,13 @@ func TestSkillsMethodsDynamicSkill(t *testing.T) {
 		}
 
 		byURI := map[string]Skill{}
-		for _, e := range result.Skills {
-			byURI[e.URI] = e
+		for _, s := range result.Skills {
+			switch s := s.(type) {
+			case StaticSkill:
+				byURI[s.URI] = s
+			case DynamicSkill:
+				byURI[s.URI] = s
+			}
 		}
 
 		if got := resourcesOf(t, byURI[dynamicURI]); got != "dynamic" {
@@ -2712,13 +2742,17 @@ func TestSkillsMethodsDynamicSkill(t *testing.T) {
 			t.Fatalf("skillsGetHandler() = %v, want nil", err)
 		}
 		result := res.(jsonrpc.JSONRPCResponse).Result.(GetSkillResult)
-		if result.Skill.URI != dynamicURI {
-			t.Fatalf("skill uri = %q, want %q", result.Skill.URI, dynamicURI)
+		skill, ok := result.Skill.(DynamicSkill)
+		if !ok {
+			t.Fatalf("skill is %T, want DynamicSkill", result.Skill)
+		}
+		if skill.URI != dynamicURI {
+			t.Fatalf("skill uri = %q, want %q", skill.URI, dynamicURI)
 		}
 		if got := resourcesOf(t, result.Skill); got != "dynamic" {
 			t.Errorf("resources = %#v, want the string \"dynamic\"", got)
 		}
-		if name := result.Skill.Frontmatter["name"]; name != "live-report" {
+		if name := skill.Frontmatter["name"]; name != "live-report" {
 			t.Errorf("frontmatter name = %v, want live-report", name)
 		}
 	})

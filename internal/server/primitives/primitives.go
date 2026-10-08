@@ -16,7 +16,6 @@ package primitives
 
 import (
 	"cmp"
-	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -141,15 +140,6 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.resources = resourcesMap
 	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
-}
-
-// Resources returns a copy of the resources map. The map is copied; the
-// resources in it are shared. The skill handlers group this copy per request,
-// so nothing derived from resources is stored.
-func (r *PrimitiveManager) Resources() map[string]resources.Resource {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return maps.Clone(r.resources)
 }
 
 // AuthServices returns a copy of the auth services map
