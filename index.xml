@@ -714,7 +714,7 @@ the tool defaults to the project from the source configuration.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Without &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; The tool can retrieve metadata for
 any dataset specified by the &lt;code&gt;dataset&lt;/code&gt; and &lt;code&gt;project&lt;/code&gt; parameters.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;With &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; Before retrieving metadata, the tool
-verifies that the requested dataset is in the allowed list. If it is not, the
+verifies that the requested dataset is in &lt;code&gt;allowedDatasets&lt;/code&gt;. If it is not, the
 request is denied. If only one dataset is specified in the &lt;code&gt;allowedDatasets&lt;/code&gt;
 list, it will be used as the default value for the &lt;code&gt;dataset&lt;/code&gt; parameter.&lt;/li&gt;
 &lt;/ul&gt;
@@ -772,7 +772,7 @@ the tool defaults to the project from the source configuration.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Without &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; The tool can list tables from any
 dataset specified by the &lt;code&gt;dataset&lt;/code&gt; and &lt;code&gt;project&lt;/code&gt; parameters.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;With &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; Before listing tables, the tool verifies
-that the requested dataset is in the allowed list. If it is not, the request is
+that the requested dataset is in &lt;code&gt;allowedDatasets&lt;/code&gt;. If it is not, the request is
 denied. If only one dataset is specified in the &lt;code&gt;allowedDatasets&lt;/code&gt; list, it
 will be used as the default value for the &lt;code&gt;dataset&lt;/code&gt; parameter.&lt;/li&gt;
 &lt;/ul&gt;
@@ -9233,7 +9233,17 @@ in a given model in the source.&lt;/p&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; describes how the dimension&amp;#39;s values should be displayed (for example as a
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; currency amount or a percentage). Format any values returned for that
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; dimension accordingly instead of reporting the raw number.&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The response is a json array with the following elements:&lt;/p&gt;</description></item><item><title>looker-get-explores</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explores/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explores/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;The response is a json array with the following elements:&lt;/p&gt;</description></item><item><title>looker-get-explore</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explore/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explore/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;A &lt;code&gt;looker-get-explore&lt;/code&gt; tool returns detailed metadata for a single explore,
+including query constraints such as &lt;code&gt;always_filter&lt;/code&gt; and
+&lt;code&gt;conditionally_filter&lt;/code&gt;, as well as &lt;code&gt;tags&lt;/code&gt; and whether the explore is &lt;code&gt;hidden&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;Use &lt;code&gt;looker-get-explores&lt;/code&gt; to cheaply list all explores in a model, then use
+&lt;code&gt;looker-get-explore&lt;/code&gt; to fetch the full metadata for the specific explore you
+intend to query. The two are kept separate because &lt;code&gt;looker-get-explores&lt;/code&gt; calls
+the lightweight &lt;code&gt;lookml_model&lt;/code&gt; endpoint, which only returns a navigation
+summary of each explore, while the constraint fields are only available from
+the heavier &lt;code&gt;lookml_model_explore&lt;/code&gt; endpoint. Returning them from
+&lt;code&gt;looker-get-explores&lt;/code&gt; would require one additional API call per explore.&lt;/p&gt;</description></item><item><title>looker-get-explores</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explores/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explores/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;looker-get-explores&lt;/code&gt; tool returns all explores
 for a given model from the source.&lt;/p&gt;
 &lt;p&gt;&lt;code&gt;looker-get-explores&lt;/code&gt; accepts one parameter, the
@@ -9243,7 +9253,8 @@ for a given model from the source.&lt;/p&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;explore name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;description&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;explore description&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;label&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;explore label&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;group_label&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;group label&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;group_label&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;group label&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;hidden&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="kc"&gt;false&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;}&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
 
@@ -11086,7 +11097,7 @@ returned. Otherwise, the selection is not guaranteed.&lt;/p&gt;
 &lt;p&gt;The tool returns a single JSON object representing the document, wrapped in a
 JSON array.&lt;/p&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
-&lt;h2 id="hahahugoshortcode126s0hbhb"&gt;
+&lt;h2 id="hahahugoshortcode548s0hbhb"&gt;
 
 
 
@@ -15831,6 +15842,10 @@ in the cloud, on GCP, or on premises.&lt;/p&gt;
  
  
  
+ 
+ 
+ 
+ 
 
 
 
@@ -15996,6 +16011,12 @@ in the cloud, on GCP, or on premises.&lt;/p&gt;
  &lt;tr&gt;
  &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/looker/tools/looker-get-dimensions/"&gt;&lt;strong&gt;looker-get-dimensions&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
  &lt;td&gt;A &amp;#34;looker-get-dimensions&amp;#34; tool returns all the dimensions from a given explore in a given model in the source.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explore/"&gt;&lt;strong&gt;looker-get-explore&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;looker-get-explore&amp;#34; tool returns detailed metadata for a single explore in a given model from the source.
 &lt;/td&gt;
  &lt;/tr&gt;
  
@@ -17579,108 +17600,11 @@ that brings together relational, graph, key-value, and search. It offers
 transactional consistency at global scale, automatic, synchronous replication
 for high availability, and support for two SQL dialects: GoogleSQL (ANSI 2011
 with extensions) and PostgreSQL.&lt;/p&gt;
+&lt;p&gt;This source also connects to &lt;a href="https://docs.cloud.google.com/spanner-omni/overview"&gt;Spanner Omni&lt;/a&gt;, a
+deploy-anywhere version of Spanner. See &lt;a href="https://mcp-toolbox.dev/integrations/spanner/source/#spanner-omni"&gt;Spanner Omni&lt;/a&gt; below, or
+the &lt;a href="https://docs.cloud.google.com/spanner-omni/quickstart"&gt;Spanner Omni quickstart&lt;/a&gt; to set up a deployment.&lt;/p&gt;
 &lt;p&gt;If you are new to Spanner, you can try to &lt;a href="https://cloud.google.com/spanner/docs/create-query-database-console"&gt;create and query a database using
-the Google Cloud console&lt;/a&gt;.&lt;/p&gt;
-&lt;h2 id="available-tools"&gt;Available Tools&lt;/h2&gt;
-
-
-
-
-
-
-
-
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-
-
-
-
-
-
- &lt;h3&gt;Spanner Source Tools&lt;/h3&gt;
- 
- &lt;table&gt;
- &lt;thead&gt;
- &lt;tr&gt;
- &lt;th&gt;Tool Name&lt;/th&gt;
- &lt;th&gt;Description&lt;/th&gt;
- &lt;/tr&gt;
- &lt;/thead&gt;
- &lt;tbody&gt;
- 
- &lt;tr&gt;
- &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/spanner/tools/spanner-execute-sql/"&gt;&lt;strong&gt;spanner-execute-sql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
- &lt;td&gt;A &amp;#34;spanner-execute-sql&amp;#34; tool executes a SQL statement against a Spanner database.
-&lt;/td&gt;
- &lt;/tr&gt;
- 
- &lt;tr&gt;
- &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/spanner/tools/spanner-search-catalog/"&gt;&lt;strong&gt;spanner-search-catalog&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
- &lt;td&gt;A &amp;#34;spanner-search-catalog&amp;#34; tool allows to search for entries based on the provided query.
-&lt;/td&gt;
- &lt;/tr&gt;
- 
- &lt;tr&gt;
- &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/spanner/tools/spanner-sql/"&gt;&lt;strong&gt;spanner-sql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
- &lt;td&gt;A &amp;#34;spanner-sql&amp;#34; tool executes a pre-defined SQL statement against a Google Cloud Spanner database.
-&lt;/td&gt;
- &lt;/tr&gt;
- 
- &lt;tr&gt;
- &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/spanner/tools/spanner-list-graphs/"&gt;&lt;strong&gt;spanner-list-graphs&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
- &lt;td&gt;A &amp;#34;spanner-list-graphs&amp;#34; tool retrieves schema information about graphs in a Google Cloud Spanner database.
-&lt;/td&gt;
- &lt;/tr&gt;
- 
- &lt;tr&gt;
- &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/spanner/tools/spanner-list-tables/"&gt;&lt;strong&gt;spanner-list-tables&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
- &lt;td&gt;A &amp;#34;spanner-list-tables&amp;#34; tool retrieves schema information about tables in a Google Cloud Spanner database.
-&lt;/td&gt;
- &lt;/tr&gt;
- 
- &lt;/tbody&gt;
- &lt;/table&gt;
-
-
-
-
-
-
-
-
-
-&lt;h3 id="pre-built-configurations"&gt;Pre-built Configurations&lt;/h3&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href="https://mcp-toolbox.dev/documentation/connect-to/ides/spanner_mcp/"&gt;Spanner using MCP&lt;/a&gt;
-Connect your IDE to Spanner using Toolbox.&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h2 id="requirements"&gt;Requirements&lt;/h2&gt;
-&lt;h3 id="iam-permissions"&gt;IAM Permissions&lt;/h3&gt;
-&lt;p&gt;Spanner uses &lt;a href="https://cloud.google.com/spanner/docs/iam"&gt;Identity and Access Management (IAM)&lt;/a&gt; to control
-user and group access to Spanner resources at the project, Spanner instance, and
-Spanner database levels. Toolbox will use your &lt;a href="https://cloud.google.com/docs/authentication#adc"&gt;Application Default Credentials
-(ADC)&lt;/a&gt; to authorize and authenticate when interacting with Spanner.&lt;/p&gt;</description></item><item><title>SQLite Source</title><link>https://mcp-toolbox.dev/integrations/sqlite/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/sqlite/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+the Google Cloud console&lt;/a&gt;.&lt;/p&gt;</description></item><item><title>SQLite Source</title><link>https://mcp-toolbox.dev/integrations/sqlite/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/sqlite/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;&lt;a href="https://sqlite.org/"&gt;SQLite&lt;/a&gt; is a software library that provides a relational
 database management system. The lite in SQLite means lightweight in terms of
 setup, database administration, and required resources.&lt;/p&gt;
@@ -18134,14 +18058,8 @@ following parameters:&lt;/p&gt;
 &lt;li&gt;&lt;code&gt;types&lt;/code&gt; - The type of the data. Accepted values are: DATABASE, TABLE, VIEW.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;pageSize&lt;/code&gt; - Number of results in the search page. Defaults to &lt;code&gt;5&lt;/code&gt;.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
-
-
-
-
-
-&lt;div class="compatibility-section"&gt;
- &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>spanner-sql</title><link>https://mcp-toolbox.dev/integrations/spanner/tools/spanner-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/spanner/tools/spanner-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;This tool is not supported for &lt;a href="https://mcp-toolbox.dev/integrations/spanner/source/#spanner-omni"&gt;Spanner Omni&lt;/a&gt;
+sources, because Spanner Omni databases are not registered in Knowledge Catalog.&lt;/p&gt;</description></item><item><title>spanner-sql</title><link>https://mcp-toolbox.dev/integrations/spanner/tools/spanner-sql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/spanner/tools/spanner-sql/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;A &lt;code&gt;spanner-sql&lt;/code&gt; tool executes a pre-defined SQL statement (either &lt;code&gt;googlesql&lt;/code&gt; or
 &lt;code&gt;postgresql&lt;/code&gt;) against a Cloud Spanner database.&lt;/p&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
@@ -23512,6 +23430,8 @@ explores, and data is required.&lt;/li&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;get_models&lt;/code&gt;: Retrieves the list of LookML models.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_explores&lt;/code&gt;: Retrieves the list of explores in a model.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_explore&lt;/code&gt;: Retrieves detailed metadata for an explore, including
+&lt;code&gt;always_filter&lt;/code&gt; and &lt;code&gt;conditionally_filter&lt;/code&gt; constraints.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_dimensions&lt;/code&gt;: Retrieves the list of dimensions in an explore.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_measures&lt;/code&gt;: Retrieves the list of measures in an explore.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_filters&lt;/code&gt;: Retrieves the list of filters in an explore.&lt;/li&gt;

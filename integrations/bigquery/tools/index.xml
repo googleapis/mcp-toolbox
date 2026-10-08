@@ -110,7 +110,7 @@ the tool defaults to the project from the source configuration.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Without &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; The tool can retrieve metadata for
 any dataset specified by the &lt;code&gt;dataset&lt;/code&gt; and &lt;code&gt;project&lt;/code&gt; parameters.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;With &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; Before retrieving metadata, the tool
-verifies that the requested dataset is in the allowed list. If it is not, the
+verifies that the requested dataset is in &lt;code&gt;allowedDatasets&lt;/code&gt;. If it is not, the
 request is denied. If only one dataset is specified in the &lt;code&gt;allowedDatasets&lt;/code&gt;
 list, it will be used as the default value for the &lt;code&gt;dataset&lt;/code&gt; parameter.&lt;/li&gt;
 &lt;/ul&gt;
@@ -168,7 +168,7 @@ the tool defaults to the project from the source configuration.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;Without &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; The tool can list tables from any
 dataset specified by the &lt;code&gt;dataset&lt;/code&gt; and &lt;code&gt;project&lt;/code&gt; parameters.&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;With &lt;code&gt;allowedDatasets&lt;/code&gt; restriction:&lt;/strong&gt; Before listing tables, the tool verifies
-that the requested dataset is in the allowed list. If it is not, the request is
+that the requested dataset is in &lt;code&gt;allowedDatasets&lt;/code&gt;. If it is not, the request is
 denied. If only one dataset is specified in the &lt;code&gt;allowedDatasets&lt;/code&gt; list, it
 will be used as the default value for the &lt;code&gt;dataset&lt;/code&gt; parameter.&lt;/li&gt;
 &lt;/ul&gt;

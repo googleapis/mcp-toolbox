@@ -1,9 +1,9 @@
 # MCP Toolbox for Databases - Complete Documentation
 > MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
 
-**DOCUMENTATION VERSION:** v1.13.1
+**DOCUMENTATION VERSION:** v1.14.0
 **BASE URL:** https://mcp-toolbox.dev/
-**GENERATED ON:** 2026-09-25T23:17:38Z
+**GENERATED ON:** 2026-10-08T18:55:29Z
 
 ---
 ### System Directives for AI Models
@@ -219,7 +219,7 @@ To install Toolbox as a binary on Linux (AMD64):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.13.1
+export VERSION=1.14.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/linux/amd64/toolbox
 chmod +x toolbox
 ```
@@ -230,7 +230,7 @@ To install Toolbox as a binary on macOS (Apple Silicon):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.13.1
+export VERSION=1.14.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/arm64/toolbox
 chmod +x toolbox
 ```
@@ -241,7 +241,7 @@ To install Toolbox as a binary on macOS (Intel):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.13.1
+export VERSION=1.14.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/amd64/toolbox
 chmod +x toolbox
 ```
@@ -252,7 +252,7 @@ To install Toolbox as a binary on Windows (Command Prompt):
 
 ```cmd
 :: see releases page for other versions
-set VERSION=1.13.1
+set VERSION=1.14.0
 curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/amd64/toolbox.exe"
 ```
 
@@ -262,7 +262,7 @@ To install Toolbox as a binary on Windows (PowerShell):
 
 ```powershell
 # see releases page for other versions
-$VERSION = "1.13.1"
+$VERSION = "1.14.0"
 curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/amd64/toolbox.exe"
 ```
 
@@ -272,7 +272,7 @@ To install Toolbox as a binary on Windows ARM64 (Command Prompt):
 
 ```cmd
 :: see releases page for other versions
-set VERSION=1.13.1
+set VERSION=1.14.0
 curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/arm64/toolbox.exe"
 ```
 
@@ -282,7 +282,7 @@ To install Toolbox as a binary on Windows ARM64 (PowerShell):
 
 ```powershell
 # see releases page for other versions
-$VERSION = "1.13.1"
+$VERSION = "1.14.0"
 curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/arm64/toolbox.exe"
 ```
 
@@ -294,7 +294,7 @@ You can also install Toolbox as a container:
 
 ```sh
 # see releases page for other versions
-export VERSION=1.13.1
+export VERSION=1.14.0
 docker pull us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:$VERSION
 ```
 
@@ -313,7 +313,7 @@ To install from source, ensure you have the latest version of
 [Go installed](https://go.dev/doc/install), and then run the following command:
 
 ```sh
-go install github.com/googleapis/mcp-toolbox@v1.13.1
+go install github.com/googleapis/mcp-toolbox@v1.14.0
 ```
 
 {{% /tab %}}
@@ -1107,7 +1107,7 @@ In this section, we will download Toolbox, configure our tools in a
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -4036,9 +4036,9 @@ result, err := boundTool.Invoke(ctx, map[string]any{})
 Secure parameters require MCP protocol version `2026-07-28` and the `com.google.cloud/toolbox.v1` extension. For more details on extension capabilities and client requirements, see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md).
 
 For in-depth framework integration guides, see:
-* [Python SDK Secure Parameters](../../connect-to/toolbox-sdks/python-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/python-sdk/adk/index.md#secure-parameters) | [LangChain](../../connect-to/toolbox-sdks/python-sdk/langchain/index.md#secure-parameters) | [LlamaIndex](../../connect-to/toolbox-sdks/python-sdk/llamaindex/index.md#secure-parameters))
-* [JavaScript / TypeScript SDK Secure Parameters](../../connect-to/toolbox-sdks/javascript-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/javascript-sdk/adk/index.md#secure-parameters))
-* [Go SDK Secure Parameters](../../connect-to/toolbox-sdks/go-sdk/core/_index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/go-sdk/tbadk/_index.md#secure-parameters) | [Genkit](../../connect-to/toolbox-sdks/go-sdk/tbgenkit/_index.md#secure-parameters))
+* [Python SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/core/index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/adk/index.md#secure-parameters" >}}) | [LangChain]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/langchain/index.md#secure-parameters" >}}) | [LlamaIndex]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/llamaindex/index.md#secure-parameters" >}}))
+* [JavaScript / TypeScript SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/javascript-sdk/core/index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/javascript-sdk/adk/index.md#secure-parameters" >}}))
+* [Go SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/core/_index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/tbadk/_index.md#secure-parameters" >}}) | [Genkit]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/tbgenkit/_index.md#secure-parameters" >}}))
 {{< /notice >}}
 
 ### Authenticated Parameters
@@ -12901,23 +12901,23 @@ After you install Looker in the MCP Store, resources and tools from the server a
 
 {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -13289,6 +13289,8 @@ and execute queries against that model.
 
 1. **get_models**: list the LookML models in Looker
 1. **get_explores**: list the explores in a given model
+1. **get_explore**: get detailed metadata, including required filters, for a
+   given explore
 1. **get_dimensions**: list the dimensions in a given explore
 1. **get_measures**: list the measures in a given explore
 1. **get_filters**: list the filters in a given explore
@@ -13407,23 +13409,23 @@ expose your developer assistant tools to a MySQL instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -13737,23 +13739,23 @@ expose your developer assistant tools to a Neo4j instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14064,23 +14066,23 @@ to expose your developer assistant tools to an Oracle instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14413,23 +14415,23 @@ Omni](https://cloud.google.com/alloydb/omni/docs/overview).
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14770,23 +14772,23 @@ instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -15100,23 +15102,23 @@ to expose your developer assistant tools to a SQLite instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -19672,11 +19674,14 @@ the `bigquery` source:
 - **Without `allowedDatasets` restriction:** The tool can use any table or query
   for the `input_data` parameter.
 - **With `allowedDatasets` restriction:** The tool verifies that the
-  `input_data` parameter only accesses tables within the allowed datasets.
+  `input_data` parameter only accesses tables within `allowedDatasets`.
   - If `input_data` is a table ID, the tool checks if the table's dataset is in
-    the allowed list.
-  - If `input_data` is a query, the tool performs a dry run to analyze the query
-    and rejects it if it accesses any table outside the allowed list.
+    `allowedDatasets`.
+  - If `input_data` is a query, the tool performs a dry run to analyze the query.
+    It will reject the query if it explicitly references any table outside
+    `allowedDatasets`. Like [`bigquery-execute-sql`](../bigquery-execute-sql), authorized views are supported:
+    if a referenced table is not explicitly named in the SQL text, it is
+    permitted. Unanalyzable and dataset-level operations are rejected.
 
 
 ## Compatible Sources
@@ -19763,7 +19768,7 @@ The tool's behavior regarding these parameters is influenced by the
 dataset specified in the `table_references` parameter.
 - **With `allowedDatasets` restriction:** Before processing the request, the
   tool verifies that every table in `table_references` belongs to a dataset in
-  the allowed list. If any table is from a dataset that is not in the list, the
+  `allowedDatasets`. If any table is from a dataset that is not listed, the
   request is denied.
 
 
@@ -19832,13 +19837,29 @@ layer of security by controlling which datasets can be accessed:
 - **Without `allowedDatasets` restriction:** The tool can execute any valid
   GoogleSQL query.
 - **With `allowedDatasets` restriction:** Before execution, the tool performs a
-  dry run to analyze the query.
-  It will reject the query if it attempts to access any table outside the
-  allowed `datasets` list. To enforce this restriction, the following operations
-  are also disallowed:
+  dry run to analyze the query. It will reject the query if it explicitly
+  references any table outside `allowedDatasets`.
+
+  **Authorized views are supported.** If the dry run reports that the query
+  reads a table outside `allowedDatasets`, but that table is not named anywhere
+  in the SQL text, the access is treated as an
+  [authorized view](https://cloud.google.com/bigquery/docs/authorized-views)
+  and permitted. This lets you expose a curated view in an allowed dataset that
+  reads from restricted source data. Note that all table names in the query
+  must be fully qualified (`dataset.table` or `project.dataset.table`) to be
+  eligible for authorized view exemptions, as unqualified table names resolved
+  via default datasets cannot be statically verified against `allowedDatasets`.
+
+  To keep the analysis sound, the following operations remain disallowed:
+
   - **Dataset-level operations** (e.g., `CREATE SCHEMA`, `ALTER SCHEMA`).
   - **Unanalyzable operations** where the accessed tables cannot be determined
-    statically (e.g., `EXECUTE IMMEDIATE`, `CREATE PROCEDURE`, `CALL`).
+    statically (e.g., `EXECUTE IMMEDIATE`, `CREATE PROCEDURE`,
+    `CREATE FUNCTION`, `CREATE TABLE FUNCTION`, `CALL`).
+  - **Session variable assignments** (e.g., `SET @@dataset_id = ...`).
+  - **Federated queries** via `EXTERNAL_QUERY`.
+  - **Region-level `INFORMATION_SCHEMA` views** (only dataset-scoped views such
+    as `<dataset>.INFORMATION_SCHEMA.TABLES` are allowed).
 
 > **Note:** This tool is intended for developer assistant workflows with
 > human-in-the-loop and shouldn't be used for production agents.
@@ -19916,11 +19937,14 @@ the `bigquery` source:
 - **Without `allowedDatasets` restriction:** The tool can use any table or query
   for the `history_data` parameter.
 - **With `allowedDatasets` restriction:** The tool verifies that the
-  `history_data` parameter only accesses tables within the allowed datasets.
+  `history_data` parameter only accesses tables within `allowedDatasets`.
   - If `history_data` is a table ID, the tool checks if the table's dataset is
-    in the allowed list.
-  - If `history_data` is a query, the tool performs a dry run to analyze the
-    query and rejects it if it accesses any table outside the allowed list.
+    in `allowedDatasets`.
+  - If `history_data` is a query, the tool performs a dry run to analyze the query.
+    It will reject the query if it explicitly references any table outside
+    `allowedDatasets`. Like [`bigquery-execute-sql`](../bigquery-execute-sql), authorized views are supported:
+    if a referenced table is not explicitly named in the SQL text, it is
+    permitted. Unanalyzable and dataset-level operations are rejected.
 
 
 ## Compatible Sources
@@ -19984,7 +20008,7 @@ The tool's behavior regarding these parameters is influenced by the
 - **Without `allowedDatasets` restriction:** The tool can retrieve metadata for
   any dataset specified by the `dataset` and `project` parameters.
 - **With `allowedDatasets` restriction:** Before retrieving metadata, the tool
-  verifies that the requested dataset is in the allowed list. If it is not, the
+  verifies that the requested dataset is in `allowedDatasets`. If it is not, the
   request is denied. If only one dataset is specified in the `allowedDatasets`
   list, it will be used as the default value for the `dataset` parameter.
 
@@ -20040,7 +20064,7 @@ The tool's behavior regarding these parameters is influenced by the
 - **Without `allowedDatasets` restriction:** The tool can retrieve metadata for
   any table specified by the `table`, `dataset`, and `project` parameters.
 - **With `allowedDatasets` restriction:** Before retrieving metadata, the tool
-  verifies that the requested dataset is in the allowed list. If it is not, the
+  verifies that the requested dataset is in `allowedDatasets`. If it is not, the
   request is denied. If only one dataset is specified in the `allowedDatasets`
   list, it will be used as the default value for the `dataset` parameter.
 
@@ -20146,7 +20170,7 @@ The tool's behavior regarding these parameters is influenced by the
 - **Without `allowedDatasets` restriction:** The tool can list tables from any
 dataset specified by the `dataset` and `project` parameters.
 - **With `allowedDatasets` restriction:** Before listing tables, the tool verifies
-that the requested dataset is in the allowed list. If it is not, the request is
+that the requested dataset is in `allowedDatasets`. If it is not, the request is
 denied. If only one dataset is specified in the `allowedDatasets` list, it
 will be used as the default value for the `dataset` parameter.
 
@@ -39839,6 +39863,102 @@ parameter. Both keys are omitted when the field does not define them.
 
 
 ========================================================================
+## looker-get-explore
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-get-explore
+**URL:** https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explore/
+**Description:** A "looker-get-explore" tool returns detailed metadata for a single explore in a given model from the source.
+
+
+
+## About
+
+A `looker-get-explore` tool returns detailed metadata for a single explore,
+including query constraints such as `always_filter` and
+`conditionally_filter`, as well as `tags` and whether the explore is `hidden`.
+
+Use `looker-get-explores` to cheaply list all explores in a model, then use
+`looker-get-explore` to fetch the full metadata for the specific explore you
+intend to query. The two are kept separate because `looker-get-explores` calls
+the lightweight `lookml_model` endpoint, which only returns a navigation
+summary of each explore, while the constraint fields are only available from
+the heavier `lookml_model_explore` endpoint. Returning them from
+`looker-get-explores` would require one additional API call per explore.
+
+If the source has `show_hidden_explores` set to `false`, requesting a hidden
+explore returns an error.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Parameters
+
+| **parameter** | **type** | **required** | **description**                     |
+|---------------|:--------:|:------------:|-------------------------------------|
+| model         |  string  |     true     | The model containing the explore.   |
+| explore       |  string  |     true     | The explore to get metadata for.    |
+
+## Example
+
+```yaml
+kind: tool
+name: get_explore
+type: looker-get-explore
+source: looker-source
+description: |
+  This tool retrieves detailed metadata about a specific Looker explore, including its
+  constraints and rules (e.g., `always_filter`, `conditionally_filter`, `tags`).
+
+  CRITICAL: You MUST use this tool to inspect the explore's metadata BEFORE generating
+  or running a query. If an explore has mandatory filters defined (like `always_filter`
+  or `conditionally_filter`), your query will fail unless you include them.
+
+  Parameters:
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
+```
+
+## Output Format
+
+The return type is a single map containing the explore's metadata. Keys are
+omitted when the explore does not define them.
+
+```json
+{
+    "name": "explore name",
+    "description": "explore description",
+    "label": "explore label",
+    "group_label": "group label",
+    "hidden": false,
+    "tags": ["tag1", "tag2"],
+    "always_filter": [
+        {
+            "name": "view_name.field_name",
+            "value": "filter value"
+        }
+    ],
+    "conditionally_filter": [
+        {
+            "name": "view_name.field_name",
+            "value": "filter value"
+        }
+    ]
+}
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|-------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "looker-get-explore".                      |
+| source      |  string  |     true     | Name of the Looker source.                         |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
 ## looker-get-explores
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-get-explores
@@ -39862,7 +39982,8 @@ The return type is an array of maps, each map is formatted like:
     "name": "explore name",
     "description": "explore description",
     "label": "explore label",
-    "group_label": "group label"
+    "group_label": "group label",
+    "hidden": false
 }
 ```
 
@@ -42302,7 +42423,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -42463,7 +42584,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -42586,7 +42707,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.13.1/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -42694,6 +42815,8 @@ In this section, we will download Toolbox and run the Toolbox server.
 *   **Tools:**
     *   `get_models`: Retrieves the list of LookML models.
     *   `get_explores`: Retrieves the list of explores in a model.
+    *   `get_explore`: Retrieves detailed metadata for an explore, including
+        `always_filter` and `conditionally_filter` constraints.
     *   `get_dimensions`: Retrieves the list of dimensions in an explore.
     *   `get_measures`: Retrieves the list of measures in an explore.
     *   `get_filters`: Retrieves the list of filters in an explore.
@@ -50249,6 +50372,10 @@ transactional consistency at global scale, automatic, synchronous replication
 for high availability, and support for two SQL dialects: GoogleSQL (ANSI 2011
 with extensions) and PostgreSQL.
 
+This source also connects to [Spanner Omni][spanner-omni-docs], a
+deploy-anywhere version of Spanner. See [Spanner Omni](#spanner-omni) below, or
+the [Spanner Omni quickstart][spanner-omni-quickstart] to set up a deployment.
+
 If you are new to Spanner, you can try to [create and query a database using
 the Google Cloud console][spanner-quickstart].
 
@@ -50286,6 +50413,9 @@ applying IAM permissions and roles to an identity.
 [set-adc]: https://cloud.google.com/docs/authentication/provide-credentials-adc
 [grant-permissions]: https://cloud.google.com/spanner/docs/grant-permissions
 
+Spanner Omni sources don't use ADC or IAM. See [Spanner Omni](#spanner-omni)
+for the supported connection options.
+
 ## Example
 
 ```yaml
@@ -50300,13 +50430,57 @@ database: "my_db"
 
 ## Reference
 
-| **field** | **type** | **required** | **description**                                                                                                     |
-|-----------|:--------:|:------------:|---------------------------------------------------------------------------------------------------------------------|
-| type      |  string  |     true     | Must be "spanner".                                                                                                  |
-| project   |  string  |     true     | Id of the GCP project that the cluster was created in (e.g. "my-project-id").                                       |
-| instance  |  string  |     true     | Name of the Spanner instance.                                                                                       |
-| database  |  string  |     true     | Name of the database on the Spanner instance                                                                        |
-| dialect   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. Default: `googlesql`. |
+| **field**                 | **type** | **required** | **description**                                                                                                                                     |
+|---------------------------|:--------:|:------------:|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| type                      |  string  |     true     | Must be "spanner".                                                                                                                                  |
+| project                   |  string  |    false     | Id of the GCP project that the cluster was created in (e.g. "my-project-id"). Required for Spanner; optional for Spanner Omni (default: `default`). |
+| instance                  |  string  |    false     | Name of the Spanner instance. Required for Spanner; optional for Spanner Omni (default: `default`).                                                 |
+| database                  |  string  |     true     | Name of the database on the Spanner instance                                                                                                        |
+| dialect                   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. Default: `googlesql`.                                 |
+| instanceType              |  string  |    false     | Either `cloud` or `omni`. Set to `omni` to connect to a [Spanner Omni][spanner-omni-docs] deployment. Default: `cloud`.                             |
+| omniEndpoint              |  string  |    false     | Spanner Omni API endpoint as `host:port` (e.g. "omni.example.com:15000"). Required when `instanceType` is `omni`.                                   |
+| omniUsePlainText          |   bool   |    false     | Connect to Spanner Omni without TLS. Only for local development. Cannot be combined with certificates or username/password.                         |
+| omniCaCertificateFile     |  string  |    false     | Path to the CA certificate that signed the Spanner Omni API certificate.                                                                            |
+| omniClientCertificateFile |  string  |    false     | Path to a client certificate for Spanner Omni mTLS. Requires `omniClientKeyFile`.                                                                   |
+| omniClientKeyFile         |  string  |    false     | Path to the private key of the client certificate. Requires `omniClientCertificateFile`.                                                            |
+| omniUsername              |  string  |    false     | Spanner Omni username for password authentication. Requires `omniPassword`.                                                                         |
+| omniPassword              |  string  |    false     | Spanner Omni password. Use an environment variable (e.g. `${OMNI_PASSWORD}`) rather than a literal value.                                           |
+
+## Advanced Usage
+
+### Spanner Omni
+
+[Spanner Omni][spanner-omni-docs] is a deploy-anywhere version of Spanner. Set
+`instanceType: omni` and `omniEndpoint` to connect to it. Spanner Omni does not
+use Google Cloud credentials; instead, choose one of the following:
+
+- **TLS:** set `omniCaCertificateFile`.
+- **mTLS:** also set `omniClientCertificateFile` and `omniClientKeyFile`.
+- **Password:** set `omniUsername` and `omniPassword`. Password authentication
+  requires TLS, so also set `omniCaCertificateFile` (or rely on the system trust
+  store) and don't set `omniUsePlainText`.
+- **Plaintext (local development only):** set `omniUsePlainText: true`.
+
+`project` and `instance` are optional for Spanner Omni and default to
+`default`.
+
+```yaml
+kind: source
+name: my-spanner-omni-source
+type: "spanner"
+database: "my_db"
+instanceType: "omni"
+omniEndpoint: "omni.example.com:15000"
+omniCaCertificateFile: "/path/to/ca.crt"
+omniClientCertificateFile: "/path/to/client.crt"
+omniClientKeyFile: "/path/to/client.key"
+```
+
+The `spanner-search-catalog` tool uses Knowledge Catalog and is not supported
+for Spanner Omni sources.
+
+[spanner-omni-docs]: https://docs.cloud.google.com/spanner-omni/overview
+[spanner-omni-quickstart]: https://docs.cloud.google.com/spanner-omni/quickstart
 
 
 
@@ -50390,6 +50564,9 @@ following parameters:
 - `projectIds` - The IDs of the GCP project.
 - `types` - The type of the data. Accepted values are: DATABASE, TABLE, VIEW.
 - `pageSize` - Number of results in the search page. Defaults to `5`.
+
+This tool is not supported for [Spanner Omni](../source.md#spanner-omni)
+sources, because Spanner Omni databases are not registered in Knowledge Catalog.
 
 ## Compatible Sources
 

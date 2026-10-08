@@ -23,6 +23,8 @@ explores, and data is required.&lt;/li&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;get_models&lt;/code&gt;: Retrieves the list of LookML models.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_explores&lt;/code&gt;: Retrieves the list of explores in a model.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_explore&lt;/code&gt;: Retrieves detailed metadata for an explore, including
+&lt;code&gt;always_filter&lt;/code&gt; and &lt;code&gt;conditionally_filter&lt;/code&gt; constraints.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_dimensions&lt;/code&gt;: Retrieves the list of dimensions in an explore.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_measures&lt;/code&gt;: Retrieves the list of measures in an explore.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_filters&lt;/code&gt;: Retrieves the list of filters in an explore.&lt;/li&gt;

@@ -224,6 +224,10 @@ in the cloud, on GCP, or on premises.&lt;/p&gt;
  
  
  
+ 
+ 
+ 
+ 
 
 
 
@@ -389,6 +393,12 @@ in the cloud, on GCP, or on premises.&lt;/p&gt;
  &lt;tr&gt;
  &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/looker/tools/looker-get-dimensions/"&gt;&lt;strong&gt;looker-get-dimensions&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
  &lt;td&gt;A &amp;#34;looker-get-dimensions&amp;#34; tool returns all the dimensions from a given explore in a given model in the source.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/looker/tools/looker-get-explore/"&gt;&lt;strong&gt;looker-get-explore&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;A &amp;#34;looker-get-explore&amp;#34; tool returns detailed metadata for a single explore in a given model from the source.
 &lt;/td&gt;
  &lt;/tr&gt;
  
