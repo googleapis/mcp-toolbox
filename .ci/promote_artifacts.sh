@@ -98,6 +98,13 @@ if [[ "${ATTESTATION_FOUND}" != "true" ]]; then
   exit 1
 fi
 
+echo "Ensuring version tag ${VERSION#v} is present on ${STAGING_IMAGE_URI}@${IMAGE_DIGEST}..."
+gcloud artifacts docker tags add \
+  "${STAGING_IMAGE_URI}@${IMAGE_DIGEST}" \
+  "${STAGING_IMAGE_URI}:${VERSION#v}" \
+  --project="${PROJECT_ID}" \
+  --quiet || true
+
 echo "Promoting ${PACKAGE_NAME}@${IMAGE_DIGEST} from ${STAGING_REPO} to ${PROD_REPO}..."
 PROMOTE_URL="https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${PROD_REPO}:promoteArtifact"
 PAYLOAD=$(cat <<EOF
