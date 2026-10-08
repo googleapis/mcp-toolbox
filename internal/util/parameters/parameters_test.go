@@ -1881,6 +1881,16 @@ func TestParamMcpManifest(t *testing.T) {
 			wantAuthParam: []string{},
 		},
 		{
+			name: "map with float values",
+			in:   parameters.NewMapParameter("foo-map", "bar", "float"),
+			want: parameters.ParameterMcpManifest{
+				Type:                 "object",
+				Description:          "bar",
+				AdditionalProperties: map[string]any{"type": "number"},
+			},
+			wantAuthParam: []string{},
+		},
+		{
 			name: "generic map (additionalProperties true)",
 			in:   parameters.NewMapParameter("foo-map", "bar", ""),
 			want: parameters.ParameterMcpManifest{
