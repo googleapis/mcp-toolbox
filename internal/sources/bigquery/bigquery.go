@@ -606,6 +606,15 @@ func (s *Source) RetrieveClientAndService(accessToken tools.AccessToken) (*bigqu
 	return bqClient, restService, nil
 }
 
+// AppendJobLabels merges the SQLCommenter attributes into the given job
+// labels, honoring the source's sqlCommenter override. RunSQL applies it to
+// every query it executes; tools that build query jobs directly (e.g. the
+// model-creation statement in bigquery-analyze-contribution) call it to give
+// those jobs the same labels.
+func (s *Source) AppendJobLabels(ctx context.Context, labels map[string]string) map[string]string {
+	return sqlcommenter.AppendLabels(ctx, labels, SourceType, s.SQLCommenter)
+}
+
 func (s *Source) RunSQL(ctx context.Context, bqClient *bigqueryapi.Client, statement, statementType string, params []bigqueryapi.QueryParameter, connProps []*bigqueryapi.ConnectionProperty, labels map[string]string) (any, error) {
 	query := bqClient.Query(statement)
 	query.Location = bqClient.Location
@@ -618,7 +627,7 @@ func (s *Source) RunSQL(ctx context.Context, bqClient *bigqueryapi.Client, state
 	// BigQuery attaches SQLCommenter attributes as native job labels rather
 	// than SQL-text comments, so they surface in INFORMATION_SCHEMA.JOBS and
 	// billing exports without query text parsing.
-	labels = sqlcommenter.AppendLabels(ctx, labels, SourceType, s.SQLCommenter)
+	labels = s.AppendJobLabels(ctx, labels)
 	if labels != nil {
 		query.Labels = labels
 	}
