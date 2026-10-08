@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Spanner on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.14.0/integrations/spanner/</link><description>Recent content in Spanner on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.14.0/integrations/spanner/index.xml" rel="self" type="application/rss+xml"/><item><title>Spanner Source</title><link>https://mcp-toolbox.dev/v1.14.0/integrations/spanner/source/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.14.0/integrations/spanner/source/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;&lt;a href="https://cloud.google.com/spanner/docs"&gt;Spanner&lt;/a&gt; is a fully managed, mission-critical database service
+that brings together relational, graph, key-value, and search. It offers
+transactional consistency at global scale, automatic, synchronous replication
+for high availability, and support for two SQL dialects: GoogleSQL (ANSI 2011
+with extensions) and PostgreSQL.&lt;/p&gt;
+&lt;p&gt;This source also connects to &lt;a href="https://docs.cloud.google.com/spanner-omni/overview"&gt;Spanner Omni&lt;/a&gt;, a
+deploy-anywhere version of Spanner. See &lt;a href="https://mcp-toolbox.dev/v1.14.0/integrations/spanner/source/#spanner-omni"&gt;Spanner Omni&lt;/a&gt; below, or
+the &lt;a href="https://docs.cloud.google.com/spanner-omni/quickstart"&gt;Spanner Omni quickstart&lt;/a&gt; to set up a deployment.&lt;/p&gt;
+&lt;p&gt;If you are new to Spanner, you can try to &lt;a href="https://cloud.google.com/spanner/docs/create-query-database-console"&gt;create and query a database using
+the Google Cloud console&lt;/a&gt;.&lt;/p&gt;</description></item></channel></rss>

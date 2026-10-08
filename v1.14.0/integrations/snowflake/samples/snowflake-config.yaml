@@ -1,0 +1,71 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+kind: source
+name: my-snowflake-db
+type: snowflake
+account: ${SNOWFLAKE_ACCOUNT}
+user: ${SNOWFLAKE_USER}
+password: ${SNOWFLAKE_PASSWORD}
+database: ${SNOWFLAKE_DATABASE}
+schema: ${SNOWFLAKE_SCHEMA}
+warehouse: ${SNOWFLAKE_WAREHOUSE}  # Optional, defaults to COMPUTE_WH if not set
+role: ${SNOWFLAKE_ROLE}           # Optional, defaults to ACCOUNTADMIN if not set
+---
+kind: tool
+name: execute_sql
+type: snowflake-execute-sql
+source: my-snowflake-db
+description: Execute arbitrary SQL statements on Snowflake
+---
+kind: tool
+name: get_customer_orders
+type: snowflake-sql
+source: my-snowflake-db
+description: Get orders for a specific customer
+statement: |
+  SELECT o.order_id, o.order_date, o.total_amount, o.status
+  FROM orders o
+  WHERE o.customer_id = $1
+  ORDER BY o.order_date DESC
+parameters:
+  - name: customer_id
+    type: string
+    description: The customer ID to look up orders for
+---
+kind: tool
+name: daily_sales_report
+type: snowflake-sql
+source: my-snowflake-db
+description: Generate daily sales report for a specific date
+statement: |
+  SELECT 
+    DATE(order_date) as sales_date,
+    COUNT(*) as total_orders,
+    SUM(total_amount) as total_revenue,
+    AVG(total_amount) as avg_order_value
+  FROM orders
+  WHERE DATE(order_date) = $1
+  GROUP BY DATE(order_date)
+parameters:
+  - name: report_date
+    type: string
+    description: The date to generate report for (YYYY-MM-DD format)
+---
+kind: toolset
+name: snowflake-analytics
+tools:
+  - execute_sql
+  - get_customer_orders
+  - daily_sales_report
