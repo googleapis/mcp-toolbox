@@ -588,6 +588,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 	}{
 		{
 			name:          "invoke create-table-templateParams-tool",
+			enabled:       true,
 			ddl:           true,
 			toolName:      "create-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -597,6 +598,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke insert-table-templateParams-tool",
+			enabled:       true,
 			insert:        true,
 			toolName:      "insert-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -606,6 +608,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke insert-table-templateParams-tool",
+			enabled:       true,
 			insert:        true,
 			toolName:      "insert-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -615,6 +618,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-tool",
+			enabled:       true,
 			toolName:      "select-templateParams-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"tableName": tableName},
@@ -623,6 +627,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-combined-tool",
+			enabled:       true,
 			toolName:      "select-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"id": 1, "tableName": tableName},
@@ -631,6 +636,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-combined-tool with no results",
+			enabled:       true,
 			toolName:      "select-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"id": 999, "tableName": tableName},
@@ -648,6 +654,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-filter-templateParams-combined-tool",
+			enabled:       true,
 			toolName:      "select-filter-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"name": "Alex", "tableName": tableName, "columnFilter": configs.nameColFilter},
@@ -656,6 +663,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke drop-table-templateParams-tool",
+			enabled:       true,
 			ddl:           true,
 			toolName:      "drop-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -667,7 +675,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
 			if !tc.enabled {
-				return
+				t.Skip("template case disabled for this source")
 			}
 			// if test case is DDL and source support ddl test cases
 			ddlAllow := !tc.ddl || (tc.ddl && configs.supportDdl)
@@ -3740,7 +3748,7 @@ func RunMySQLListTableStatsTest(t *testing.T, ctx context.Context, pool *sql.DB,
 			want:           []tableStatsDetails{paramTableEntryWanted, authTableEntryWanted},
 		},
 		{
-			name:           "invoke list_table_stats with schema other than connected to, expected log error and nil results",
+			name:           "invoke list_table_stats with schema other than connected to, expected schema mismatch error",
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_schema": "%s"}`, "somerandomdb_xyx")),
 			wantStatusCode: http.StatusInternalServerError,
 			want:           []tableStatsDetails{},
@@ -3789,21 +3797,22 @@ func RunMySQLListTableStatsTest(t *testing.T, ctx context.Context, pool *sql.DB,
 
 				statusCode, mcpResp, err := InvokeMCPTool(t, "list_table_stats", args, nil)
 
-				// For the error case (expecting 500 in REST), we expect 200 OK in MCP with IsError=true
-				expectedStatus := tc.wantStatusCode
-				if tc.wantStatusCode == http.StatusInternalServerError {
-					expectedStatus = http.StatusOK
+				if err != nil {
+					t.Fatalf("error invoking list_table_stats: %v", err)
+				}
+				if statusCode != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d", statusCode, tc.wantStatusCode)
 				}
 
-				if statusCode != expectedStatus {
-					t.Fatalf("wrong status code: got %d, want %d, err: %v", statusCode, expectedStatus, err)
-				}
-
+				// Schema mismatch is a server error, returned as HTTP 500 and a JSON-RPC error.
 				if tc.wantStatusCode == http.StatusInternalServerError {
-					if !mcpResp.Result.IsError {
-						t.Fatalf("expected error result for list_table_stats")
+					if mcpResp.Error == nil || mcpResp.Error.Code != jsonrpc.INTERNAL_ERROR || !strings.Contains(mcpResp.Error.Message, "schema match failed") {
+						t.Fatalf("expected schema mismatch JSON-RPC error, got: %+v", mcpResp)
 					}
-					return // Error case, no need to check result body
+					return
+				}
+				if mcpResp.Error != nil {
+					t.Fatalf("unexpected JSON-RPC error: %v", mcpResp.Error)
 				}
 
 				if mcpResp.Result.IsError {
@@ -4131,7 +4140,11 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 	}
 }
 
-func RunMySQLShowQueryStats(t *testing.T, ctx context.Context, pool *sql.DB, databaseName string) {
+func RunMySQLShowQueryStats(t *testing.T, ctx context.Context, pool *sql.DB, databaseName string, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
 
 	// Generating stats for query
 	selectStmt := "SELECT 1"
@@ -4141,28 +4154,28 @@ func RunMySQLShowQueryStats(t *testing.T, ctx context.Context, pool *sql.DB, dat
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		args           map[string]any
 		wantStatusCode int
 		wantError      string
 	}{
 		{
 			name:           "list query stats with default limit",
-			requestBody:    bytes.NewBufferString(`{}`),
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list query stats with custom limit",
-			requestBody:    bytes.NewBufferString(`{"limit": 1}`),
+			args:           map[string]any{"limit": 1},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list query stats for specific database",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_schema": "%s"}`, databaseName)),
+			args:           map[string]any{"table_schema": databaseName},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list query stats with with schema other than connected schema, expected error",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_schema": "%s"}`, "some_random_db_name_foo_bar")),
+			args:           map[string]any{"table_schema": "some_random_db_name_foo_bar"},
 			wantStatusCode: http.StatusOK,
 			wantError:      "SCHEMA_MATCH_FAILED",
 		},
@@ -4170,25 +4183,57 @@ func RunMySQLShowQueryStats(t *testing.T, ctx context.Context, pool *sql.DB, dat
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/show_query_stats/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
-			}
-			if tc.wantStatusCode != http.StatusOK {
-				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
 			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
+			if config.isMCP {
+				statusCode, mcpResp, err := InvokeMCPTool(t, "show_query_stats", tc.args, nil)
+				if err != nil {
+					t.Fatalf("error invoking tool: %v", err)
+				}
+				if statusCode != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d", statusCode, tc.wantStatusCode)
+				}
+				if mcpResp.Error != nil {
+					t.Fatalf("unexpected JSON-RPC error: %v", mcpResp.Error)
+				}
+				if tc.wantError != "" {
+					if !mcpResp.Result.IsError {
+						t.Fatal("expected a tool error")
+					}
+					AssertMCPError(t, mcpResp, tc.wantError)
+					return
+				}
+				if mcpResp.Result.IsError {
+					t.Fatalf("unexpected tool error: %v", mcpResp.Result)
+				}
+				gotBytes, err := json.Marshal(getMCPResultText(t, mcpResp))
+				if err != nil {
+					t.Fatalf("error encoding tool results: %v", err)
+				}
+				resultString = string(gotBytes)
+			} else {
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("error encoding tool arguments: %v", err)
+				}
+				const api = "http://127.0.0.1:5000/api/tool/show_query_stats/invoke"
+				resp, respBody := RunRequest(t, http.MethodPost, api, bytes.NewReader(reqBytes), nil)
+				if resp.StatusCode != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+				}
+				if tc.wantStatusCode != http.StatusOK {
+					return
+				}
+
+				var bodyWrapper struct {
+					Result json.RawMessage `json:"result"`
+				}
+				if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
+					t.Fatalf("error decoding response wrapper: %v", err)
+				}
+
+				if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
+					resultString = string(bodyWrapper.Result)
+				}
 			}
 
 			if tc.wantError != "" {
@@ -4225,7 +4270,11 @@ func RunMySQLShowQueryStats(t *testing.T, ctx context.Context, pool *sql.DB, dat
 	}
 }
 
-func RunMySQLListAllLocks(t *testing.T, ctx context.Context, pool *sql.DB, databaseName string) {
+func RunMySQLListAllLocks(t *testing.T, ctx context.Context, pool *sql.DB, databaseName string, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
 
 	// Create table and lock the table for test
 	testTableName := "test_list_table_stats_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -4286,28 +4335,28 @@ func RunMySQLListAllLocks(t *testing.T, ctx context.Context, pool *sql.DB, datab
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		args           map[string]any
 		wantStatusCode int
 		wantError      string
 	}{
 		{
 			name:           "list all locks with default limit",
-			requestBody:    bytes.NewBufferString(`{}`),
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list all locks with custom limit",
-			requestBody:    bytes.NewBufferString(`{"limit": 1}`),
+			args:           map[string]any{"limit": 1},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list all locks for specific database",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_schema": "%s"}`, databaseName)),
+			args:           map[string]any{"table_schema": databaseName},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list all locks with with schema other than connected schema, expected error",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_schema": "%s"}`, "some_random_db_name_foo_bar")),
+			args:           map[string]any{"table_schema": "some_random_db_name_foo_bar"},
 			wantStatusCode: http.StatusOK,
 			wantError:      "SCHEMA_MATCH_FAILED",
 		},
@@ -4315,25 +4364,57 @@ func RunMySQLListAllLocks(t *testing.T, ctx context.Context, pool *sql.DB, datab
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_all_locks/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
-			}
-			if tc.wantStatusCode != http.StatusOK {
-				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
 			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
+			if config.isMCP {
+				statusCode, mcpResp, err := InvokeMCPTool(t, "list_all_locks", tc.args, nil)
+				if err != nil {
+					t.Fatalf("error invoking tool: %v", err)
+				}
+				if statusCode != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d", statusCode, tc.wantStatusCode)
+				}
+				if mcpResp.Error != nil {
+					t.Fatalf("unexpected JSON-RPC error: %v", mcpResp.Error)
+				}
+				if tc.wantError != "" {
+					if !mcpResp.Result.IsError {
+						t.Fatal("expected a tool error")
+					}
+					AssertMCPError(t, mcpResp, tc.wantError)
+					return
+				}
+				if mcpResp.Result.IsError {
+					t.Fatalf("unexpected tool error: %v", mcpResp.Result)
+				}
+				gotBytes, err := json.Marshal(getMCPResultText(t, mcpResp))
+				if err != nil {
+					t.Fatalf("error encoding tool results: %v", err)
+				}
+				resultString = string(gotBytes)
+			} else {
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("error encoding tool arguments: %v", err)
+				}
+				const api = "http://127.0.0.1:5000/api/tool/list_all_locks/invoke"
+				resp, respBody := RunRequest(t, http.MethodPost, api, bytes.NewReader(reqBytes), nil)
+				if resp.StatusCode != tc.wantStatusCode {
+					t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+				}
+				if tc.wantStatusCode != http.StatusOK {
+					return
+				}
+
+				var bodyWrapper struct {
+					Result json.RawMessage `json:"result"`
+				}
+				if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
+					t.Fatalf("error decoding response wrapper: %v", err)
+				}
+
+				if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
+					resultString = string(bodyWrapper.Result)
+				}
 			}
 
 			if tc.wantError != "" {
