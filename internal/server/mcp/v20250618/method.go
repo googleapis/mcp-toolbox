@@ -46,7 +46,7 @@ import (
 func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g group.Group, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
 	switch method {
 	case INITIALIZE:
-		return initializeHandler(ctx, id, body)
+		return initializeHandler(ctx, id, primitiveMgr, body)
 	case PING:
 		return pingHandler(id)
 	case TOOLS_LIST:
@@ -72,7 +72,7 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 // InitializeResponse runs capability negotiation and protocol version agreement.
 // This is the Initialization phase of the lifecycle for MCP client-server connections.
 // Always start with the latest protocol version supported.
-func initializeHandler(ctx context.Context, id jsonrpc.RequestId, body []byte) (any, error) {
+func initializeHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte) (any, error) {
 	v, err := util.ToolboxVersionFromContext(ctx)
 	if err != nil {
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
@@ -82,6 +82,13 @@ func initializeHandler(ctx context.Context, id jsonrpc.RequestId, body []byte) (
 	if err := json.Unmarshal(body, &req); err != nil {
 		err = fmt.Errorf("invalid mcp initialize request: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+
+	var instructions string
+	if primitiveMgr != nil {
+		if g, ok := primitiveMgr.GetGroup(""); ok {
+			instructions = g.Description
+		}
 	}
 
 	toolsListChanged := false
@@ -106,6 +113,7 @@ func initializeHandler(ctx context.Context, id jsonrpc.RequestId, body []byte) (
 			},
 			Version: v,
 		},
+		Instructions: instructions,
 	}
 	res := jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,

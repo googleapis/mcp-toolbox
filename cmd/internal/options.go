@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prebuiltconfigs"
 	"github.com/googleapis/mcp-toolbox/internal/server"
@@ -303,6 +304,18 @@ func (opts *ToolboxOptions) LoadConfig(ctx context.Context, parser *ConfigParser
 	if err != nil {
 		logger.ErrorContext(ctx, err.Error())
 		return isCustomConfigured, err
+	}
+
+	// Ensure prebuilt toolset description is sent to server instructions only if there is a single prebuilt toolset and no custom configs are provided.
+	if len(opts.PrebuiltConfigs) == 1 && !isCustomConfigured && len(finalConfig.Groups) == 1 {
+		var desc string
+		for _, g := range finalConfig.Groups {
+			desc = g.Description
+			break
+		}
+		if desc != "" {
+			finalConfig.Groups[""] = group.GroupConfig{Description: desc}
+		}
 	}
 
 	opts.Cfg.SourceConfigs = finalConfig.Sources
