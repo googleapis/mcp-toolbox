@@ -19,6 +19,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -54,6 +55,27 @@ func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) (
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// Get builds the Entry for the skill whose SKILL.md is at uri, reading and
+// hashing only that skill's files. It reports false when no SKILL.md in the map
+// has that URI.
+func Get(ctx context.Context, resourcesMap map[string]resources.Resource, uri string) (Entry, bool, error) {
+	root, ok := strings.CutSuffix(uri, "/"+skillFile)
+	if !ok || !slices.Contains(skillRoots(resourcesMap), root) {
+		return Entry{}, false, nil
+	}
+	// Membership walks each file's ancestors, so grouping against this one root
+	// finds the same files as grouping against every root.
+	members, _ := skillMembers(resourcesMap, []string{root})
+	e, err := buildEntry(ctx, root, members[root])
+	if err != nil {
+		return Entry{}, false, err
+	}
+	if err := e.Validate(true); err != nil {
+		return Entry{}, false, err
+	}
+	return e, true, nil
 }
 
 // A list of root dir of every skill in the map, sorted

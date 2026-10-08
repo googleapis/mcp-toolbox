@@ -599,3 +599,64 @@ func TestDiscoverRejectsOversizeTextSkill(t *testing.T) {
 		t.Errorf("Discover() = %v, want the error to name the skill", err)
 	}
 }
+
+// TestGet pins that Get reads only the requested skill: a broken file in
+// another skill must not fail it.
+func TestGet(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"guide": textResource(t, ctx, "guide", "skill://guide/SKILL.md", skillMD("guide", "A guide")),
+		"ref":   textResource(t, ctx, "ref", "skill://guide/refs/q.md", "# Queries\n"),
+		"other": textResource(t, ctx, "other", "skill://other/SKILL.md", skillMD("other", "Another")),
+		"bad":   badResource{uri: "skill://other/refs/data.md", err: fmt.Errorf("backend is down")},
+	}
+
+	tcs := []struct {
+		desc      string
+		uri       string
+		wantFound bool
+		wantErr   string
+		wantRefs  []string
+	}{
+		{
+			desc:      "builds the requested skill despite a broken sibling",
+			uri:       "skill://guide/SKILL.md",
+			wantFound: true,
+			wantRefs:  []string{"skill://guide/SKILL.md", "skill://guide/refs/q.md"},
+		},
+		{desc: "unknown skill", uri: "skill://nope/SKILL.md"},
+		{desc: "a supporting file is not a skill", uri: "skill://guide/refs/q.md"},
+		{desc: "not a skill uri", uri: "text:///guide/SKILL.md"},
+		{desc: "the broken skill fails", uri: "skill://other/SKILL.md", wantErr: "unable to read"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			e, found, err := skills.Get(ctx, resourcesMap, tc.uri)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("Get() error = %v, want one containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Get() = %v, want nil", err)
+			}
+			if found != tc.wantFound {
+				t.Fatalf("Get() found = %v, want %v", found, tc.wantFound)
+			}
+			if !found {
+				return
+			}
+			if e.URI != tc.uri {
+				t.Errorf("URI = %q, want %q", e.URI, tc.uri)
+			}
+			var gotRefs []string
+			for _, r := range e.Resources.Refs {
+				gotRefs = append(gotRefs, r.URI)
+			}
+			if !slices.Equal(gotRefs, tc.wantRefs) {
+				t.Errorf("refs = %v, want %v", gotRefs, tc.wantRefs)
+			}
+		})
+	}
+}
