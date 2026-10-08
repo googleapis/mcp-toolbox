@@ -1,4 +1,10 @@
 {{ define "main" }}
+{{ $sourcePages := where .Pages "File.BaseFileName" "source" }}
+{{ if and (hasPrefix .RelPermalink "/integrations/") (gt (len $sourcePages) 0) }}
+<meta http-equiv="refresh" content="0; url={{ (index $sourcePages 0).RelPermalink }}">
+<script>window.location.replace({{ (index $sourcePages 0).RelPermalink | jsonify }});</script>
+<p>Redirecting to <a href="{{ (index $sourcePages 0).RelPermalink }}">{{ (index $sourcePages 0).Title }}</a>...</p>
+{{ else }}
 <div class="td-content">
     <h1>{{ .Title }}</h1>
     {{ with .Params.description }}<div class="lead">{{ . | markdownify }}</div>{{ end }}
@@ -23,4 +29,5 @@
     {{ end }}
     {{ partial "page-meta-lastmod.html" . }}
 </div>
+{{ end }}
 {{ end }}
