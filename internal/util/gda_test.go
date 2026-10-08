@@ -16,8 +16,13 @@ package util
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/api/option"
 )
@@ -112,4 +117,118 @@ func TestNewGDAClient(t *testing.T) {
 	if client == nil {
 		t.Fatal("expected non-nil client")
 	}
+}
+
+func TestValidateGDAPathSegment(t *testing.T) {
+	t.Parallel()
+
+	if err := ValidateGDAPathSegment("valid_id-1.2", "data_agent_id"); err != nil {
+		t.Fatalf("expected valid path segment, got error: %v", err)
+	}
+
+	err := ValidateGDAPathSegment("", "data_agent_id")
+	if err == nil || !strings.Contains(err.Error(), "is required and must be a non-empty string") {
+		t.Fatalf("expected empty segment error, got: %v", err)
+	}
+	var agentErr *AgentError
+	if !errors.As(err, &agentErr) {
+		t.Fatalf("expected AgentError, got %T", err)
+	}
+
+	err = ValidateGDAPathSegment("../bad", "location")
+	if err == nil || !strings.Contains(err.Error(), "contains disallowed characters") {
+		t.Fatalf("expected disallowed characters error, got: %v", err)
+	}
+	if !errors.As(err, &agentErr) {
+		t.Fatalf("expected AgentError, got %T", err)
+	}
+}
+
+func TestAwaitGDAOperation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("direct non-operation resource returned without done field", func(t *testing.T) {
+		t.Parallel()
+		initial := map[string]any{
+			"name":        "projects/p1/locations/global/dataAgents/agent-1",
+			"displayName": "Agent 1",
+		}
+		res, err := AwaitGDAOperation(context.Background(), http.DefaultClient, "https://example.com", initial, "creation", 5*time.Millisecond, 50*time.Millisecond)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resMap, ok := res.(map[string]any)
+		if !ok || resMap["name"] != "projects/p1/locations/global/dataAgents/agent-1" {
+			t.Fatalf("unexpected result: %v", res)
+		}
+	})
+
+	t.Run("context cancellation during polling", func(t *testing.T) {
+		t.Parallel()
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"name":"projects/p1/locations/global/operations/op-ctx","done":false}`))
+		}))
+		defer ts.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+		defer cancel()
+
+		initial := map[string]any{
+			"name": "projects/p1/locations/global/operations/op-ctx",
+			"done": false,
+		}
+		_, err := AwaitGDAOperation(ctx, ts.Client(), ts.URL, initial, "creation", 10*time.Millisecond, 5*time.Second)
+		if err == nil || !strings.Contains(err.Error(), "context cancelled") {
+			t.Fatalf("expected context cancelled error, got: %v", err)
+		}
+		var csErr *ClientServerError
+		if !errors.As(err, &csErr) {
+			t.Fatalf("expected ClientServerError on context cancel, got %T: %v", err, err)
+		}
+	})
+
+	t.Run("403 forbidden poll response returns ClientServerError", func(t *testing.T) {
+		t.Parallel()
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"message":"permission denied"}}`))
+		}))
+		defer ts.Close()
+
+		initial := map[string]any{
+			"name": "projects/p1/locations/global/operations/op-403",
+			"done": false,
+		}
+		_, err := AwaitGDAOperation(context.Background(), ts.Client(), ts.URL, initial, "update", 5*time.Millisecond, 100*time.Millisecond)
+		if err == nil || !strings.Contains(err.Error(), "polling failed with 403") {
+			t.Fatalf("expected 403 error, got: %v", err)
+		}
+		var csErr *ClientServerError
+		if !errors.As(err, &csErr) || csErr.Code != http.StatusForbidden {
+			t.Fatalf("expected ClientServerError(403), got %T: %v", err, err)
+		}
+	})
+
+	t.Run("malformed JSON poll response returns ClientServerError immediately", func(t *testing.T) {
+		t.Parallel()
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{not-valid-json`))
+		}))
+		defer ts.Close()
+
+		initial := map[string]any{
+			"name": "projects/p1/locations/global/operations/op-bad-json",
+			"done": false,
+		}
+		_, err := AwaitGDAOperation(context.Background(), ts.Client(), ts.URL, initial, "deletion", 5*time.Millisecond, 100*time.Millisecond)
+		if err == nil || !strings.Contains(err.Error(), "error decoding operation poll response") {
+			t.Fatalf("expected malformed JSON error, got: %v", err)
+		}
+		var csErr *ClientServerError
+		if !errors.As(err, &csErr) {
+			t.Fatalf("expected ClientServerError on malformed JSON, got %T: %v", err, err)
+		}
+	})
 }

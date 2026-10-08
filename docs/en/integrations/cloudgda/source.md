@@ -43,3 +43,4 @@ useClientOAuth: true
 | type           |  string  |     true     | Must be "cloud-gemini-data-analytics".                                                                                                                                       |
 | projectId      |  string  |     true     | The Google Cloud Project ID where the API is enabled.                                                                                                                        |
 | useClientOAuth | boolean  |    false     | If true, the source uses the token provided by the caller (forwarded to the API). Otherwise, it uses server-side Application Default Credentials (ADC). Defaults to `false`. |
+| readOnly       | boolean  |    false     | When set to `true`, suppresses write-capable tools (such as those that create, update, or delete data agents). Default: `false`.                                             |
