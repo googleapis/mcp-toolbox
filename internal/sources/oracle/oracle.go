@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -53,8 +52,8 @@ type Config struct {
 	Host             string `yaml:"host,omitempty"`
 	Port             int    `yaml:"port,omitempty"`
 	ServiceName      string `yaml:"serviceName,omitempty"`
-	User             string `yaml:"user" validate:"required"`
-	Password         string `yaml:"password" validate:"required"`
+	User             string `yaml:"user,omitempty"`
+	Password         string `yaml:"password,omitempty"`
 	UseOCI           bool   `yaml:"useOCI,omitempty"`
 	WalletLocation   string `yaml:"walletLocation,omitempty"`
 }
@@ -91,6 +90,12 @@ func (c Config) validate() error {
 
 	if hasWallet && c.UseOCI {
 		return fmt.Errorf("when using an OCI driver, use `tnsAdmin` to specify credentials file location instead")
+	}
+
+	if !c.UseOCI || !hasTnsAdmin {
+		if strings.TrimSpace(c.User) == "" || strings.TrimSpace(c.Password) == "" {
+			return fmt.Errorf("must provide both 'user' and 'password' unless using OCI driver with a wallet ('tnsAdmin')")
+		}
 	}
 
 	return nil
@@ -260,12 +265,15 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any, rea
 }
 
 func buildGoOraConnString(user, password, connectStringBase, walletLocation string) string {
-	userInfo := url.UserPassword(
-		decodePercentEncodedUserInfo(user),
-		decodePercentEncodedUserInfo(password),
-	).String()
+	var userInfo string
+	if user != "" || password != "" {
+		userInfo = url.UserPassword(
+			decodePercentEncodedUserInfo(user),
+			decodePercentEncodedUserInfo(password),
+		).String() + "@"
+	}
 
-	base := fmt.Sprintf("oracle://%s@%s", userInfo, connectStringBase)
+	base := fmt.Sprintf("oracle://%s%s", userInfo, connectStringBase)
 	trimmedWalletLocation := strings.TrimSpace(walletLocation)
 	if trimmedWalletLocation == "" {
 		return base
@@ -306,20 +314,6 @@ func initOracleConnection(ctx context.Context, tracer trace.Tracer, config Confi
 
 	hasWallet := strings.TrimSpace(config.WalletLocation) != ""
 
-	if config.TnsAdmin != "" {
-		originalTnsAdmin := os.Getenv("TNS_ADMIN")
-		os.Setenv("TNS_ADMIN", config.TnsAdmin)
-		logger.DebugContext(ctx, fmt.Sprintf("Setting TNS_ADMIN to: %s\n", config.TnsAdmin))
-		// Restore original TNS_ADMIN after connection
-		defer func() {
-			if originalTnsAdmin != "" {
-				os.Setenv("TNS_ADMIN", originalTnsAdmin)
-			} else {
-				os.Unsetenv("TNS_ADMIN")
-			}
-		}()
-	}
-
 	var connectStringBase string
 	if config.TnsAlias != "" {
 		connectStringBase = strings.TrimSpace(config.TnsAlias)
@@ -339,8 +333,15 @@ func initOracleConnection(ctx context.Context, tracer trace.Tracer, config Confi
 	if config.UseOCI {
 		// Use godror driver (requires OCI)
 		driverName = "godror"
-		finalConnStr = fmt.Sprintf(`user="%s" password="%s" connectString="%s"`,
-			config.User, config.Password, connectStringBase)
+		if config.User != "" || config.Password != "" {
+			finalConnStr = fmt.Sprintf(`user="%s" password="%s" connectString="%s"`,
+				config.User, config.Password, connectStringBase)
+		} else {
+			finalConnStr = fmt.Sprintf(`connectString="%s"`, connectStringBase)
+		}
+		if config.TnsAdmin != "" {
+			finalConnStr = fmt.Sprintf(`%s configDir="%s"`, finalConnStr, config.TnsAdmin)
+		}
 		logger.DebugContext(ctx, fmt.Sprintf("Using godror driver (OCI-based) with connectString: %s\n", connectStringBase))
 	} else {
 		// Use go-ora driver (pure Go)
