@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -52,6 +54,8 @@ type Config struct {
 	Name string `yaml:"name" validate:"required"`
 	Type string `yaml:"type" validate:"required"`
 	Uri  string `yaml:"uri" validate:"required"` // MongoDB Atlas connection URI
+	// AllowedCollections restricts every tool on this source to these "database.collection" entries.
+	AllowedCollections []string `yaml:"allowedCollections"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -59,6 +63,11 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	allowedCollections, err := normalizeAllowedCollections(r.AllowedCollections)
+	if err != nil {
+		return nil, err
+	}
+
 	client, err := initMongoDBClient(ctx, tracer, r.Name, r.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create MongoDB client: %w", err)
@@ -72,10 +81,30 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	}
 
 	s := &Source{
-		Config: r,
-		Client: client,
+		Config:             r,
+		Client:             client,
+		AllowedCollections: allowedCollections,
 	}
 	return s, nil
+}
+
+// normalizeAllowedCollections indexes "database.collection" entries by database; a database name cannot contain a dot, so the split is on the first one.
+func normalizeAllowedCollections(entries []string) (map[string]map[string]struct{}, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	allowed := make(map[string]map[string]struct{})
+	for _, e := range entries {
+		database, collection, found := strings.Cut(e, ".")
+		if !found || database == "" || collection == "" {
+			return nil, fmt.Errorf("invalid allowedCollections entry %q, expected 'database.collection'", e)
+		}
+		if allowed[database] == nil {
+			allowed[database] = make(map[string]struct{})
+		}
+		allowed[database][collection] = struct{}{}
+	}
+	return allowed, nil
 }
 
 var _ sources.Source = &Source{}
@@ -83,6 +112,30 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	Client *mongo.Client
+	// AllowedCollections maps a database name to the set of collections allowed in it; empty means unrestricted.
+	AllowedCollections map[string]map[string]struct{}
+}
+
+// IsCollectionAllowed reports whether a collection may be used by a tool on this source.
+func (s *Source) IsCollectionAllowed(database, collection string) bool {
+	if len(s.AllowedCollections) == 0 {
+		return true
+	}
+	_, ok := s.AllowedCollections[database][collection]
+	return ok
+}
+
+// MongoDBAllowedCollections returns the sorted collections allowed in a database, or nil when unrestricted.
+func (s *Source) MongoDBAllowedCollections(database string) []string {
+	if len(s.AllowedCollections) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(s.AllowedCollections[database]))
+	for c := range s.AllowedCollections[database] {
+		names = append(names, c)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -120,6 +173,118 @@ func parseData(ctx context.Context, cur *mongo.Cursor) ([]any, error) {
 	return final, err
 }
 
+// collectionRef is a collection that a pipeline stage reads from or writes to.
+type collectionRef struct {
+	database, collection string
+}
+
+// checkPipelineScope rejects a pipeline whose stages reach a collection outside allowedCollections.
+func (s *Source) checkPipelineScope(pipeline []bson.M, database string) error {
+	if len(s.AllowedCollections) == 0 {
+		return nil
+	}
+	stages := make([]any, len(pipeline))
+	for i, stage := range pipeline {
+		stages[i] = stage
+	}
+	for _, ref := range pipelineCollections(stages, database) {
+		if !s.IsCollectionAllowed(ref.database, ref.collection) {
+			return fmt.Errorf("pipeline references collection %q in database %q, which is not in the allowedCollections of this source", ref.collection, ref.database)
+		}
+	}
+	return nil
+}
+
+// pipelineCollections returns the collections referenced by $lookup, $graphLookup, $unionWith, $out, $merge and $facet stages, including nested pipelines.
+func pipelineCollections(stages []any, database string) []collectionRef {
+	var refs []collectionRef
+	for _, stage := range stages {
+		for op, spec := range asDocument(stage) {
+			doc := asDocument(spec)
+			switch op {
+			case "$lookup", "$graphLookup":
+				refs = appendCollectionRef(refs, doc["from"], database)
+				refs = append(refs, pipelineCollections(asArray(doc["pipeline"]), database)...)
+			case "$unionWith":
+				if doc == nil {
+					refs = appendCollectionRef(refs, spec, database)
+					continue
+				}
+				refs = appendCollectionRef(refs, doc["coll"], database)
+				refs = append(refs, pipelineCollections(asArray(doc["pipeline"]), database)...)
+			case "$out":
+				refs = appendCollectionRef(refs, spec, database)
+			case "$merge":
+				if doc == nil {
+					refs = appendCollectionRef(refs, spec, database)
+					continue
+				}
+				refs = appendCollectionRef(refs, doc["into"], database)
+			case "$facet":
+				for _, sub := range doc {
+					refs = append(refs, pipelineCollections(asArray(sub), database)...)
+				}
+			}
+		}
+	}
+	return refs
+}
+
+// appendCollectionRef adds a collection given either by name or as a {db, coll} document.
+func appendCollectionRef(refs []collectionRef, v any, database string) []collectionRef {
+	if name, ok := v.(string); ok {
+		return append(refs, collectionRef{database, name})
+	}
+	doc := asDocument(v)
+	coll, _ := doc["coll"].(string)
+	if coll == "" {
+		return refs
+	}
+	if db, _ := doc["db"].(string); db != "" {
+		database = db
+	}
+	return append(refs, collectionRef{database, coll})
+}
+
+// asDocument returns v as a map, accepting the bson.M and bson.D forms that extended JSON decodes into.
+func asDocument(v any) map[string]any {
+	switch d := v.(type) {
+	case bson.M:
+		return d
+	case bson.D:
+		m := make(map[string]any, len(d))
+		for _, e := range d {
+			m[e.Key] = e.Value
+		}
+		return m
+	}
+	return nil
+}
+
+// asArray returns v as a slice, accepting the bson.A form that extended JSON decodes into.
+func asArray(v any) []any {
+	if a, ok := v.(bson.A); ok {
+		return a
+	}
+	return nil
+}
+
+// ListCollectionNames returns the collections in a database, restricted to the source's allowedCollections when one is set.
+func (s *Source) ListCollectionNames(ctx context.Context, database string) ([]string, error) {
+	names, err := s.MongoClient().Database(database).ListCollectionNames(ctx, bson.D{})
+	if err != nil {
+		return nil, err
+	}
+	allowed := make([]string, 0, len(names))
+	for _, n := range names {
+		if s.IsCollectionAllowed(database, n) {
+			allowed = append(allowed, n)
+		}
+	}
+	sort.Strings(allowed)
+	return allowed, nil
+}
+
 func (s *Source) Aggregate(ctx context.Context, pipelineString string, canonical, readOnly bool, database, collection string) ([]any, error) {
 	var pipeline = []bson.M{}
 	err := bson.UnmarshalExtJSON([]byte(pipelineString), canonical, &pipeline)
@@ -136,6 +301,10 @@ func (s *Source) Aggregate(ctx context.Context, pipelineString string, canonical
 				}
 			}
 		}
+	}
+
+	if err := s.checkPipelineScope(pipeline, database); err != nil {
+		return nil, err
 	}
 
 	cur, err := s.MongoClient().Database(database).Collection(collection).Aggregate(ctx, pipeline)
