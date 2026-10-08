@@ -2645,3 +2645,115 @@ func TestSkillsGetHandler(t *testing.T) {
 		})
 	}
 }
+
+// TestSkillsMethodsDynamicSkill pins the wire shape of a dynamic skill. The
+// marker is a JSON string where a static skill carries an array. A host
+// distinguishes the two by that type alone.
+func TestSkillsMethodsDynamicSkill(t *testing.T) {
+	ctx := skillsTestContext(t)
+	t.Cleanup(func() { Initialize(nil) })
+	Initialize(nil)
+
+	const (
+		staticURI  = "skill://analytics-guide/SKILL.md"
+		dynamicURI = "skill://live-report/SKILL.md"
+	)
+	resourcesMap := skillsTestResources()
+	resourcesMap["report"] = testutils.NewMockDynamicTextResource("report", dynamicURI,
+		"---\nname: live-report\ndescription: Summarize the current run\n---\n\n# live-report\n")
+	resourcesMap["rows"] = testutils.NewMockTextResource("rows", "skill://live-report/rows.csv", "a,b\n1,2\n")
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil, defaultGroupOf(resourcesMap))
+
+	// resourcesOf marshals one entry the way the server does and returns the
+	// resources field. The assertion then sees the JSON type a client sees.
+	resourcesOf := func(t *testing.T, s Skill) any {
+		t.Helper()
+		raw, err := json.Marshal(s)
+		if err != nil {
+			t.Fatalf("unable to marshal skill %#v: %s", s, err)
+		}
+		var decoded struct {
+			Resources any `json:"resources"`
+		}
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("unable to unmarshal skill %#v: %s", s, err)
+		}
+		return decoded.Resources
+	}
+
+	t.Run("skills/list", func(t *testing.T) {
+		body, err := json.Marshal(ListSkillsRequest{
+			Request: jsonrpc.Request{Method: SKILLS_LIST},
+			Params:  RequestParams{Meta: skillsValidMeta()},
+		})
+		if err != nil {
+			t.Fatalf("unable to marshal body: %s", err)
+		}
+		res, err := skillsListHandler(ctx, "id", primitiveMgr, body,
+			http.Header{"Mcp-Method": []string{SKILLS_LIST}})
+		if err != nil {
+			t.Fatalf("skillsListHandler() = %v, want nil", err)
+		}
+		result := res.(jsonrpc.JSONRPCResponse).Result.(ListSkillsResult)
+		if len(result.Skills) != 2 {
+			t.Fatalf("got %d skills, want 2", len(result.Skills))
+		}
+
+		byURI := map[string]Skill{}
+		for _, s := range result.Skills {
+			switch s := s.(type) {
+			case StaticSkill:
+				byURI[s.URI] = s
+			case DynamicSkill:
+				byURI[s.URI] = s
+			}
+		}
+
+		if got := resourcesOf(t, byURI[dynamicURI]); got != "dynamic" {
+			t.Errorf("dynamic skill resources = %#v, want the string \"dynamic\"", got)
+		}
+		// Discover never hashes the dynamic skill's supporting file, so the
+		// static skill beside it must still publish its own array.
+		got, ok := resourcesOf(t, byURI[staticURI]).([]any)
+		if !ok {
+			t.Fatalf("static skill resources = %#v, want an array", resourcesOf(t, byURI[staticURI]))
+		}
+		if len(got) != 2 {
+			t.Errorf("static skill has %d refs, want 2", len(got))
+		}
+	})
+
+	t.Run("skills/get", func(t *testing.T) {
+		body, err := json.Marshal(GetSkillRequest{
+			Request: jsonrpc.Request{Method: SKILLS_GET},
+			Params: GetSkillRequestParams{
+				RequestParams: RequestParams{Meta: skillsValidMeta()},
+				URI:           dynamicURI,
+			},
+		})
+		if err != nil {
+			t.Fatalf("unable to marshal body: %s", err)
+		}
+		res, err := skillsGetHandler(ctx, "id", primitiveMgr, body, http.Header{
+			"Mcp-Method": []string{SKILLS_GET},
+			"Mcp-Name":   []string{dynamicURI},
+		})
+		if err != nil {
+			t.Fatalf("skillsGetHandler() = %v, want nil", err)
+		}
+		result := res.(jsonrpc.JSONRPCResponse).Result.(GetSkillResult)
+		skill, ok := result.Skill.(DynamicSkill)
+		if !ok {
+			t.Fatalf("skill is %T, want DynamicSkill", result.Skill)
+		}
+		if skill.URI != dynamicURI {
+			t.Fatalf("skill uri = %q, want %q", skill.URI, dynamicURI)
+		}
+		if got := resourcesOf(t, result.Skill); got != "dynamic" {
+			t.Errorf("resources = %#v, want the string \"dynamic\"", got)
+		}
+		if name := skill.Frontmatter["name"]; name != "live-report" {
+			t.Errorf("frontmatter name = %v, want live-report", name)
+		}
+	})
+}

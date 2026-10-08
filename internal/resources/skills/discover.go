@@ -28,8 +28,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
-const skillFile = "SKILL.md"
-
 // DocMimeType is the MIME type SEP-2640 requires for every SKILL.md.
 const DocMimeType = "text/markdown"
 
@@ -61,7 +59,7 @@ func Discover(ctx context.Context, resourcesMap map[string]resources.Resource) (
 // hashing only that skill's files. It reports false when no SKILL.md in the map
 // has that URI.
 func Get(ctx context.Context, resourcesMap map[string]resources.Resource, uri string) (Entry, bool, error) {
-	root, ok := strings.CutSuffix(uri, "/"+skillFile)
+	root, ok := resources.SkillRoot(uri)
 	if !ok || !slices.Contains(skillRoots(resourcesMap), root) {
 		return Entry{}, false, nil
 	}
@@ -82,11 +80,7 @@ func Get(ctx context.Context, resourcesMap map[string]resources.Resource, uri st
 func skillRoots(resourcesMap map[string]resources.Resource) []string {
 	var roots []string
 	for _, res := range resourcesMap {
-		uri := res.GetURI()
-		if !strings.HasPrefix(uri, resources.SkillScheme+"://") {
-			continue
-		}
-		if root, ok := strings.CutSuffix(uri, "/"+skillFile); ok {
+		if root, ok := resources.SkillRoot(res.GetURI()); ok {
 			roots = append(roots, root)
 		}
 	}
@@ -126,7 +120,7 @@ func skillMembers(resourcesMap map[string]resources.Resource, roots []string) (m
 			}
 		}
 		// A SKILL.md defines a skill rather than belonging to one.
-		if !matched && !strings.HasSuffix(uri, "/"+skillFile) {
+		if !matched && !strings.HasSuffix(uri, "/"+resources.SkillFile) {
 			orphans = append(orphans, uri)
 		}
 	}
@@ -137,9 +131,31 @@ func skillMembers(resourcesMap map[string]resources.Resource, roots []string) (m
 	return members, orphans
 }
 
+// skillDoc returns a skill's SKILL.md resource, and reports whether the skill
+// publishes the "dynamic" marker in place of a manifest of digests.
+//
+// A nested dynamic skill makes every enclosing skill dynamic. Membership puts a
+// nested skill's files in every enclosing skill's set, so an enclosing skill's
+// digests cannot be stable either.
+func skillDoc(members []resources.Resource, skillURI string) (doc resources.Resource, dynamic bool) {
+	for _, res := range members {
+		if res.IsDynamic() {
+			dynamic = true
+		}
+		if res.GetURI() == skillURI {
+			doc = res
+		}
+	}
+	return doc, dynamic
+}
+
 // buildEntry hashes every file under root and assembles its entry.
 func buildEntry(ctx context.Context, root string, members []resources.Resource) (Entry, error) {
-	skillURI := root + "/" + skillFile
+	skillURI := root + "/" + resources.SkillFile
+	doc, dynamic := skillDoc(members, skillURI)
+	if dynamic {
+		return buildDynamicEntry(ctx, skillURI, doc)
+	}
 	if len(members) > MaxRefs {
 		return Entry{}, fmt.Errorf("skill %q: %d files exceeds the limit of %d", skillURI, len(members), MaxRefs)
 	}
@@ -150,19 +166,11 @@ func buildEntry(ctx context.Context, root string, members []resources.Resource) 
 	// memory. We sum as we read: this bounds what each skill loads.
 	var total int64
 	for _, res := range members {
-		// Subtraction, not addition: a huge hint would wrap the total negative.
-		if sz := res.GetSize(); sz != nil && *sz > MaxTotalSize-total {
-			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
-		}
-		content, err := readString(ctx, res)
+		content, err := readBounded(ctx, res, MaxTotalSize-total)
 		if err != nil {
 			return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
 		}
-		// GetSize above is only a hint; this is authoritative.
 		size := int64(len(content))
-		if size > MaxTotalSize-total {
-			return Entry{}, fmt.Errorf("skill %q: total size exceeds the limit of %d bytes", skillURI, MaxTotalSize)
-		}
 		total += size
 		sum := sha256.Sum256([]byte(content))
 		refs = append(refs, ResourceRef{
@@ -181,6 +189,45 @@ func buildEntry(ctx context.Context, root string, members []resources.Resource) 
 	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Refs: refs}}, nil
 }
 
+// buildDynamicEntry assembles the entry for a skill that publishes the
+// "dynamic" marker in place of a file list.
+//
+// The file count does not apply: SEP-2640 counts it over the entries of a
+// manifest, and a dynamic skill has none. The size limit still bounds the one
+// file this reads, because Discover runs on every request.
+func buildDynamicEntry(ctx context.Context, skillURI string, doc resources.Resource) (Entry, error) {
+	if doc == nil {
+		return Entry{}, fmt.Errorf("skill %q: no %s resource is registered", skillURI, resources.SkillFile)
+	}
+	content, err := readBounded(ctx, doc, MaxTotalSize)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	frontmatter, err := parseFrontmatter(content)
+	if err != nil {
+		return Entry{}, fmt.Errorf("skill %q: %w", skillURI, err)
+	}
+	return Entry{URI: skillURI, Frontmatter: frontmatter, Resources: Manifest{Dynamic: true}}, nil
+}
+
+// readBounded reads one resource, and rejects content larger than remaining
+// bytes. Callers pass the budget they have left, not the limit, so a huge size
+// hint cannot wrap a running total negative.
+func readBounded(ctx context.Context, res resources.Resource, remaining int64) (string, error) {
+	if sz := res.GetSize(); sz != nil && *sz > remaining {
+		return "", fmt.Errorf("total size exceeds the limit of %d bytes", MaxTotalSize)
+	}
+	content, err := readString(ctx, res)
+	if err != nil {
+		return "", err
+	}
+	// GetSize above is only a hint. This check is authoritative.
+	if int64(len(content)) > remaining {
+		return "", fmt.Errorf("total size exceeds the limit of %d bytes", MaxTotalSize)
+	}
+	return content, nil
+}
+
 func readString(ctx context.Context, res resources.Resource) (string, error) {
 	got, err := res.Read(ctx, nil)
 	if err != nil {
@@ -195,7 +242,7 @@ func readString(ctx context.Context, res resources.Resource) (string, error) {
 
 // IsDoc reports whether uri points to a skill's SKILL.md file.
 func IsDoc(uri string) bool {
-	return strings.HasPrefix(uri, resources.SkillScheme+"://") && strings.HasSuffix(uri, "/"+skillFile)
+	return strings.HasPrefix(uri, resources.SkillScheme+"://") && strings.HasSuffix(uri, "/"+resources.SkillFile)
 }
 
 // DocIdentity returns the name and description from a SKILL.md's frontmatter.
@@ -224,16 +271,16 @@ func parseFrontmatter(content string) (map[string]any, error) {
 
 	opening, rest, ok := strings.Cut(content, "\n")
 	if !ok || strings.TrimRight(opening, " \t") != "---" {
-		return nil, fmt.Errorf("%s must open with YAML frontmatter delimited by ---", skillFile)
+		return nil, fmt.Errorf("%s must open with YAML frontmatter delimited by ---", resources.SkillFile)
 	}
 	body, ok := cutAtDelimiter(rest)
 	if !ok {
-		return nil, fmt.Errorf("%s frontmatter is not closed by --- on a line of its own", skillFile)
+		return nil, fmt.Errorf("%s frontmatter is not closed by --- on a line of its own", resources.SkillFile)
 	}
 
 	fm := map[string]any{}
 	if err := yaml.Unmarshal([]byte(body), &fm); err != nil {
-		return nil, fmt.Errorf("unable to parse %s frontmatter: %w", skillFile, err)
+		return nil, fmt.Errorf("unable to parse %s frontmatter: %w", resources.SkillFile, err)
 	}
 	return fm, nil
 }

@@ -326,6 +326,7 @@ func (m MockResource) GetName() string {
 
 func (m MockResource) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
 func (m MockResource) IsUI() bool                 { return m.config.IsUI() }
+func (m MockResource) IsDynamic() bool            { return m.config.IsDynamic() }
 
 // MockResourceTemplateConfig is a mock implementation of resources.ResourceTemplateConfig
 type MockResourceTemplateConfig struct {
@@ -398,6 +399,14 @@ func NewMockResource(name, uri, title, description, mimeType string, size *int64
 func NewMockTextResource(name, uri, content string) MockResource {
 	res := NewMockResource(name, uri, "", "", "text/markdown", nil, nil)
 	res.config.Content = content
+	return res
+}
+
+// NewMockDynamicTextResource creates a text/markdown mock resource whose skill
+// publishes the "dynamic" marker in place of a file list.
+func NewMockDynamicTextResource(name, uri, content string) MockResource {
+	res := NewMockTextResource(name, uri, content)
+	res.config.Dynamic = true
 	return res
 }
 

@@ -15,15 +15,19 @@
 package skills_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 // unreadResource fails the test if Validate reads it. Startup validation reads
@@ -290,6 +294,82 @@ func TestValidateWarnings(t *testing.T) {
 	}
 }
 
+// TestValidateOrphanWarning checks that Validate warns about skill:// resources
+// no SKILL.md sits above, and only those. Most often such a URI has a typo.
+func TestValidateOrphanWarning(t *testing.T) {
+	tcs := []struct {
+		desc     string
+		extra    map[string]string // resource URI to content, beside one skill
+		wantWarn []string          // nil means no warning
+	}{
+		{
+			desc: "typo and name-prefix sibling",
+			extra: map[string]string{
+				// A typo in the skill path: close to the skill, under none.
+				"skill://analytcs-guide/references/joins.md": "# Joins\n",
+				// A name prefix of the skill, not a path prefix.
+				"skill://analytics-guide-v2/notes.md": "# Notes\n",
+				// Not addressed by skill://, so it is never an orphan.
+				"file://project-docs": "unrelated",
+			},
+			wantWarn: []string{"skill://analytcs-guide/references/joins.md", "skill://analytics-guide-v2/notes.md", "belong to no skill"},
+		},
+		{
+			desc:  "every skill:// file is under a skill",
+			extra: map[string]string{"skill://analytics-guide/references/queries.md": "# Common queries\n"},
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			ctx, stderr := bufferLoggerCtx(t)
+			resourcesMap := map[string]resources.Resource{
+				"guide": skillAt(t, ctx, "skill://analytics-guide/SKILL.md", "A skill"),
+			}
+			for uri, content := range tc.extra {
+				resourcesMap[uri] = textResource(t, ctx, uri, uri, content)
+			}
+			if _, err := skills.Validate(ctx, resourcesMap); err != nil {
+				t.Fatalf("Validate() = %v, want nil", err)
+			}
+
+			out := stderr.String()
+			if tc.wantWarn == nil {
+				if strings.Contains(out, "belong to no skill") {
+					t.Errorf("unexpected orphan warning: %q", out)
+				}
+				return
+			}
+			for _, want := range tc.wantWarn {
+				if !strings.Contains(out, want) {
+					t.Errorf("warning %q does not mention %q", out, want)
+				}
+			}
+			if strings.Contains(out, "project-docs") {
+				t.Errorf("warning %q names a resource outside the skill:// scheme", out)
+			}
+		})
+	}
+}
+
+// TestValidateOrphanWarningWithoutSkills covers a config with no SKILL.md at
+// all, whose skill:// files are therefore all orphans. Validate must still warn.
+func TestValidateOrphanWarningWithoutSkills(t *testing.T) {
+	ctx, stderr := bufferLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"notes": textResource(t, ctx, "notes", "skill://guide/notes.md", "# Notes\n"),
+	}
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if len(found) != 0 {
+		t.Errorf("Validate() found %d skills, want none", len(found))
+	}
+	if out := stderr.String(); !strings.Contains(out, "skill://guide/notes.md") {
+		t.Errorf("log %q does not warn about skill://guide/notes.md", out)
+	}
+}
+
 // TestSkillDocIdentity checks that each SKILL.md reports the name and
 // description from its frontmatter, and that other resources keep their
 // config values. The text resource sets these in Initialize, so the test
@@ -363,5 +443,114 @@ func TestDocIdentity(t *testing.T) {
 				t.Errorf("DocIdentity() = (%q, %q, %v), want (%q, %q, %v)", name, desc, ok, tc.wantName, tc.wantDesc, tc.wantOK)
 			}
 		})
+	}
+}
+
+// TestValidateDynamicSkill checks that startup validation treats a dynamic skill
+// the way Discover does: the file count and size sums do not apply, and only
+// SKILL.md is read.
+func TestValidateDynamicSkill(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"doc": dynamicSkillDoc(t, ctx, "doc", "skill://big-skill/SKILL.md",
+			skillMD("big-skill", "More files than a static skill may carry")),
+	}
+	for i := range skills.MaxRefs + 1 {
+		uri := fmt.Sprintf("skill://big-skill/refs/f%d.md", i)
+		resourcesMap[fmt.Sprintf("ref%d", i)] = unreadResource{
+			badResource: badResource{uri: uri},
+			t:           t,
+			size:        skills.MaxTotalSize,
+		}
+	}
+
+	got, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil: a dynamic skill has no refs to count", err)
+	}
+	if len(got) != 1 || got[0].Frontmatter["name"] != "big-skill" {
+		t.Fatalf("got %+v, want the dynamic skill with its frontmatter", got)
+	}
+	// A dynamic SKILL.md is published under its frontmatter name as well.
+	if got := resourcesMap["doc"].GetName(); got != "big-skill" {
+		t.Errorf("GetName() = %q, want the frontmatter name %q", got, "big-skill")
+	}
+}
+
+// TestValidateDynamicSkillStillChecksItsDoc checks that a dynamic skill with a
+// bad SKILL.md still fails the load.
+func TestValidateDynamicSkillStillChecksItsDoc(t *testing.T) {
+	ctx := mustLoggerCtx(t)
+	resourcesMap := map[string]resources.Resource{
+		"doc": dynamicSkillDoc(t, ctx, "doc", "skill://live-report/SKILL.md", "# no frontmatter\n"),
+	}
+	_, err := skills.Validate(ctx, resourcesMap)
+	if err == nil || !strings.Contains(err.Error(), "must open with YAML frontmatter") {
+		t.Fatalf("Validate() = %v, want the frontmatter error", err)
+	}
+}
+
+// TestWarnOnDocNameMismatch pins the signal an operator needs. A group lists its
+// resources by config key, so a key that differs from the frontmatter name is
+// hard to maintain.
+func TestWarnOnDocNameMismatch(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"guide":   textResource(t, ctx, "guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+		"other":   textResource(t, ctx, "other", "skill://other/SKILL.md", skillMD("other", "A skill named for its key")),
+		"queries": textResource(t, ctx, "queries", "skill://analytics-guide/references/queries.md", "# Common queries\n"),
+	}
+
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, resourcesMap); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+
+	got := stderr.String()
+	for _, want := range []string{`resource \"guide\"`, `skill \"analytics-guide\"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warning %q does not mention %q", got, want)
+		}
+	}
+	// A key that matches, and a supporting file, are not mismatches.
+	for _, unwanted := range []string{`resource \"other\"`, `resource \"queries\"`} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("warning %q reports %q", got, unwanted)
+		}
+	}
+}
+
+// TestNoDocNameMismatchWarning guards the other direction: a key that matches
+// must not warn, or the warning is noise an operator learns to ignore.
+func TestNoDocNameMismatchWarning(t *testing.T) {
+	var stderr bytes.Buffer
+	logger, err := log.NewStdLogger(io.Discard, &stderr, "info")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	resourcesMap := map[string]resources.Resource{
+		"analytics-guide": textResource(t, ctx, "analytics-guide", "skill://analytics-guide/SKILL.md", skillMD("analytics-guide", "Query the warehouse")),
+	}
+
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, resourcesMap); err != nil {
+		t.Fatalf("WarnOnDocNameMismatch() = %v, want nil", err)
+	}
+	if got := stderr.String(); strings.Contains(got, "Rename the resource") {
+		t.Errorf("unexpected name-mismatch warning: %q", got)
 	}
 }
