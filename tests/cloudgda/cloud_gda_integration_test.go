@@ -361,7 +361,8 @@ func setupDataAgent(t *testing.T, ctx context.Context, projectID, datasetID, tab
 	}
 
 	// Registered before the request is sent: it may create the agent even when
-	// the client sees a transport error. A 404 on delete is tolerated.
+	// the client sees a transport error. deleteDataAgent tolerates an agent that
+	// was never created (404) or is already soft deleted.
 	agentName := fmt.Sprintf("%s/dataAgents/%s", parent, dataAgentId)
 	t.Cleanup(func() { deleteDataAgent(t, ctx, client, agentName) })
 
@@ -467,7 +468,124 @@ func deleteDataAgent(t *testing.T, ctx context.Context, client *http.Client, age
 	// Delete returns a long-running operation, so any 2xx is a success.
 	if delResp.StatusCode < 200 || delResp.StatusCode >= 300 {
 		body, _ := io.ReadAll(delResp.Body)
+		if isAlreadySoftDeleted(delResp.StatusCode, body) {
+			t.Logf("data agent %s is already soft deleted, nothing to clean up", agentName)
+			return
+		}
 		t.Errorf("failed to delete data agent %s, status: %d, body: %s", agentName, delResp.StatusCode, string(body))
+	}
+}
+
+// isAlreadySoftDeleted reports whether a failed delete response says the data
+// agent is already soft deleted, e.g. because the test deleted it earlier.
+// Deleting it again returns 400 FAILED_PRECONDITION rather than 404.
+func isAlreadySoftDeleted(statusCode int, body []byte) bool {
+	if statusCode != http.StatusBadRequest {
+		return false
+	}
+	var apiErr struct {
+		Error struct {
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &apiErr); err != nil {
+		return false
+	}
+	msg := strings.ToLower(apiErr.Error.Message)
+	return apiErr.Error.Status == "FAILED_PRECONDITION" &&
+		(strings.Contains(msg, "is soft deleted") || strings.Contains(msg, "state soft_deleted"))
+}
+
+func TestIsAlreadySoftDeleted(t *testing.T) {
+	// Body the API returns when deleting an agent that is already soft deleted.
+	softDeletedBody := `{
+  "error": {
+    "code": 400,
+    "message": "Invalid state 'projects/my-project/locations/global/dataAgents/my-agent': The resource is soft deleted and therefore can not be deleted: failed precondition. Action: resource projects/my-project/locations/global/dataAgents/my-agent state change request at Sync phase, operation type cloud.control2.frontend.operations.clh.deleteCallback, current resource state SOFT_DELETED, isAdmin false, isSoftDelete false",
+    "status": "FAILED_PRECONDITION"
+  }
+}`
+
+	tcs := []struct {
+		name       string
+		statusCode int
+		body       string
+		want       bool
+	}{
+		{
+			name:       "already soft deleted",
+			statusCode: http.StatusBadRequest,
+			body:       softDeletedBody,
+			want:       true,
+		},
+		{
+			name:       "only the message says soft deleted",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error": {"code": 400, "message": "The resource is soft deleted and therefore can not be deleted.", "status": "FAILED_PRECONDITION"}}`,
+			want:       true,
+		},
+		{
+			name:       "only the resource state says soft deleted",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error": {"code": 400, "message": "Invalid state: current resource state SOFT_DELETED, isAdmin false, isSoftDelete false", "status": "FAILED_PRECONDITION"}}`,
+			want:       true,
+		},
+		{
+			name:       "soft deleted body with 409 status code",
+			statusCode: http.StatusConflict,
+			body:       softDeletedBody,
+			want:       false,
+		},
+		{
+			name:       "soft deleted body with 500 status code",
+			statusCode: http.StatusInternalServerError,
+			body:       softDeletedBody,
+			want:       false,
+		},
+		{
+			name:       "failed precondition for another resource state",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error": {"code": 400, "message": "Invalid state 'projects/my-project/locations/global/dataAgents/my-agent': The resource is being created and therefore can not be deleted: failed precondition. Action: resource projects/my-project/locations/global/dataAgents/my-agent state change request at Sync phase, operation type cloud.control2.frontend.operations.clh.deleteCallback, current resource state CREATING, isAdmin false, isSoftDelete false", "status": "FAILED_PRECONDITION"}}`,
+			want:       false,
+		},
+		{
+			name:       "resource is not soft deleted",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error": {"code": 400, "message": "The resource is not soft deleted.", "status": "FAILED_PRECONDITION"}}`,
+			want:       false,
+		},
+		{
+			name:       "soft deleted message with other error status",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error": {"code": 400, "message": "The resource is soft deleted.", "status": "INVALID_ARGUMENT"}}`,
+			want:       false,
+		},
+		{
+			name:       "error is not an object",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error": "The resource is soft deleted."}`,
+			want:       false,
+		},
+		{
+			name:       "non-JSON body",
+			statusCode: http.StatusBadRequest,
+			body:       "<html>Bad Request</html>",
+			want:       false,
+		},
+		{
+			name:       "empty body",
+			statusCode: http.StatusBadRequest,
+			body:       "",
+			want:       false,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isAlreadySoftDeleted(tc.statusCode, []byte(tc.body)); got != tc.want {
+				t.Errorf("isAlreadySoftDeleted(%d, %q) = %t, want %t", tc.statusCode, tc.body, got, tc.want)
+			}
+		})
 	}
 }
 

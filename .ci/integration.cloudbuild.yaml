@@ -340,7 +340,7 @@ steps:
     args:
       - -c
       - |
-        PATTERN="(^|/)cloudgda/|$$(cat .ci/core_pattern.txt)"
+        PATTERN="(^|/)cloudgda/|(^|/)conversationalanalytics/|$$(cat .ci/core_pattern.txt)"
 
         if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
           echo "Changes detected. Running Cloud Gemini Data Analytics tests..."
