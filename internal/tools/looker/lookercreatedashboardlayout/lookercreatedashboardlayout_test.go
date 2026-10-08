@@ -60,7 +60,7 @@ func TestParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -96,7 +96,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}
@@ -157,12 +157,12 @@ func TestAnnotations(t *testing.T) {
 		ConfigBase: tools.ConfigBase{
 			Name:        "test_tool",
 			Description: "test description",
+			Annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: &readOnlyFalse,
+			},
 		},
 		Type:   "looker-create-dashboard-layout",
 		Source: "my-instance",
-		Annotations: &tools.ToolAnnotations{
-			ReadOnlyHint: &readOnlyFalse,
-		},
 	}
 
 	tool, err := cfg.Initialize(context.Background())
@@ -179,5 +179,17 @@ func TestAnnotations(t *testing.T) {
 	}
 	if *annotations.ReadOnlyHint != false {
 		t.Errorf("ReadOnlyHint should be false, got %v", *annotations.ReadOnlyHint)
+	}
+	if annotations.DestructiveHint == nil {
+		t.Fatal("mcp manifest DestructiveHint is nil")
+	}
+	if *annotations.DestructiveHint != false {
+		t.Errorf("DestructiveHint should be false, got %v", *annotations.DestructiveHint)
+	}
+	if annotations.OpenWorldHint == nil {
+		t.Fatal("mcp manifest OpenWorldHint is nil")
+	}
+	if *annotations.OpenWorldHint != false {
+		t.Errorf("OpenWorldHint should be false, got %v", *annotations.OpenWorldHint)
 	}
 }

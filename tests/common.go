@@ -23,8 +23,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
-	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/bigtable"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
@@ -32,7 +32,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/api/iterator"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 // GetToolsConfig returns a mock tools config file
@@ -1016,7 +1016,7 @@ func TestCloudSQLMySQL_IPTypeParsingFromYAML(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -1128,35 +1128,6 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 
 }
 
-func CleanupBigQueryDatasets(t *testing.T, ctx context.Context, client *bigquery.Client, datasetIDs []string) {
-	for _, id := range datasetIDs {
-		t.Logf("INTEGRATION CLEANUP: Purging dataset %s", id)
-		ds := client.Dataset(id)
-
-		//Delete tables first since Dataset.Delete fails if not empty
-		tableIt := ds.Tables(ctx)
-		for {
-			table, err := tableIt.Next()
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				t.Errorf("INTEGRATION CLEANUP: Failed to iterate tables in %s: %v", id, err)
-				break
-			}
-			if err := table.Delete(ctx); err != nil {
-				t.Errorf("INTEGRATION CLEANUP: Failed to delete table %s: %v", table.TableID, err)
-			}
-		}
-		//delete empty dataset
-		if err := ds.Delete(ctx); err != nil {
-			t.Errorf("INTEGRATION CLEANUP: Failed to delete dataset %s: %v", id, err)
-		} else {
-			t.Logf("INTEGRATION CLEANUP SUCCESS: Wiped dataset %s", id)
-		}
-	}
-}
-
 // finds and deletes all tables in a Bigtable instance that match the uniqueID.
 func CleanupBigtableTables(t *testing.T, ctx context.Context, adminClient *bigtable.AdminClient, uniqueID string) {
 	tables, err := adminClient.Tables(ctx)
@@ -1176,4 +1147,39 @@ func CleanupBigtableTables(t *testing.T, ctx context.Context, adminClient *bigta
 			}
 		}
 	}
+}
+
+// SetupPostgresTestContainer spins up a generic PostgreSQL-compatible test container.
+func SetupGenericPostgresTestContainer(ctx context.Context, t *testing.T, req testcontainers.ContainerRequest) (string, string, func()) {
+	t.Helper()
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start postgres container: %s", err)
+	}
+
+	cleanup := func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cleanupCancel()
+		if err := container.Terminate(cleanupCtx); err != nil {
+			t.Fatalf("failed to terminate container: %s", err)
+		}
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get container host: %s", err)
+	}
+
+	mappedPort, err := container.MappedPort(ctx, "5432")
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get container mapped port: %s", err)
+	}
+
+	return host, mappedPort.Port(), cleanup
 }

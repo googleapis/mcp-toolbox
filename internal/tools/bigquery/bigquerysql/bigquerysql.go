@@ -60,12 +60,11 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase   `yaml:",inline"`
-	Type               string                 `yaml:"type" validate:"required"`
-	Source             string                 `yaml:"source" validate:"required"`
-	Statement          string                 `yaml:"statement" validate:"required"`
-	Parameters         parameters.Parameters  `yaml:"parameters"`
-	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type               string                `yaml:"type" validate:"required"`
+	Source             string                `yaml:"source" validate:"required"`
+	Statement          string                `yaml:"statement" validate:"required"`
+	Parameters         parameters.Parameters `yaml:"parameters"`
+	TemplateParameters parameters.Parameters `yaml:"templateParameters"`
 }
 
 // validate interface
@@ -151,7 +150,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("failed to retrieve BigQuery client", http.StatusInternalServerError, err)
 	}
 
-	dryRunJob, err := bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, newStatement, lowLevelParams, connProps, source.GetMaximumBytesBilled())
+	dryRunJob, err := bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, newStatement, lowLevelParams, connProps, source.GetMaximumBytesBilled(), false)
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
 	}

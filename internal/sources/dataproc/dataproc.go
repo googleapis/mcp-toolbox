@@ -75,10 +75,13 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	}
 	opsClient, err := longrunning.NewOperationsClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 	if err != nil {
+		client.Close()
 		return nil, fmt.Errorf("failed to create longrunning client: %w", err)
 	}
 	jobClient, err := dataproc.NewJobControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 	if err != nil {
+		client.Close()
+		opsClient.Close()
 		return nil, fmt.Errorf("failed to create dataproc job client: %w", err)
 	}
 
