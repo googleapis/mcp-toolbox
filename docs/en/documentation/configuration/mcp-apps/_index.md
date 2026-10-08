@@ -9,7 +9,9 @@ description: >
 The [**MCP Apps**](https://github.com/modelcontextprotocol/ext-apps) extension (`io.modelcontextprotocol/ui`) allows MCP servers to serve interactive web applications (HTML/CSS/JS) directly as resources and bind them to tools. When supported by an MCP client, the client can render an interactive user interface alongside or in place of standard tool outputs. For the official protocol specification, schemas, and client SDKs, refer to the [modelcontextprotocol/ext-apps](https://github.com/modelcontextprotocol/ext-apps) repository.
 
 {{< notice note >}}
-Support for the MCP Apps extension is advertised via `io.modelcontextprotocol/ui` in server capabilities exclusively for MCP protocol version `2026-07-28`. Older protocol versions (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`) do not support extensions and will not advertise UI capabilities or tool UI metadata.
+**Protocol Version Differences**:
+- **Modern Protocol (`2026-07-28`)**: Supports the official MCP extensions capability negotiation. The server advertises `io.modelcontextprotocol/ui` under `capabilities.extensions` during `server/discover`, and dynamically enables `_meta.ui` on tools when the client also advertises `io.modelcontextprotocol/ui` in its request capabilities.
+- **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**: The core schema for earlier protocol versions does not define an `extensions` block on `ServerCapabilities`. Instead, Toolbox exposes UI metadata directly on tools in `tools/list` via `_meta.ui` and serves UI HTML templates via `resources/read`, allowing clients that negotiate earlier protocol versions to discover and render interactive MCP Apps.
 {{< /notice >}}
 
 ## Defining a UI Resource
@@ -126,36 +128,57 @@ Unlike standard tools, prompts, or resources that are scoped to specific [Groups
 
 ## Capability Negotiation & Graceful Degradation
 
-MCP Apps employs client capability negotiation to ensure backwards compatibility with standard text-only MCP clients:
-
-1. **Client Advertising**: During initialization, clients that support interactive apps advertise the extension in their initialization parameters:
-   ```json
-   {
-     "capabilities": {
-       "extensions": {
-         "io.modelcontextprotocol/ui": {
-           "mimeTypes": ["text/html;profile=mcp-app"]
-         }
-       }
-     }
-   }
-   ```
-2. **Graceful Degradation**:
-   - When a client **supports** the UI extension, Toolbox advertises UI metadata on tools in `tools/list` under `_meta.ui`:
+- **Modern Protocol (`2026-07-28`)**: Employs dynamic client capability negotiation to ensure backwards compatibility with standard text-only MCP clients:
+  1. **Client Advertising**: Clients that support interactive apps advertise the extension in their request metadata (`_meta`):
      ```json
      {
-       "name": "view_customer_dashboard",
-       "description": "Retrieves customer records and displays an interactive dashboard.",
        "_meta": {
-         "ui": {
-           "resourceUri": "ui://customer_dashboard",
-           "visibility": ["model", "app"]
+         "io.modelcontextprotocol/clientCapabilities": {
+           "extensions": {
+             "io.modelcontextprotocol/ui": {
+               "mimeTypes": ["text/html;profile=mcp-app"]
+             }
+           }
          }
        }
      }
      ```
-   - When a client **does not support** the UI extension (or omits `io.modelcontextprotocol/ui`), Toolbox automatically strips `_meta.ui` from tool definitions, serving the tool as a standard text-based tool.
-   - All tools continue to return standard structured text output in their `content` array regardless of UI mode.
+  2. **Graceful Degradation**:
+     - When a client **supports** the UI extension, Toolbox includes UI metadata on tools in `tools/list` under `_meta.ui`:
+       ```json
+       {
+         "name": "view_customer_dashboard",
+         "description": "Retrieves customer records and displays an interactive dashboard.",
+         "_meta": {
+           "ui": {
+             "resourceUri": "ui://customer_dashboard",
+             "visibility": ["model", "app"]
+           }
+         }
+       }
+       ```
+     - When a client **does not support** the UI extension (or omits `io.modelcontextprotocol/ui`), Toolbox automatically strips `_meta.ui` from tool definitions, serving the tool as a standard text-based tool.
+     - All tools continue to return standard structured text output in their `content` array regardless of UI mode.
+
+- **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**:
+  - Toolbox backports client capability advertisement and negotiation to all legacy protocols to support modern clients running on older endpoints:
+    1. **Initialization**: Clients advertise UI capabilities during `initialize` via `capabilities.extensions["io.modelcontextprotocol/ui"]` (with `mimeTypes: ["text/html;profile=mcp-app"]`). When present, Toolbox advertises server UI capability in `InitializeResult.capabilities.extensions["io.modelcontextprotocol/ui"]: {}`. If omitted by the client, server `extensions` is omitted.
+    2. **Per-Request Negotiation**: Clients can also advertise UI support in request metadata (`_meta` or `params.capabilities`) on `tools/list`:
+       ```json
+       {
+         "_meta": {
+           "io.modelcontextprotocol/clientCapabilities": {
+             "extensions": {
+               "io.modelcontextprotocol/ui": {
+                 "mimeTypes": ["text/html;profile=mcp-app"]
+               }
+             }
+           }
+         }
+       }
+       ```
+    3. **Graceful Degradation**: When UI capabilities are advertised, Toolbox includes `_meta.ui` on tools in `tools/list`. If the client does not advertise UI support, Toolbox gracefully degrades by omitting `_meta.ui` from tool definitions, ensuring full backward compatibility with standard text-only clients.
+    4. **Resource Retrieval**: UI documents and security policies remain available via `resources/read` for clients that support rendering MCP Apps.
 
 ## Reading UI Resources
 
