@@ -74,12 +74,10 @@ func getDataprocVars(t *testing.T) map[string]any {
 	}
 }
 
-func TestDataprocClustersToolEndpoints(t *testing.T) {
-	sourceConfig := getDataprocVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // Clusters take time
-	defer cancel()
-
-	toolsFile := map[string]any{
+// getDataprocToolsConfig returns the tools file shared by the Dataproc
+// integration tests.
+func getDataprocToolsConfig(sourceConfig map[string]any) map[string]any {
+	return map[string]any{
 		"sources": map[string]any{
 			"my-dataproc": sourceConfig,
 		},
@@ -128,40 +126,57 @@ func TestDataprocClustersToolEndpoints(t *testing.T) {
 			},
 		},
 	}
+}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+// setupDataprocTest returns the tools file along with Dataproc cluster and job
+// clients used to compute expected results. The clients are closed on cleanup.
+func setupDataprocTest(t *testing.T, ctx context.Context) (map[string]any, *dataproc.ClusterControllerClient, *dataproc.JobControllerClient) {
+	t.Helper()
+	sourceConfig := getDataprocVars(t)
 
 	endpoint := fmt.Sprintf("%s-dataproc.googleapis.com:443", dataprocRegion)
 	clusterClient, err := dataproc.NewClusterControllerClient(ctx, option.WithEndpoint(endpoint))
 	if err != nil {
 		t.Fatalf("failed to create dataproc client: %v", err)
 	}
-	defer clusterClient.Close()
+	t.Cleanup(func() {
+		if err := clusterClient.Close(); err != nil {
+			t.Errorf("failed to close dataproc cluster client: %v", err)
+		}
+	})
 
 	jobClient, err := dataproc.NewJobControllerClient(ctx, option.WithEndpoint(endpoint))
 	if err != nil {
 		t.Fatalf("failed to create dataproc client: %v", err)
 	}
-	defer jobClient.Close()
+	t.Cleanup(func() {
+		if err := jobClient.Close(); err != nil {
+			t.Errorf("failed to close dataproc job client: %v", err)
+		}
+	})
 
+	return getDataprocToolsConfig(sourceConfig), clusterClient, jobClient
+}
+
+func TestDataprocClustersToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // Clusters take time
+	defer cancel()
+
+	toolsFile, clusterClient, jobClient := setupDataprocTest(t, ctx)
+
+	tr := dataprocTransport{}
+	tr.startServer(t, ctx, toolsFile)
+
+	runDataprocTests(t, ctx, tr, clusterClient, jobClient)
+}
+
+// runDataprocTests runs the cluster and job tool checks.
+func runDataprocTests(t *testing.T, ctx context.Context, tr dataprocTransport, clusterClient *dataproc.ClusterControllerClient, jobClient *dataproc.JobControllerClient) {
 	t.Run("get-cluster", func(t *testing.T) {
 		clusterName := listClustersRpc(t, clusterClient, ctx, "", 1)[0].Name
 		t.Run("success", func(t *testing.T) {
 			t.Parallel()
-			runGetClusterTest(t, clusterClient, ctx, clusterName)
+			runGetClusterTest(t, ctx, tr, clusterClient, clusterName)
 		})
 		t.Run("errors", func(t *testing.T) {
 			t.Parallel()
@@ -191,13 +206,13 @@ func TestDataprocClustersToolEndpoints(t *testing.T) {
 			for _, tc := range tcs {
 				t.Run(tc.name, func(t *testing.T) {
 					t.Parallel()
-					testError(t, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
+					testError(t, ctx, tr, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
 				})
 			}
 		})
 		t.Run("auth", func(t *testing.T) {
 			t.Parallel()
-			runAuthTest(t, "get-cluster-with-auth", map[string]any{"clusterName": shortName(clusterName)}, http.StatusOK)
+			runAuthTest(t, ctx, tr, "get-cluster-with-auth", map[string]any{"clusterName": shortName(clusterName)}, http.StatusOK)
 		})
 	})
 
@@ -205,7 +220,7 @@ func TestDataprocClustersToolEndpoints(t *testing.T) {
 		jobId := listJobsRpc(t, jobClient, ctx, "", 1)[0].ID
 		t.Run("success", func(t *testing.T) {
 			t.Parallel()
-			runGetJobTest(t, jobClient, ctx, jobId)
+			runGetJobTest(t, ctx, tr, jobClient, jobId)
 		})
 		t.Run("errors", func(t *testing.T) {
 			t.Parallel()
@@ -235,18 +250,18 @@ func TestDataprocClustersToolEndpoints(t *testing.T) {
 			for _, tc := range tcs {
 				t.Run(tc.name, func(t *testing.T) {
 					t.Parallel()
-					testError(t, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
+					testError(t, ctx, tr, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
 				})
 			}
 		})
 		t.Run("auth", func(t *testing.T) {
 			t.Parallel()
-			runAuthTest(t, "get-job-with-auth", map[string]any{"jobId": jobId}, http.StatusOK)
+			runAuthTest(t, ctx, tr, "get-job-with-auth", map[string]any{"jobId": jobId}, http.StatusOK)
 		})
 	})
 	t.Run("list-clusters", func(t *testing.T) {
 		t.Run("success", func(t *testing.T) {
-			runListClustersTest(t, clusterClient, ctx)
+			runListClustersTest(t, ctx, tr, clusterClient)
 		})
 		t.Run("errors", func(t *testing.T) {
 			t.Parallel()
@@ -275,19 +290,19 @@ func TestDataprocClustersToolEndpoints(t *testing.T) {
 			for _, tc := range tcs {
 				t.Run(tc.name, func(t *testing.T) {
 					t.Parallel()
-					testError(t, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
+					testError(t, ctx, tr, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
 				})
 			}
 		})
 		t.Run("auth", func(t *testing.T) {
 			t.Parallel()
-			runAuthTest(t, "list-clusters-with-auth", map[string]any{"pageSize": 1}, http.StatusOK)
+			runAuthTest(t, ctx, tr, "list-clusters-with-auth", map[string]any{"pageSize": 1}, http.StatusOK)
 		})
 	})
 
 	t.Run("list-jobs", func(t *testing.T) {
 		t.Run("success", func(t *testing.T) {
-			runListJobsTest(t, jobClient, ctx)
+			runListJobsTest(t, ctx, tr, jobClient)
 		})
 		t.Run("errors", func(t *testing.T) {
 			t.Parallel()
@@ -316,41 +331,135 @@ func TestDataprocClustersToolEndpoints(t *testing.T) {
 			for _, tc := range tcs {
 				t.Run(tc.name, func(t *testing.T) {
 					t.Parallel()
-					testError(t, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
+					testError(t, ctx, tr, tc.toolName, tc.request, tc.wantCode, tc.wantMsg)
 				})
 			}
 		})
 		t.Run("auth", func(t *testing.T) {
 			t.Parallel()
-			runAuthTest(t, "list-jobs-with-auth", map[string]any{
+			runAuthTest(t, ctx, tr, "list-jobs-with-auth", map[string]any{
 				"pageSize": 1,
 				"filter":   "clusterName = " + dataprocListJobsCluster,
 			}, http.StatusOK)
 		})
 	})
-
 }
 
-func invokeTool(toolName string, request map[string]any, headers map[string]string) (*http.Response, error) {
-	requestBytes, err := json.Marshal(request)
+// dataprocTransport selects how the tests talk to the toolbox server: the
+// legacy REST API, or the MCP endpoint when isMCP is set.
+type dataprocTransport struct {
+	isMCP bool
+}
+
+// dataprocResult is the outcome of a tool invocation. result holds the tool
+// result as the REST API returns it, and body the full response text used for
+// error message checks. toolErr is set when MCP reported an error result.
+type dataprocResult struct {
+	status  int
+	result  string
+	body    string
+	toolErr bool
+}
+
+// startServer starts the toolbox server with toolsFile and waits until it is
+// ready to serve. The REST API is only enabled for the non-MCP transport.
+func (tr dataprocTransport) startServer(t *testing.T, ctx context.Context, toolsFile map[string]any) {
+	t.Helper()
+	var args []string
+	if !tr.isMCP {
+		args = append(args, "--enable-api")
+	}
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+}
+
+// invoke calls toolName with request and headers through the selected
+// transport.
+func (tr dataprocTransport) invoke(t *testing.T, ctx context.Context, toolName string, request map[string]any, headers map[string]string) dataprocResult {
+	t.Helper()
+	if tr.isMCP {
+		statusCode, mcpResp, err := tests.InvokeMCPTool(t, toolName, request, headers)
+		if err != nil {
+			return dataprocResult{status: statusCode, body: err.Error(), toolErr: true}
+		}
+		if mcpResp.Error != nil {
+			return dataprocResult{status: statusCode, body: mcpResp.Error.Message, toolErr: true}
+		}
+		var text strings.Builder
+		for _, content := range mcpResp.Result.Content {
+			text.WriteString(content.Text)
+		}
+		if mcpResp.Result.IsError {
+			return dataprocResult{status: statusCode, body: text.String(), toolErr: true}
+		}
+		// Dataproc results are a single JSON document, which the MCP server sends
+		// as one text content block.
+		if len(mcpResp.Result.Content) != 1 {
+			t.Fatalf("%s returned %d content blocks, want 1: %v", toolName, len(mcpResp.Result.Content), mcpResp.Result.Content)
+		}
+		return dataprocResult{status: statusCode, result: text.String(), body: text.String()}
 	}
 
-	url := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(requestBytes))
+	requestBytes, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create request: %w", err)
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+	url := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(requestBytes))
+	if err != nil {
+		t.Fatalf("unable to create request: %v", err)
 	}
 	req.Header.Add("Content-type", "application/json")
 	for k, v := range headers {
 		req.Header.Add(k, v)
 	}
-
-	return http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("invokeTool failed: %v", err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
+	res := dataprocResult{status: resp.StatusCode, body: string(bodyBytes)}
+	if resp.StatusCode != http.StatusOK {
+		return res
+	}
+	var body map[string]any
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		t.Fatalf("error parsing response body %q: %v", string(bodyBytes), err)
+	}
+	res.result, _ = body["result"].(string)
+	return res
 }
 
-func runListClustersTest(t *testing.T, client *dataproc.ClusterControllerClient, ctx context.Context) {
+// invokeForResult invokes toolName, requires a successful result and returns it.
+func (tr dataprocTransport) invokeForResult(t *testing.T, ctx context.Context, toolName string, request map[string]any) string {
+	t.Helper()
+	res := tr.invoke(t, ctx, toolName, request, nil)
+	if res.status != http.StatusOK || res.toolErr {
+		t.Fatalf("response status code is not 200 (tool error: %v), got %d: %s", res.toolErr, res.status, res.body)
+	}
+	if res.result == "" {
+		t.Fatalf("unable to find result in response body: %s", res.body)
+	}
+	return res.result
+}
+
+func runListClustersTest(t *testing.T, ctx context.Context, tr dataprocTransport, client *dataproc.ClusterControllerClient) {
 	tcs := []struct {
 		name     string
 		filter   string
@@ -399,30 +508,11 @@ func runListClustersTest(t *testing.T, client *dataproc.ClusterControllerClient,
 					request["pageSize"] = tc.pageSize
 				}
 
-				resp, err := invokeTool("list-clusters", request, nil)
-				if err != nil {
-					t.Fatalf("invokeTool failed: %v", err)
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode != http.StatusOK {
-					bodyBytes, _ := io.ReadAll(resp.Body)
-					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-				}
-
-				var body map[string]any
-				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-					t.Fatalf("error parsing response body: %v", err)
-				}
-
-				result, ok := body["result"].(string)
-				if !ok {
-					t.Fatalf("unable to find result in response body")
-				}
+				result := tr.invokeForResult(t, ctx, "list-clusters", request)
 
 				var listResponse dataprocsrc.ListClustersResponse
 				if err := json.Unmarshal([]byte(result), &listResponse); err != nil {
-					t.Fatalf("error unmarshalling result: %s", err)
+					t.Fatalf("error unmarshalling result %q: %s", result, err)
 				}
 				actual = append(actual, listResponse.Clusters...)
 				pageToken = listResponse.NextPageToken
@@ -446,7 +536,7 @@ func runListClustersTest(t *testing.T, client *dataproc.ClusterControllerClient,
 	}
 }
 
-func runGetClusterTest(t *testing.T, client *dataproc.ClusterControllerClient, ctx context.Context, fullName string) {
+func runGetClusterTest(t *testing.T, ctx context.Context, tr dataprocTransport, client *dataproc.ClusterControllerClient, fullName string) {
 	// First get the cluster details directly from the Go proto API.
 	req := &dataprocpb.GetClusterRequest{
 		ProjectId:   dataprocProject,
@@ -486,28 +576,10 @@ func runGetClusterTest(t *testing.T, client *dataproc.ClusterControllerClient, c
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				request := map[string]any{"clusterName": tc.clusterName}
-				resp, err := invokeTool("get-cluster", request, nil)
-				if err != nil {
-					t.Fatalf("invokeTool failed: %v", err)
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode != http.StatusOK {
-					body, _ := io.ReadAll(resp.Body)
-					t.Fatalf("status code got %d, want 200. Body: %s", resp.StatusCode, body)
-				}
-
-				var body map[string]any
-				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-					t.Fatalf("error parsing response body: %v", err)
-				}
-				resultStr, ok := body["result"].(string)
-				if !ok {
-					t.Fatalf("result is not a string, got %T", body["result"])
-				}
+				resultStr := tr.invokeForResult(t, ctx, "get-cluster", request)
 				var wrappedResult map[string]any
 				if err := json.Unmarshal([]byte(resultStr), &wrappedResult); err != nil {
-					t.Fatalf("error unmarshalling result: %s", err)
+					t.Fatalf("error unmarshalling result %q: %s", resultStr, err)
 				}
 
 				consoleURL, ok := wrappedResult["consoleUrl"].(string)
@@ -560,7 +632,7 @@ func runGetClusterTest(t *testing.T, client *dataproc.ClusterControllerClient, c
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				testError(t, "get-cluster", tc.request, tc.wantCode, tc.wantMsg)
+				testError(t, ctx, tr, "get-cluster", tc.request, tc.wantCode, tc.wantMsg)
 			})
 		}
 	})
@@ -592,7 +664,7 @@ func listClustersRpc(t *testing.T, client *dataproc.ClusterControllerClient, ctx
 	return clusters
 }
 
-func runAuthTest(t *testing.T, toolName string, request map[string]any, wantStatus int) {
+func runAuthTest(t *testing.T, ctx context.Context, tr dataprocTransport, toolName string, request map[string]any, wantStatus int) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -621,42 +693,32 @@ func runAuthTest(t *testing.T, toolName string, request map[string]any, wantStat
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := invokeTool(toolName, request, tc.headers)
-			if err != nil {
-				t.Fatalf("invokeTool failed: %s", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != tc.wantCode {
-				body, _ := io.ReadAll(resp.Body)
-				t.Errorf("status code got %d, want %d. Body: %s", resp.StatusCode, tc.wantCode, body)
+			res := tr.invoke(t, ctx, toolName, request, tc.headers)
+			if res.status != tc.wantCode {
+				t.Errorf("status code got %d, want %d. Body: %s", res.status, tc.wantCode, res.body)
 			}
 		})
 	}
 }
 
-func testError(t *testing.T, toolName string, request map[string]any, wantCode int, wantMsg string) {
-	resp, err := invokeTool(toolName, request, nil)
-	if err != nil {
-		t.Fatalf("invokeTool failed: %v", err)
-	}
-	defer resp.Body.Close()
+// testError invokes toolName and checks that it is rejected with wantCode and
+// an error message containing wantMsg. Over MCP the rejection must also be an
+// error result.
+func testError(t *testing.T, ctx context.Context, tr dataprocTransport, toolName string, request map[string]any, wantCode int, wantMsg string) {
+	res := tr.invoke(t, ctx, toolName, request, nil)
 
-	if resp.StatusCode != wantCode {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		t.Fatalf("response status code is not %d, got %d: %s", wantCode, resp.StatusCode, string(bodyBytes))
+	if res.status != wantCode {
+		t.Fatalf("response status code is not %d, got %d: %s", wantCode, res.status, res.body)
 	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read response body: %v", err)
+	if tr.isMCP && !res.toolErr {
+		t.Fatalf("expected an error result, got: %s", res.body)
 	}
-
-	if !bytes.Contains(bodyBytes, []byte(wantMsg)) {
-		t.Fatalf("response body does not contain %q: %s", wantMsg, string(bodyBytes))
+	if !strings.Contains(res.body, wantMsg) {
+		t.Fatalf("response body does not contain %q: %s", wantMsg, res.body)
 	}
 }
 
-func runListJobsTest(t *testing.T, client *dataproc.JobControllerClient, ctx context.Context) {
+func runListJobsTest(t *testing.T, ctx context.Context, tr dataprocTransport, client *dataproc.JobControllerClient) {
 	tcs := []struct {
 		name     string
 		filter   string
@@ -709,30 +771,11 @@ func runListJobsTest(t *testing.T, client *dataproc.JobControllerClient, ctx con
 					request["pageSize"] = tc.pageSize
 				}
 
-				resp, err := invokeTool("list-jobs", request, nil)
-				if err != nil {
-					t.Fatalf("invokeTool failed: %v", err)
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode != http.StatusOK {
-					bodyBytes, _ := io.ReadAll(resp.Body)
-					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-				}
-
-				var body map[string]any
-				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-					t.Fatalf("error parsing response body: %v", err)
-				}
-
-				result, ok := body["result"].(string)
-				if !ok {
-					t.Fatalf("unable to find result in response body")
-				}
+				result := tr.invokeForResult(t, ctx, "list-jobs", request)
 
 				var listResponse dataprocsrc.ListJobsResponse
 				if err := json.Unmarshal([]byte(result), &listResponse); err != nil {
-					t.Fatalf("error unmarshalling result: %s", err)
+					t.Fatalf("error unmarshalling result %q: %s", result, err)
 				}
 				actual = append(actual, listResponse.Jobs...)
 				pageToken = listResponse.NextPageToken
@@ -756,7 +799,7 @@ func runListJobsTest(t *testing.T, client *dataproc.JobControllerClient, ctx con
 	}
 }
 
-func runGetJobTest(t *testing.T, client *dataproc.JobControllerClient, ctx context.Context, jobId string) {
+func runGetJobTest(t *testing.T, ctx context.Context, tr dataprocTransport, client *dataproc.JobControllerClient, jobId string) {
 	// First get the job details directly from the Go proto API.
 	req := &dataprocpb.GetJobRequest{
 		ProjectId: dataprocProject,
@@ -794,28 +837,10 @@ func runGetJobTest(t *testing.T, client *dataproc.JobControllerClient, ctx conte
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				request := map[string]any{"jobId": tc.jobId}
-				resp, err := invokeTool("get-job", request, nil)
-				if err != nil {
-					t.Fatalf("invokeTool failed: %v", err)
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode != http.StatusOK {
-					body, _ := io.ReadAll(resp.Body)
-					t.Fatalf("status code got %d, want 200. Body: %s", resp.StatusCode, body)
-				}
-
-				var body map[string]any
-				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-					t.Fatalf("error parsing response body: %v", err)
-				}
-				resultStr, ok := body["result"].(string)
-				if !ok {
-					t.Fatalf("result is not a string, got %T", body["result"])
-				}
+				resultStr := tr.invokeForResult(t, ctx, "get-job", request)
 				var wrappedResult map[string]any
 				if err := json.Unmarshal([]byte(resultStr), &wrappedResult); err != nil {
-					t.Fatalf("error unmarshalling result: %s", err)
+					t.Fatalf("error unmarshalling result %q: %s", resultStr, err)
 				}
 
 				consoleURL, ok := wrappedResult["consoleUrl"].(string)
@@ -868,7 +893,7 @@ func runGetJobTest(t *testing.T, client *dataproc.JobControllerClient, ctx conte
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				testError(t, "get-job", tc.request, tc.wantCode, tc.wantMsg)
+				testError(t, ctx, tr, "get-job", tc.request, tc.wantCode, tc.wantMsg)
 			})
 		}
 	})
