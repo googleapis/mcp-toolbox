@@ -1473,6 +1473,30 @@ func runFirestoreQueryTest(t *testing.T, collectionName string) {
 			wantRegex: `^\[\]$`, // Empty array
 			isErr:     false,
 		},
+		{
+			// Invalid collection paths are agent errors, so they surface as a
+			// 200 response whose result carries the validation message.
+			name: "absolute collection path is rejected",
+			api:  "http://127.0.0.1:5000/api/tool/firestore-query-param/invoke",
+			requestBody: bytes.NewBuffer([]byte(`{
+				"collection": "projects/my-project/databases/(default)/documents/users",
+				"operator": "==",
+				"ageValue": "30"
+			}`)),
+			wantRegex: `"error":"invalid collection path.*path must be relative`,
+			isErr:     false,
+		},
+		{
+			name: "document path is rejected as collection path",
+			api:  "http://127.0.0.1:5000/api/tool/firestore-query-param/invoke",
+			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(`{
+				"collection": "%s/doc_1",
+				"operator": "==",
+				"ageValue": "30"
+			}`, collectionName))),
+			wantRegex: `"error":"invalid collection path.*must have an odd number of segments`,
+			isErr:     false,
+		},
 	}
 
 	for _, tc := range invokeTcs {
