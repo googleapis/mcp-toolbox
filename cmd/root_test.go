@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/googleapis/mcp-toolbox/cmd/internal"
 	"github.com/googleapis/mcp-toolbox/internal/log"
@@ -1263,5 +1265,89 @@ func TestBigtablePrebuiltCLI(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestShutdownTelemetryContextSurvivesCanceledParent(t *testing.T) {
+	type ctxKey struct{}
+	parent, cancelParent := context.WithCancel(context.WithValue(context.Background(), ctxKey{}, "logger"))
+	cancelParent()
+
+	ctx, cancel := shutdownTelemetryContext(parent)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("shutdown context is already done, the exporters would give up right away: %v", err)
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("shutdown context has no deadline, a stuck exporter could hang shutdown forever")
+	}
+	if remaining := time.Until(deadline); remaining <= 0 || remaining > telemetryShutdownTimeout {
+		t.Fatalf("shutdown deadline %v is outside (0, %v]", remaining, telemetryShutdownTimeout)
+	}
+	if got := ctx.Value(ctxKey{}); got != "logger" {
+		t.Fatalf("context values were dropped, got %v", got)
+	}
+}
+
+type countingMetricExporter struct {
+	mu      sync.Mutex
+	exports int
+}
+
+func (e *countingMetricExporter) Temporality(metric.InstrumentKind) metricdata.Temporality {
+	return metricdata.CumulativeTemporality
+}
+
+func (e *countingMetricExporter) Aggregation(metric.InstrumentKind) metric.Aggregation {
+	return metric.AggregationDefault{}
+}
+
+func (e *countingMetricExporter) Export(context.Context, *metricdata.ResourceMetrics) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.exports++
+	return nil
+}
+
+func (e *countingMetricExporter) ForceFlush(context.Context) error { return nil }
+
+func (e *countingMetricExporter) Shutdown(context.Context) error { return nil }
+
+func (e *countingMetricExporter) count() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.exports
+}
+
+// On SIGTERM the signal handler cancels the run context before the deferred
+// telemetry shutdown runs. Handing that already-cancelled context to the
+// providers makes the SDK skip the final collection, so the last batch of
+// metrics never reaches the exporter.
+func TestTelemetryShutdownExportsFinalCollection(t *testing.T) {
+	exporter := &countingMetricExporter{}
+	provider := metric.NewMeterProvider(
+		metric.WithReader(metric.NewPeriodicReader(exporter, metric.WithInterval(time.Hour))),
+	)
+
+	counter, err := provider.Meter("test").Int64Counter("test.counter")
+	if err != nil {
+		t.Fatalf("failed to create counter: %v", err)
+	}
+	counter.Add(context.Background(), 1)
+
+	// The signal handler has already cancelled the run context by this point.
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	cancelRun()
+
+	shutdownCtx, cancelShutdown := shutdownTelemetryContext(runCtx)
+	defer cancelShutdown()
+
+	if err := provider.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("meter provider shutdown failed: %v", err)
+	}
+	if got := exporter.count(); got != 1 {
+		t.Fatalf("want the final collection exported exactly once, exporter called %d times", got)
 	}
 }
