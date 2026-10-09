@@ -4372,7 +4372,12 @@ func RunMySQLListAllLocks(t *testing.T, ctx context.Context, pool *sql.DB, datab
 }
 
 // RunMSSQLListTablesTest run tests againsts the mssql-list-tables tools.
-func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) {
+func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	// TableNameParam columns to construct want.
 	const paramTableColumns = `[
         {"column_name": "id", "data_type": "INT", "column_ordinal_position": 1, "is_not_nullable": true},
@@ -4417,8 +4422,7 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) 
 
 	invokeTcs := []struct {
 		name           string
-		api            string
-		requestBody    string
+		args           map[string]any
 		wantStatusCode int
 		want           string
 		isAllTables    bool
@@ -4426,81 +4430,90 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) 
 	}{
 		{
 			name:           "invoke list_tables for all tables detailed output",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    `{"table_names": ""}`,
+			args:           map[string]any{"table_names": ""},
 			wantStatusCode: http.StatusOK,
 			want:           fmt.Sprintf("[%s,%s]", getDetailedWant(tableNameAuth, authTableColumns), getDetailedWant(tableNameParam, paramTableColumns)),
 			isAllTables:    true,
 		},
 		{
 			name:           "invoke list_tables for all tables simple output",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    `{"table_names": "", "output_format": "simple"}`,
+			args:           map[string]any{"table_names": "", "output_format": "simple"},
 			wantStatusCode: http.StatusOK,
 			want:           fmt.Sprintf("[%s,%s]", getSimpleWant(tableNameAuth), getSimpleWant(tableNameParam)),
 			isAllTables:    true,
 		},
 		{
 			name:           "invoke list_tables detailed output",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    fmt.Sprintf(`{"table_names": "%s"}`, tableNameAuth),
+			args:           map[string]any{"table_names": tableNameAuth},
 			wantStatusCode: http.StatusOK,
 			want:           fmt.Sprintf("[%s]", getDetailedWant(tableNameAuth, authTableColumns)),
 		},
 		{
 			name:           "invoke list_tables simple output",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    fmt.Sprintf(`{"table_names": "%s", "output_format": "simple"}`, tableNameAuth),
+			args:           map[string]any{"table_names": tableNameAuth, "output_format": "simple"},
 			wantStatusCode: http.StatusOK,
 			want:           fmt.Sprintf("[%s]", getSimpleWant(tableNameAuth)),
 		},
 		{
 			name:           "invoke list_tables with invalid output format",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    `{"table_names": "", "output_format": "abcd"}`,
+			args:           map[string]any{"table_names": "", "output_format": "abcd"},
 			wantStatusCode: http.StatusOK,
 			isAgentErr:     true,
 		},
 		{
 			name:           "invoke list_tables with malformed table_names parameter",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    `{"table_names": 12345, "output_format": "detailed"}`,
+			args:           map[string]any{"table_names": 12345, "output_format": "detailed"},
 			wantStatusCode: http.StatusOK,
 			isAgentErr:     true,
 		},
 		{
 			name:           "invoke list_tables with multiple table names",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    fmt.Sprintf(`{"table_names": "%s,%s"}`, tableNameParam, tableNameAuth),
+			args:           map[string]any{"table_names": fmt.Sprintf("%s,%s", tableNameParam, tableNameAuth)},
 			wantStatusCode: http.StatusOK,
 			want:           fmt.Sprintf("[%s,%s]", getDetailedWant(tableNameAuth, authTableColumns), getDetailedWant(tableNameParam, paramTableColumns)),
 		},
 		{
 			name:           "invoke list_tables with non-existent table",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    `{"table_names": "non_existent_table"}`,
+			args:           map[string]any{"table_names": "non_existent_table"},
 			wantStatusCode: http.StatusOK,
 			want:           `[]`,
 		},
 		{
 			name:           "invoke list_tables with one existing and one non-existent table",
-			api:            "http://127.0.0.1:5000/api/tool/list_tables/invoke",
-			requestBody:    fmt.Sprintf(`{"table_names": "%s,non_existent_table"}`, tableNameParam),
+			args:           map[string]any{"table_names": tableNameParam + ",non_existent_table"},
 			wantStatusCode: http.StatusOK,
 			want:           fmt.Sprintf("[%s]", getDetailedWant(tableNameParam, paramTableColumns)),
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, respBytes := RunRequest(t, http.MethodPost, tc.api, bytes.NewBuffer([]byte(tc.requestBody)), nil)
+			var resultString string
 
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code is not %d, got %d: %s", tc.wantStatusCode, resp.StatusCode, string(respBytes))
-			}
+			if config.isMCP {
+				statusCode, mcpResp, err := InvokeMCPTool(t, "list_tables", tc.args, nil)
+				if statusCode != tc.wantStatusCode {
+					t.Fatalf("response status code is not %d, got %d: %v", tc.wantStatusCode, statusCode, err)
+				}
+				if tc.isAgentErr {
+					return
+				}
+				gotObj := getMCPResultText(t, mcpResp)
+				if len(gotObj) == 0 {
+					resultString = "null"
+				} else {
+					gotBytes, _ := json.Marshal(gotObj)
+					resultString = string(gotBytes)
+				}
+			} else {
+				const api = "http://127.0.0.1:5000/api/tool/list_tables/invoke"
+				reqBytes, _ := json.Marshal(tc.args)
+				resp, respBytes := RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
 
-			if tc.wantStatusCode == http.StatusOK {
+				if resp.StatusCode != tc.wantStatusCode {
+					t.Fatalf("response status code is not %d, got %d: %s", tc.wantStatusCode, resp.StatusCode, string(respBytes))
+				}
+
 				var bodyWrapper map[string]json.RawMessage
-
 				if err := json.Unmarshal(respBytes, &bodyWrapper); err != nil {
 					t.Fatalf("error parsing response wrapper: %s, body: %s", err, string(respBytes))
 				}
@@ -4509,8 +4522,6 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) 
 				if !ok {
 					t.Fatal("unable to find 'result' in response body")
 				}
-
-				var resultString string
 
 				if tc.isAgentErr {
 					return
@@ -4523,7 +4534,9 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) 
 						t.Fatalf("'result' is not a JSON-encoded string: %s", err)
 					}
 				}
+			}
 
+			if tc.wantStatusCode == http.StatusOK {
 				var got, want []any
 
 				if err := json.Unmarshal([]byte(resultString), &got); err != nil {
