@@ -103,7 +103,11 @@ func toolGetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		err = fmt.Errorf("invalid tool name: tool with name %q does not exist", toolName)
+		// The /api routes carry no group scope, so there is no set of names here
+		// that is known to be disclosable: the server may be configured to
+		// withhold tools that nonetheless exist in the registry. Suggestions are
+		// therefore an MCP-only affordance, where the request's group bounds them.
+		err = tools.UnknownToolError(toolName, nil, tools.SuggestionsOff)
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return
@@ -156,7 +160,11 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	tool, ok := s.PrimitiveMgr.GetTool(toolName)
 	if !ok {
-		err = fmt.Errorf("invalid tool name: tool with name %q does not exist", toolName)
+		// The /api routes carry no group scope, so there is no set of names here
+		// that is known to be disclosable: the server may be configured to
+		// withhold tools that nonetheless exist in the registry. Suggestions are
+		// therefore an MCP-only affordance, where the request's group bounds them.
+		err = tools.UnknownToolError(toolName, nil, tools.SuggestionsOff)
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return
