@@ -148,4 +148,5 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 
 	// Run specific MSSQL tool tests
 	tests.RunMSSQLListTablesTest(t, tableNameParam, tableNameAuth)
+	tests.RunMSSQLListIndexesTest(t, tableNameParam)
 }
