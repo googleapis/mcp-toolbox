@@ -24,6 +24,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,36 +201,37 @@ func getFirestoreMongodbToolsConfig(sourceConfig map[string]any) map[string]any 
 	}
 }
 
-func runFirestoreMongodbGetSchemaTest(t *testing.T, collectionName string) {
+func runFirestoreMongodbGetSchemaTest(t *testing.T, collectionName string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
-		name        string
-		api         string
-		requestBody io.Reader
-		wantRegex   string
-		isErr       bool
+		name      string
+		toolName  string
+		args      map[string]any
+		wantRegex string
+		isErr     bool
 	}{
 		{
-			name: "get schema for specific collection",
-			api:  "http://127.0.0.1:5000/api/tool/firestore-mongodb-get-schema/invoke",
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(`{
-				"collection": "%s"
-			}`, collectionName))),
+			name:      "get schema for specific collection",
+			toolName:  "firestore-mongodb-get-schema",
+			args:      map[string]any{"collection": collectionName},
 			wantRegex: fmt.Sprintf(`"collection":"%s"`, collectionName),
 			isErr:     false,
 		},
 		{
-			name:        "get schema for all root collections",
-			api:         "http://127.0.0.1:5000/api/tool/firestore-mongodb-get-schema/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{}`)),
-			wantRegex:   `.*`,
-			isErr:       false,
+			name:      "get schema for all root collections",
+			toolName:  "firestore-mongodb-get-schema",
+			args:      map[string]any{},
+			wantRegex: `.*`,
+			isErr:     false,
 		},
 		{
-			name: "get schema for non-existent collection",
-			api:  "http://127.0.0.1:5000/api/tool/firestore-mongodb-get-schema/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{
-				"collection": "non_existent_collection_xyz"
-			}`)),
+			name:      "get schema for non-existent collection",
+			toolName:  "firestore-mongodb-get-schema",
+			args:      map[string]any{"collection": "non_existent_collection_xyz"},
 			wantRegex: `.*`,
 			isErr:     false,
 		},
@@ -237,35 +239,75 @@ func runFirestoreMongodbGetSchemaTest(t *testing.T, collectionName string) {
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
+			var got string
 
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
+			if config.IsMCP() {
+				statusCode, mcpResp, err := tests.InvokeMCPTool(t, tc.toolName, tc.args, nil)
+				if err != nil {
+					// InvokeMCPTool only returns an error when a non-200
+					// response body could not be parsed as JSON-RPC, which is
+					// one of the shapes an expected failure can take.
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("unable to send request: %s", err)
 				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
+				if statusCode != http.StatusOK {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("response status code is not 200, got %d", statusCode)
+				}
+				if mcpResp.Result.IsError || mcpResp.Error != nil {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("%s returned an error result: %v", tc.toolName, mcpResp.Result)
+				}
+				if tc.isErr {
+					t.Fatalf("expected %s to fail, but it succeeded", tc.toolName)
+				}
+				var sb strings.Builder
+				for _, content := range mcpResp.Result.Content {
+					sb.WriteString(content.Text)
+				}
+				got = sb.String()
+			} else {
+				api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("unable to marshal args: %s", err)
+				}
+				req, err := http.NewRequest(http.MethodPost, api, bytes.NewBuffer(reqBytes))
+				if err != nil {
+					t.Fatalf("unable to create request: %s", err)
+				}
+				req.Header.Add("Content-type", "application/json")
 
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body: %v", err)
-			}
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatalf("unable to send request: %s", err)
+				}
+				defer resp.Body.Close()
 
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
+				if resp.StatusCode != http.StatusOK {
+					if tc.isErr {
+						return
+					}
+					bodyBytes, _ := io.ReadAll(resp.Body)
+					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+				}
+
+				var body map[string]interface{}
+				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+					t.Fatalf("error parsing response body: %v", err)
+				}
+
+				result, ok := body["result"].(string)
+				if !ok {
+					t.Fatalf("unable to find result in response body")
+				}
+				got = result
 			}
 
 			if tc.wantRegex != "" {
@@ -281,77 +323,118 @@ func runFirestoreMongodbGetSchemaTest(t *testing.T, collectionName string) {
 	}
 }
 
-func runFirestoreMongodbExecuteMQLTest(t *testing.T, collectionName string) {
+func runFirestoreMongodbExecuteMQLTest(t *testing.T, collectionName string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
-		name        string
-		api         string
-		requestBody io.Reader
-		wantRegex   string
-		isErr       bool
+		name      string
+		toolName  string
+		args      map[string]any
+		wantRegex string
+		isErr     bool
 	}{
 		{
-			name: "execute MQL structured pipeline get_schema stage",
-			api:  "http://127.0.0.1:5000/api/tool/firestore-mongodb-execute-mql/invoke",
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(`{
-				"query": "{\"structuredPipeline\": {\"pipeline\": {\"stages\": [{\"name\": \"get_schema\", \"args\": [{\"stringValue\": \"{\\\"collection\\\": \\\"%s\\\", \\\"semantics\\\": \\\"mongodb\\\"}\"}]}]}}}"
-			}`, collectionName))),
+			name:      "execute MQL structured pipeline get_schema stage",
+			toolName:  "firestore-mongodb-execute-mql",
+			args:      map[string]any{"query": fmt.Sprintf(`{"structuredPipeline": {"pipeline": {"stages": [{"name": "get_schema", "args": [{"stringValue": "{\"collection\": \"%s\", \"semantics\": \"mongodb\"}"}]}]}}}`, collectionName)},
 			wantRegex: `.*`,
 			isErr:     false,
 		},
 		{
-			name: "execute MQL find query",
-			api:  "http://127.0.0.1:5000/api/tool/firestore-mongodb-execute-mql/invoke",
-			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(`{
-				"query": "%s.find({})"
-			}`, collectionName))),
+			name:      "execute MQL find query",
+			toolName:  "firestore-mongodb-execute-mql",
+			args:      map[string]any{"query": fmt.Sprintf("%s.find({})", collectionName)},
 			wantRegex: `.*`,
 			isErr:     false,
 		},
 		{
-			name:        "execute MQL with empty query",
-			api:         "http://127.0.0.1:5000/api/tool/firestore-mongodb-execute-mql/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"query": ""}`)),
-			isErr:       true,
+			name:     "execute MQL with empty query",
+			toolName: "firestore-mongodb-execute-mql",
+			args:     map[string]any{"query": ""},
+			isErr:    true,
 		},
 		{
-			name:        "missing query parameter",
-			api:         "http://127.0.0.1:5000/api/tool/firestore-mongodb-execute-mql/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{}`)),
-			isErr:       true,
+			name:     "missing query parameter",
+			toolName: "firestore-mongodb-execute-mql",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
+			var got string
 
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
+			if config.IsMCP() {
+				statusCode, mcpResp, err := tests.InvokeMCPTool(t, tc.toolName, tc.args, nil)
+				if err != nil {
+					// InvokeMCPTool only returns an error when a non-200
+					// response body could not be parsed as JSON-RPC, which is
+					// one of the shapes an expected failure can take.
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("unable to send request: %s", err)
 				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
+				if statusCode != http.StatusOK {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("response status code is not 200, got %d", statusCode)
+				}
+				if mcpResp.Result.IsError || mcpResp.Error != nil {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("%s returned an error result: %v", tc.toolName, mcpResp.Result)
+				}
+				if tc.isErr {
+					t.Fatalf("expected %s to fail, but it succeeded", tc.toolName)
+				}
+				var sb strings.Builder
+				for _, content := range mcpResp.Result.Content {
+					sb.WriteString(content.Text)
+				}
+				got = sb.String()
+			} else {
+				api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("unable to marshal args: %s", err)
+				}
+				req, err := http.NewRequest(http.MethodPost, api, bytes.NewBuffer(reqBytes))
+				if err != nil {
+					t.Fatalf("unable to create request: %s", err)
+				}
+				req.Header.Add("Content-type", "application/json")
 
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body: %v", err)
-			}
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatalf("unable to send request: %s", err)
+				}
+				defer resp.Body.Close()
 
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
+				if resp.StatusCode != http.StatusOK {
+					if tc.isErr {
+						return
+					}
+					bodyBytes, _ := io.ReadAll(resp.Body)
+					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+				}
+
+				var body map[string]interface{}
+				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+					t.Fatalf("error parsing response body: %v", err)
+				}
+
+				result, ok := body["result"].(string)
+				if !ok {
+					t.Fatalf("unable to find result in response body")
+				}
+				got = result
 			}
 
 			if tc.wantRegex != "" {
