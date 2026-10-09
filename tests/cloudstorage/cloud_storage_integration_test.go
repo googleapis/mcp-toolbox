@@ -55,6 +55,10 @@ const (
 	largeObjectSize = (8 << 20) + 1024
 )
 
+// cloudStorageCleanupTimeout bounds bucket cleanup, which runs on a context
+// detached from the (possibly cancelled) test context.
+const cloudStorageCleanupTimeout = 2 * time.Minute
+
 func getCloudStorageVars(t *testing.T) map[string]any {
 	if CloudStorageProject == "" {
 		t.Fatal("'CLOUD_STORAGE_PROJECT' not set")
@@ -65,32 +69,62 @@ func getCloudStorageVars(t *testing.T) map[string]any {
 	}
 }
 
-func TestCloudStorageToolEndpoints(t *testing.T) {
+// cloudStorageTestEnv holds the resources shared by a test run.
+type cloudStorageTestEnv struct {
+	client                *storage.Client
+	bucket                string
+	configuredDownloadDir string
+	toolsFile             map[string]any
+}
+
+// setupCloudStorageTest creates the client and the seeded test bucket and
+// returns them with the tools file. The bucket is deleted and the client
+// closed on cleanup.
+func setupCloudStorageTest(t *testing.T, ctx context.Context) cloudStorageTestEnv {
+	t.Helper()
 	sourceConfig := getCloudStorageVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		t.Fatalf("unable to create Cloud Storage client: %s", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Logf("failed to close Cloud Storage client: %v", err)
+		}
+	})
 
 	// Bucket names must be globally unique and match [a-z0-9_.-]{3,63}.
 	bucketName := "toolbox-it-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:20]
 	t.Logf("Using test bucket %q", bucketName)
 
-	teardown := setupCloudStorageTestData(t, ctx, client, CloudStorageProject, bucketName)
-	defer teardown(t)
+	setupCloudStorageTestData(t, ctx, client, CloudStorageProject, bucketName)
 
 	configuredDownloadDir := t.TempDir()
-	toolsFile := getCloudStorageToolsConfig(sourceConfig, bucketName, configuredDownloadDir)
+	return cloudStorageTestEnv{
+		client:                client,
+		bucket:                bucketName,
+		configuredDownloadDir: configuredDownloadDir,
+		toolsFile:             getCloudStorageToolsConfig(sourceConfig, bucketName, configuredDownloadDir),
+	}
+}
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, "--enable-api")
+type cloudStorageTransport struct {
+	isMCP bool
+}
+
+func (tr cloudStorageTransport) startServer(t *testing.T, ctx context.Context, toolsFile map[string]any) {
+	t.Helper()
+	var args []string
+	if !tr.isMCP {
+		args = append(args, "--enable-api")
+	}
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer waitCancel()
@@ -99,6 +133,86 @@ func TestCloudStorageToolEndpoints(t *testing.T) {
 		t.Logf("toolbox command logs: \n%s", out)
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
+}
+
+// invokeTool calls a tool and returns its result text and the HTTP status.
+// Over REST this is the `result` string, which carries agent errors as an
+// `{"error": ...}` payload; on non-200 responses the full body is returned
+// instead. Over MCP it is the text of the result (an isError result carries
+// the error message), or the message of a JSON-RPC error.
+func (tr cloudStorageTransport) invokeTool(t *testing.T, ctx context.Context, toolName string, args map[string]any) (string, int) {
+	t.Helper()
+	url := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+	var reqBody any = args
+	headers := map[string]string{"Content-Type": "application/json"}
+	if tr.isMCP {
+		url = "http://127.0.0.1:5000/mcp"
+		reqBody = tests.NewMCPCallToolRequest(uuid.New().String(), toolName, args)
+		headers = tests.NewMCPRequestHeader(t, nil)
+	}
+
+	reqBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("unable to marshal request body: %s", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBytes))
+	if err != nil {
+		t.Fatalf("unable to create request: %s", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("unable to send request: %s", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("unable to read response body: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return string(bodyBytes), resp.StatusCode
+	}
+
+	if !tr.isMCP {
+		var body map[string]any
+		if err := json.Unmarshal(bodyBytes, &body); err != nil {
+			t.Fatalf("failed to parse response JSON: %s (body=%s)", err, string(bodyBytes))
+		}
+		result, _ := body["result"].(string)
+		return result, resp.StatusCode
+	}
+
+	var mcpResp tests.MCPCallToolResponse
+	if err := json.Unmarshal(bodyBytes, &mcpResp); err != nil {
+		t.Fatalf("failed to parse MCP response JSON: %s (body=%s)", err, string(bodyBytes))
+	}
+	if mcpResp.Error != nil {
+		return mcpResp.Error.Message, resp.StatusCode
+	}
+	texts := make([]string, 0, len(mcpResp.Result.Content))
+	for _, content := range mcpResp.Result.Content {
+		texts = append(texts, content.Text)
+	}
+	if mcpResp.Result.IsError || len(texts) == 1 {
+		return strings.Join(texts, ""), resp.StatusCode
+	}
+	// Results split into one content block per element are joined back
+	// into a JSON array so they match the REST result.
+	return "[" + strings.Join(texts, ",") + "]", resp.StatusCode
+}
+
+func TestCloudStorageToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	env := setupCloudStorageTest(t, ctx)
+
+	tr := cloudStorageTransport{}
+	tr.startServer(t, ctx, env.toolsFile)
 
 	tests.RunToolGetTestByName(t, "my_list_objects",
 		map[string]any{
@@ -836,23 +950,29 @@ func TestCloudStorageToolEndpoints(t *testing.T) {
 		},
 	)
 
-	runCloudStorageListObjectsTest(t, bucketName)
-	runCloudStorageReadObjectTest(t, bucketName)
-	runCloudStorageListBucketsTest(t, bucketName)
-	runCloudStorageGetObjectMetadataTest(t, bucketName)
-	runCloudStorageConfiguredParamsTest(ctx, t, client, bucketName, configuredDownloadDir)
+	runCloudStorageTests(ctx, t, tr, env)
+}
+
+// runCloudStorageTests runs the Cloud Storage tool invocation checks.
+func runCloudStorageTests(ctx context.Context, t *testing.T, tr cloudStorageTransport, env cloudStorageTestEnv) {
+	client, bucketName := env.client, env.bucket
+	runCloudStorageListObjectsTest(ctx, t, tr, bucketName)
+	runCloudStorageReadObjectTest(ctx, t, tr, bucketName)
+	runCloudStorageListBucketsTest(ctx, t, tr, bucketName)
+	runCloudStorageGetObjectMetadataTest(ctx, t, tr, bucketName)
+	runCloudStorageConfiguredParamsTest(ctx, t, tr, client, bucketName, env.configuredDownloadDir)
 	bucketToolName := "toolbox-it-bucket-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:17]
-	defer cleanupGCSBucket(ctx, t, client, bucketToolName)
-	runCloudStorageCreateBucketTest(ctx, t, client, bucketToolName)
-	runCloudStorageGetBucketMetadataTest(t, bucketToolName)
-	runCloudStorageGetBucketIAMPolicyTest(t, bucketToolName)
-	runCloudStorageDeleteBucketTest(ctx, t, client, bucketToolName)
-	runCloudStorageDownloadObjectTest(t, bucketName)
-	runCloudStorageUploadObjectTest(ctx, t, client, bucketName)
-	runCloudStorageWriteObjectTest(ctx, t, client, bucketName)
-	runCloudStorageCopyObjectTest(ctx, t, client, bucketName)
-	runCloudStorageMoveObjectTest(ctx, t, client, bucketName)
-	runCloudStorageDeleteObjectTest(ctx, t, client, bucketName)
+	t.Cleanup(func() { cleanupGCSBucket(ctx, t, client, bucketToolName) })
+	runCloudStorageCreateBucketTest(ctx, t, tr, client, bucketToolName)
+	runCloudStorageGetBucketMetadataTest(ctx, t, tr, bucketToolName)
+	runCloudStorageGetBucketIAMPolicyTest(ctx, t, tr, bucketToolName)
+	runCloudStorageDeleteBucketTest(ctx, t, tr, client, bucketToolName)
+	runCloudStorageDownloadObjectTest(ctx, t, tr, bucketName)
+	runCloudStorageUploadObjectTest(ctx, t, tr, client, bucketName)
+	runCloudStorageWriteObjectTest(ctx, t, tr, client, bucketName)
+	runCloudStorageCopyObjectTest(ctx, t, tr, client, bucketName)
+	runCloudStorageMoveObjectTest(ctx, t, tr, client, bucketName)
+	runCloudStorageDeleteObjectTest(ctx, t, tr, client, bucketName)
 }
 
 func getCloudStorageToolsConfig(sourceConfig map[string]any, bucketName, configuredDownloadDir string) map[string]any {
@@ -1024,158 +1144,85 @@ func getCloudStorageToolsConfig(sourceConfig map[string]any, bucketName, configu
 	}
 }
 
-func setupCloudStorageTestData(t *testing.T, ctx context.Context, client *storage.Client, project, bucket string) func(*testing.T) {
-	bkt := client.Bucket(bucket)
-	if err := bkt.Create(ctx, project, &storage.BucketAttrs{Location: "US"}); err != nil {
+// setupCloudStorageTestData creates the test bucket and seeds its objects. The
+// cleanup that empties and deletes the bucket is registered first, so a
+// partially seeded bucket is still removed.
+func setupCloudStorageTestData(t *testing.T, ctx context.Context, client *storage.Client, project, bucket string) {
+	t.Helper()
+	t.Cleanup(func() { cleanupGCSBucket(ctx, t, client, bucket) })
+
+	if err := client.Bucket(bucket).Create(ctx, project, &storage.BucketAttrs{Location: "US"}); err != nil {
 		t.Fatalf("failed to create bucket %q: %v", bucket, err)
 	}
 
-	writeSeed := func(name, contentType, body string) {
-		w := bkt.Object(name).NewWriter(ctx)
-		w.ContentType = contentType
-		if _, err := io.WriteString(w, body); err != nil {
-			_ = w.Close()
-			t.Fatalf("failed to write seed object %q: %v", name, err)
-		}
-		if err := w.Close(); err != nil {
-			t.Fatalf("failed to close writer for seed object %q: %v", name, err)
-		}
+	seeds := []struct {
+		name, contentType, body string
+	}{
+		{helloObject, "text/plain", helloBody},
+		{jsonObject, "application/json", jsonBody},
+		{downloadObject, "text/plain", downloadBody},
+		// An oversize object to exercise the read-size cap.
+		{largeObject, "application/octet-stream", strings.Repeat("A", largeObjectSize)},
+		// A small binary (non-UTF-8) object to exercise the ErrBinaryContent
+		// path on read_object.
+		{binaryObject, "application/octet-stream", string([]byte{0xff, 0xfe, 0xfd, 0xfc})},
 	}
-
-	writeSeed(helloObject, "text/plain", helloBody)
-	writeSeed(jsonObject, "application/json", jsonBody)
-	writeSeed(downloadObject, "text/plain", downloadBody)
-
-	// Seed an oversize object to exercise the read-size cap.
-	large := bytes.Repeat([]byte{'A'}, largeObjectSize)
-	lw := bkt.Object(largeObject).NewWriter(ctx)
-	lw.ContentType = "application/octet-stream"
-	if _, err := lw.Write(large); err != nil {
-		_ = lw.Close()
-		t.Fatalf("failed to write seed object %q: %v", largeObject, err)
-	}
-	if err := lw.Close(); err != nil {
-		t.Fatalf("failed to close writer for seed object %q: %v", largeObject, err)
-	}
-
-	// Seed a small binary (non-UTF-8) object to exercise the
-	// ErrBinaryContent path on read_object.
-	binary := []byte{0xff, 0xfe, 0xfd, 0xfc}
-	bw := bkt.Object(binaryObject).NewWriter(ctx)
-	bw.ContentType = "application/octet-stream"
-	if _, err := bw.Write(binary); err != nil {
-		_ = bw.Close()
-		t.Fatalf("failed to write seed object %q: %v", binaryObject, err)
-	}
-	if err := bw.Close(); err != nil {
-		t.Fatalf("failed to close writer for seed object %q: %v", binaryObject, err)
-	}
-
-	return func(t *testing.T) {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-
-		it := bkt.Objects(cleanupCtx, nil)
-		for {
-			attrs, err := it.Next()
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				t.Logf("cleanup: iterator error, aborting object delete loop: %v", err)
-				break
-			}
-			if delErr := bkt.Object(attrs.Name).Delete(cleanupCtx); delErr != nil {
-				t.Logf("cleanup: failed to delete object %q: %v", attrs.Name, delErr)
-			}
-		}
-		if err := bkt.Delete(cleanupCtx); err != nil {
-			t.Logf("cleanup: failed to delete bucket %q: %v", bucket, err)
-		}
+	for _, seed := range seeds {
+		writeGCSObject(t, ctx, client, bucket, seed.name, seed.contentType, seed.body)
 	}
 }
 
-// invokeTool POSTs to the tool invoke endpoint and returns the parsed `result`
-// string (which is itself a JSON-encoded payload). On non-200 responses, the
-// full body is returned as the error.
-func invokeTool(t *testing.T, toolName, requestBody string) (string, int) {
-	t.Helper()
-	url := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(requestBody))
-	if err != nil {
-		t.Fatalf("unable to create request: %s", err)
-	}
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("unable to send request: %s", err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return string(bodyBytes), resp.StatusCode
-	}
-	var body map[string]any
-	if err := json.Unmarshal(bodyBytes, &body); err != nil {
-		t.Fatalf("failed to parse response JSON: %s (body=%s)", err, string(bodyBytes))
-	}
-	result, _ := body["result"].(string)
-	return result, resp.StatusCode
-}
-
-func runCloudStorageListObjectsTest(t *testing.T, bucket string) {
+func runCloudStorageListObjectsTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, bucket string) {
 	fakeBucket := "toolbox-it-does-not-exist-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12]
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "list with prefix",
-			body:           fmt.Sprintf(`{"bucket": %q, "prefix": "seed/"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "prefix": "seed/"},
 			wantSubstrings: []string{helloObject, jsonObject},
 		},
 		{
 			name:           "empty prefix and delimiter lists all objects",
-			body:           fmt.Sprintf(`{"bucket": %q, "prefix": "", "delimiter": ""}`, bucket),
+			args:           map[string]any{"bucket": bucket, "prefix": "", "delimiter": ""},
 			wantSubstrings: []string{helloObject, jsonObject},
 		},
 		{
 			name:           "empty page_token behaves as first page",
-			body:           fmt.Sprintf(`{"bucket": %q, "prefix": "seed/", "page_token": ""}`, bucket),
+			args:           map[string]any{"bucket": bucket, "prefix": "seed/", "page_token": ""},
 			wantSubstrings: []string{helloObject, jsonObject},
 		},
 		{
 			name:           "list with delimiter returns prefixes",
-			body:           fmt.Sprintf(`{"bucket": %q, "prefix": "seed/", "delimiter": "/"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "prefix": "seed/", "delimiter": "/"},
 			wantSubstrings: []string{helloObject, `"seed/nested/"`},
 		},
 		{
 			name:           "missing bucket parameter returns agent error",
-			body:           `{}`,
+			args:           map[string]any{},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "max_results above 1000 returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "max_results": 1001}`, bucket),
+			args:           map[string]any{"bucket": bucket, "max_results": 1001},
 			wantSubstrings: []string{"max_results", "1000"},
 		},
 		{
 			name:           "negative max_results returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "max_results": -1}`, bucket),
+			args:           map[string]any{"bucket": bucket, "max_results": -1},
 			wantSubstrings: []string{"max_results", "must be"},
 		},
 		{
 			name:           "nonexistent bucket returns error",
-			body:           fmt.Sprintf(`{"bucket": %q}`, fakeBucket),
+			args:           map[string]any{"bucket": fakeBucket},
 			wantSubstrings: []string{fakeBucket},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_list_objects", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_list_objects", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1190,8 +1237,8 @@ func runCloudStorageListObjectsTest(t *testing.T, bucket string) {
 	// Pagination is inherently two-step (fetch page one, reuse its token for
 	// page two), so it doesn't fit the single-request table above.
 	t.Run("pagination via max_results and page_token", func(t *testing.T) {
-		result, status := invokeTool(t, "my_list_objects",
-			fmt.Sprintf(`{"bucket": %q, "prefix": "seed/", "max_results": 1}`, bucket))
+		result, status := tr.invokeTool(t, ctx, "my_list_objects",
+			map[string]any{"bucket": bucket, "prefix": "seed/", "max_results": 1})
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1200,8 +1247,8 @@ func runCloudStorageListObjectsTest(t *testing.T, bucket string) {
 			t.Fatalf("expected non-empty nextPageToken, got %s", result)
 		}
 
-		result2, status := invokeTool(t, "my_list_objects",
-			fmt.Sprintf(`{"bucket": %q, "prefix": "seed/", "page_token": %q}`, bucket, token))
+		result2, status := tr.invokeTool(t, ctx, "my_list_objects",
+			map[string]any{"bucket": bucket, "prefix": "seed/", "page_token": token})
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result2)
 		}
@@ -1213,69 +1260,69 @@ func runCloudStorageListObjectsTest(t *testing.T, bucket string) {
 	})
 }
 
-func runCloudStorageReadObjectTest(t *testing.T, bucket string) {
+func runCloudStorageReadObjectTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, bucket string) {
 	tcs := []struct {
 		name            string
-		body            string
+		args            map[string]any
 		wantContent     string
 		wantContentType string
 		wantSubstrings  []string
 	}{
 		{
 			name:            "read full object",
-			body:            fmt.Sprintf(`{"bucket": %q, "object": %q}`, bucket, helloObject),
+			args:            map[string]any{"bucket": bucket, "object": helloObject},
 			wantContent:     helloBody,
 			wantContentType: "text/plain",
 		},
 		{
 			name:        "read range bytes=0-4",
-			body:        fmt.Sprintf(`{"bucket": %q, "object": %q, "range": "bytes=0-4"}`, bucket, helloObject),
+			args:        map[string]any{"bucket": bucket, "object": helloObject, "range": "bytes=0-4"},
 			wantContent: "hello",
 		},
 		{
 			name:        "read suffix range bytes=-5",
-			body:        fmt.Sprintf(`{"bucket": %q, "object": %q, "range": "bytes=-5"}`, bucket, helloObject),
+			args:        map[string]any{"bucket": bucket, "object": helloObject, "range": "bytes=-5"},
 			wantContent: "world",
 		},
 		{
 			name:        "read open-ended range bytes=6-",
-			body:        fmt.Sprintf(`{"bucket": %q, "object": %q, "range": "bytes=6-"}`, bucket, helloObject),
+			args:        map[string]any{"bucket": bucket, "object": helloObject, "range": "bytes=6-"},
 			wantContent: "world",
 		},
 		{
 			name:        "oversize read narrowed by range succeeds",
-			body:        fmt.Sprintf(`{"bucket": %q, "object": %q, "range": "bytes=0-9"}`, bucket, largeObject),
+			args:        map[string]any{"bucket": bucket, "object": largeObject, "range": "bytes=0-9"},
 			wantContent: "AAAAAAAAAA",
 		},
 		{
 			name:           "missing object parameter returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q}`, bucket),
+			args:           map[string]any{"bucket": bucket},
 			wantSubstrings: []string{"object"},
 		},
 		{
 			name:           "nonexistent object returns error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "does/not/exist.bin"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "object": "does/not/exist.bin"},
 			wantSubstrings: []string{"does/not/exist.bin"},
 		},
 		{
 			name:           "invalid range returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q, "range": "garbage"}`, bucket, helloObject),
+			args:           map[string]any{"bucket": bucket, "object": helloObject, "range": "garbage"},
 			wantSubstrings: []string{"range"},
 		},
 		{
 			name:           "oversize read returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q}`, bucket, largeObject),
+			args:           map[string]any{"bucket": bucket, "object": largeObject},
 			wantSubstrings: []string{"size limit"},
 		},
 		{
 			name:           "binary object returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q}`, bucket, binaryObject),
+			args:           map[string]any{"bucket": bucket, "object": binaryObject},
 			wantSubstrings: []string{"UTF-8"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_read_object", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_read_object", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1310,42 +1357,42 @@ func extractStringField(t *testing.T, result, field string) string {
 	return v
 }
 
-func runCloudStorageListBucketsTest(t *testing.T, bucket string) {
+func runCloudStorageListBucketsTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, bucket string) {
 	tcs := []struct {
 		name             string
-		body             string
+		args             map[string]any
 		wantSubstrings   []string
 		unwantSubstrings []string
 	}{
 		{
 			name:           "list with matching prefix finds the test bucket",
-			body:           fmt.Sprintf(`{"prefix": %q}`, bucket[:10]),
+			args:           map[string]any{"prefix": bucket[:10]},
 			wantSubstrings: []string{bucket},
 		},
 		{
 			name:             "list with non-matching prefix omits the test bucket",
-			body:             `{"prefix": "toolbox-it-definitely-not-a-real-prefix-"}`,
+			args:             map[string]any{"prefix": "toolbox-it-definitely-not-a-real-prefix-"},
 			unwantSubstrings: []string{bucket},
 		},
 		{
 			name:           "explicit project override returns the test bucket",
-			body:           fmt.Sprintf(`{"project": %q, "prefix": %q}`, CloudStorageProject, bucket[:10]),
+			args:           map[string]any{"project": CloudStorageProject, "prefix": bucket[:10]},
 			wantSubstrings: []string{bucket},
 		},
 		{
 			name:           "max_results above 1000 returns agent error",
-			body:           `{"max_results": 1001}`,
+			args:           map[string]any{"max_results": 1001},
 			wantSubstrings: []string{"max_results", "1000"},
 		},
 		{
 			name:           "negative max_results returns agent error",
-			body:           `{"max_results": -1}`,
+			args:           map[string]any{"max_results": -1},
 			wantSubstrings: []string{"max_results", "must be"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_list_buckets", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_list_buckets", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1363,10 +1410,10 @@ func runCloudStorageListBucketsTest(t *testing.T, bucket string) {
 	}
 }
 
-func runCloudStorageCreateBucketTest(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
+func runCloudStorageCreateBucketTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket string) {
 	t.Run("create bucket with omitted location", func(t *testing.T) {
-		body := fmt.Sprintf(`{"bucket": %q, "uniform_bucket_level_access": true}`, bucket)
-		result, status := invokeTool(t, "my_create_bucket", body)
+		args := map[string]any{"bucket": bucket, "uniform_bucket_level_access": true}
+		result, status := tr.invokeTool(t, ctx, "my_create_bucket", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1388,7 +1435,7 @@ func runCloudStorageCreateBucketTest(ctx context.Context, t *testing.T, client *
 	})
 
 	t.Run("missing bucket returns agent error", func(t *testing.T) {
-		result, status := invokeTool(t, "my_create_bucket", `{}`)
+		result, status := tr.invokeTool(t, ctx, "my_create_bucket", map[string]any{})
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1398,32 +1445,32 @@ func runCloudStorageCreateBucketTest(ctx context.Context, t *testing.T, client *
 	})
 }
 
-func runCloudStorageGetBucketMetadataTest(t *testing.T, bucket string) {
+func runCloudStorageGetBucketMetadataTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, bucket string) {
 	fakeBucket := "toolbox-it-does-not-exist-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12]
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "metadata for created bucket",
-			body:           fmt.Sprintf(`{"bucket": %q}`, bucket),
+			args:           map[string]any{"bucket": bucket},
 			wantSubstrings: []string{`"Name":"` + bucket + `"`, `"Location":"US"`, `"Enabled":true`},
 		},
 		{
 			name:           "missing bucket returns agent error",
-			body:           `{}`,
+			args:           map[string]any{},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "nonexistent bucket returns error",
-			body:           fmt.Sprintf(`{"bucket": %q}`, fakeBucket),
+			args:           map[string]any{"bucket": fakeBucket},
 			wantSubstrings: []string{fakeBucket},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_get_bucket_metadata", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_get_bucket_metadata", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1436,32 +1483,32 @@ func runCloudStorageGetBucketMetadataTest(t *testing.T, bucket string) {
 	}
 }
 
-func runCloudStorageGetBucketIAMPolicyTest(t *testing.T, bucket string) {
+func runCloudStorageGetBucketIAMPolicyTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, bucket string) {
 	fakeBucket := "toolbox-it-does-not-exist-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12]
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "IAM policy for created bucket",
-			body:           fmt.Sprintf(`{"bucket": %q}`, bucket),
+			args:           map[string]any{"bucket": bucket},
 			wantSubstrings: []string{`"bucket":"` + bucket + `"`, `"bindings"`},
 		},
 		{
 			name:           "missing bucket returns agent error",
-			body:           `{}`,
+			args:           map[string]any{},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "nonexistent bucket returns error",
-			body:           fmt.Sprintf(`{"bucket": %q}`, fakeBucket),
+			args:           map[string]any{"bucket": fakeBucket},
 			wantSubstrings: []string{fakeBucket},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_get_bucket_iam_policy", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_get_bucket_iam_policy", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1474,10 +1521,10 @@ func runCloudStorageGetBucketIAMPolicyTest(t *testing.T, bucket string) {
 	}
 }
 
-func runCloudStorageDeleteBucketTest(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
+func runCloudStorageDeleteBucketTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket string) {
 	t.Run("delete empty bucket", func(t *testing.T) {
-		body := fmt.Sprintf(`{"bucket": %q}`, bucket)
-		result, status := invokeTool(t, "my_delete_bucket", body)
+		args := map[string]any{"bucket": bucket}
+		result, status := tr.invokeTool(t, ctx, "my_delete_bucket", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1491,23 +1538,23 @@ func runCloudStorageDeleteBucketTest(ctx context.Context, t *testing.T, client *
 
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "missing bucket returns agent error",
-			body:           `{}`,
+			args:           map[string]any{},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "missing bucket in storage returns agent-visible error",
-			body:           fmt.Sprintf(`{"bucket": %q}`, bucket),
+			args:           map[string]any{"bucket": bucket},
 			wantSubstrings: []string{"bucket"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_delete_bucket", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_delete_bucket", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1520,41 +1567,41 @@ func runCloudStorageDeleteBucketTest(ctx context.Context, t *testing.T, client *
 	}
 }
 
-func runCloudStorageGetObjectMetadataTest(t *testing.T, bucket string) {
+func runCloudStorageGetObjectMetadataTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, bucket string) {
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "metadata for hello.txt",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q}`, bucket, helloObject),
+			args:           map[string]any{"bucket": bucket, "object": helloObject},
 			wantSubstrings: []string{`"ContentType":"text/plain"`, `"Size":11`, `"Name":"seed/hello.txt"`},
 		},
 		{
 			name:           "metadata for JSON object",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q}`, bucket, jsonObject),
+			args:           map[string]any{"bucket": bucket, "object": jsonObject},
 			wantSubstrings: []string{`"ContentType":"application/json"`},
 		},
 		{
 			name:           "missing bucket returns agent error",
-			body:           `{"object": "x"}`,
+			args:           map[string]any{"object": "x"},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "missing object returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q}`, bucket),
+			args:           map[string]any{"bucket": bucket},
 			wantSubstrings: []string{"object"},
 		},
 		{
 			name:           "nonexistent object returns error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "does/not/exist.bin"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "object": "does/not/exist.bin"},
 			wantSubstrings: []string{"does/not/exist.bin"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_get_object_metadata", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_get_object_metadata", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1572,9 +1619,9 @@ func runCloudStorageGetObjectMetadataTest(t *testing.T, bucket string) {
 // parameters (they are absent from the schema) and relies on the configured
 // values instead. The seeded `bucket` is the configured bucket for the
 // bucket-scoped tools.
-func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, client *storage.Client, bucket, configuredDownloadDir string) {
+func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket, configuredDownloadDir string) {
 	t.Run("list_objects uses configured bucket and prefix", func(t *testing.T) {
-		result, status := invokeTool(t, "my_list_objects_configured", `{}`)
+		result, status := tr.invokeTool(t, ctx, "my_list_objects_configured", map[string]any{})
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1586,7 +1633,7 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	})
 
 	t.Run("list_buckets uses configured project and prefix", func(t *testing.T) {
-		result, status := invokeTool(t, "my_list_buckets_configured", `{}`)
+		result, status := tr.invokeTool(t, ctx, "my_list_buckets_configured", map[string]any{})
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1596,8 +1643,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	})
 
 	t.Run("read_object uses configured bucket", func(t *testing.T) {
-		body := fmt.Sprintf(`{"object": %q}`, helloObject)
-		result, status := invokeTool(t, "my_read_object_configured", body)
+		args := map[string]any{"object": helloObject}
+		result, status := tr.invokeTool(t, ctx, "my_read_object_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1607,8 +1654,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	})
 
 	t.Run("get_object_metadata uses configured bucket", func(t *testing.T) {
-		body := fmt.Sprintf(`{"object": %q}`, helloObject)
-		result, status := invokeTool(t, "my_get_object_metadata_configured", body)
+		args := map[string]any{"object": helloObject}
+		result, status := tr.invokeTool(t, ctx, "my_get_object_metadata_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1618,7 +1665,7 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	})
 
 	t.Run("get_bucket_metadata uses configured bucket", func(t *testing.T) {
-		result, status := invokeTool(t, "my_get_bucket_metadata_configured", `{}`)
+		result, status := tr.invokeTool(t, ctx, "my_get_bucket_metadata_configured", map[string]any{})
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1628,7 +1675,7 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	})
 
 	t.Run("get_bucket_iam_policy uses configured bucket", func(t *testing.T) {
-		result, status := invokeTool(t, "my_get_bucket_iam_policy_configured", `{}`)
+		result, status := tr.invokeTool(t, ctx, "my_get_bucket_iam_policy_configured", map[string]any{})
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1641,10 +1688,10 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 
 	t.Run("create_bucket uses configured project, location and uniform access", func(t *testing.T) {
 		newBucket := "toolbox-it-cfg-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:17]
-		defer cleanupGCSBucket(ctx, t, client, newBucket)
+		t.Cleanup(func() { cleanupGCSBucket(ctx, t, client, newBucket) })
 
-		body := fmt.Sprintf(`{"bucket": %q}`, newBucket)
-		result, status := invokeTool(t, "my_create_bucket_configured", body)
+		args := map[string]any{"bucket": newBucket}
+		result, status := tr.invokeTool(t, ctx, "my_create_bucket_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1674,8 +1721,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 		if err := os.WriteFile(dest, []byte("pre-existing"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		body := fmt.Sprintf(`{"object": %q, "destination": %q}`, downloadObject, relDest)
-		result, status := invokeTool(t, "my_download_object_configured", body)
+		args := map[string]any{"object": downloadObject, "destination": relDest}
+		result, status := tr.invokeTool(t, ctx, "my_download_object_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1695,8 +1742,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 			t.Fatalf("setup: %v", err)
 		}
 		obj := "configured/upload.txt"
-		body := fmt.Sprintf(`{"object": %q, "source": %q, "content_type": "text/plain"}`, obj, srcPath)
-		result, status := invokeTool(t, "my_upload_object_configured", body)
+		args := map[string]any{"object": obj, "source": srcPath, "content_type": "text/plain"}
+		result, status := tr.invokeTool(t, ctx, "my_upload_object_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1712,8 +1759,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	t.Run("write_object uses configured bucket", func(t *testing.T) {
 		obj := "configured/write.txt"
 		content := "configured write"
-		body := fmt.Sprintf(`{"object": %q, "content": %q, "content_type": "text/plain"}`, obj, content)
-		result, status := invokeTool(t, "my_write_object_configured", body)
+		args := map[string]any{"object": obj, "content": content, "content_type": "text/plain"}
+		result, status := tr.invokeTool(t, ctx, "my_write_object_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1728,8 +1775,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 
 	t.Run("copy_object uses configured buckets", func(t *testing.T) {
 		dest := "configured/copied.txt"
-		body := fmt.Sprintf(`{"source_object": %q, "destination_object": %q}`, helloObject, dest)
-		result, status := invokeTool(t, "my_copy_object_configured", body)
+		args := map[string]any{"source_object": helloObject, "destination_object": dest}
+		result, status := tr.invokeTool(t, ctx, "my_copy_object_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1743,8 +1790,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 		src := "configured/move-source.txt"
 		dest := "configured/move-destination.txt"
 		writeGCSObject(t, ctx, client, bucket, src, "text/plain", "configured move")
-		body := fmt.Sprintf(`{"source_object": %q, "destination_object": %q}`, src, dest)
-		result, status := invokeTool(t, "my_move_object_configured", body)
+		args := map[string]any{"source_object": src, "destination_object": dest}
+		result, status := tr.invokeTool(t, ctx, "my_move_object_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1760,8 +1807,8 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	t.Run("delete_object uses configured bucket", func(t *testing.T) {
 		obj := "configured/delete.txt"
 		writeGCSObject(t, ctx, client, bucket, obj, "text/plain", "configured delete")
-		body := fmt.Sprintf(`{"object": %q}`, obj)
-		result, status := invokeTool(t, "my_delete_object_configured", body)
+		args := map[string]any{"object": obj}
+		result, status := tr.invokeTool(t, ctx, "my_delete_object_configured", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1774,11 +1821,11 @@ func runCloudStorageConfiguredParamsTest(ctx context.Context, t *testing.T, clie
 	})
 }
 
-func runCloudStorageDownloadObjectTest(t *testing.T, bucket string) {
+func runCloudStorageDownloadObjectTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, bucket string) {
 	t.Run("happy path writes expected bytes", func(t *testing.T) {
 		dest := filepath.Join(t.TempDir(), "downloaded.txt")
-		body := fmt.Sprintf(`{"bucket": %q, "object": %q, "destination": %q}`, bucket, downloadObject, dest)
-		result, status := invokeTool(t, "my_download_object", body)
+		args := map[string]any{"bucket": bucket, "object": downloadObject, "destination": dest}
+		result, status := tr.invokeTool(t, ctx, "my_download_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1799,8 +1846,8 @@ func runCloudStorageDownloadObjectTest(t *testing.T, bucket string) {
 		if err := os.WriteFile(dest, []byte("pre-existing"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		body := fmt.Sprintf(`{"bucket": %q, "object": %q, "destination": %q}`, bucket, downloadObject, dest)
-		result, status := invokeTool(t, "my_download_object", body)
+		args := map[string]any{"bucket": bucket, "object": downloadObject, "destination": dest}
+		result, status := tr.invokeTool(t, ctx, "my_download_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1818,8 +1865,8 @@ func runCloudStorageDownloadObjectTest(t *testing.T, bucket string) {
 		if err := os.WriteFile(dest, []byte("pre-existing"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		body := fmt.Sprintf(`{"bucket": %q, "object": %q, "destination": %q, "overwrite": true}`, bucket, downloadObject, dest)
-		result, status := invokeTool(t, "my_download_object", body)
+		args := map[string]any{"bucket": bucket, "object": downloadObject, "destination": dest, "overwrite": true}
+		result, status := tr.invokeTool(t, ctx, "my_download_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1834,33 +1881,33 @@ func runCloudStorageDownloadObjectTest(t *testing.T, bucket string) {
 
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "relative destination returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q, "destination": "relative/out.bin"}`, bucket, downloadObject),
+			args:           map[string]any{"bucket": bucket, "object": downloadObject, "destination": "relative/out.bin"},
 			wantSubstrings: []string{"destination"},
 		},
 		{
 			name:           "destination with traversal returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q, "destination": "/tmp/../etc/passwd"}`, bucket, downloadObject),
+			args:           map[string]any{"bucket": bucket, "object": downloadObject, "destination": "/tmp/../etc/passwd"},
 			wantSubstrings: []string{"destination"},
 		},
 		{
 			name:           "missing destination returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": %q}`, bucket, downloadObject),
+			args:           map[string]any{"bucket": bucket, "object": downloadObject},
 			wantSubstrings: []string{"destination"},
 		},
 		{
 			name:           "nonexistent object returns error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "does/not/exist.bin", "destination": "/tmp/nope-should-not-be-created-%s.bin"}`, bucket, uuid.New().String()[:8]),
+			args:           map[string]any{"bucket": bucket, "object": "does/not/exist.bin", "destination": "/tmp/nope-should-not-be-created-" + uuid.New().String()[:8] + ".bin"},
 			wantSubstrings: []string{"does/not/exist.bin"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_download_object", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_download_object", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1873,7 +1920,7 @@ func runCloudStorageDownloadObjectTest(t *testing.T, bucket string) {
 	}
 }
 
-func runCloudStorageUploadObjectTest(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
+func runCloudStorageUploadObjectTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket string) {
 	// Seed a local file that the explicit-content-type and MIME-auto-detect
 	// cases both read from.
 	srcDir := t.TempDir()
@@ -1888,9 +1935,8 @@ func runCloudStorageUploadObjectTest(ctx context.Context, t *testing.T, client *
 
 	t.Run("upload with explicit content_type", func(t *testing.T) {
 		obj := "uploaded/explicit.bin"
-		body := fmt.Sprintf(`{"bucket": %q, "object": %q, "source": %q, "content_type": "application/octet-stream"}`,
-			bucket, obj, csvPath)
-		result, status := invokeTool(t, "my_upload_object", body)
+		args := map[string]any{"bucket": bucket, "object": obj, "source": csvPath, "content_type": "application/octet-stream"}
+		result, status := tr.invokeTool(t, ctx, "my_upload_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1908,8 +1954,8 @@ func runCloudStorageUploadObjectTest(ctx context.Context, t *testing.T, client *
 
 	t.Run("upload infers MIME from .csv extension", func(t *testing.T) {
 		obj := "uploaded/inferred.csv"
-		body := fmt.Sprintf(`{"bucket": %q, "object": %q, "source": %q}`, bucket, obj, csvPath)
-		result, status := invokeTool(t, "my_upload_object", body)
+		args := map[string]any{"bucket": bucket, "object": obj, "source": csvPath}
+		result, status := tr.invokeTool(t, ctx, "my_upload_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1922,8 +1968,8 @@ func runCloudStorageUploadObjectTest(ctx context.Context, t *testing.T, client *
 
 	t.Run("upload with unknown extension lets GCS auto-detect", func(t *testing.T) {
 		obj := "uploaded/unknown.bin"
-		body := fmt.Sprintf(`{"bucket": %q, "object": %q, "source": %q}`, bucket, obj, binPath)
-		result, status := invokeTool(t, "my_upload_object", body)
+		args := map[string]any{"bucket": bucket, "object": obj, "source": binPath}
+		result, status := tr.invokeTool(t, ctx, "my_upload_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -1940,33 +1986,33 @@ func runCloudStorageUploadObjectTest(ctx context.Context, t *testing.T, client *
 
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "missing source returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "uploaded/nope.bin"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "object": "uploaded/nope.bin"},
 			wantSubstrings: []string{"source"},
 		},
 		{
 			name:           "relative source returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "uploaded/nope.bin", "source": "relative/path"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "object": "uploaded/nope.bin", "source": "relative/path"},
 			wantSubstrings: []string{"source"},
 		},
 		{
 			name:           "nonexistent local source returns error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "uploaded/nope.bin", "source": "/tmp/definitely-not-a-real-source-%s"}`, bucket, uuid.New().String()[:8]),
+			args:           map[string]any{"bucket": bucket, "object": "uploaded/nope.bin", "source": "/tmp/definitely-not-a-real-source-" + uuid.New().String()[:8]},
 			wantSubstrings: []string{"source", "no such"},
 		},
 		{
 			name:           "missing bucket returns agent error",
-			body:           fmt.Sprintf(`{"object": "uploaded/nope.bin", "source": %q}`, csvPath),
+			args:           map[string]any{"object": "uploaded/nope.bin", "source": csvPath},
 			wantSubstrings: []string{"bucket"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_upload_object", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_upload_object", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -1979,10 +2025,10 @@ func runCloudStorageUploadObjectTest(ctx context.Context, t *testing.T, client *
 	}
 }
 
-func runCloudStorageWriteObjectTest(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
+func runCloudStorageWriteObjectTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket string) {
 	tcs := []struct {
 		name            string
-		body            string
+		args            map[string]any
 		object          string
 		wantContent     string
 		wantContentType string
@@ -2005,28 +2051,27 @@ func runCloudStorageWriteObjectTest(ctx context.Context, t *testing.T, client *s
 		},
 		{
 			name:           "missing bucket returns agent error",
-			body:           `{"object": "written/nope.txt", "content": "x"}`,
+			args:           map[string]any{"object": "written/nope.txt", "content": "x"},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "missing object returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "content": "x"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "content": "x"},
 			wantSubstrings: []string{"object"},
 		},
 		{
 			name:           "missing content returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "written/nope.txt"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "object": "written/nope.txt"},
 			wantSubstrings: []string{"content"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			body := tc.body
-			if body == "" {
-				body = fmt.Sprintf(`{"bucket": %q, "object": %q, "content": %q, "content_type": %q}`,
-					bucket, tc.object, tc.wantContent, tc.wantContentType)
+			args := tc.args
+			if args == nil {
+				args = map[string]any{"bucket": bucket, "object": tc.object, "content": tc.wantContent, "content_type": tc.wantContentType}
 			}
-			result, status := invokeTool(t, "my_write_object", body)
+			result, status := tr.invokeTool(t, ctx, "my_write_object", args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -2054,12 +2099,11 @@ func runCloudStorageWriteObjectTest(ctx context.Context, t *testing.T, client *s
 	}
 }
 
-func runCloudStorageCopyObjectTest(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
+func runCloudStorageCopyObjectTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket string) {
 	t.Run("copy creates destination and leaves source", func(t *testing.T) {
 		dest := "copied/hello.txt"
-		body := fmt.Sprintf(`{"source_bucket": %q, "source_object": %q, "destination_bucket": %q, "destination_object": %q}`,
-			bucket, helloObject, bucket, dest)
-		result, status := invokeTool(t, "my_copy_object", body)
+		args := map[string]any{"source_bucket": bucket, "source_object": helloObject, "destination_bucket": bucket, "destination_object": dest}
+		result, status := tr.invokeTool(t, ctx, "my_copy_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -2077,38 +2121,38 @@ func runCloudStorageCopyObjectTest(ctx context.Context, t *testing.T, client *st
 
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "missing source_bucket returns agent error",
-			body:           fmt.Sprintf(`{"source_object": %q, "destination_bucket": %q, "destination_object": "copied/nope.txt"}`, helloObject, bucket),
+			args:           map[string]any{"source_object": helloObject, "destination_bucket": bucket, "destination_object": "copied/nope.txt"},
 			wantSubstrings: []string{"source_bucket"},
 		},
 		{
 			name:           "missing source_object returns agent error",
-			body:           fmt.Sprintf(`{"source_bucket": %q, "destination_bucket": %q, "destination_object": "copied/nope.txt"}`, bucket, bucket),
+			args:           map[string]any{"source_bucket": bucket, "destination_bucket": bucket, "destination_object": "copied/nope.txt"},
 			wantSubstrings: []string{"source_object"},
 		},
 		{
 			name:           "missing destination_bucket returns agent error",
-			body:           fmt.Sprintf(`{"source_bucket": %q, "source_object": %q, "destination_object": "copied/nope.txt"}`, bucket, helloObject),
+			args:           map[string]any{"source_bucket": bucket, "source_object": helloObject, "destination_object": "copied/nope.txt"},
 			wantSubstrings: []string{"destination_bucket"},
 		},
 		{
 			name:           "missing destination_object returns agent error",
-			body:           fmt.Sprintf(`{"source_bucket": %q, "source_object": %q, "destination_bucket": %q}`, bucket, helloObject, bucket),
+			args:           map[string]any{"source_bucket": bucket, "source_object": helloObject, "destination_bucket": bucket},
 			wantSubstrings: []string{"destination_object"},
 		},
 		{
 			name:           "nonexistent source object returns error",
-			body:           fmt.Sprintf(`{"source_bucket": %q, "source_object": "does/not/exist.txt", "destination_bucket": %q, "destination_object": "copied/nope.txt"}`, bucket, bucket),
+			args:           map[string]any{"source_bucket": bucket, "source_object": "does/not/exist.txt", "destination_bucket": bucket, "destination_object": "copied/nope.txt"},
 			wantSubstrings: []string{"does/not/exist.txt"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_copy_object", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_copy_object", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -2121,14 +2165,13 @@ func runCloudStorageCopyObjectTest(ctx context.Context, t *testing.T, client *st
 	}
 }
 
-func runCloudStorageMoveObjectTest(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
+func runCloudStorageMoveObjectTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket string) {
 	t.Run("move atomically renames within bucket", func(t *testing.T) {
 		src := "move/source.txt"
 		dest := "move/destination.txt"
 		writeGCSObject(t, ctx, client, bucket, src, "text/plain", "move me")
-		body := fmt.Sprintf(`{"bucket": %q, "source_object": %q, "destination_object": %q}`,
-			bucket, src, dest)
-		result, status := invokeTool(t, "my_move_object", body)
+		args := map[string]any{"bucket": bucket, "source_object": src, "destination_object": dest}
+		result, status := tr.invokeTool(t, ctx, "my_move_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -2143,33 +2186,33 @@ func runCloudStorageMoveObjectTest(ctx context.Context, t *testing.T, client *st
 
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "missing bucket returns agent error",
-			body:           `{"source_object": "move/nope.txt", "destination_object": "move/nope2.txt"}`,
+			args:           map[string]any{"source_object": "move/nope.txt", "destination_object": "move/nope2.txt"},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "missing source_object returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "destination_object": "move/nope2.txt"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "destination_object": "move/nope2.txt"},
 			wantSubstrings: []string{"source_object"},
 		},
 		{
 			name:           "missing destination_object returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q, "source_object": "move/nope.txt"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "source_object": "move/nope.txt"},
 			wantSubstrings: []string{"destination_object"},
 		},
 		{
 			name:           "nonexistent source object returns error",
-			body:           fmt.Sprintf(`{"bucket": %q, "source_object": "move/does-not-exist.txt", "destination_object": "move/nope2.txt"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "source_object": "move/does-not-exist.txt", "destination_object": "move/nope2.txt"},
 			wantSubstrings: []string{"move/does-not-exist.txt"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_move_object", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_move_object", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -2182,12 +2225,12 @@ func runCloudStorageMoveObjectTest(ctx context.Context, t *testing.T, client *st
 	}
 }
 
-func runCloudStorageDeleteObjectTest(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
+func runCloudStorageDeleteObjectTest(ctx context.Context, t *testing.T, tr cloudStorageTransport, client *storage.Client, bucket string) {
 	t.Run("delete removes object", func(t *testing.T) {
 		obj := "delete/delete-me.txt"
 		writeGCSObject(t, ctx, client, bucket, obj, "text/plain", "delete me")
-		body := fmt.Sprintf(`{"bucket": %q, "object": %q}`, bucket, obj)
-		result, status := invokeTool(t, "my_delete_object", body)
+		args := map[string]any{"bucket": bucket, "object": obj}
+		result, status := tr.invokeTool(t, ctx, "my_delete_object", args)
 		if status != http.StatusOK {
 			t.Fatalf("unexpected status %d: %s", status, result)
 		}
@@ -2201,28 +2244,28 @@ func runCloudStorageDeleteObjectTest(ctx context.Context, t *testing.T, client *
 
 	tcs := []struct {
 		name           string
-		body           string
+		args           map[string]any
 		wantSubstrings []string
 	}{
 		{
 			name:           "missing bucket returns agent error",
-			body:           `{"object": "delete/nope.txt"}`,
+			args:           map[string]any{"object": "delete/nope.txt"},
 			wantSubstrings: []string{"bucket"},
 		},
 		{
 			name:           "missing object returns agent error",
-			body:           fmt.Sprintf(`{"bucket": %q}`, bucket),
+			args:           map[string]any{"bucket": bucket},
 			wantSubstrings: []string{"object"},
 		},
 		{
 			name:           "missing object in storage returns agent-visible error",
-			body:           fmt.Sprintf(`{"bucket": %q, "object": "delete/does-not-exist.txt"}`, bucket),
+			args:           map[string]any{"bucket": bucket, "object": "delete/does-not-exist.txt"},
 			wantSubstrings: []string{"object", "does-not-exist"},
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			result, status := invokeTool(t, "my_delete_object", tc.body)
+			result, status := tr.invokeTool(t, ctx, "my_delete_object", tc.args)
 			if status != http.StatusOK {
 				t.Fatalf("unexpected status %d: %s", status, result)
 			}
@@ -2288,9 +2331,11 @@ func gcsBucketExists(t *testing.T, ctx context.Context, client *storage.Client, 
 	return false
 }
 
+// cleanupGCSBucket empties and deletes a bucket. It runs on a context detached
+// from ctx, which may already be cancelled when cleanups run.
 func cleanupGCSBucket(ctx context.Context, t *testing.T, client *storage.Client, bucket string) {
 	t.Helper()
-	cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cloudStorageCleanupTimeout)
 	defer cancel()
 
 	bkt := client.Bucket(bucket)
