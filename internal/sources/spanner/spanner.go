@@ -78,6 +78,9 @@ type Config struct {
 	Dialect        sources.Dialect `yaml:"dialect" validate:"required"`
 	Database       string          `yaml:"database" validate:"required"`
 	UseClientOAuth bool            `yaml:"useClientOAuth"`
+	// DatabaseRole is the fine-grained access control database role the
+	// client assumes. Cloud Spanner only; empty uses database-level IAM.
+	DatabaseRole string `yaml:"databaseRole"`
 	// InstanceType is "cloud" (default) or "omni". The omni-prefixed fields
 	// apply only to Spanner Omni.
 	InstanceType              string `yaml:"instanceType" validate:"omitempty,oneof=cloud omni"`
@@ -112,6 +115,8 @@ func (r Config) validate() error {
 		return fmt.Errorf("omniEndpoint is required when instanceType is %q", r.InstanceType)
 	case r.UseClientOAuth:
 		return fmt.Errorf("useClientOAuth is not supported when instanceType is %q", r.InstanceType)
+	case r.DatabaseRole != "":
+		return fmt.Errorf("databaseRole is not supported when instanceType is %q", r.InstanceType)
 	case r.OmniUsePlainText && (r.OmniCaCertificateFile != "" || r.OmniClientCertificateFile != "" || r.OmniClientKeyFile != "" || r.OmniUsername != "" || r.OmniPassword != ""):
 		return fmt.Errorf("omniUsePlainText cannot be combined with TLS certificates or omniUsername/omniPassword")
 	case (r.OmniClientCertificateFile == "") != (r.OmniClientKeyFile == ""):
@@ -275,7 +280,7 @@ func initSpannerClient(ctx context.Context, tracer trace.Tracer, r Config) (*spa
 	if err != nil {
 		return nil, err
 	}
-	config := spanner.ClientConfig{UserAgent: userAgent}
+	config := spanner.ClientConfig{UserAgent: userAgent, DatabaseRole: r.DatabaseRole}
 	var opts []option.ClientOption
 	if r.isOmni() {
 		config.Type = spanner.OMNI

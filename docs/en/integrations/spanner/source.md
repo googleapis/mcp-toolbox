@@ -53,10 +53,16 @@ the IAM identity has been given the correct IAM permissions for the query
 provided. See [Apply IAM roles][grant-permissions] for more information on
 applying IAM permissions and roles to an identity.
 
+To limit what Toolbox can read below the database level, set `databaseRole` to a
+[fine-grained access control][fgac] role. The identity then needs
+`roles/spanner.fineGrainedAccessUser` and `roles/spanner.databaseRoleUser` for
+that role, and every query runs with only that role's privileges.
+
 [iam-overview]: https://cloud.google.com/spanner/docs/iam
 [adc]: https://cloud.google.com/docs/authentication#adc
 [set-adc]: https://cloud.google.com/docs/authentication/provide-credentials-adc
 [grant-permissions]: https://cloud.google.com/spanner/docs/grant-permissions
+[fgac]: https://cloud.google.com/spanner/docs/fgac-about
 
 Spanner Omni sources don't use ADC or IAM. See [Spanner Omni](#spanner-omni)
 for the supported connection options.
@@ -81,6 +87,7 @@ database: "my_db"
 | project                   |  string  |    false     | Id of the GCP project that the cluster was created in (e.g. "my-project-id"). Required for Spanner; optional for Spanner Omni (default: `default`). |
 | instance                  |  string  |    false     | Name of the Spanner instance. Required for Spanner; optional for Spanner Omni (default: `default`).                                                 |
 | database                  |  string  |     true     | Name of the database on the Spanner instance                                                                                                        |
+| databaseRole              |  string  |    false     | [Fine-grained access control][fgac] database role the client assumes (e.g. "graph_reader"). Spanner only. When unset, database-level IAM applies.  |
 | dialect                   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. Default: `googlesql`.                                 |
 | instanceType              |  string  |    false     | Either `cloud` or `omni`. Set to `omni` to connect to a [Spanner Omni][spanner-omni-docs] deployment. Default: `cloud`.                             |
 | omniEndpoint              |  string  |    false     | Spanner Omni API endpoint as `host:port` (e.g. "omni.example.com:15000"). Required when `instanceType` is `omni`.                                   |

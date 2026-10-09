@@ -76,6 +76,29 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 			},
 		},
 		{
+			desc: "database role",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			database: my_db
+			databaseRole: graph_reader
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-spanner-instance": spanner.Config{
+					Name:         "my-spanner-instance",
+					Type:         spanner.SourceType,
+					Project:      "my-project",
+					Instance:     "my-instance",
+					Dialect:      "googlesql",
+					Database:     "my_db",
+					DatabaseRole: "graph_reader",
+				},
+			},
+		},
+		{
 			desc: "postgresql dialect",
 			in: `
 			kind: source
@@ -237,6 +260,19 @@ func TestFailParseFromYaml(t *testing.T) {
 			instance: my-instance
 			`,
 			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": Key: 'Config.Database' Error:Field validation for 'Database' failed on the 'required' tag",
+		},
+		{
+			desc: "omni with database role",
+			in: `
+			kind: source
+			name: my-spanner-omni
+			type: spanner
+			database: my_db
+			instanceType: omni
+			omniEndpoint: omni.example.com:15000
+			databaseRole: graph_reader
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-omni\" as \"spanner\": invalid Spanner configuration: databaseRole is not supported when instanceType is \"omni\"",
 		},
 		{
 			desc: "cloud without project",
