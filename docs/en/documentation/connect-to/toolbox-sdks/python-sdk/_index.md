@@ -17,10 +17,19 @@ These Python SDKs act as clients for that service. They handle the communication
 * Fetch tool definitions from your running Toolbox instance.
 * Provide convenient Python objects or functions representing those tools.
 * Invoke the tools (calling the underlying APIs/services configured in Toolbox).
-* Handle authentication and parameter binding as needed.
+* Handle authentication, parameter binding, and secure parameters as needed.
 
 By using these SDKs, you can easily leverage your Toolbox-managed tools directly
 within your Python applications or AI orchestration frameworks.
+
+{{< notice note >}}
+[Secure parameters](../../../configuration/tools/_index.md#secure-parameters) are supported starting in:
+* `toolbox-core` >= `1.4.0`
+* `toolbox-adk` >= `1.4.0`
+* `toolbox-langchain` >= `1.4.0`
+* `toolbox-llamaindex` >= `0.9.0`
+* Server requirement: MCP protocol version `2026-07-28` or newer with the `com.google.cloud/toolbox.v1` extension.
+{{< /notice >}}
 
 <a class="btn btn-primary" href="https://py.mcp-toolbox.dev" role="button"><i class="fa-brands fa-python"></i> Python API Reference</a>
 

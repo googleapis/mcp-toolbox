@@ -68,13 +68,20 @@ func ConvertNumbers(data any) (any, error) {
 		}
 		return v, nil
 
-	// If it's a json.Number, convert it to float or int
+	// If it's a json.Number, convert it to int or float. Prefer an integer,
+	// and fall back to float for decimals, exponent notation (e.g. 1e5,
+	// 1e-07), and values outside the int64 range. Deciding on the presence
+	// of a "." alone misroutes exponent-form numbers to Int64, which rejects
+	// them as invalid syntax.
 	case json.Number:
-		// Check for a decimal point to decide the type.
-		if strings.Contains(v.String(), ".") {
-			return v.Float64()
+		if i, err := v.Int64(); err == nil {
+			return i, nil
 		}
-		return v.Int64()
+		f, err := v.Float64()
+		if err != nil {
+			return nil, err
+		}
+		return f, nil
 
 	// For all other types, return them as is.
 	default:

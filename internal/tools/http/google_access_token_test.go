@@ -24,9 +24,59 @@ import (
 	"strings"
 	"testing"
 
+	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"golang.org/x/oauth2"
 )
+
+func TestGoogleAccessTokenPreservesToolMetadata(t *testing.T) {
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing-credentials.json"))
+	for _, tc := range []struct {
+		name    string
+		option  string
+		enabled bool
+	}{
+		{name: "default"},
+		{name: "enabled", option: "sendGoogleAccessToken: true\n", enabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decoder := yaml.NewDecoder(strings.NewReader(tc.option + `type: http
+source: my-http-source
+method: GET
+path: /search
+description: Call a Google API.
+authRequired: [my-auth-service]
+scopesRequired: [read]
+annotations:
+  readOnlyHint: true
+`))
+			cfg, err := newConfig(context.Background(), "google-api", decoder)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tool, err := cfg.Initialize(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			annotations := tool.GetAnnotations(nil)
+			if annotations == nil || annotations.ReadOnlyHint == nil || !*annotations.ReadOnlyHint {
+				t.Fatal("explicit read-only annotation was lost")
+			}
+			if tool.Authorized(nil) || !tool.Authorized([]string{"my-auth-service"}) {
+				t.Fatal("configured authorization requirement was not preserved")
+			}
+			if got := tool.GetScopesRequired(); len(got) != 1 || got[0] != "read" {
+				t.Fatalf("scopes = %v, want [read]", got)
+			}
+			if got := tool.ToConfig().(Config).SendGoogleAccessToken; got != tc.enabled {
+				t.Fatalf("sendGoogleAccessToken = %v, want %v", got, tc.enabled)
+			}
+			if got := tool.(Tool).googleAccessTokenProvider != nil; got != tc.enabled {
+				t.Fatalf("ADC provider configured = %v, want %v", got, tc.enabled)
+			}
+		})
+	}
+}
 
 func TestInitializeGoogleAccessTokenIsLazy(t *testing.T) {
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(t.TempDir(), "missing-credentials.json"))

@@ -140,3 +140,4 @@ instead of hardcoding your secrets into the configuration file.
 | password  |  string  |    false     | Password of the MySQL user (e.g. "my-password"). Defaults to attempting IAM authentication if unspecified.              |
 | ipType    |  string  |    false     | IP Type of the Cloud SQL instance, must be either `public`,  `private`, or `psc`. Default: `public`.                    |
 | sqlCommenter | boolean |  false     | Overrides the global `--sql-commenter` flag for this source. When set, it takes priority; when omitted, the global flag applies. |
+| readOnly  | boolean  |    false     | When set to `true`, enforces read-only execution on the database connection (`read_only_connection:true`) and suppresses write-capable tools. Default: `false`. |

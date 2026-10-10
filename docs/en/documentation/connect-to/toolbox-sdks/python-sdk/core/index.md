@@ -565,6 +565,96 @@ async def get_dynamic_value():
 dynamic_bound_tool = tool.bind_param("param", get_dynamic_value)
 ```
 
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in `toolbox-core` version `1.4.0` and require MCP protocol version `2026-07-28` or newer with the [`com.google.cloud/toolbox.v1` extension](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md). For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime context (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see, control, or hallucinate.
+
+Unlike standard parameters, parameters marked as `secure: true` in your Toolbox server configuration:
+* **Schema Isolation:** The SDK completely strips secure parameters from the public tool declaration, docstrings, and runtime function signature (reflected in `__signature__` and `inspect.signature(tool)`). The LLM is never aware of these parameters, keeping your model's context window clean and preventing credential exposure.
+* **Prompt Injection Defense:** If a model or caller attempts to provide a value for a secure parameter in standard arguments, the SDK rejects execution immediately.
+* **Fast-Fail Validation:** The SDK verifies all required secure parameters locally before sending a request over the wire. If any required secure parameter is missing, execution fails immediately.
+* **Wire Protocol Separation:** Secure parameters are transmitted out-of-band in the `secureArguments` field of the MCP 2026-07-28 `tools/call` JSON-RPC payload, isolated from regular arguments.
+
+### Option A: Binding Secure Parameters to a Loaded Tool
+
+Bind secure values to a tool object *after* it has been loaded. Each binding method returns a **new, immutable tool instance**, leaving the original unmodified.
+
+```python
+from toolbox_core import ToolboxClient
+
+async with ToolboxClient("http://127.0.0.1:5000") as toolbox:
+    tool = await toolbox.load_tool("search_secure_data")
+
+    # Bind a single secure parameter
+    bound_tool = tool.bind_secure_param("customer_id", "cust_12345")
+
+    # OR bind multiple secure parameters at once
+    multi_bound_tool = tool.bind_secure_params({
+        "customer_id": "cust_12345",
+        "session_token": "token-xyz"
+    })
+```
+
+### Option B: Binding Secure Parameters While Loading Tools
+
+Pre-bind secure parameters directly when loading a tool or toolset. The SDK validates that all supplied keys exist as secure parameters on the target tools.
+
+```python
+async with ToolboxClient("http://127.0.0.1:5000") as toolbox:
+    # Load a single tool with secure parameters
+    tool = await toolbox.load_tool(
+        "search_secure_data",
+        secure_params={"customer_id": "cust_12345"}
+    )
+
+    # Load an entire toolset with secure parameters
+    tools = await toolbox.load_toolset(
+        "my-toolset",
+        secure_params={"customer_id": "cust_12345"}
+    )
+```
+
+### Binding Dynamic Secure Values
+
+You can also bind a secure parameter to a synchronous or asynchronous callable. The callable is evaluated at execution time each time the tool is invoked:
+
+```python
+async def get_current_user_token() -> str:
+    # Dynamically fetch session token or user identifier
+    return "session-token-abc"
+
+secure_tool = tool.bind_secure_param("auth_token", get_current_user_token)
+```
+
+### Synchronous Usage
+
+Secure parameter binding is also available on `ToolboxSyncTool` when using `ToolboxSyncClient`:
+
+```python
+from toolbox_core import ToolboxSyncClient
+
+with ToolboxSyncClient("http://127.0.0.1:5000") as toolbox:
+    tool = toolbox.load_tool(
+        "search_secure_data",
+        secure_params={"customer_id": "cust_12345"}
+    )
+    result = tool()
+```
+
+### Cross-Binding Guidance & Mutual Exclusivity
+
+To prevent security misconfigurations and ensure strict separation between model arguments and application arguments:
+
+* Calling `bind_param()` or `bind_params()` on a secure parameter raises:  
+  `ValueError: parameter '<name>' is a secure parameter; use bind_secure_param/bind_secure_params instead`
+* Calling `bind_secure_param()` or `bind_secure_params()` on a regular parameter raises:  
+  `ValueError: parameter '<name>' is a regular parameter; use bind_param/bind_params instead`
+
+
 ## OpenTelemetry
 
 The SDK supports OpenTelemetry tracing and metrics following the [MCP Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/mcp). When enabled, each `tools/list` and `tools/call` operation produces a client span and records an operation-duration histogram, and W3C `traceparent`/`tracestate` headers are propagated to the Toolbox server for distributed tracing.

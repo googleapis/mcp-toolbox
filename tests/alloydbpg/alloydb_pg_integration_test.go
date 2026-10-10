@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -344,6 +345,93 @@ func TestAlloyDBPgIAMConnection(t *testing.T) {
 			}
 			if tc.isErr {
 				t.Fatalf("Expected error but test passed.")
+			}
+		})
+	}
+}
+
+// TestAlloyDBPg_ReadOnlyVulnerabilityBlock verifies that if tools bypass server-level
+// suppression (e.g. via readOnlyHint: true), the database kernel still enforces
+// alloydb_session_read_only=locked and blocks writes, while allowing reads.
+func TestAlloyDBPg_ReadOnlyVulnerabilityBlock(t *testing.T) {
+	sourceConfig := getAlloyDBPgVars(t)
+	sourceConfig["readOnly"] = true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableName := "vulnerability_test_" + uniqueID
+
+	toolsFile := map[string]any{
+		"sources": map[string]any{
+			"my-readonly-alloydb-instance": sourceConfig,
+		},
+		"tools": map[string]any{
+			"vulnerable_write_tool": map[string]any{
+				"type":        "postgres-sql",
+				"source":      "my-readonly-alloydb-instance",
+				"description": "Falsely claims to be read-only for DDL CREATE",
+				"annotations": map[string]any{"readOnlyHint": true},
+				"statement":   fmt.Sprintf("CREATE TABLE %s (id INT);", tableName),
+			},
+			"valid_read_tool": map[string]any{
+				"type":        "postgres-sql",
+				"source":      "my-readonly-alloydb-instance",
+				"description": "Valid read query on read-only source",
+				"annotations": map[string]any{"readOnlyHint": true},
+				"statement":   "SELECT 1 AS result;",
+			},
+		},
+	}
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	tcs := []struct {
+		name          string
+		toolName      string
+		expectError   bool
+		wantErrSubstr string
+	}{
+		{
+			name:          "reject falsely annotated write",
+			toolName:      "vulnerable_write_tool",
+			expectError:   true,
+			wantErrSubstr: "Session is read only",
+		},
+		{
+			name:        "allow valid read operation",
+			toolName:    "valid_read_tool",
+			expectError: false,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			statusCode, mcpResp, err := tests.InvokeMCPTool(t, tc.toolName, map[string]any{}, nil)
+			if err != nil {
+				t.Fatalf("native error executing %s: %s", tc.toolName, err)
+			}
+			if statusCode != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", statusCode)
+			}
+
+			if tc.expectError {
+				tests.AssertMCPError(t, mcpResp, tc.wantErrSubstr)
+			} else if mcpResp.Result.IsError {
+				t.Fatalf("expected success for %s, but got error: %v", tc.toolName, mcpResp.Result)
 			}
 		})
 	}

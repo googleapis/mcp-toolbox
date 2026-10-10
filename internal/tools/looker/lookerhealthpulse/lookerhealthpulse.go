@@ -59,10 +59,9 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Parameters       map[string]any         `yaml:"parameters"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string         `yaml:"type" validate:"required"`
+	Source           string         `yaml:"source" validate:"required"`
+	Parameters       map[string]any `yaml:"parameters"`
 }
 
 var _ tools.ToolConfig = Config{}
@@ -86,7 +85,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewReadOnlyAnnotations),
+			lookercommon.ReadOnlyAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: allParameters.Manifest(), AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),
@@ -436,7 +435,7 @@ func (t *pulseTool) checkLegacyFeatures(ctx context.Context, source compatibleSo
 		logger.ErrorContext(ctx, err.Error())
 		return []map[string]string{{"Feature": "Unable to pull legacy features due to SDK error"}}, nil
 	}
-	var legacyFeatures []map[string]string
+	legacyFeatures := []map[string]string{}
 	for _, f := range features {
 		if *f.Enabled {
 			legacyFeatures = append(legacyFeatures, map[string]string{"Feature": *f.Name})

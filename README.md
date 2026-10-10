@@ -6,7 +6,6 @@
 
 <a href="https://trendshift.io/repositories/25495" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25495" alt="googleapis%2Fmcp-toolbox | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/googleapis/mcp-toolbox)](https://goreportcard.com/report/github.com/googleapis/mcp-toolbox)
 [![License: Apache
 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docs](https://img.shields.io/badge/Docs-MCP_Toolbox-blue)](https://mcp-toolbox.dev/)
@@ -112,6 +111,7 @@ For a full list of available tools and their capabilities across all supported d
 
 ---
 
+<a id="configuration"></a>
 ## Quick Start: Custom Tools
 
 Toolbox can also be used as a framework for customized tools.
@@ -204,6 +204,43 @@ arguments:
 For more details on configuring prompts, see the
 [Prompts](https://mcp-toolbox.dev/documentation/configuration/prompts/).
 
+### Resources
+
+The `resources` and `resourceTemplates` sections of your `tools.yaml` define read-only
+content, files, or parameterized directory trees that can be discovered and retrieved
+by MCP clients:
+
+```yaml
+kind: resource
+name: database_schema_ddl
+type: text
+description: "Core table definitions and constraints."
+mimeType: text/x-sql
+text: |
+  CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL
+  );
+---
+kind: resource
+name: database_schema
+type: file
+description: "PostgreSQL schema definition."
+path: "./schema.sql"
+---
+kind: resourceTemplate
+name: server_logs
+type: file
+description: "Application log files."
+uriTemplate: "file:///var/log/{path}"
+allowedPaths:
+  - "/var/log"
+```
+
+For more details on configuring resources and resource templates, see
+[Resources](https://mcp-toolbox.dev/documentation/configuration/resources/).
+
 ---
 
 ## Install & Run the Toolbox server
@@ -241,7 +278,7 @@ To install Toolbox as a binary:
 >
 > ```sh
 > # see releases page for other versions
-> export VERSION=1.8.0
+> export VERSION=1.14.0
 > curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/linux/amd64/toolbox
 > chmod +x toolbox
 > ```
@@ -254,7 +291,7 @@ To install Toolbox as a binary:
 >
 > ```sh
 > # see releases page for other versions
-> export VERSION=1.8.0
+> export VERSION=1.14.0
 > curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/arm64/toolbox
 > chmod +x toolbox
 > ```
@@ -267,7 +304,7 @@ To install Toolbox as a binary:
 >
 > ```sh
 > # see releases page for other versions
-> export VERSION=1.8.0
+> export VERSION=1.14.0
 > curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/amd64/toolbox
 > chmod +x toolbox
 > ```
@@ -280,7 +317,7 @@ To install Toolbox as a binary:
 >
 > ```cmd
 > :: see releases page for other versions
-> set VERSION=1.8.0
+> set VERSION=1.14.0
 > curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/amd64/toolbox.exe"
 > ```
 >
@@ -292,7 +329,7 @@ To install Toolbox as a binary:
 >
 > ```powershell
 > # see releases page for other versions
-> $VERSION = "1.8.0"
+> $VERSION = "1.14.0"
 > curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/amd64/toolbox.exe"
 > ```
 >
@@ -304,7 +341,7 @@ To install Toolbox as a binary:
 >
 > ```cmd
 > :: see releases page for other versions
-> set VERSION=1.8.0
+> set VERSION=1.14.0
 > curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/arm64/toolbox.exe"
 > ```
 >
@@ -316,7 +353,7 @@ To install Toolbox as a binary:
 >
 > ```powershell
 > # see releases page for other versions
-> $VERSION = "1.8.0"
+> $VERSION = "1.14.0"
 > curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/arm64/toolbox.exe"
 > ```
 >
@@ -329,7 +366,7 @@ You can also install Toolbox as a container:
 
 ```sh
 # see releases page for other versions
-export VERSION=1.8.0
+export VERSION=1.14.0
 docker pull us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:$VERSION
 ```
 
@@ -353,7 +390,7 @@ To install from source, ensure you have the latest version of
 [Go installed](https://go.dev/doc/install), and then run the following command:
 
 ```sh
-go install github.com/googleapis/mcp-toolbox@v1.8.0
+go install github.com/googleapis/mcp-toolbox@v1.14.0
 ```
 <!-- {x-release-please-end} -->
 

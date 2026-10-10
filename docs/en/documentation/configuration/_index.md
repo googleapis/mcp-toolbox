@@ -90,7 +90,7 @@ tools:
 
 ### Groups
 
-The `group` kind scopes MCP primitives such as **tools** and **prompts**
+The `group` kind scopes MCP primitives such as **tools**, **prompts**, **resources**, and **resource templates**
 together under one name, with a `description` used as group metadata. A toolset
 is a tools-only group, so existing `kind: toolset` configs keep working
 unchanged. See [Groups](./groups/_index.md) for details.
@@ -98,11 +98,15 @@ unchanged. See [Groups](./groups/_index.md) for details.
 ```yaml
 kind: group
 name: my_group
-description: Tools and prompts for a specific task.
+description: Tools, prompts, and resources for a specific task.
 tools:
   - my_first_tool
 prompts:
   - my_first_prompt
+resources:
+  - my_first_resource
+resourceTemplates:
+  - my_first_template
 ```
 
 ### Prompts
@@ -124,9 +128,46 @@ arguments:
 For more details on configuring different types of prompts, see the
 [Prompts](./prompts/_index.md).
 
+### Resources
+
+The `resource` and `resourceTemplate` kinds define read-only content, files, and parameterized URI patterns that can be discovered and retrieved by MCP clients.
+
+```yaml
+kind: resource
+name: database_schema_ddl
+type: text
+description: "Core table definitions and constraints."
+mimeType: "text/x-sql"
+text: |
+  CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL
+  );
+---
+kind: resourceTemplate
+name: server_logs
+type: file
+description: "Application runtime log files."
+uriTemplate: "file:///var/log/{path}"
+allowedPaths:
+  - "/var/log"
+```
+
+For more details on configuring different types of resources, see
+[Resources](./resources/_index.md).
+
+### MCP Apps
+
+Toolbox supports the [MCP Apps](./mcp-apps/) extension (`io.modelcontextprotocol/ui`), allowing standard resources (`kind: resource` or `kind: resourceTemplate`) to function as interactive web applications by setting `ui: true`. Tools can bind to these UI resources so clients render interactive visual interfaces.
+
+For more details, see [MCP Apps](./mcp-apps/).
+
 ### Read-Only Configuration
 
-Toolbox provides mechanisms to ensure data safety and prevent unintended modifications. Here is how you can configure read-only access and ensure safety:
+Toolbox provides an end-to-end defense-in-depth architecture to ensure data safety and prevent unintended modifications across both custom tools and prebuilt servers.
+
+For the comprehensive guide covering protocol-level session locks, write tool suppression, and MCP annotations across PostgreSQL, MySQL, AlloyDB, and BigQuery, see the dedicated **[Read-Only Tools Guide](./security/read-only.md)**.
 
 #### Custom Tools and SQL Injection Protection
 
@@ -150,9 +191,9 @@ parameters:
 statement: SELECT * FROM hotels WHERE name ILIKE '%' || $1 || '%';
 ```
 
-#### BigQuery Source Read-Only Mode
+#### Source Read-Only Mode
 
-For BigQuery sources, you can configure read-only access at the source level. This provides a hard boundary at the source connection level, ensuring that no modification operations can be performed regardless of the tool configuration.
+You can configure read-only access directly at the source level (e.g., `readOnly: true` in your source definition) or via environment variables for prebuilt servers. This establishes an immutable boundary at the database protocol level, ensuring that no modification operations can be performed regardless of tool configuration.
 
 #### Database Permissions
 

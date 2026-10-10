@@ -445,3 +445,94 @@ func TestGoogleOAuthValidationNoClientIDOrAudienceFails(t *testing.T) {
 		t.Fatalf("expected toolbox to fail with validation error, but it did not: %s", err)
 	}
 }
+
+// TestMcpAuthPRMURLWithPath tests that when --toolbox-url contains a path component
+func TestMcpAuthPRMURLWithPath(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to create RSA private key: %v", err)
+	}
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"issuer":   "https://example.com",
+				"jwks_uri": "http://" + r.Host + "/jwks",
+			})
+			return
+		}
+		if r.URL.Path == "/jwks" {
+			options := jwkset.JWKOptions{
+				Metadata: jwkset.JWKMetadataOptions{
+					KID: "test-key-id",
+				},
+			}
+			jwk, _ := jwkset.NewJWKFromKey(privateKey.Public(), options)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"keys": []jwkset.JWKMarshal{jwk.Marshal()},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer jwksServer.Close()
+
+	toolsFile := map[string]any{
+		"sources": map[string]any{},
+		"authServices": map[string]any{
+			"my-generic-auth": map[string]any{
+				"type":                "generic",
+				"audience":            "test-audience",
+				"mcpEnabled":          true,
+				"authorizationServer": jwksServer.URL,
+				"scopesRequired":      []string{"read:files"},
+			},
+		},
+		"tools": map[string]any{},
+	}
+	args := []string{"--toolbox-url=http://127.0.0.1:5008/mcp", "--port=5008"}
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	// Verify PRM document is served at the RFC 9728 §3.1 path
+	prmURL := "http://127.0.0.1:5008/.well-known/oauth-protected-resource/mcp"
+	prmResp, err := http.Get(prmURL)
+	if err != nil {
+		t.Fatalf("failed to fetch PRM document: %v", err)
+	}
+	defer prmResp.Body.Close()
+	if prmResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected PRM status 200, got %d", prmResp.StatusCode)
+	}
+
+	// Verify WWW-Authenticate header challenge advertises the RFC 9728 §3.1 PRM URL
+	mcpURL := "http://127.0.0.1:5008/mcp"
+	mcpResp, err := http.Get(mcpURL)
+	if err != nil {
+		t.Fatalf("failed to send unauthenticated MCP request: %v", err)
+	}
+	defer mcpResp.Body.Close()
+	if mcpResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected MCP status 401, got %d", mcpResp.StatusCode)
+	}
+	authHeader := mcpResp.Header.Get("WWW-Authenticate")
+	expectedMetadata := `resource_metadata="http://127.0.0.1:5008/.well-known/oauth-protected-resource/mcp"`
+	if !strings.Contains(authHeader, expectedMetadata) {
+		t.Fatalf("expected WWW-Authenticate header to contain %q, got: %s", expectedMetadata, authHeader)
+	}
+}

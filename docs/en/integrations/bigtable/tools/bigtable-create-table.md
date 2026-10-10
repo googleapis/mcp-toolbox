@@ -19,6 +19,7 @@ Create a new Bigtable table.
 `bigtable-create-table` accepts the following parameters:
 
 - **`table_id`** (string): The ID of the table to create
+- **`column_family`** (string): Optional column family name to create with the table
 
 ## Example
 

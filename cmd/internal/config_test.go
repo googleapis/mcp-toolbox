@@ -15,7 +15,10 @@
 package internal
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,6 +30,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/prebuiltconfigs"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/prompts/custom"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	cloudsqlpgsrc "github.com/googleapis/mcp-toolbox/internal/sources/cloudsqlpg"
 	httpsrc "github.com/googleapis/mcp-toolbox/internal/sources/http"
@@ -91,7 +96,119 @@ func TestParseEnv(t *testing.T) {
 			want: "bar",
 		},
 		{
-			desc:         "with empty default",
+			desc: "skip commented out env var",
+			in:   "# ${FOO}",
+			want: "# ${FOO}",
+		},
+		{
+			desc: "skip commented out env var with preceding whitespace",
+			in:   "  # ${FOO}",
+			want: "  # ${FOO}",
+		},
+		{
+			desc: "skip commented out env var in inline comment",
+			in:   "port: 8080 # default is ${DEFAULT_PORT}",
+			want: "port: 8080 # default is ${DEFAULT_PORT}",
+		},
+		{
+			desc: "skip commented out env var in inline comment but parse active env var",
+			in:   "port: ${PORT} # default is ${DEFAULT_PORT}",
+			env: map[string]string{
+				"PORT": "9090",
+			},
+			want: "port: 9090 # default is ${DEFAULT_PORT}",
+		},
+		{
+			desc: "do not skip env var with hash inside double quotes",
+			in:   `url: "http://example.com/#${ANCHOR}"`,
+			env: map[string]string{
+				"ANCHOR": "section1",
+			},
+			want: `url: "http://example.com/#section1"`,
+		},
+		{
+			desc: "do not skip env var with hash inside single quotes",
+			in:   `url: 'http://example.com/#${ANCHOR}'`,
+			env: map[string]string{
+				"ANCHOR": "section1",
+			},
+			want: `url: 'http://example.com/#section1'`,
+		},
+		{
+			desc: "skip commented out env var but parse non-commented ones",
+			in:   "foo: ${BAR}\n# ${FOO}\nbaz: ${QUX}",
+			env: map[string]string{
+				"BAR": "bar_val",
+				"QUX": "qux_val",
+			},
+			want: "foo: bar_val\n# ${FOO}\nbaz: qux_val",
+		},
+		{
+			desc: "parse env vars after a comment containing multi-byte characters",
+			in: "# " + strings.Repeat("é", 30) + "\n" +
+				"foo: ${BAR}\n" +
+				"# " + strings.Repeat("é", 30) + "\n" +
+				"baz: ${QUX}\n",
+			env: map[string]string{
+				"BAR": "bar_val",
+				"QUX": "qux_val",
+			},
+			want: "# " + strings.Repeat("é", 30) + "\n" +
+				"foo: bar_val\n" +
+				"# " + strings.Repeat("é", 30) + "\n" +
+				"baz: qux_val\n",
+		},
+		{
+			desc: "skip commented out env var when comment contains multi-byte characters",
+			in:   "# " + strings.Repeat("é", 30) + " ${FOO}\nbar: ${BAR}\n",
+			env: map[string]string{
+				"BAR": "bar_val",
+			},
+			want: "# " + strings.Repeat("é", 30) + " ${FOO}\nbar: bar_val\n",
+		},
+		{
+			desc: "multiline yaml with mixed comments and env vars",
+			in: "database: my-db # Another comment in line ${SHOULD_BE_IGNORED}\n" +
+				"host: \"localhost\"\n" +
+				"# This is a comment, ${SHOULD_BE_IGNORED} won't be replaced!\n" +
+				"port: ${DB_PORT:5432}\n" +
+				"user: ${DB_USER}\n",
+			env: map[string]string{
+				"DB_USER": "my_user",
+			},
+			want: "database: my-db # Another comment in line ${SHOULD_BE_IGNORED}\n" +
+				"host: \"localhost\"\n" +
+				"# This is a comment, ${SHOULD_BE_IGNORED} won't be replaced!\n" +
+				"port: 5432\n" +
+				"user: my_user\n",
+			wantOptional: []string{"DB_PORT"},
+		},
+		{
+			desc: "multiline yaml with env var between comment blocks",
+			in: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: ${FOO}\n" +
+				"# Another comment block\n",
+			env: map[string]string{
+				"FOO": "bar",
+			},
+			want: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: bar\n" +
+				"# Another comment block\n",
+		},
+		{
+			desc:         "with default without env",
 			in:           "${FOO:}",
 			want:         "",
 			wantOptional: []string{"FOO"},
@@ -240,7 +357,7 @@ parameters:
   type: string
   description: some description
 ---
-kind: toolset
+kind: group
 name: example_toolset
 tools:
 - example_tool
@@ -338,7 +455,7 @@ name: my-google-auth
 type: google
 clientId: testing-id
 ---
-kind: toolset
+kind: group
 name: example_toolset
 tools:
 - example_tool
@@ -460,7 +577,7 @@ parameters:
   type: string
   description: some description
 ---
-kind: toolset
+kind: group
 name: example_toolset
 tools:
 - example_tool
@@ -504,14 +621,14 @@ parameters:
   type: string
   description: some description
 ---
-kind: toolset
+kind: group
 name: example_toolset2
 tools:
 - example_tool
 ---
 tools:
 - example_tool
-kind: toolset
+kind: group
 name: example_toolset3
 ---
 kind: prompt
@@ -529,7 +646,7 @@ type: gemini
 `,
 		},
 		{
-			desc: "no convertion needed",
+			desc: "flat format only rewrites the toolset kind",
 			in: `
 kind: source
 name: my-pg-instance
@@ -578,7 +695,7 @@ parameters:
   type: string
   description: some description
 ---
-kind: toolset
+kind: group
 name: example_toolset
 tools:
 - example_tool
@@ -596,10 +713,69 @@ tools:
 			isErr:  true,
 			errStr: `doc 1: invalid config format at key "toolsets": expected nested format keys and type map`,
 		},
+		{
+			// Toolsets are emitted as groups, but the error must still name the
+			// key the user wrote.
+			desc: "invalid toolset entry",
+			in: `
+            toolsets:
+                example_toolset: not-a-list`,
+			isErr:  true,
+			errStr: `doc 1: invalid config format at key "toolsets": unable to convert entryBody to MapSlice`,
+		},
+		{
+			// A toolset has no description of its own, so converting must not turn
+			// one into a group description.
+			desc: "convert flat toolset to group drops the description",
+			in: `
+kind: toolset
+name: example_toolset
+description: some description
+tools:
+- example_tool`,
+			want: `
+kind: group
+name: example_toolset
+tools:
+- example_tool
+`,
+		},
+		{
+			// A nested toolset body may be written as a map rather than a bare
+			// list, in which case it can carry a description too. Both
+			// spellings must produce the same group.
+			desc: "convert nested map-form toolset to group drops the description",
+			in: `
+toolsets:
+    example_toolset:
+        description: some description
+        tools:
+        - example_tool`,
+			want: `
+kind: group
+name: example_toolset
+tools:
+- example_tool
+`,
+		},
+		{
+			desc: "convert flat toolset to group with kind not first",
+			in: `
+tools:
+- example_tool
+kind: toolset
+name: example_toolset`,
+			want: `
+tools:
+- example_tool
+kind: group
+name: example_toolset
+`,
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			output, err := ConvertConfig([]byte(tc.in))
+			output, err := ConvertConfig(context.Background(), []byte(tc.in))
 			if tc.isErr {
 				if err == nil {
 					t.Fatalf("expected error")
@@ -620,7 +796,11 @@ tools:
 	}
 }
 
+func float64Ptr(f float64) *float64 { return &f }
+
 func TestParseConfig(t *testing.T) {
+	testutils.RegisterMockResource()
+
 	ctx, err := testutils.ContextWithNewLogger()
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -629,6 +809,8 @@ func TestParseConfig(t *testing.T) {
 		description string
 		in          string
 		wantConfig  Config
+		wantErr     bool
+		errString   string
 	}{
 		{
 			description: "basic example config file v1",
@@ -756,6 +938,11 @@ func TestParseConfig(t *testing.T) {
       arguments:
       - name: code
         description: the code to review
+---
+      kind: resource
+      name: my-resource
+      type: mock
+      uri: mock://test
 			`,
 			wantConfig: Config{
 				Sources: server.SourceConfigs{
@@ -828,6 +1015,17 @@ func TestParseConfig(t *testing.T) {
 						},
 					},
 				},
+				Resources: server.ResourceConfigs{
+					"my-resource": &testutils.MockResourceConfig{
+						ResourceConfigBase: resources.ResourceConfigBase{
+							ConfigBase: resources.ConfigBase{
+								Name:        "my-resource",
+								Type:        "mock",
+								Annotations: &resources.ResourceAnnotations{Priority: float64Ptr(1.0)}},
+							URI: "mock://test",
+						},
+					},
+				},
 			},
 		},
 		{
@@ -861,13 +1059,89 @@ func TestParseConfig(t *testing.T) {
 				},
 			},
 		},
+		{
+			description: "only file resource",
+			in: `
+            kind: resource
+            name: my-resource
+            type: file
+            uri: file:///my/test/path
+            path: /my/test/path
+            `,
+			wantConfig: Config{
+				Sources:      nil,
+				AuthServices: nil,
+				Tools:        nil,
+				Groups:       nil,
+				Prompts:      nil,
+				Resources: server.ResourceConfigs{
+					"my-resource": &file.Config{
+						ResourceConfigBase: resources.ResourceConfigBase{
+							ConfigBase: resources.ConfigBase{
+								Name: "my-resource",
+								Type: "file", Annotations: &resources.ResourceAnnotations{Priority: float64Ptr(1.0)},
+							},
+							URI: "file:///my/test/path",
+						},
+						Path: "/my/test/path",
+					},
+				},
+			},
+		},
+		{
+			description: "only resource template",
+			in: `
+            kind: resourceTemplate
+            name: my-resource-template
+            type: file
+            uriTemplate: file:///{path}
+            `,
+			wantConfig: Config{
+				Sources:      nil,
+				AuthServices: nil,
+				Tools:        nil,
+				Groups:       nil,
+				Prompts:      nil,
+				Resources:    nil,
+				ResourceTemplates: server.ResourceTemplateConfigs{
+					"my-resource-template": &file.TemplateConfig{
+						ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{
+							ConfigBase: resources.ConfigBase{
+								Name:        "my-resource-template",
+								Description: "",
+								Annotations: &resources.ResourceAnnotations{Priority: float64Ptr(1.0)},
+								Type:        "file",
+							},
+							URITemplate: "file:///{path}",
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "invalid resource template type",
+			in: `
+            kind: resourceTemplate
+            name: invalid-template
+            type: invalid-type
+            uriTemplate: file:///{path}
+`,
+			wantErr:   true,
+			errString: "unknown resource template type",
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.description, func(t *testing.T) {
 			parser := ConfigParser{}
 			configFile, err := parser.ParseConfig(ctx, testutils.FormatYaml(tc.in))
-			if err != nil {
-				t.Fatalf("failed to parse input: %v", err)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ParseConfig() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantErr {
+				if tc.errString != "" && err != nil && !strings.Contains(err.Error(), tc.errString) {
+					t.Errorf("expected error %q, but got: %v", tc.errString, err)
+				}
+				return
 			}
 			if diff := cmp.Diff(tc.wantConfig.Sources, configFile.Sources); diff != "" {
 				t.Fatalf("incorrect sources parse: diff %v", diff)
@@ -883,6 +1157,12 @@ func TestParseConfig(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantConfig.Prompts, configFile.Prompts); diff != "" {
 				t.Fatalf("incorrect prompts parse: diff %v", diff)
+			}
+			if diff := cmp.Diff(tc.wantConfig.Resources, configFile.Resources, cmp.AllowUnexported(file.Config{})); diff != "" {
+				t.Fatalf("incorrect resources parse: diff %v", diff)
+			}
+			if diff := cmp.Diff(tc.wantConfig.ResourceTemplates, configFile.ResourceTemplates, cmp.AllowUnexported(file.TemplateConfig{})); diff != "" {
+				t.Fatalf("incorrect resourceTemplates parse: diff %v", diff)
 			}
 		})
 	}
@@ -941,6 +1221,36 @@ func TestParseConfigFailure(t *testing.T) {
 			statement: SELECT *;
 			`,
 			wantError: "invalid character for resource name; only uppercase and lowercase ASCII letters (A-Z, a-z), digits (0-9), underscore (_), hyphen (-), and dot (.) is allowed",
+		},
+		{
+			// Toolsets are parsed as groups, so unknown fields are now rejected by
+			// the group's strict decoder instead of being silently dropped.
+			description: "unknown field in toolset",
+			in: `
+			kind: toolset
+			name: my_toolset
+			tools:
+			- example_tool
+			descriptoin: typo
+			`,
+			wantError: "unable to unmarshal group",
+		},
+		{
+			// Toolsets are parsed as groups, so a toolset and a group of the same
+			// name now collide instead of the group silently winning.
+			description: "toolset and group share a name",
+			in: `
+			kind: toolset
+			name: my_collection
+			tools:
+			- example_tool
+---
+			kind: group
+			name: my_collection
+			tools:
+			- example_tool
+			`,
+			wantError: `group "my_collection" declared more than once`,
 		},
 	}
 	for _, tc := range tcs {
@@ -1203,6 +1513,12 @@ func TestParseConfigWithAuth(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantConfig.Prompts, configFile.Prompts); diff != "" {
 				t.Fatalf("incorrect prompts parse: diff %v", diff)
+			}
+			if diff := cmp.Diff(tc.wantConfig.Resources, configFile.Resources, cmp.AllowUnexported(file.Config{})); diff != "" {
+				t.Fatalf("incorrect resources parse: diff %v", diff)
+			}
+			if diff := cmp.Diff(tc.wantConfig.ResourceTemplates, configFile.ResourceTemplates, cmp.AllowUnexported(file.TemplateConfig{})); diff != "" {
+				t.Fatalf("incorrect resourceTemplates parse: diff %v", diff)
 			}
 		})
 	}
@@ -1558,6 +1874,7 @@ func TestPrebuiltTools(t *testing.T) {
 	alloydb_config, _ := prebuiltconfigs.Get("alloydb-postgres")
 	alloydbobsvconfig, _ := prebuiltconfigs.Get("alloydb-postgres-observability")
 	bigquery_config, _ := prebuiltconfigs.Get("bigquery")
+	bigtable_config, _ := prebuiltconfigs.Get("bigtable")
 	clickhouse_config, _ := prebuiltconfigs.Get("clickhouse")
 	cloudhealthcare_config, _ := prebuiltconfigs.Get("cloud-healthcare")
 	cloudsqlmssql_config, _ := prebuiltconfigs.Get("cloud-sql-mssql")
@@ -1596,6 +1913,8 @@ func TestPrebuiltTools(t *testing.T) {
 	t.Setenv("API_KEY", "your_api_key")
 
 	t.Setenv("BIGQUERY_PROJECT", "your_gcp_project_id")
+	t.Setenv("BIGTABLE_PROJECT", "your_gcp_project_id")
+	t.Setenv("BIGTABLE_INSTANCE", "your_bigtable_instance")
 	t.Setenv("DATAPLEX_PROJECT", "your_gcp_project_id")
 	t.Setenv("FIRESTORE_PROJECT", "your_gcp_project_id")
 	t.Setenv("FIRESTORE_DATABASE", "your_firestore_db_name")
@@ -1881,6 +2200,27 @@ func TestPrebuiltTools(t *testing.T) {
 			},
 		},
 		{
+			name: "bigtable prebuilt tools",
+			in:   bigtable_config,
+			wantGroups: server.GroupConfigs{
+				"admin": group.GroupConfig{
+					Name:        "admin",
+					Description: "Use these tools when you need to create, get, list, update, or delete Bigtable instances and clusters.",
+					ToolNames:   []string{"create_instance", "get_instance", "list_instances", "update_instance", "delete_instance", "create_cluster", "get_cluster", "list_clusters", "update_cluster", "delete_cluster"},
+				},
+				"data": group.GroupConfig{
+					Name:        "data",
+					Description: "Use these tools when you need to list Bigtable schemas, create, get, list, update, or delete tables, and execute GoogleSQL queries.",
+					ToolNames:   []string{"execute_sql", "list_schemas", "list_tables", "get_table", "create_table", "update_table", "delete_table"},
+				},
+				"views": group.GroupConfig{
+					Name:        "views",
+					Description: "Use these tools when you need to create, get, list, update, or delete Bigtable logical views and materialized views.",
+					ToolNames:   []string{"create_logical_view", "get_logical_view", "list_logical_views", "update_logical_view", "delete_logical_view", "create_materialized_view", "get_materialized_view", "list_materialized_views", "update_materialized_view", "delete_materialized_view"},
+				},
+			},
+		},
+		{
 			name: "clickhouse prebuilt tools",
 			in:   clickhouse_config,
 			wantGroups: server.GroupConfigs{
@@ -2073,7 +2413,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"looker_tools": group.GroupConfig{
 					Name:        "looker_tools",
 					Description: "These skills are designed for data discovery and business intelligence.",
-					ToolNames:   []string{"get_models", "get_explores", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout_component"},
+					ToolNames:   []string{"get_models", "get_explores", "get_explore", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout_component"},
 				},
 			},
 		},
@@ -2191,6 +2531,14 @@ func TestPrebuiltTools(t *testing.T) {
 					Name:      "alloydb_postgres_cloud_monitoring_tools",
 					ToolNames: []string{"get_system_metrics", "get_query_metrics"},
 				},
+				"alloydb_postgres_database_insights_tools": group.GroupConfig{
+					Name:      "alloydb_postgres_database_insights_tools",
+					ToolNames: []string{"get_advanced_aggregated_query_stats", "get_advanced_aggregated_wait_event_stats", "get_advanced_time_series_query_stats", "get_advanced_time_series_wait_event_stats", "get_index_recommendations"},
+				},
+				"alloydb_postgres_observability_tools": group.GroupConfig{
+					Name:      "alloydb_postgres_observability_tools",
+					ToolNames: []string{"get_system_metrics", "get_query_metrics", "get_advanced_aggregated_query_stats", "get_advanced_aggregated_wait_event_stats", "get_advanced_time_series_query_stats", "get_advanced_time_series_wait_event_stats", "get_index_recommendations"},
+				},
 			},
 		},
 		{
@@ -2246,12 +2594,14 @@ func TestPrebuiltTools(t *testing.T) {
 			in:   cloudstorage_config,
 			wantGroups: server.GroupConfigs{
 				"cloud-storage-buckets": group.GroupConfig{
-					Name:      "cloud-storage-buckets",
-					ToolNames: []string{"list_buckets", "create_bucket", "get_bucket_metadata", "get_bucket_iam_policy", "delete_bucket"},
+					Name:        "cloud-storage-buckets",
+					Description: "Use these tools when you need to administer cloud storage buckets, including listing and creating buckets, inspecting bucket metadata and access control policies, and deleting buckets.",
+					ToolNames:   []string{"list_buckets", "create_bucket", "get_bucket_metadata", "get_bucket_iam_policy", "delete_bucket"},
 				},
 				"cloud-storage-objects": group.GroupConfig{
-					Name:      "cloud-storage-objects",
-					ToolNames: []string{"list_objects", "get_object_metadata", "read_object", "download_object", "write_object", "upload_object", "copy_object", "move_object", "delete_object"},
+					Name:        "cloud-storage-objects",
+					Description: "Use these tools when you need to manage files and objects in cloud storage — listing, reading, writing, copying, moving, or deleting objects and retrieving their metadata.",
+					ToolNames:   []string{"list_objects", "get_object_metadata", "read_object", "download_object", "write_object", "upload_object", "copy_object", "move_object", "delete_object"},
 				},
 			},
 		},
@@ -2340,25 +2690,56 @@ func TestPrebuiltTools(t *testing.T) {
 					}
 				}
 			})
+
+			t.Run("initialize tools", func(t *testing.T) {
+				for tName, tCfg := range configFile.Tools {
+					tool, err := tCfg.Initialize(ctx)
+					if err != nil {
+						t.Fatalf("failed to initialize tool %q in config %q: %v", tName, tc.name, err)
+					}
+					if tool.GetName() != tName {
+						t.Errorf("tool name mismatch: got %q, want %q", tool.GetName(), tName)
+					}
+					if tc.name == "bigtable prebuilt tools" && tool.GetDescription() == "" {
+						t.Errorf("tool %q in config %q has empty description", tName, tc.name)
+					}
+				}
+			})
 		})
 	}
 }
 
 func TestMergeConfigs(t *testing.T) {
 	file1 := Config{
-		Sources:         server.SourceConfigs{"source1": httpsrc.Config{Name: "source1"}},
-		Tools:           server.ToolConfigs{"tool1": http.Config{ConfigBase: tools.ConfigBase{Name: "tool1"}}},
-		Groups:          server.GroupConfigs{"set1": group.GroupConfig{Name: "set1"}},
-		EmbeddingModels: server.EmbeddingModelConfigs{"model1": gemini.Config{Name: "gemini-text"}},
+		Sources:           server.SourceConfigs{"source1": httpsrc.Config{Name: "source1"}},
+		Tools:             server.ToolConfigs{"tool1": http.Config{ConfigBase: tools.ConfigBase{Name: "tool1"}}},
+		Groups:            server.GroupConfigs{"set1": group.GroupConfig{Name: "set1"}},
+		EmbeddingModels:   server.EmbeddingModelConfigs{"model1": gemini.Config{Name: "gemini-text"}},
+		Resources:         server.ResourceConfigs{"res1": &testutils.MockResourceConfig{ResourceConfigBase: resources.ResourceConfigBase{ConfigBase: resources.ConfigBase{Name: "res1"}, URI: "mock://res1"}}},
+		ResourceTemplates: server.ResourceTemplateConfigs{"tmpl1": &testutils.MockResourceTemplateConfig{ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{ConfigBase: resources.ConfigBase{Name: "tmpl1"}, URITemplate: "file:///{path}"}}},
 	}
 	file2 := Config{
-		AuthServices: server.AuthServiceConfigs{"auth1": google.Config{Name: "auth1"}},
-		Tools:        server.ToolConfigs{"tool2": http.Config{ConfigBase: tools.ConfigBase{Name: "tool2"}}},
-		Groups:       server.GroupConfigs{"set2": group.GroupConfig{Name: "set2"}},
+		AuthServices:      server.AuthServiceConfigs{"auth1": google.Config{Name: "auth1"}},
+		Tools:             server.ToolConfigs{"tool2": http.Config{ConfigBase: tools.ConfigBase{Name: "tool2"}}},
+		Groups:            server.GroupConfigs{"set2": group.GroupConfig{Name: "set2"}},
+		Resources:         server.ResourceConfigs{"res2": &testutils.MockResourceConfig{ResourceConfigBase: resources.ResourceConfigBase{ConfigBase: resources.ConfigBase{Name: "res2"}, URI: "mock://res2"}}},
+		ResourceTemplates: server.ResourceTemplateConfigs{"tmpl2": &testutils.MockResourceTemplateConfig{ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{ConfigBase: resources.ConfigBase{Name: "tmpl2"}, URITemplate: "mock://logs/{path}"}}},
 	}
 	fileWithConflicts := Config{
 		Sources: server.SourceConfigs{"source1": httpsrc.Config{Name: "source1"}},
 		Tools:   server.ToolConfigs{"tool2": http.Config{ConfigBase: tools.ConfigBase{Name: "tool2"}}},
+	}
+	fileWithResourceNameConflict := Config{
+		Resources: server.ResourceConfigs{"res1": &testutils.MockResourceConfig{ResourceConfigBase: resources.ResourceConfigBase{ConfigBase: resources.ConfigBase{Name: "res1"}, URI: "mock://different"}}},
+	}
+	fileWithResourceURIConflict := Config{
+		Resources: server.ResourceConfigs{"res3": &testutils.MockResourceConfig{ResourceConfigBase: resources.ResourceConfigBase{ConfigBase: resources.ConfigBase{Name: "res3"}, URI: "mock://res1"}}},
+	}
+	fileWithTemplateNameConflict := Config{
+		ResourceTemplates: server.ResourceTemplateConfigs{"tmpl1": &testutils.MockResourceTemplateConfig{ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{ConfigBase: resources.ConfigBase{Name: "tmpl1"}, URITemplate: "mock://different/{path}"}}},
+	}
+	fileWithTemplateURIConflict := Config{
+		ResourceTemplates: server.ResourceTemplateConfigs{"tmpl3": &testutils.MockResourceTemplateConfig{ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{ConfigBase: resources.ConfigBase{Name: "tmpl3"}, URITemplate: "file:///{path}"}}},
 	}
 	fileMcp1 := Config{
 		AuthServices: server.AuthServiceConfigs{"generic1": generic.Config{Name: "generic1", McpEnabled: true}},
@@ -2378,12 +2759,14 @@ func TestMergeConfigs(t *testing.T) {
 			name:  "merge two distinct files",
 			files: []Config{file1, file2},
 			want: Config{
-				Sources:         server.SourceConfigs{"source1": httpsrc.Config{Name: "source1"}},
-				AuthServices:    server.AuthServiceConfigs{"auth1": google.Config{Name: "auth1"}},
-				Tools:           server.ToolConfigs{"tool1": http.Config{ConfigBase: tools.ConfigBase{Name: "tool1"}}, "tool2": http.Config{ConfigBase: tools.ConfigBase{Name: "tool2"}}},
-				Prompts:         server.PromptConfigs{},
-				Groups:          server.GroupConfigs{"set1": group.GroupConfig{Name: "set1"}, "set2": group.GroupConfig{Name: "set2"}},
-				EmbeddingModels: server.EmbeddingModelConfigs{"model1": gemini.Config{Name: "gemini-text"}},
+				Sources:           server.SourceConfigs{"source1": httpsrc.Config{Name: "source1"}},
+				AuthServices:      server.AuthServiceConfigs{"auth1": google.Config{Name: "auth1"}},
+				Tools:             server.ToolConfigs{"tool1": http.Config{ConfigBase: tools.ConfigBase{Name: "tool1"}}, "tool2": http.Config{ConfigBase: tools.ConfigBase{Name: "tool2"}}},
+				Prompts:           server.PromptConfigs{},
+				Groups:            server.GroupConfigs{"set1": group.GroupConfig{Name: "set1"}, "set2": group.GroupConfig{Name: "set2"}},
+				EmbeddingModels:   server.EmbeddingModelConfigs{"model1": gemini.Config{Name: "gemini-text"}},
+				Resources:         server.ResourceConfigs{"res1": &testutils.MockResourceConfig{ResourceConfigBase: resources.ResourceConfigBase{ConfigBase: resources.ConfigBase{Name: "res1"}, URI: "mock://res1"}}, "res2": &testutils.MockResourceConfig{ResourceConfigBase: resources.ResourceConfigBase{ConfigBase: resources.ConfigBase{Name: "res2"}, URI: "mock://res2"}}},
+				ResourceTemplates: server.ResourceTemplateConfigs{"tmpl1": &testutils.MockResourceTemplateConfig{ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{ConfigBase: resources.ConfigBase{Name: "tmpl1"}, URITemplate: "file:///{path}"}}, "tmpl2": &testutils.MockResourceTemplateConfig{ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{ConfigBase: resources.ConfigBase{Name: "tmpl2"}, URITemplate: "mock://logs/{path}"}}},
 			},
 			wantErr: false,
 		},
@@ -2391,6 +2774,30 @@ func TestMergeConfigs(t *testing.T) {
 			name:    "merge with conflicts",
 			files:   []Config{file1, file2, fileWithConflicts},
 			wantErr: true,
+		},
+		{
+			name:      "merge with resource name conflicts",
+			files:     []Config{file1, fileWithResourceNameConflict},
+			wantErr:   true,
+			errString: "resource 'res1' (file #2)",
+		},
+		{
+			name:      "merge with resource URI conflicts",
+			files:     []Config{file1, fileWithResourceURIConflict},
+			wantErr:   true,
+			errString: "resource URI 'mock://res1' used by 'res1' and 'res3'",
+		},
+		{
+			name:      "merge with template name conflicts",
+			files:     []Config{file1, fileWithTemplateNameConflict},
+			wantErr:   true,
+			errString: "resourceTemplate 'tmpl1' (file #2)",
+		},
+		{
+			name:      "merge with template URI conflicts",
+			files:     []Config{file1, fileWithTemplateURIConflict},
+			wantErr:   true,
+			errString: "resourceTemplate URI 'file:///{path}' used by 'tmpl1' and 'tmpl3' (file #2)",
 		},
 		{
 			name:      "merge multiple mcp enabled generic",
@@ -2402,24 +2809,28 @@ func TestMergeConfigs(t *testing.T) {
 			name:  "merge single file",
 			files: []Config{file1},
 			want: Config{
-				Sources:         file1.Sources,
-				AuthServices:    make(server.AuthServiceConfigs),
-				EmbeddingModels: server.EmbeddingModelConfigs{"model1": gemini.Config{Name: "gemini-text"}},
-				Tools:           file1.Tools,
-				Prompts:         server.PromptConfigs{},
-				Groups:          file1.Groups,
+				Sources:           file1.Sources,
+				AuthServices:      make(server.AuthServiceConfigs),
+				EmbeddingModels:   server.EmbeddingModelConfigs{"model1": gemini.Config{Name: "gemini-text"}},
+				Tools:             file1.Tools,
+				Prompts:           server.PromptConfigs{},
+				Resources:         file1.Resources,
+				Groups:            file1.Groups,
+				ResourceTemplates: file1.ResourceTemplates,
 			},
 		},
 		{
 			name:  "merge empty list",
 			files: []Config{},
 			want: Config{
-				Sources:         make(server.SourceConfigs),
-				AuthServices:    make(server.AuthServiceConfigs),
-				EmbeddingModels: make(server.EmbeddingModelConfigs),
-				Tools:           make(server.ToolConfigs),
-				Prompts:         server.PromptConfigs{},
-				Groups:          make(server.GroupConfigs),
+				Sources:           make(server.SourceConfigs),
+				AuthServices:      make(server.AuthServiceConfigs),
+				EmbeddingModels:   make(server.EmbeddingModelConfigs),
+				Tools:             make(server.ToolConfigs),
+				Prompts:           server.PromptConfigs{},
+				Resources:         make(server.ResourceConfigs),
+				Groups:            make(server.GroupConfigs),
+				ResourceTemplates: make(server.ResourceTemplateConfigs),
 			},
 		},
 	}
@@ -2645,5 +3056,73 @@ statement: SELECT 1
 				}
 			}
 		})
+	}
+}
+
+func TestLoadAndMergeConfigs_ResourceBaseDirAnchoring(t *testing.T) {
+	configDir := t.TempDir()
+	dataPath := filepath.Join(configDir, "data.txt")
+	if err := os.WriteFile(dataPath, []byte("anchored content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	yamlContent := `
+resources:
+  test-file:
+    type: file
+    path: data.txt
+resourceTemplates:
+  test-template:
+    type: file
+    uriTemplate: "file://{path}"
+    allowedPaths:
+      - "."
+`
+	toolsYaml := filepath.Join(configDir, "tools.yaml")
+	if err := os.WriteFile(toolsYaml, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	parser := &ConfigParser{}
+	cfg, err := parser.LoadAndMergeConfigs(context.Background(), []string{toolsYaml})
+	if err != nil {
+		t.Fatalf("LoadAndMergeConfigs failed: %v", err)
+	}
+
+	resCfg, ok := cfg.Resources["test-file"]
+	if !ok {
+		t.Fatal("resource 'test-file' not found in parsed configs")
+	}
+
+	// Initialize using an empty context without BaseDirKey to verify parse-time anchoring
+	res, err := resCfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("resCfg.Initialize failed: %v", err)
+	}
+
+	content, err := res.Read(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("res.Read failed: %v", err)
+	}
+	if content != "anchored content" {
+		t.Fatalf("expected 'anchored content', got %v", content)
+	}
+
+	tmplCfg, ok := cfg.ResourceTemplates["test-template"]
+	if !ok {
+		t.Fatal("resourceTemplate 'test-template' not found in parsed configs")
+	}
+
+	tmpl, err := tmplCfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("tmplCfg.Initialize failed: %v", err)
+	}
+
+	tmplContent, err := tmpl.Read(context.Background(), map[string]any{"path": dataPath})
+	if err != nil {
+		t.Fatalf("tmpl.Read failed: %v", err)
+	}
+	if tmplContent != "anchored content" {
+		t.Fatalf("expected 'anchored content', got %v", tmplContent)
 	}
 }

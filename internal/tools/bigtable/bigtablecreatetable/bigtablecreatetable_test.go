@@ -86,7 +86,7 @@ func TestParseFromYamlBigtable(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -103,7 +103,7 @@ type mockSource struct {
 	err error
 }
 
-func (m *mockSource) CreateTable(ctx context.Context, tableID string) (any, error) {
+func (m *mockSource) CreateTable(ctx context.Context, tableID, columnFamily string) (any, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -125,6 +125,22 @@ func TestInvoke(t *testing.T) {
 		src := &mockSource{}
 		params := parameters.ParamValues{
 			{Name: "table_id", Value: "t1"},
+		}
+		got, err := tool.Invoke(context.Background(), src, params, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := any(map[string]string{"status": "table created successfully"})
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("unexpected output (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("success_with_column_family", func(t *testing.T) {
+		src := &mockSource{}
+		params := parameters.ParamValues{
+			{Name: "table_id", Value: "t1"},
+			{Name: "column_family", Value: "cf1"},
 		}
 		got, err := tool.Invoke(context.Background(), src, params, "")
 		if err != nil {

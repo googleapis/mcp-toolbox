@@ -74,6 +74,27 @@ Tools that read from or write to local files operate on the filesystem of the
 Toolbox server process, not the client machine. The server process must have
 the corresponding local file permissions.
 
+### Local Filesystem Access
+
+`allowedLocalRoots` confines `cloud-storage-upload-object` and
+`cloud-storage-download-object` to the directories you list. A path is accepted
+only if it stays inside an allowed root both as written and after symbolic
+links are resolved, so a link placed inside a root cannot be used to read or
+overwrite a file outside it. Links that resolve back inside an allowed root
+continue to work.
+
+Two limits are worth planning around:
+
+- Hard links are indistinguishable from ordinary files, so a hard link created
+  inside an allowed root to a file outside it is still readable.
+- The check runs just before the file is opened. A process that can write to an
+  allowed root can, in principle, swap a path between those two moments.
+
+Treat `allowedLocalRoots` as a guardrail layered on top of OS permissions
+rather than a replacement for them: run Toolbox as a user that only has access
+to the files it needs. If `allowedLocalRoots` is omitted, every absolute path
+the server process can reach is allowed.
+
 [iam-overview]: https://cloud.google.com/storage/docs/access-control/iam
 [adc]: https://cloud.google.com/docs/authentication#adc
 [set-adc]: https://cloud.google.com/docs/authentication/provide-credentials-adc
@@ -100,4 +121,4 @@ allowedLocalRoots:
 | type      |  string  |     true     | Must be "cloud-storage".                                                        |
 | project   |  string  |     true     | Id of the GCP project the configured source is associated with (e.g. "my-project-id"). |
 | allowedBuckets | []string |    false     | List of GCS bucket names allowed for operations. If omitted, all buckets are allowed. |
-| allowedLocalRoots | []string |    false     | List of absolute local filesystem directories allowed for file uploads and downloads. If omitted, all paths are allowed. |
+| allowedLocalRoots | []string |    false     | List of absolute local filesystem directories allowed for file uploads and downloads. Paths must stay inside a root once symbolic links are resolved. If omitted, all paths are allowed. |

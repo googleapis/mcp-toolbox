@@ -113,6 +113,7 @@ func TestValkeyToolEndpoints(t *testing.T) {
 	)
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
 		tests.WithMcpMyToolId3NameAliceWant(mcpInvokeParamWant),
+		tests.WithMcpMySecureToolWant(invokeParamWant),
 	)
 }
 

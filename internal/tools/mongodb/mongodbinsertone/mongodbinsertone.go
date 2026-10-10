@@ -21,6 +21,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -50,13 +51,13 @@ type compatibleSource interface {
 }
 
 type Config struct {
-	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Database         string                 `yaml:"database" validate:"required"`
-	Collection       string                 `yaml:"collection" validate:"required"`
-	Canonical        bool                   `yaml:"canonical"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	tools.ConfigBase        `yaml:",inline"`
+	Type                    string   `yaml:"type" validate:"required"`
+	Source                  string   `yaml:"source" validate:"required"`
+	Database                string   `yaml:"database" validate:"required"`
+	Collection              string   `yaml:"collection"`
+	CollectionAllowedValues []string `yaml:"collectionAllowedValues"`
+	Canonical               bool     `yaml:"canonical"`
 }
 
 // validate interface
@@ -74,6 +75,11 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	payloadParams := parameters.NewStringParameter(dataParamsKey, "the JSON payload to insert, should be a JSON object", parameters.WithStringRequired(true))
 
 	allParameters := parameters.Parameters{payloadParams}
+
+	if err := mongodbcommon.ValidateCollectionConfig(cfg.Collection, cfg.CollectionAllowedValues); err != nil {
+		return nil, err
+	}
+	allParameters = mongodbcommon.WithRuntimeCollectionParam(cfg.Collection, cfg.CollectionAllowedValues, allParameters)
 
 	paramManifest := allParameters.Manifest()
 	if paramManifest == nil {
@@ -126,7 +132,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if !ok {
 		return nil, util.NewAgentError("no input found or invalid type for data", nil)
 	}
-	resp, err := source.InsertOne(ctx, jsonData, t.Cfg.Canonical, t.Cfg.Database, t.Cfg.Collection)
+
+	collection, tbErr := mongodbcommon.ResolveCollection(t.Cfg.Collection, params.AsMap())
+	if tbErr != nil {
+		return nil, tbErr
+	}
+
+	resp, err := source.InsertOne(ctx, jsonData, t.Cfg.Canonical, t.Cfg.Database, collection)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

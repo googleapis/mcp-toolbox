@@ -90,6 +90,10 @@ func (s *Source) ToConfig() sources.SourceConfig {
 }
 
 // SourceType implements sources.Source.
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }

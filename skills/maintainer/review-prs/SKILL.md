@@ -103,7 +103,7 @@ Skip a dimension when it doesn't apply: say so, don't invent a finding.
 
 - **Title & description.** Conventional Commits with the right `type(scope)` per
   `CONTRIBUTING.md`, plus `!`/`BREAKING CHANGE` for breaking
-  changes. Body follows `.github/PULL_REQUEST_TEMPLATE.md`: what, why, completed checklist,
+  changes. Body follows [`.github/PULL_REQUEST_TEMPLATE.md`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/PULL_REQUEST_TEMPLATE.md): what, why, completed checklist,
   `Fixes #<n>`. Note a missing issue link; don't block on it alone.
 - **Correctness.** Cite `file:line` and name the failure case, never
   "looks risky".
@@ -129,6 +129,9 @@ Skip a dimension when it doesn't apply: say so, don't invent a finding.
   documentation: could an agent pick this tool and fill its parameters from that text alone, at a
   token cost worth paying? Flag ones that restate the field name, omit units/format/allowed
   values, or run long without adding information.
+  - *Evals measure exactly this.* For a PR editing `internal/prebuiltconfigs/tools/<config>.yaml`,
+    note that the next step is a maintainer applying the `evals: run` label, which scopes the run
+    to the configs that PR touched. Like integration tests, un-run evals aren't a blocker.
 - **Tests.** New logic or a bug fix needs tests; missing them is usually request-changes.
   - *Coverage:* happy path, edge cases, and for a fix, a test that fails without it. A new
     source/tool follows the unit + integration pattern and is wired into
@@ -145,10 +148,19 @@ Skip a dimension when it doesn't apply: say so, don't invent a finding.
     a maintainer running them via the `tests: run` label or a `/gcbrun` comment.
 - **Docs.** Changes to how a user configures or interacts with MCP toolbox need matching updates
   under `docs/en/`. New sources/tools have CI-enforced page structure per `DEVELOPER.md`, enforced by
-  `.ci/lint-docs-*.sh`. A violation breaks the build, so it's blocking.
+  `.ci/lint-docs-*.sh`. A violation breaks the build, so it's blocking. Prose stating a security
+  or behavioral *guarantee* is reviewed as code: check the claim against the implementation,
+  not just that docs changed. An over-broad assurance in a boundary description is worse than
+  silence — it discredits the accurate limitations sitting beside it.
 - **Security.** For PRs handling user/LLM input or building queries: injection (SQL/command),
   unsanitized interpolation, secrets logged or committed. Concrete vectors with `file:line`, not
   generic warnings.
+  - *Reviewing a fix to a reported vulnerability* asks different questions than reviewing new
+    code. (a) **Can the untrusted party actually reach the primitive the residual attack
+    needs?** Grep the tool surface for it — a residual weakness nothing exposed can set up is
+    usually the line between blocker and tracked follow-up. (b) **Which way does the failure
+    lean?** Over-rejection is a cost; a bug in newly hand-rolled logic is a vulnerability.
+    Don't ask a security PR to spend fail-open risk buying back a narrow convenience.
 - **Dependencies.** Call out new `go.mod` entries so the maintainer can vet necessity,
   maintenance, and license.
 
@@ -194,6 +206,13 @@ Use the output format below. Never post it yourself.
   check name from `gh pr checks` (a red check is a valid blocker with no `file:line`). If you
   couldn't verify something (runtime behavior you can't trace, a URL you didn't fetch), mark
   it `[UNVERIFIED]` rather than asserting it.
+- **Prefer running the code to reasoning about it.** `[UNVERIFIED]` is for what you *can't*
+  check, not what's inconvenient to. Fetch the branch (`git fetch origin pull/<n>/head:pr<n>`,
+  then `git worktree add /tmp/pr<n> pr<n>` so your tree stays clean) and drop a scratch
+  `probe_test.go` *inside* the package under review — package-local placement is what reaches
+  unexported symbols. Delete it and `git worktree remove --force /tmp/pr<n>` after; never leave
+  a scratch test in `internal/`. Probes right-size verdicts as often as they confirm them: "this
+  regresses X" often shrinks to "in one narrow case" once measured.
 - **When it's a genuine judgment call, ask** rather than issuing a confident wrong verdict,
   since a wrong "request changes" costs a contributor a cycle.
 

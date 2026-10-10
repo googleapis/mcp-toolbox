@@ -32,6 +32,16 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
+// ProtocolOptions contains configuration passed during server initialization to protocol handlers.
+type ProtocolOptions struct {
+	DisableExt []string
+}
+
+// InitializeProtocols performs version-specific protocol setup across all supported MCP versions.
+func InitializeProtocols(opts ProtocolOptions) {
+	v20260728.Initialize(opts.DisableExt)
+}
+
 // NotificationHandler process notifications request. It MUST NOT send a response.
 // Currently Toolbox does not process any notifications.
 func NotificationHandler(ctx context.Context, body []byte) error {

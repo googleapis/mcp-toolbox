@@ -71,6 +71,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 
 	err = pool.PingContext(ctx)
 	if err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -86,6 +87,10 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	Pool *sql.DB
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {

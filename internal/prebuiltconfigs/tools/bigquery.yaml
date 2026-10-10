@@ -17,6 +17,8 @@ name: bigquery-source
 type: bigquery
 project: ${BIGQUERY_PROJECT}
 location: ${BIGQUERY_LOCATION:}
+readOnly: ${BIGQUERY_READONLY:}
+writeMode: ${BIGQUERY_WRITE_MODE:}
 useClientOAuth: ${BIGQUERY_USE_CLIENT_OAUTH:false}
 scopes: ${BIGQUERY_SCOPES:}
 maxQueryResultRows: ${BIGQUERY_MAX_QUERY_RESULT_ROWS:50}

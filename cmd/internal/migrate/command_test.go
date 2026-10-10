@@ -16,6 +16,7 @@ package migrate
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,6 +124,73 @@ parameters:
 		}
 		if !bytes.Equal(actualContent, []byte(toolsFileContentNew)) {
 			t.Fatalf("file content mismatch!\nExpected: %q\nGot: %q", toolsFileContentNew, actualContent)
+		}
+	})
+	t.Run("migrate toolset to group", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Every spelling of a toolset: a nested bare list, a nested map (which
+		// can carry an unsupported description), and an already-flat doc.
+		toolsetFileContent := `
+toolsets:
+  bare_list_toolset:
+    - example_tool
+  map_toolset:
+    description: nested description
+    tools:
+    - example_tool
+---
+kind: toolset
+name: flat_toolset
+description: flat description
+tools:
+- example_tool`
+		toolsetFileContentNew := `
+kind: group
+name: bare_list_toolset
+tools:
+- example_tool
+---
+kind: group
+name: map_toolset
+tools:
+- example_tool
+---
+kind: group
+name: flat_toolset
+tools:
+- example_tool
+`
+
+		toolsFilePath := filepath.Join(tmpDir, "toolsets.yaml")
+		if err := os.WriteFile(toolsFilePath, []byte(toolsetFileContent), 0644); err != nil {
+			t.Fatalf("failed to write tools file: %v", err)
+		}
+
+		args := []string{"migrate", "--tools-file", toolsFilePath}
+		got, err := invokeCommand(args)
+		if err != nil {
+			t.Fatalf("command failed: %v\nOutput: %s", err, got)
+		}
+
+		for _, name := range []string{"map_toolset", "flat_toolset"} {
+			// The logger renders the message as a quoted string, so the
+			// name's own quotes come through escaped.
+			want := fmt.Sprintf(`toolset \"%s\": dropping description`, name)
+			if !strings.Contains(got, want) {
+				t.Errorf("missing warning %q in output: %s", want, got)
+			}
+		}
+		if strings.Contains(got, `bare_list_toolset\": dropping description`) {
+			t.Errorf("unexpected warning for a toolset with no description: %s", got)
+		}
+
+		actualContent, err := os.ReadFile(toolsFilePath)
+		if err != nil {
+			t.Fatalf("failed to read migrated file: %v", err)
+		}
+		if !bytes.Equal(actualContent, []byte(toolsetFileContentNew)) {
+			t.Fatalf("file content mismatch!\nExpected: %q\nGot: %q", toolsetFileContentNew, actualContent)
 		}
 	})
 	t.Run("migrate tools files", func(t *testing.T) {

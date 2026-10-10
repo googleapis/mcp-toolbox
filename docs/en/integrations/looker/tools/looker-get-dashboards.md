@@ -10,7 +10,8 @@ description: >
 ## About
 
 The `looker-get-dashboards` tool searches for a saved Dashboard by
-name or description.
+name or description. It returns each dashboard's `id`, `title`, `description`,
+and `certification_metadata` (if present).
 
 `looker-get-dashboards` takes four parameters, the `title`, `desc`, `limit`
 and `offset`.
@@ -32,7 +33,7 @@ name: get_dashboards
 type: looker-get-dashboards
 source: looker-source
 description: |
-  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard.
+  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard, including its id, title, description, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by dashboard title (supports wildcards).

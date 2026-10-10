@@ -28,10 +28,10 @@ import (
 )
 
 const (
-	DimensionsFields = "fields(dimensions(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
-	FiltersFields    = "fields(filters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
-	MeasuresFields   = "fields(measures(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
-	ParametersFields = "fields(parameters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore))"
+	DimensionsFields = "fields(dimensions(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
+	FiltersFields    = "fields(filters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
+	MeasuresFields   = "fields(measures(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
+	ParametersFields = "fields(parameters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
 )
 
 // ExtractLookerFieldProperties extracts common properties from Looker field objects.
@@ -79,6 +79,12 @@ func ExtractLookerFieldProperties(ctx context.Context, fields *[]v4.LookmlModelE
 		}
 		if v.Synonyms != nil && len(*v.Synonyms) > 0 {
 			vMap["synonyms"] = *v.Synonyms
+		}
+		if v.ValueFormat != nil && *v.ValueFormat != "" {
+			vMap["value_format"] = *v.ValueFormat
+		}
+		if v.ValueFormatName != nil && *v.ValueFormatName != "" {
+			vMap["value_format_name"] = *v.ValueFormatName
 		}
 		if v.Suggestable != nil {
 			vMap["suggestable"] = *v.Suggestable
@@ -534,4 +540,18 @@ func CreateViewsFromTables(ctx context.Context, l *v4.LookerSDK, projectId strin
 	logger, _ := util.LoggerFromContext(ctx)
 	logger.DebugContext(ctx, fmt.Sprintf("generating views with request: query=%v body=%v error=%v", query, reqBody.Tables, err))
 	return err
+}
+
+// SearchLookmlDashboards calls GET /4.0/dashboards/lookml/search and unmarshals
+// the response into []v4.Dashboard.
+// Note: The generated v4.LookerSDK.SearchLookmlDashboards method cannot be used
+// because Looker's OpenAPI spec declares its return type as a single DashboardLookml
+// object whereas the endpoint actually returns a JSON array of Dashboard objects.
+func SearchLookmlDashboards(l *v4.LookerSDK, params map[string]any, options *rtl.ApiSettings) ([]v4.Dashboard, error) {
+	var result []v4.Dashboard
+	err := l.AuthSession.Do(&result, "GET", "/4.0", "/dashboards/lookml/search", params, nil, options)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }

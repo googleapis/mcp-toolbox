@@ -7,6 +7,9 @@ description: "Details of the Cloud SQL for MySQL Admin prebuilt configuration."
 ## Cloud SQL for MySQL Admin
 
 *   `--prebuilt` value: `cloud-sql-mysql-admin`
+*   **Environment Variables:**
+    *   `CLOUD_SQL_MYSQL_PROJECT`: (Optional) The GCP project ID to use as the default for Cloud SQL infrastructure tools.
+    *   `CLOUD_SQL_MYSQL_READONLY`: (Optional) When set to `true`, suppresses write-capable admin tools. Default: `false`.
 *   **Permissions:**
     *   **Cloud SQL Viewer** (`roles/cloudsql.viewer`): Provides read-only
         access to resources.

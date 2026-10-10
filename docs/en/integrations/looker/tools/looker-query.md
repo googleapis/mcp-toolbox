@@ -50,10 +50,15 @@ description: |
 
   Optional Parameters:
   - pivots: A list of fields to pivot the results by. These fields must also be included in the `fields` list.
-  - filters: A map of filter expressions, e.g., `{"view.field": "value", "view.date": "7 days"}`.
-    - Do not quote field names.
+  - filters: A map of filter expressions, e.g., `{"view_name.field_name": "value", "view_name.date": "7 days"}`.
+    - Each key must be a fully-scoped `view_name.field_name`, copied verbatim from
+      `get_dimensions`, `get_measures`, `get_filters`, or `get_parameters`. The view
+      prefix and the dot are required.
+    - Each value is a Looker filter expression. Pass values bare: do not wrap them in
+      extra quote characters. For LookML `parameter` fields, use the raw allowed_value
+      (e.g. `first_touch`, not `"first_touch"`).
     - Use `not null` instead of `-NULL`.
-    - If a value contains a comma, enclose it in single quotes (e.g., "'New York, NY'").
+    - If a value contains a comma, enclose it in single quotes (e.g., `'New York, NY'`).
   - filter_expression: A Looker expression filter string (custom filter). This allows complex logic and comparing fields.
     - Reference fields using `${view.field_name}` syntax.
     - Supports logical operators (`AND`, `OR`, `NOT`) and comparison operators.

@@ -437,6 +437,7 @@ func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		err = fmt.Errorf("unable to retrieve flusher for sse")
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusInternalServerError))
+		return
 	}
 	session := &sseSession{
 		writer:     w,
@@ -637,14 +638,14 @@ func httpHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 			if errors.As(err, &mcpErr) {
 				switch mcpErr.Code {
 				case http.StatusForbidden:
-					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="insufficient_scope", scope="%s", resource_metadata="%s", error_description="%s"`, strings.Join(mcpErr.ScopesRequired, " "), s.toolboxUrl+"/.well-known/oauth-protected-resource", mcpErr.Message))
+					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="insufficient_scope", scope="%s", resource_metadata="%s", error_description="%s"`, strings.Join(mcpErr.ScopesRequired, " "), s.getPRMURL(), mcpErr.Message))
 					render.Status(r, http.StatusForbidden)
 				case http.StatusUnauthorized:
 					scopesArg := ""
 					if len(mcpErr.ScopesRequired) > 0 {
 						scopesArg = fmt.Sprintf(`, scope="%s"`, strings.Join(mcpErr.ScopesRequired, " "))
 					}
-					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s"%s`, s.toolboxUrl+"/.well-known/oauth-protected-resource", scopesArg))
+					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s"%s`, s.getPRMURL(), scopesArg))
 					render.Status(r, http.StatusUnauthorized)
 				}
 			}
@@ -891,7 +892,7 @@ type prmResponse struct {
 func prmHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	var server string
 	scopes := []string{}
-	for _, authSvc := range s.PrimitiveMgr.GetAuthServiceMap() {
+	for _, authSvc := range s.PrimitiveMgr.AuthServices() {
 		if mSvc, ok := authSvc.(auth.MCPAuthService); ok && mSvc.IsMCPEnabled() {
 			server = mSvc.GetAuthorizationServer()
 			scopes = mSvc.GetScopesRequired()

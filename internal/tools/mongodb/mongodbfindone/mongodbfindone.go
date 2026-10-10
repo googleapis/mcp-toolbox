@@ -28,6 +28,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 )
 
 const resourceType string = "mongodb-find-one"
@@ -52,16 +53,16 @@ type compatibleSource interface {
 }
 
 type Config struct {
-	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Database         string                 `yaml:"database" validate:"required"`
-	Collection       string                 `yaml:"collection" validate:"required"`
-	FilterPayload    string                 `yaml:"filterPayload" validate:"required"`
-	FilterParams     parameters.Parameters  `yaml:"filterParams"`
-	ProjectPayload   string                 `yaml:"projectPayload"`
-	ProjectParams    parameters.Parameters  `yaml:"projectParams"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	tools.ConfigBase        `yaml:",inline"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	FilterPayload           string                `yaml:"filterPayload" validate:"required"`
+	FilterParams            parameters.Parameters `yaml:"filterParams"`
+	ProjectPayload          string                `yaml:"projectPayload"`
+	ProjectParams           parameters.Parameters `yaml:"projectParams"`
 }
 
 // validate interface
@@ -77,6 +78,11 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	}
 
 	allParameters := slices.Concat(cfg.FilterParams, cfg.ProjectParams)
+
+	if err := mongodbcommon.ValidateCollectionConfig(cfg.Collection, cfg.CollectionAllowedValues); err != nil {
+		return nil, err
+	}
+	allParameters = mongodbcommon.WithRuntimeCollectionParam(cfg.Collection, cfg.CollectionAllowedValues, allParameters)
 
 	if err := parameters.CheckDuplicateParameters(allParameters); err != nil {
 		return nil, err
@@ -126,6 +132,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
 	}
 	paramsMap := params.AsMap()
+
+	collection, tbErr := mongodbcommon.ResolveCollection(t.Cfg.Collection, paramsMap)
+	if tbErr != nil {
+		return nil, tbErr
+	}
+
 	filterString, err := parameters.PopulateTemplateWithJSON("MongoDBFindOneFilterString", t.Cfg.FilterPayload, paramsMap)
 	if err != nil {
 		return nil, util.NewAgentError("error populating filter", err)
@@ -144,7 +156,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 		opts = opts.SetProjection(projection)
 	}
-	resp, err := source.FindOne(ctx, filterString, t.Cfg.Database, t.Cfg.Collection, opts)
+	resp, err := source.FindOne(ctx, filterString, t.Cfg.Database, collection, opts)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

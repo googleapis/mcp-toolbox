@@ -136,10 +136,15 @@ func (s *Source) GetTable(ctx context.Context, tableId string) (any, error) {
 	return table, nil
 }
 
-func (s *Source) CreateTable(ctx context.Context, tableId string) (any, error) {
+func (s *Source) CreateTable(ctx context.Context, tableId, columnFamily string) (any, error) {
 	err := s.Admin.CreateTable(ctx, tableId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+	if columnFamily != "" {
+		if err := s.Admin.CreateColumnFamily(ctx, tableId, columnFamily); err != nil {
+			return nil, fmt.Errorf("failed to create column family: %w", err)
+		}
 	}
 	return map[string]string{"status": "table created successfully"}, nil
 }
@@ -189,6 +194,14 @@ func (s *Source) ListLogicalViews(ctx context.Context, instanceId string) (any, 
 	return views, nil
 }
 
+func (s *Source) ListMaterializedViews(ctx context.Context, instanceId string) (any, error) {
+	views, err := s.InstanceAdmin.MaterializedViews(ctx, instanceId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list materialized views: %w", err)
+	}
+	return views, nil
+}
+
 func (s *Source) CreateLogicalView(ctx context.Context, instanceId, logicalViewId, query string) (any, error) {
 	conf := &bigtable.LogicalViewInfo{
 		LogicalViewID: logicalViewId,
@@ -219,4 +232,44 @@ func (s *Source) DeleteLogicalView(ctx context.Context, instanceId, logicalViewI
 		return nil, fmt.Errorf("failed to delete logical view: %w", err)
 	}
 	return map[string]string{"status": "logical view deleted successfully"}, nil
+}
+
+func (s *Source) GetMaterializedView(ctx context.Context, instanceId, materializedViewId string) (any, error) {
+	view, err := s.InstanceAdmin.MaterializedViewInfo(ctx, instanceId, materializedViewId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get materialized view: %w", err)
+	}
+	return view, nil
+}
+
+func (s *Source) CreateMaterializedView(ctx context.Context, instanceId, materializedViewId, query string) (any, error) {
+	conf := &bigtable.MaterializedViewInfo{
+		MaterializedViewID: materializedViewId,
+		Query:              query,
+	}
+	err := s.InstanceAdmin.CreateMaterializedView(ctx, instanceId, conf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create materialized view: %w", err)
+	}
+	return map[string]string{"status": "materialized view created successfully"}, nil
+}
+
+func (s *Source) UpdateMaterializedView(ctx context.Context, instanceId, materializedViewId, query string) (any, error) {
+	conf := bigtable.MaterializedViewInfo{ // MUST be value per bigtable SDK
+		MaterializedViewID: materializedViewId,
+		Query:              query,
+	}
+	err := s.InstanceAdmin.UpdateMaterializedView(ctx, instanceId, conf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update materialized view: %w", err)
+	}
+	return map[string]string{"status": "materialized view updated successfully"}, nil
+}
+
+func (s *Source) DeleteMaterializedView(ctx context.Context, instanceId, materializedViewId string) (any, error) {
+	err := s.InstanceAdmin.DeleteMaterializedView(ctx, instanceId, materializedViewId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to delete materialized view: %w", err)
+	}
+	return map[string]string{"status": "materialized view deleted successfully"}, nil
 }

@@ -153,6 +153,61 @@ func TestMongoDBToolEndpoints(t *testing.T) {
 	aggregate1Want := `[{"id":2}]`
 	aggregateManyWant := `[{"id":500},{"id":501}]`
 	runToolAggregateInvokeTest(t, aggregate1Want, aggregateManyWant)
+
+	runToolRuntimeCollectionInvokeTest(t, select1Want)
+}
+
+func runToolRuntimeCollectionInvokeTest(t *testing.T, want string) {
+	// The tool has no collection in its config, so it is supplied at runtime.
+	invokeTcs := []struct {
+		name        string
+		requestBody io.Reader
+		want        string
+	}{
+		{
+			name:        "invoke with runtime collection",
+			requestBody: bytes.NewBuffer([]byte(`{ "id": 3, "collection": "test_collection" }`)),
+			want:        want,
+		},
+		{
+			name:        "invoke without collection returns an error",
+			requestBody: bytes.NewBuffer([]byte(`{ "id": 3 }`)),
+			want:        `{"error":"parameter \"collection\" is required"}`,
+		},
+	}
+
+	api := "http://127.0.0.1:5000/api/tool/my-runtime-collection-tool/invoke"
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, api, tc.requestBody)
+			if err != nil {
+				t.Fatalf("unable to create request: %s", err)
+			}
+			req.Header.Add("Content-type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("unable to send request: %s", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+			}
+
+			var body map[string]interface{}
+			if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("error parsing response body")
+			}
+			got, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body")
+			}
+			if got != tc.want {
+				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func runToolDeleteInvokeTest(t *testing.T, delete1Want, deleteManyWant string) {
@@ -547,6 +602,31 @@ func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[str
 				"database":       MongoDbDatabase,
 				"limit":          10,
 			},
+			"my-secure-tool": map[string]any{
+				"type":          toolType,
+				"source":        "my-instance",
+				"description":   "Tool to test secure parameters.",
+				"authRequired":  []string{},
+				"collection":    "test_collection",
+				"filterPayload": `{ "$or": [ { "id": 1, "name": {{json .name }} }, { "id": {{ .id }}, "name": "Sid" } ] }`,
+				"filterParams": []map[string]any{
+					{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user id",
+					},
+					{
+						"name":        "name",
+						"type":        "string",
+						"description": "user name",
+						"secure":      true,
+					},
+				},
+				"projectPayload": `{ "_id": 0, "id": 1, "name" : 1 }`,
+				"sortPayload":    `{ "id": 1 }`,
+				"database":       MongoDbDatabase,
+				"limit":          10,
+			},
 			"my-tool-by-id": map[string]any{
 				"type":          toolType,
 				"source":        "my-instance",
@@ -554,6 +634,23 @@ func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[str
 				"authRequired":  []string{},
 				"collection":    "test_collection",
 				"filterPayload": `{ "id" : {{ .id }} }`,
+				"filterParams": []map[string]any{
+					{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user id",
+					},
+				},
+				"projectPayload": `{ "_id": 1, "id": 1, "name" : 1 }`,
+				"database":       MongoDbDatabase,
+				"limit":          10,
+			},
+			"my-runtime-collection-tool": map[string]any{
+				"type":          toolType,
+				"source":        "my-instance",
+				"description":   "Tool to test runtime collection selection.",
+				"authRequired":  []string{},
+				"filterPayload": `{ "_id" : {{ .id }} }`,
 				"filterParams": []map[string]any{
 					{
 						"name":        "id",

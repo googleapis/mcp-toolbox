@@ -43,14 +43,13 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 }
 
 type compatibleSource interface {
-	CreateTable(context.Context, string) (any, error)
+	CreateTable(context.Context, string, string) (any, error)
 }
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 var _ tools.ToolConfig = Config{}
@@ -66,6 +65,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	allParameters := parameters.Parameters{
 		parameters.NewStringParameter("table_id", "The ID of the table to create"),
+		parameters.NewStringParameter("column_family", "Optional column family name to create with the table", parameters.WithStringRequired(false)),
 	}
 
 	return Tool{
@@ -108,7 +108,15 @@ func (t Tool) Invoke(ctx context.Context, src sources.Source, params parameters.
 
 	paramsMap := params.AsMap()
 
-	res, err := source.CreateTable(ctx, paramsMap["table_id"].(string))
+	tableID := paramsMap["table_id"].(string)
+	var columnFamily string
+	if cf, ok := paramsMap["column_family"]; ok && cf != nil {
+		if cfStr, ok := cf.(string); ok {
+			columnFamily = cfStr
+		}
+	}
+
+	res, err := source.CreateTable(ctx, tableID, columnFamily)
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
 	}

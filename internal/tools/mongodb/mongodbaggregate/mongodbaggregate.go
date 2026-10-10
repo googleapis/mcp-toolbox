@@ -26,6 +26,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 )
 
 const resourceType string = "mongodb-aggregate"
@@ -50,16 +51,16 @@ type compatibleSource interface {
 }
 
 type Config struct {
-	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Database         string                 `yaml:"database" validate:"required"`
-	Collection       string                 `yaml:"collection" validate:"required"`
-	PipelinePayload  string                 `yaml:"pipelinePayload" validate:"required"`
-	PipelineParams   parameters.Parameters  `yaml:"pipelineParams" validate:"required"`
-	Canonical        bool                   `yaml:"canonical"`
-	ReadOnly         bool                   `yaml:"readOnly"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	tools.ConfigBase        `yaml:",inline"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	PipelinePayload         string                `yaml:"pipelinePayload" validate:"required"`
+	PipelineParams          parameters.Parameters `yaml:"pipelineParams" validate:"required"`
+	Canonical               bool                  `yaml:"canonical"`
+	ReadOnly                bool                  `yaml:"readOnly"`
 }
 
 // validate interface
@@ -75,6 +76,15 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	}
 
 	allParameters := slices.Concat(cfg.PipelineParams)
+
+	if err := mongodbcommon.ValidateCollectionConfig(cfg.Collection, cfg.CollectionAllowedValues); err != nil {
+		return nil, err
+	}
+	allParameters = mongodbcommon.WithRuntimeCollectionParam(cfg.Collection, cfg.CollectionAllowedValues, allParameters)
+
+	if err := parameters.CheckDuplicateParameters(allParameters); err != nil {
+		return nil, err
+	}
 
 	paramManifest := allParameters.Manifest()
 	if paramManifest == nil {
@@ -120,11 +130,17 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
 	}
 	paramsMap := params.AsMap()
+
+	collection, tbErr := mongodbcommon.ResolveCollection(t.Cfg.Collection, paramsMap)
+	if tbErr != nil {
+		return nil, tbErr
+	}
+
 	pipelineString, err := parameters.PopulateTemplateWithJSON("MongoDBAggregatePipeline", t.Cfg.PipelinePayload, paramsMap)
 	if err != nil {
 		return nil, util.NewAgentError("error populating pipeline", err)
 	}
-	resp, err := source.Aggregate(ctx, pipelineString, t.Cfg.Canonical, t.Cfg.ReadOnly, t.Cfg.Database, t.Cfg.Collection)
+	resp, err := source.Aggregate(ctx, pipelineString, t.Cfg.Canonical, t.Cfg.ReadOnly, t.Cfg.Database, collection)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

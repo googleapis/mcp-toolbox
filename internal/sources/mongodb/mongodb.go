@@ -67,6 +67,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	// Verify the connection
 	err = client.Ping(ctx, nil)
 	if err != nil {
+		_ = client.Disconnect(ctx)
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -82,6 +83,10 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	Client *mongo.Client
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {
