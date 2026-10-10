@@ -205,10 +205,14 @@ func (a AuthService) ValidateMCPAuth(ctx context.Context, h http.Header) (map[st
 		return nil, fmt.Errorf("failed to read Google tokeninfo response: %w", err)
 	}
 
+	// Google's tokeninfo endpoint returns numbers and booleans as JSON strings.
 	var tokenInfo struct {
-		Aud   string `json:"aud"`
-		Azp   string `json:"azp"`
-		Scope string `json:"scope"`
+		Aud           string `json:"aud"`
+		Azp           string `json:"azp"`
+		Scope         string `json:"scope"`
+		Sub           string `json:"sub"`
+		Email         string `json:"email"`
+		EmailVerified string `json:"email_verified"`
 	}
 	if err := json.Unmarshal(body, &tokenInfo); err != nil {
 		return nil, fmt.Errorf("failed to decode Google tokeninfo response: %w", err)
@@ -245,6 +249,15 @@ func (a AuthService) ValidateMCPAuth(ctx context.Context, h http.Header) (map[st
 	claims := map[string]any{
 		"aud":   aud,
 		"scope": tokenInfo.Scope,
+	}
+	// Expose identity claims so authenticated parameters can resolve them, as they
+	// can for ID tokens. The email is only exposed when Google has verified it.
+	if tokenInfo.Sub != "" {
+		claims["sub"] = tokenInfo.Sub
+	}
+	if tokenInfo.Email != "" && tokenInfo.EmailVerified == "true" {
+		claims["email"] = tokenInfo.Email
+		claims["email_verified"] = true
 	}
 	return claims, nil
 }

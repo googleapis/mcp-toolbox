@@ -68,6 +68,8 @@ When using [Authorized Invocations][auth-invoke], a tool will be considered auth
 ### Authenticated Parameters
 When using [Authenticated Parameters][auth-params], any [claim provided by the id-token][provided-claims] can be used for the parameter.
 
+For **opaque access tokens** (MCP Auth mode), the claims are built from Google's tokeninfo response and are limited to `aud`, `scope`, `sub` and, when `email_verified` is true, `email` and `email_verified`. The `sub` and `email` claims are only present if the token was granted the `openid` / `email` scopes.
+
 [auth-params]: ../tools/_index.md#authenticated-parameters
 [provided-claims]: https://developers.google.com/identity/openid-connect/openid-connect#obtaininguserprofileinformation
 
