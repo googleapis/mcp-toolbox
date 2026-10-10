@@ -204,6 +204,12 @@ func addTrinoExecuteSqlConfig(t *testing.T, config map[string]any) map[string]an
 			"my-google-auth",
 		},
 	}
+	tools["my-impersonate-exec-sql-tool"] = map[string]any{
+		"type":            "trino-execute-sql",
+		"source":          "my-instance",
+		"description":     "Tool to execute sql impersonating a Trino user",
+		"impersonateUser": true,
+	}
 	config["tools"] = tools
 	return config
 }
@@ -264,4 +270,10 @@ func TestTrinoToolEndpoints(t *testing.T) {
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam, tests.WithInsert1Want(`[{"rows":1}]`))
+
+	// Verify user impersonation: the `trino_user` parameter is forwarded as the
+	// X-Trino-User header, so the query runs as that user (current_user reflects
+	// it rather than the source's configured user).
+	impersonateParams := []byte(`{"sql": "SELECT current_user", "trino_user": "impersonated_user"}`)
+	tests.RunToolInvokeParametersTest(t, "my-impersonate-exec-sql-tool", impersonateParams, "impersonated_user")
 }

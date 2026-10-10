@@ -32,6 +32,13 @@ import (
 
 const SourceType string = "trino"
 
+// trinoUserHeader is the HTTP header the Trino protocol uses to identify the
+// session user. The trino-go-client forwards any query argument whose name
+// carries the "X-Trino-" prefix as a request header (and skips it when binding
+// positional "?" placeholders), so passing a sql.Named with this name lets a
+// single pooled connection run an individual statement as a different user.
+const trinoUserHeader string = "X-Trino-User"
+
 // validate interface
 var _ sources.SourceConfig = Config{}
 
@@ -111,6 +118,18 @@ func (s *Source) ToConfig() sources.SourceConfig {
 
 func (s *Source) TrinoDB() *sql.DB {
 	return s.Pool
+}
+
+// RunSQLAsUser runs statement while impersonating the given Trino user. When
+// user is empty it is equivalent to RunSQL. Impersonation attaches the
+// X-Trino-User header to this statement only; the connection pool's configured
+// principal (DSN user / access token) still authenticates the request, so that
+// principal must be authorized to impersonate on the Trino side.
+func (s *Source) RunSQLAsUser(ctx context.Context, user, statement string, params []any) (any, error) {
+	if user != "" {
+		params = append(params, sql.Named(trinoUserHeader, user))
+	}
+	return s.RunSQL(ctx, statement, params)
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {

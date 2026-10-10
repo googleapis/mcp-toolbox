@@ -15,6 +15,16 @@ The specified SQL statement is executed as a [prepared statement][trino-prepare]
 
 [trino-prepare]: https://trino.io/docs/current/sql/prepare.html
 
+### User impersonation
+
+Set `impersonateUser: true` to run the statement as a specific Trino user. When
+enabled, the tool exposes an additional optional input parameter `trino_user`
+whose value is forwarded as the `X-Trino-User` header for that statement only
+(it is not bound into the SQL). If `trino_user` is omitted (or empty), the query
+runs as the source's configured user. The connection pool's configured principal
+(DSN `user` / `accessToken`) still authenticates the request, so that principal
+must be authorized to impersonate on the Trino side.
+
 ## Compatible Sources
 
 {{< compatible-sources >}}
@@ -101,3 +111,4 @@ templateParameters:
 | statement          |                    string                    |     true     | SQL statement to execute on.                                                                                                           |
 | parameters         |   [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters)    |    false     | List of [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) that will be inserted into the SQL statement.                                          |
 | templateParameters | [templateParameters](../../../documentation/configuration/tools/_index.md#template-parameters) |    false     | List of [templateParameters](../../../documentation/configuration/tools/_index.md#template-parameters) that will be inserted into the SQL statement before executing prepared statement. |
+| impersonateUser    |                     bool                     |    false     | When true, adds an optional `trino_user` input parameter forwarded as the `X-Trino-User` header.                                        |
