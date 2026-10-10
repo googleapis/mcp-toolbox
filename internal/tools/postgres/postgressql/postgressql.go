@@ -27,7 +27,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
+// test-shard-isolation: verify Postgres shard execution in CI
 const resourceType string = "postgres-sql"
 
 func init() {
