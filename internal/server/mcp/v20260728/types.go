@@ -38,6 +38,8 @@ const (
 	RESOURCES_READ           = "resources/read"
 	GROUPS_LIST              = "groups/list"
 	GROUPS_GET               = "groups/get"
+	SKILLS_LIST              = "skills/list"
+	SKILLS_GET               = "skills/get"
 )
 
 /* Request Params */
@@ -804,4 +806,83 @@ type GetGroupResult struct {
 	Prompts           []Prompt           `json:"prompts"`
 	Resources         []Resource         `json:"resources"`
 	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
+}
+
+/* Skills */
+
+// ListSkillsRequest is sent from the client to request every skill the server
+// has. The extension permits a cursor. Toolbox returns one page and sets no
+// nextCursor.
+type ListSkillsRequest struct {
+	jsonrpc.Request
+	Params RequestParams `json:"params,omitempty"`
+}
+
+// ListSkillsResult is the server's response to a skills/list request.
+//
+// ttlMs and cacheScope are a freshness hint, not an integrity property. A host
+// still verifies each digest, so a fresh listing and a verified file are
+// independent.
+type ListSkillsResult struct {
+	Result
+	CacheableResult
+	Skills []Skill `json:"skills"`
+}
+
+// GetSkillRequest is sent from the client to request one skill by URI.
+type GetSkillRequest struct {
+	jsonrpc.Request
+	Params GetSkillRequestParams `json:"params"`
+}
+
+// GetSkillRequestParams contains the parameters for a skills/get request.
+type GetSkillRequestParams struct {
+	RequestParams
+	URI string `json:"uri"`
+}
+
+// GetSkillResult is the server's response to a skills/get request. ttlMs and
+// cacheScope carry the meaning given on ListSkillsResult.
+type GetSkillResult struct {
+	Result
+	CacheableResult
+	Skill Skill `json:"skill"`
+}
+
+// Skill is one skill as skills/list and skills/get publish it. It is either a
+// StaticSkill or a DynamicSkill; the unexported method keeps out other types.
+type Skill interface {
+	isSkill()
+}
+
+// StaticSkill is a skill that publishes its complete file list.
+type StaticSkill struct {
+	// URI addresses the skill's SKILL.md, not its root directory.
+	URI string `json:"uri"`
+	// Frontmatter is the SKILL.md YAML frontmatter verbatim.
+	Frontmatter map[string]any     `json:"frontmatter"`
+	Resources   []SkillResourceRef `json:"resources"`
+}
+
+// DynamicSkill is a skill that publishes no file list.
+type DynamicSkill struct {
+	// URI addresses the skill's SKILL.md, not its root directory.
+	URI string `json:"uri"`
+	// Frontmatter is the SKILL.md YAML frontmatter verbatim.
+	Frontmatter map[string]any `json:"frontmatter"`
+	// Resources is always skillsDynamicMarker.
+	Resources string `json:"resources"`
+}
+
+func (StaticSkill) isSkill()  {}
+func (DynamicSkill) isSkill() {}
+
+// skillsDynamicMarker replaces the file list of a skill that publishes none.
+const skillsDynamicMarker = "dynamic"
+
+// SkillResourceRef is one file in a skill's file list.
+type SkillResourceRef struct {
+	URI    string `json:"uri"`
+	Digest string `json:"digest"` // "sha256:" followed by 64 lowercase hex characters
+	Size   int64  `json:"size"`
 }
