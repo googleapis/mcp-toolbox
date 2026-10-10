@@ -134,6 +134,34 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 		},
 	}
 
+	// Configure read-only tools to verify that Oracle, not the tool, rejects
+	// statements with side effects.
+	toolsMap["my-readonly-locking-tool"] = map[string]any{
+		"type":        "oracle-sql",
+		"source":      "my-instance",
+		"statement":   fmt.Sprintf(`SELECT * FROM %s FOR UPDATE`, tableNameParam),
+		"readOnly":    true,
+		"description": "Verify that read-only Oracle tools reject locking queries.",
+	}
+
+	toolsMap["my-readonly-update-tool"] = map[string]any{
+		"type":        "oracle-sql",
+		"source":      "my-instance",
+		"statement":   fmt.Sprintf(`UPDATE %s SET "name" = 'Mallory' WHERE "id" = 1`, tableNameParam),
+		"readOnly":    true,
+		"description": "Verify that read-only Oracle tools reject writes.",
+	}
+
+	// `oracle-execute-sql` takes its statement at call time, so `readOnly: true`
+	// has to be enforced on whatever the caller supplies rather than on a
+	// statement fixed in the config.
+	toolsMap["my-readonly-exec-sql-tool"] = map[string]any{
+		"type":        "oracle-execute-sql",
+		"source":      "my-instance",
+		"readOnly":    true,
+		"description": "Verify that read-only oracle-execute-sql tools reject writes.",
+	}
+
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
@@ -166,9 +194,56 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
 
 	// Invoke the 'my-update-tool' and verify the result.
-	testDmlQueries(t, "my-update-tool",
+	testToolResponseContains(t, "my-update-tool",
 		`{"name": "UpdatedAlice", "id": 1}`,
 		`\"rows_affected\":1`)
+
+	// Oracle itself must reject locking reads and writes inside the read-only
+	// transaction (ORA-01456: may not perform insert/delete/update operation
+	// inside a READ ONLY transaction).
+	testToolResponseContains(t, "my-readonly-locking-tool", `{}`, "ORA-01456")
+	testToolResponseContains(t, "my-readonly-update-tool", `{}`, "ORA-01456")
+
+	// The same contract applies to the statement `oracle-execute-sql` is handed.
+	testToolResponseContains(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "UPDATE %s SET \"name\" = 'Mallory' WHERE \"id\" = 1"}`, tableNameParam),
+		"ORA-01456")
+	testToolResponseContains(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "SELECT \"name\" FROM %s WHERE \"id\" = 1 FOR UPDATE"}`, tableNameParam),
+		"ORA-01456")
+
+	// The rows must be untouched and unlocked afterwards.
+	testToolResponseContains(t, "my-tool", `{"id": 1, "name": "Alice"}`, `\"name\":\"UpdatedAlice\"`)
+	assertRowsNotLocked(t, ctx, db, tableNameParam)
+
+	// `oracle-execute-sql` has no readOnly setting here, so it may still take
+	// locks - but it must not hand the connection back to the pool while it
+	// holds them.
+	testToolResponseContains(t, "my-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "SELECT \"name\" FROM %s WHERE \"id\" = 1 FOR UPDATE"}`, tableNameParam),
+		"UpdatedAlice")
+	assertRowsNotLocked(t, ctx, db, tableNameParam)
+}
+
+// assertRowsNotLocked fails if another session still holds row locks on
+// tableName, which is what happens when a tool leaves an open transaction on
+// the connection it returns to the pool.
+func assertRowsNotLocked(t *testing.T, ctx context.Context, db *sql.DB, tableName string) {
+	t.Helper()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("unable to begin verification transaction: %s", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// NOWAIT fails immediately with ORA-00054 instead of blocking if the rows
+	// are locked by someone else.
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`SELECT "id" FROM %s FOR UPDATE NOWAIT`, tableName))
+	if err != nil {
+		t.Fatalf("rows of %s are still locked after the tool call: %s", tableName, err)
+	}
+	defer rows.Close()
 }
 
 func setupOracleTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) func(*testing.T) {
@@ -279,12 +354,12 @@ func dropAllUserTables(t *testing.T, ctx context.Context, db *sql.DB) {
 	}
 }
 
-// testDmlQueries sends a JSON-RPC request to the running test server
+// testToolResponseContains sends a JSON-RPC request to the running test server
 // and asserts that the response body contains the expected substring.
-func testDmlQueries(t *testing.T, toolName, paramsJSON, wantResponseSubStr string) {
+func testToolResponseContains(t *testing.T, toolName, paramsJSON, wantResponseSubStr string) {
 	t.Helper()
 
-	// The test server typically runs on port 8080
+	// The test server runs on port 5000.
 	url := "http://localhost:5000/mcp"
 
 	// Construct the JSON-RPC request body
