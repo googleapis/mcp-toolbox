@@ -761,6 +761,33 @@ For end-to-end samples on using the Toolbox Go SDK with ADK Go, see the [module'
 For more detailed instructions on using the Toolbox Go SDK, see the
 [README](https://github.com/googleapis/mcp-toolbox-sdk-go/blob/main/core/README.md).
 
+#### Java
+
+Once you've installed the [Java SDK](https://github.com/googleapis/mcp-toolbox-sdk-java), you can load tools:
+
+{{< tabpane text=true persist=header >}}
+{{% tab header="Core" lang="en" %}}
+
+{{< highlight java >}}
+import com.google.cloud.mcp.McpToolboxClient;
+import com.google.cloud.mcp.tool.ToolDefinition;
+import java.util.Map;
+
+// Update the url to point to your server
+McpToolboxClient client = McpToolboxClient.builder()
+    .baseUrl("http://127.0.0.1:5000")
+    .build();
+
+// Load tools from the toolset
+Map<String, ToolDefinition> tools = client.loadToolset("toolset_name").join();
+{{< /highlight >}}
+
+For more detailed instructions on using the Toolbox Java SDK, see the
+[README](https://github.com/googleapis/mcp-toolbox-sdk-java/blob/main/README.md).
+
+{{% /tab %}}
+{{< /tabpane >}}
+
 For more details, see the [Agent Skills guide](https://mcp-toolbox.dev/documentation/configuration/skills/).
 
 ## Supported MCP Version
