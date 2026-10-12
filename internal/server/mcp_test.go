@@ -2807,9 +2807,9 @@ func TestMcpToolSuggestionModes(t *testing.T) {
 		want string
 	}{
 		{
-			name: "unset mode lists the group's tools and the nearest match",
+			name: "unset mode defaults to off and points at tools/list",
 			url:  "/",
-			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "no_params"? Available tools: no_params, some_params`,
+			want: `invalid tool name: tool with name "no_param" does not exist. Call tools/list to see the available tools.`,
 		},
 		{
 			name: "full lists the group's tools and the nearest match",
@@ -2824,10 +2824,10 @@ func TestMcpToolSuggestionModes(t *testing.T) {
 			want: `invalid tool name: tool with name "no_param" does not exist. Did you mean "no_params"?`,
 		},
 		{
-			name: "off returns the bare message",
+			name: "off names nothing but points at tools/list",
 			mode: tools.SuggestionsOff,
 			url:  "/",
-			want: `invalid tool name: tool with name "no_param" does not exist`,
+			want: `invalid tool name: tool with name "no_param" does not exist. Call tools/list to see the available tools.`,
 		},
 		{
 			name: "listing stays scoped to the connected group",

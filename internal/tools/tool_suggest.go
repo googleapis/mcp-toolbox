@@ -34,8 +34,18 @@ const (
 	SuggestionsFull SuggestionMode = "full"
 	// SuggestionsNearest includes only the nearest-match suggestion.
 	SuggestionsNearest SuggestionMode = "nearest"
-	// SuggestionsOff returns the bare "does not exist" message.
+	// SuggestionsOff discloses nothing about the tools that exist, and is the
+	// default. The error still points the caller at the list call, so an agent
+	// retains a recovery path without the server naming anything: the list is
+	// permission- and scope-filtered where the error string is not.
 	SuggestionsOff SuggestionMode = "off"
+)
+
+// Recovery hints name the call that re-reads the tool list. They differ by
+// surface, and the list they point at is the authoritative, filtered one.
+const (
+	hintMCP  = "tools/list"
+	hintHTTP = "GET /api/toolset"
 )
 
 // validModes is the set of recognized modes.
@@ -50,7 +60,7 @@ func (m *SuggestionMode) String() string {
 	if string(*m) != "" {
 		return strings.ToLower(string(*m))
 	}
-	return string(SuggestionsFull)
+	return string(SuggestionsOff)
 }
 
 // Set validates the tool-suggestions flag.
@@ -68,30 +78,53 @@ func (m *SuggestionMode) Type() string {
 	return "suggestionMode"
 }
 
-// resolve normalizes an unset or unrecognized mode to the default.
+// resolve normalizes an unset or unrecognized mode to the default, which is
+// the least disclosing one.
 func (m SuggestionMode) resolve() SuggestionMode {
 	normalized := SuggestionMode(strings.ToLower(string(m)))
 	if validModes[normalized] {
 		return normalized
 	}
-	return SuggestionsFull
+	return SuggestionsOff
 }
 
-// UnknownToolError returns the error for a tool name that could not be
-// resolved. Depending on mode it appends a nearest-match suggestion and the
-// available names (capped at maxListedNames). MCP errors are consumed by LLM
-// agents as prompt text, so naming the valid alternatives lets an agent
-// self-correct instead of retrying a stale or misspelled name.
+// UnknownToolError returns the error for a tool name an MCP request could not
+// resolve. Under the default mode it discloses nothing about the tools that
+// exist and points the caller at tools/list; raising the mode appends a
+// nearest-match suggestion and, at "full", the available names (capped at
+// maxListedNames). MCP errors are consumed by LLM agents as prompt text, so
+// either shape leaves the agent a way to self-correct rather than retrying a
+// stale or misspelled name.
 //
 // available must already be scoped to what the caller is allowed to disclose
 // on this endpoint; this function does no filtering of its own.
 func UnknownToolError(toolName string, available []string, mode SuggestionMode) error {
+	return unknownToolError(toolName, available, mode, hintMCP)
+}
+
+// UnknownToolErrorHTTP returns the error for the /api routes. They carry no
+// group scope, so there is no set of names known to be disclosable there and
+// the mode is not configurable: the error names nothing and points at the
+// toolset endpoint.
+func UnknownToolErrorHTTP(toolName string) error {
+	return unknownToolError(toolName, nil, SuggestionsOff, hintHTTP)
+}
+
+func unknownToolError(toolName string, available []string, mode SuggestionMode, hint string) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "invalid tool name: tool with name %q does not exist", toolName)
 
+	// Whenever the error says nothing about what does exist, it says how to
+	// find out. The prefix above is unchanged from the pre-existing message, so
+	// anything matching on it keeps working.
+	withHint := func() error {
+		fmt.Fprintf(&b, ". Call %s to see the available tools.", hint)
+		return fmt.Errorf("%s", b.String())
+	}
+
 	mode = mode.resolve()
 	if len(available) == 0 || mode == SuggestionsOff {
-		return fmt.Errorf("%s", b.String())
+		return withHint()
 	}
 
 	sorted := make([]string, len(available))
@@ -100,7 +133,7 @@ func UnknownToolError(toolName string, available []string, mode SuggestionMode) 
 
 	suggestion, hasSuggestion := nearestName(toolName, sorted)
 	if mode == SuggestionsNearest && !hasSuggestion {
-		return fmt.Errorf("%s", b.String())
+		return withHint()
 	}
 
 	b.WriteString(".")

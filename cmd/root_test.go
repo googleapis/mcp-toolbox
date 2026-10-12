@@ -567,7 +567,7 @@ func TestDefaultToolSuggestions(t *testing.T) {
 		t.Fatalf("unexpected error invoking command: %s", err)
 	}
 	got := opts.Cfg.ToolSuggestions.String()
-	want := "full"
+	want := "off"
 	if got != want {
 		t.Fatalf("unexpected default tool suggestions flag: got %v, want %v", got, want)
 	}

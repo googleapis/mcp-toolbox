@@ -372,7 +372,7 @@ func TestApiUnknownToolNeverDisclosesNames(t *testing.T) {
 
 	// "no_param" is one edit from the real "no_params", so a suggestion would
 	// fire here if the /api path consulted the tool registry at all.
-	const want = `invalid tool name: tool with name "no_param" does not exist`
+	const want = `invalid tool name: tool with name "no_param" does not exist. Call GET /api/toolset to see the available tools.`
 
 	for _, mode := range []tools.SuggestionMode{tools.SuggestionsFull, tools.SuggestionsNearest, tools.SuggestionsOff} {
 		t.Run(string(mode), func(t *testing.T) {

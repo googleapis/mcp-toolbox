@@ -30,24 +30,24 @@ func TestUnknownToolError(t *testing.T) {
 		want      string
 	}{
 		{
-			desc:      "no available tools keeps the base message",
+			desc:      "no available tools points at the list call",
 			toolName:  "foo",
 			available: nil,
-			want:      `invalid tool name: tool with name "foo" does not exist`,
+			want:      `invalid tool name: tool with name "foo" does not exist. Call tools/list to see the available tools.`,
 		},
 		{
-			desc:      "unset mode defaults to full",
+			desc:      "unset mode defaults to off, which names nothing",
 			toolName:  "lookup_sensor",
 			available: []string{"list_sensors", "latest_observation"},
 			mode:      "",
-			want:      `invalid tool name: tool with name "lookup_sensor" does not exist. Did you mean "list_sensors"? Available tools: latest_observation, list_sensors`,
+			want:      `invalid tool name: tool with name "lookup_sensor" does not exist. Call tools/list to see the available tools.`,
 		},
 		{
-			desc:      "off returns the bare message",
+			desc:      "off names nothing but points at the list call",
 			toolName:  "lookup_sensor",
 			available: []string{"list_sensors", "latest_observation"},
 			mode:      SuggestionsOff,
-			want:      `invalid tool name: tool with name "lookup_sensor" does not exist`,
+			want:      `invalid tool name: tool with name "lookup_sensor" does not exist. Call tools/list to see the available tools.`,
 		},
 		{
 			desc:      "nearest suggests without listing the inventory",
@@ -57,34 +57,38 @@ func TestUnknownToolError(t *testing.T) {
 			want:      `invalid tool name: tool with name "lookup_sensor" does not exist. Did you mean "list_sensors"?`,
 		},
 		{
-			desc:      "nearest with no plausible match discloses nothing",
+			desc:      "nearest with no plausible match falls back to the list call",
 			toolName:  "zzzzzzzzzzzz",
 			available: []string{"search_hotels", "book_hotel"},
 			mode:      SuggestionsNearest,
-			want:      `invalid tool name: tool with name "zzzzzzzzzzzz" does not exist`,
+			want:      `invalid tool name: tool with name "zzzzzzzzzzzz" does not exist. Call tools/list to see the available tools.`,
 		},
 		{
 			desc:      "close match yields a suggestion and the list",
 			toolName:  "lookup_sensor",
 			available: []string{"list_sensors", "latest_observation"},
+			mode:      SuggestionsFull,
 			want:      `invalid tool name: tool with name "lookup_sensor" does not exist. Did you mean "list_sensors"? Available tools: latest_observation, list_sensors`,
 		},
 		{
 			desc:      "typo in a single tool name is suggested",
 			toolName:  "serach_hotels",
 			available: []string{"search_hotels", "book_hotel"},
+			mode:      SuggestionsFull,
 			want:      `invalid tool name: tool with name "serach_hotels" does not exist. Did you mean "search_hotels"? Available tools: book_hotel, search_hotels`,
 		},
 		{
 			desc:      "case-insensitive match is suggested",
 			toolName:  "Search-Hotels",
 			available: []string{"search-hotels"},
+			mode:      SuggestionsFull,
 			want:      `invalid tool name: tool with name "Search-Hotels" does not exist. Did you mean "search-hotels"? Available tools: search-hotels`,
 		},
 		{
 			desc:      "no plausible match lists names without a suggestion",
 			toolName:  "zzzzzzzzzzzz",
 			available: []string{"search_hotels", "book_hotel"},
+			mode:      SuggestionsFull,
 			want:      `invalid tool name: tool with name "zzzzzzzzzzzz" does not exist. Available tools: book_hotel, search_hotels`,
 		},
 	}
@@ -148,10 +152,24 @@ func TestSuggestionModeSet(t *testing.T) {
 	}
 }
 
-func TestSuggestionModeStringDefaultsToFull(t *testing.T) {
+func TestSuggestionModeStringDefaultsToOff(t *testing.T) {
 	var mode SuggestionMode
-	if got, want := mode.String(), string(SuggestionsFull); got != want {
+	if got, want := mode.String(), string(SuggestionsOff); got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestUnknownToolErrorHTTPPointsAtToolsetEndpoint checks the /api surface gets
+// its own recovery hint: tools/list is a JSON-RPC method those clients cannot
+// call.
+func TestUnknownToolErrorHTTPPointsAtToolsetEndpoint(t *testing.T) {
+	got := UnknownToolErrorHTTP("no_param").Error()
+	want := `invalid tool name: tool with name "no_param" does not exist. Call GET /api/toolset to see the available tools.`
+	if got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	if strings.Contains(got, "tools/list") {
+		t.Errorf("HTTP error should not reference the MCP method, got %q", got)
 	}
 }
 
