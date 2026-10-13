@@ -842,6 +842,28 @@ steps:
   #         dgraph \
   #         dgraph
 
+  - id: "utility"
+    name: golang:1
+    waitFor: ["compile-test-binary", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)utility/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Utility tests..."
+          .ci/test_with_coverage.sh "Utility" utility utility/wait
+        else
+          echo "No relevant changes for Utility. Skipping shard."
+          exit 0
+        fi
+
   - id: "http"
     name: golang:1
     waitFor: ["compile-test-binary", "detect-changes"]
