@@ -81,7 +81,7 @@ var objectTypeQueries = map[string]queryPair{
 	},
 	"linked_servers": {
 		full: `	SELECT 
-		QUOTENAME(name), 0
+		QUOTENAME(name), 3
 	FROM sys.servers 
 	WHERE is_linked = 1`,
 		namesOnly: `	SELECT 
@@ -99,12 +99,22 @@ var objectTypeQueries = map[string]queryPair{
 	FROM 
 		sys.tables`,
 	},
+	"assemblies": {
+		full: `	SELECT 
+		QUOTENAME(name), 2
+	FROM
+		sys.assemblies WHERE is_user_defined = 1`,
+		namesOnly: `	SELECT 
+		QUOTENAME(name)
+	FROM
+		sys.assemblies WHERE is_user_defined = 1`,
+	},
 }
 
 func getStatement(objectType string, namesOnly bool) (string, error) {
 	var namesOnlyQueries []string
 	var fullQueries []string
-	order := []string{"procedures", "views", "functions", "triggers", "linked_servers", "tables"}
+	order := []string{"procedures", "views", "functions", "triggers", "linked_servers", "tables", "assemblies"}
 
 	if objectType == "all" || objectType == "" {
 		for _, ot := range order {
@@ -161,8 +171,52 @@ BEGIN
 
 	IF @CurrentResourceType = 0
 		BEGIN
-			-- Execute sp_helptext for the current stored procedure
-			EXEC sp_helptext @CurrentResource;
+			IF EXISTS (SELECT 1 FROM sys.assembly_modules WHERE object_id = OBJECT_ID(@CurrentResource))
+				BEGIN
+					PRINT 'CLR Object - ' + @CurrentResource
+					SELECT 
+						@CurrentResource AS [CLRObject],
+						a.name AS [AssemblyName],
+						am.assembly_class AS [AssemblyClass],
+						am.assembly_method AS [AssemblyMethod]
+					FROM sys.assembly_modules am
+					INNER JOIN sys.assemblies a ON am.assembly_id = a.assembly_id
+					WHERE am.object_id = OBJECT_ID(@CurrentResource);
+					SELECT '-------------------------------------------------------'
+				END
+			ELSE
+				BEGIN
+					-- Execute sp_helptext for the current stored procedure
+					EXEC sp_helptext @CurrentResource;
+				END
+		END
+	ELSE IF @CurrentResourceType = 2
+		BEGIN
+			PRINT 'Assembly - ' + @CurrentResource
+			SELECT 
+					asm.name AS [AssemblyName],
+					afl.name AS [PathOrAltName],
+					asm.permission_set_desc AS [PermissionSet],
+					asm.create_date AS [CreateDate],
+					asm.modify_date AS [ModifyDate],
+					asm.is_user_defined AS [IsUserDefined]
+			FROM sys.assemblies asm
+			INNER JOIN sys.assembly_files afl ON asm.assembly_id = afl.assembly_id 
+			WHERE asm.NAME = PARSENAME(@CurrentResource, 1);
+			SELECT '-------------------------------------------------------'
+		END
+	ELSE IF @CurrentResourceType = 3
+		BEGIN
+			PRINT 'Linked Server - ' + @CurrentResource
+			SELECT 
+				name AS [LinkedServerName],
+				product AS [Product],
+				provider AS [Provider],
+				data_source AS [DataSource],
+				is_linked AS [IsLinked]
+			FROM sys.servers
+			WHERE name = PARSENAME(@CurrentResource, 1);
+			SELECT '-------------------------------------------------------'
 		END
 	ELSE
 		BEGIN
@@ -174,7 +228,8 @@ BEGIN
 				CHARACTER_MAXIMUM_LENGTH AS MAX_LENGTH, 
 				IS_NULLABLE 
 			FROM INFORMATION_SCHEMA.COLUMNS 
-			WHERE TABLE_NAME = @CurrentResource;
+			WHERE TABLE_SCHEMA = PARSENAME(@CurrentResource, 2)
+			  AND TABLE_NAME = PARSENAME(@CurrentResource, 1);
 			SELECT '-------------------------------------------------------'
 		END
 
@@ -230,9 +285,9 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	namesOnlyParam := parameters.NewBooleanParameter("namesOnly", "Optional: Set to true to return only object names instead of full object source code.", parameters.WithBooleanDefault(false))
 	objectTypeParam := parameters.NewStringParameter(
 		"object_type",
-		"Optional: Specify database object type to retrieve. Allowed values: all, functions, tables, procedures, views, triggers, linked_servers.",
+		"Optional: Specify database object type to retrieve. Allowed values: all, functions, tables, procedures, views, triggers, linked_servers, assemblies.",
 		parameters.WithStringDefault("all"),
-		parameters.WithStringAllowedValues([]any{"all", "functions", "tables", "procedures", "views", "triggers", "linked_servers"}),
+		parameters.WithStringAllowedValues([]any{"all", "functions", "tables", "procedures", "views", "triggers", "linked_servers", "assemblies"}),
 	)
 	allParameters := parameters.Parameters{namesOnlyParam, objectTypeParam}
 

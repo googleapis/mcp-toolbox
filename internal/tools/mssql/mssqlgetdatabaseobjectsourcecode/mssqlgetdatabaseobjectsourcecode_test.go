@@ -63,7 +63,7 @@ func TestParseFromYamlMssqlGetDatabaseObjectSourceCode(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -80,6 +80,8 @@ func TestGetStatement(t *testing.T) {
 		objectType string
 		namesOnly  bool
 		wantVal    string
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
 			desc:       "namesOnly true",
@@ -93,11 +95,45 @@ func TestGetStatement(t *testing.T) {
 			namesOnly:  false,
 			wantVal:    "DECLARE @NamesOnly BIT = 0;",
 		},
+		{
+			desc:       "objectType assemblies",
+			objectType: "assemblies",
+			namesOnly:  false,
+			wantVal:    "sys.assemblies WHERE is_user_defined = 1",
+		},
+		{
+			desc:       "objectType all includes assemblies",
+			objectType: "all",
+			namesOnly:  false,
+			wantVal:    "sys.assemblies WHERE is_user_defined = 1",
+		},
+		{
+			desc:       "objectType empty (null) defaults to all",
+			objectType: "",
+			namesOnly:  false,
+			wantVal:    "sys.assemblies WHERE is_user_defined = 1",
+		},
+		{
+			desc:       "objectType unsupported string returns error",
+			objectType: "unknown_type",
+			namesOnly:  false,
+			wantErr:    true,
+			wantErrMsg: `unsupported object_type: "unknown_type"`,
+		},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			stmt, err := mssqlgetdatabaseobjectsourcecode.GetStatement(tc.objectType, tc.namesOnly)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantErrMsg)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrMsg) {
+					t.Errorf("expected error message to contain %q, got: %v", tc.wantErrMsg, err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
