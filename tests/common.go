@@ -533,6 +533,11 @@ func AddMSSQLPrebuiltToolConfig(t *testing.T, config map[string]any) map[string]
 		"source":      "my-instance",
 		"description": "Lists tables in the database.",
 	}
+	tools["get_database_object_source_code"] = map[string]any{
+		"type":        "mssql-get-database-object-source-code",
+		"source":      "my-instance",
+		"description": "Executes a query to retrieve source code for all coding objects.",
+	}
 	config["tools"] = tools
 	return config
 }

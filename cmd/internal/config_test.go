@@ -2315,7 +2315,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"data": group.GroupConfig{
 					Name:        "data",
 					Description: "Use these skills when you need to explore the database schema and execute SQL queries to interact with your data.",
-					ToolNames:   []string{"execute_sql", "list_tables", "get_database_object_source_code"},
+					ToolNames:   []string{"execute_sql", "list_tables"},
 				},
 				"monitor": group.GroupConfig{
 					Name:        "monitor",
