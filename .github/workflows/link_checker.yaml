@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -55,7 +55,7 @@ jobs:
 
       - name: Restore lychee cache
         if: steps.changed-files.outputs.HAS_CHANGES == 'true'
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: .lycheecache
           key: cache-lychee-${{ github.sha }}
@@ -64,7 +64,7 @@ jobs:
       - name: Link Checker
         id: lychee-check       
         if: steps.changed-files.outputs.HAS_CHANGES == 'true'
-        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         continue-on-error: true 
         with:
           args: >
