@@ -12,6 +12,31 @@
 # limitations under the License.
 
 steps:
+  - id: "secure_content_scan"
+    name: "us-central1-docker.pkg.dev/louhi-prod-1/louhi-helper/louhi-helper-v2"
+    waitFor: ["-"]
+    args:
+    - "secure_content_scan"
+    - "--allowed_prefixes"
+    - "https://python.pkg.dev/artifact-foundry-prod/"
+    - "https://maven.pkg.dev/artifact-foundry-prod/"
+    - "https://npm.pkg.dev/artifact-foundry-prod/"
+    - "https://docker.pkg.dev/artifact-foundry-prod/"
+    - "https://go.pkg.dev/artifact-foundry-prod/"
+    - "https://apt.pkg.dev/projects/artifact-foundry-prod/"
+    - "https://us-python.pkg.dev/artifact-foundry-prod/"
+    - "https://us-npm.pkg.dev/artifact-foundry-prod/"
+    - "https://us-docker.pkg.dev/artifact-foundry-prod/"
+    - "https://us-go.pkg.dev/artifact-foundry-prod/"
+    - "https://us-apt.pkg.dev/projects/artifact-foundry-prod/"
+    - "https://storage.googleapis.com/toolbox-build-assets/"
+    - "gcr.io/distroless/"
+    - "golang:"
+    results:
+      - name: "allowed_uri_prefix"
+        attestationContent: "allowed_uri_prefix"
+        attestationType: "https://bcid.corp.google.com/build-content-restrictions/v0.1"
+
   - id: "setup-airlock-auth"
     name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ["-"]
