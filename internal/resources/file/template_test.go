@@ -15,8 +15,11 @@
 package file_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,10 +28,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 func TestFileTemplate(t *testing.T) {
@@ -313,18 +318,38 @@ func TestFileTemplate(t *testing.T) {
 			cfg.Name = "test-template"
 			cfg.URITemplate = tc.uriTemplate
 
-			resTmpl, err := cfg.Initialize(context.Background())
+			var outBuf, errBuf bytes.Buffer
+			logger, err := log.NewStdLogger(&outBuf, &errBuf, "INFO")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := util.WithLogger(context.Background(), logger)
+
+			resTmpl, err := cfg.Initialize(ctx)
 			if err != nil {
 				t.Fatalf("Initialize failed: %v", err)
 			}
 
-			content, err := resTmpl.Read(context.Background(), map[string]any{"path": tc.requestPath})
+			content, err := resTmpl.Read(ctx, map[string]any{"path": tc.requestPath})
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got none", tc.errContains)
 				}
 				if tc.errContains != "" && !strings.Contains(err.Error(), tc.errContains) {
 					t.Errorf("expected error containing %q, got: %v", tc.errContains, err)
+				}
+				if !strings.Contains(err.Error(), "test-template") {
+					t.Errorf("expected client error to name resource template 'test-template', got: %v", err)
+				}
+				if strings.Contains(err.Error(), tempDir) {
+					t.Errorf("client error leaked server path %q: %v", tempDir, err)
+				}
+				if tc.name == "non-existent file returns error" && !errors.Is(err, fs.ErrNotExist) {
+					t.Errorf("expected errors.Is(err, fs.ErrNotExist) to be true, got: %v", err)
+				}
+				logOut := strings.ReplaceAll(strings.ReplaceAll(errBuf.String(), `\\`, `\`), `\\`, `\`)
+				if strings.Contains(tc.requestPath, tempDir) && !strings.Contains(logOut, tempDir) {
+					t.Errorf("expected server log to contain full path under %q, got: %q", tempDir, errBuf.String())
 				}
 			} else {
 				if err != nil {
@@ -445,7 +470,10 @@ permissions:
 			t.Errorf("Expected IsUI() to be true")
 		}
 
-		ctx := context.Background()
+		ctx, err := testutils.ContextWithNewLogger()
+		if err != nil {
+			t.Fatal(err)
+		}
 		tmpl, err := tmplCfg.Initialize(ctx)
 		if err != nil {
 			t.Fatalf("Initialize failed: %v", err)

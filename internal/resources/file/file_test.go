@@ -17,7 +17,9 @@ package file_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,10 +32,12 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/goccy/go-yaml"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 const defaultMaxFileSize = 5 * 1024 * 1024
@@ -376,7 +380,11 @@ func TestFileResource_PathResolution(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.WithValue(context.Background(), resources.BaseDirKey, tmpDir)
+			ctx, err := testutils.ContextWithNewLogger()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx = context.WithValue(ctx, resources.BaseDirKey, tmpDir)
 			decoder := yaml.NewDecoder(bytes.NewReader([]byte(tt.yamlStr)), yaml.Strict(), yaml.Validator(validator.New()))
 			cfg, err := resources.DecodeConfig(ctx, "file", "test", decoder)
 			if err != nil {
@@ -448,7 +456,10 @@ func TestFileResource_Truncation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx, err := testutils.ContextWithNewLogger()
+			if err != nil {
+				t.Fatal(err)
+			}
 			decoder := yaml.NewDecoder(bytes.NewReader([]byte(tt.yamlStr)), yaml.Strict(), yaml.Validator(validator.New()))
 			cfg, err := resources.DecodeConfig(ctx, "file", "test", decoder)
 			if err != nil {
@@ -516,7 +527,10 @@ func TestFileResource_TOCTOU(t *testing.T) {
 			}
 
 			yamlStr := fmt.Sprintf("type: file\npath: %s", filepath.ToSlash(filePath))
-			ctx := context.Background()
+			ctx, err := testutils.ContextWithNewLogger()
+			if err != nil {
+				t.Fatal(err)
+			}
 			decoder := yaml.NewDecoder(bytes.NewReader([]byte(yamlStr)), yaml.Strict())
 			cfg, err := resources.DecodeConfig(ctx, "file", "test", decoder)
 			if err != nil {
@@ -704,7 +718,10 @@ func TestFileResource_UTF8Truncation(t *testing.T) {
 	}
 
 	yamlStr := fmt.Sprintf("type: file\npath: %s\nmaxSize: 8", filepath.ToSlash(filePath))
-	ctx := context.Background()
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader([]byte(yamlStr)), yaml.Strict())
 	cfg, err := resources.DecodeConfig(ctx, "file", "test", decoder)
 	if err != nil {
@@ -816,7 +833,10 @@ permissions:
 			t.Errorf("Expected default MimeType 'text/html;profile=mcp-app', got %q", resCfg.MimeType)
 		}
 
-		ctx := context.Background()
+		ctx, err := testutils.ContextWithNewLogger()
+		if err != nil {
+			t.Fatal(err)
+		}
 		res, err := resCfg.Initialize(ctx)
 		if err != nil {
 			t.Fatalf("Initialize failed: %v", err)
@@ -927,4 +947,117 @@ path: %s
 			}
 		}
 	})
+}
+
+func TestFileResource_ReadErrorSanitization(t *testing.T) {
+	tmpDir := t.TempDir()
+	var err error
+	tmpDir, err = filepath.EvalSymlinks(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("missing file returns fs.ErrNotExist without leaking server path", func(t *testing.T) {
+		filePath := filepath.Join(tmpDir, "missing_post_boot.md")
+		if err := os.WriteFile(filePath, []byte("hello"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		var outBuf, errBuf bytes.Buffer
+		logger, err := log.NewStdLogger(&outBuf, &errBuf, "INFO")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := util.WithLogger(context.Background(), logger)
+
+		yamlStr := fmt.Sprintf("type: file\npath: %s", filepath.ToSlash(filePath))
+		decoder := yaml.NewDecoder(bytes.NewReader([]byte(yamlStr)), yaml.Strict())
+		cfg, err := resources.DecodeConfig(ctx, "file", "my-doc", decoder)
+		if err != nil {
+			t.Fatalf("DecodeConfig failed: %v", err)
+		}
+		res, err := cfg.Initialize(ctx)
+		if err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		if err := os.Remove(filePath); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = res.Read(ctx, nil)
+		if err == nil {
+			t.Fatal("expected Read to fail when file is removed")
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("expected errors.Is(err, fs.ErrNotExist) to be true, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "my-doc") {
+			t.Errorf("expected client error to name resource 'my-doc', got: %v", err)
+		}
+		if strings.Contains(err.Error(), tmpDir) || strings.Contains(err.Error(), filePath) {
+			t.Errorf("client error leaked server path: %v", err)
+		}
+		logOut := strings.ReplaceAll(strings.ReplaceAll(errBuf.String(), `\\`, `\`), `\\`, `\`)
+		if !strings.Contains(logOut, filePath) {
+			t.Errorf("expected server log to contain full path %q, got: %q", filePath, errBuf.String())
+		}
+	})
+
+	if os.Geteuid() != 0 {
+		t.Run("permission denied hides server path from client and logs full path", func(t *testing.T) {
+			filePath := filepath.Join(tmpDir, "unreadable.md")
+			if err := os.WriteFile(filePath, []byte("secret"), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			var outBuf, errBuf bytes.Buffer
+			logger, err := log.NewStdLogger(&outBuf, &errBuf, "INFO")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := util.WithLogger(context.Background(), logger)
+
+			yamlStr := fmt.Sprintf("type: file\npath: %s", filepath.ToSlash(filePath))
+			decoder := yaml.NewDecoder(bytes.NewReader([]byte(yamlStr)), yaml.Strict())
+			cfg, err := resources.DecodeConfig(ctx, "file", "my-doc", decoder)
+			if err != nil {
+				t.Fatalf("DecodeConfig failed: %v", err)
+			}
+			res, err := cfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("Initialize failed: %v", err)
+			}
+
+			if err := os.Chmod(filePath, 0000); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = os.Chmod(filePath, 0644)
+			})
+			if runtime.GOOS == "windows" {
+				if err := exec.Command("icacls", filePath, "/deny", "*S-1-1-0:(R)").Run(); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					_ = exec.Command("icacls", filePath, "/remove:d", "*S-1-1-0").Run()
+				})
+			}
+
+			_, err = res.Read(ctx, nil)
+			if err == nil {
+				t.Fatal("expected Read to fail when permissions are 0000")
+			}
+			if !strings.Contains(err.Error(), "my-doc") {
+				t.Errorf("expected client error to name resource 'my-doc', got: %v", err)
+			}
+			if strings.Contains(err.Error(), tmpDir) || strings.Contains(err.Error(), filePath) {
+				t.Errorf("client error leaked server path: %v", err)
+			}
+			logOut := strings.ReplaceAll(strings.ReplaceAll(errBuf.String(), `\\`, `\`), `\\`, `\`)
+			if !strings.Contains(logOut, filePath) {
+				t.Errorf("expected server log to contain full path %q, got: %q", filePath, errBuf.String())
+			}
+		})
+	}
 }

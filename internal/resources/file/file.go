@@ -31,6 +31,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
 const (
@@ -289,17 +290,24 @@ func (r *FileResource) GetSize() *int64 {
 
 // Read retrieves the file content.
 func (r *FileResource) Read(ctx context.Context, params map[string]any) (any, error) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
+	}
+
 	// Security check for extension on the resolved target
 	if err := validateExtension(r.absPath); err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: configured file extension not allowed for resource %q (%q): %v", r.Name, r.absPath, err))
 		return nil, fmt.Errorf("security violation: configured file extension not allowed for resource %q: %w", r.Name, err)
 	}
 
 	resolvedPath, err := filepath.EvalSymlinks(r.absPath)
 	if err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to evaluate symlinks for resource %q (%q): %v", r.Name, r.absPath, err))
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("file not found: %q: %w", r.absPath, fs.ErrNotExist)
+			return nil, fmt.Errorf("file not found for resource %q: %w", r.Name, fs.ErrNotExist)
 		}
-		return nil, fmt.Errorf("failed to evaluate symlinks for resource %q at runtime: %w", r.Name, err)
+		return nil, fmt.Errorf("failed to evaluate symlinks for resource %q at runtime", r.Name)
 	}
 
 	if r.isRelative && r.resolvedBaseDir != "" {
@@ -309,47 +317,62 @@ func (r *FileResource) Read(ctx context.Context, params map[string]any) (any, er
 		}
 		rel, err := filepath.Rel(resolvedBaseDir, resolvedPath)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil, fmt.Errorf("security violation: resolved path %q escapes base directory %q at runtime", resolvedPath, resolvedBaseDir)
+			logger.ErrorContext(ctx, fmt.Sprintf("security violation: resolved path %q escapes base directory %q at runtime for resource %q", resolvedPath, resolvedBaseDir, r.Name))
+			return nil, fmt.Errorf("security violation: resolved path escapes base directory at runtime for resource %q", r.Name)
 		}
 	}
 
 	if err := validateExtension(resolvedPath); err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: file extension changed post-boot for resource %q (%q): %v", r.Name, resolvedPath, err))
 		return nil, fmt.Errorf("security violation: file extension changed post-boot for resource %q: %w", r.Name, err)
 	}
 
 	statInfo, err := os.Lstat(resolvedPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to lstat file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to lstat file %q for resource %q: %v", resolvedPath, r.Name, err))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("file not found for resource %q: %w", r.Name, fs.ErrNotExist)
+		}
+		return nil, fmt.Errorf("failed to lstat file for resource %q", r.Name)
 	}
 
 	if statInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("security violation: TOCTOU symlink swap detected on %q", resolvedPath)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: TOCTOU symlink swap detected on %q for resource %q", resolvedPath, r.Name))
+		return nil, fmt.Errorf("security violation: TOCTOU symlink swap detected for resource %q", r.Name)
 	}
 
 	f, err := os.Open(resolvedPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to open file %q for resource %q: %v", resolvedPath, r.Name, err))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("file not found for resource %q: %w", r.Name, fs.ErrNotExist)
+		}
+		return nil, fmt.Errorf("failed to open file for resource %q", r.Name)
 	}
 	defer f.Close()
 
 	openInfo, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat opened file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to stat opened file %q for resource %q: %v", resolvedPath, r.Name, err))
+		return nil, fmt.Errorf("failed to stat opened file for resource %q", r.Name)
 	}
 
 	if !os.SameFile(statInfo, openInfo) {
-		return nil, fmt.Errorf("security violation: TOCTOU file swap detected on %q between stat and open", resolvedPath)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: TOCTOU file swap detected on %q between stat and open for resource %q", resolvedPath, r.Name))
+		return nil, fmt.Errorf("security violation: TOCTOU file swap detected between stat and open for resource %q", r.Name)
 	}
 
 	if !openInfo.Mode().IsRegular() {
-		return nil, fmt.Errorf("security violation: file %q was swapped with a non-regular file during read", resolvedPath)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: file %q was swapped with a non-regular file during read for resource %q", resolvedPath, r.Name))
+		return nil, fmt.Errorf("security violation: file for resource %q was swapped with a non-regular file during read", r.Name)
 	}
 
 	limit := *r.MaxSize
 	limitedReader := io.LimitReader(f, limit+1)
 	content, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to read file %q for resource %q: %v", resolvedPath, r.Name, err))
+		return nil, fmt.Errorf("failed to read file for resource %q", r.Name)
 	}
 
 	if int64(len(content)) > limit {
@@ -524,6 +547,11 @@ var _ resources.ResourceTemplate = (*FileTemplate)(nil)
 
 // Read retrieves the file content using template parameters.
 func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, error) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get logger from ctx: %s", err)
+	}
+
 	pathVal, ok := params["path"]
 	if !ok {
 		return nil, fmt.Errorf("missing 'path' parameter in template execution")
@@ -536,7 +564,8 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 
 	// Explicitly block backward traversal in the raw input
 	if containsTraversal(pathStr) {
-		return nil, fmt.Errorf("security violation: path %q contains backward traversal components (..)", pathStr)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: path %q contains backward traversal components (..) for resource template %q", pathStr, r.Name))
+		return nil, fmt.Errorf("security violation: path contains backward traversal components (..) for resource template %q", r.Name)
 	}
 
 	// If the path is relative, reconstruct the full path
@@ -549,7 +578,8 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 
 			parsed, err := url.Parse(fullURI)
 			if err != nil {
-				return nil, fmt.Errorf("invalid URI reconstructed from template: %w", err)
+				logger.ErrorContext(ctx, fmt.Sprintf("invalid URI reconstructed from template %q: %v", r.Name, err))
+				return nil, fmt.Errorf("invalid URI reconstructed from resource template %q", r.Name)
 			}
 
 			base := parsed.Path
@@ -573,7 +603,8 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 	// This will cause the subsequent filepath.Rel sandbox check to fail if it's not actually within allowedPaths.
 	absPath, err := filepath.Abs(filepath.Clean(pathStr))
 	if err != nil {
-		return nil, fmt.Errorf("invalid path %q: %w", pathStr, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("invalid path %q for resource template %q: %v", pathStr, r.Name, err))
+		return nil, fmt.Errorf("invalid path for resource template %q", r.Name)
 	}
 
 	checkSandbox := func(pathToCheck string, allowedPaths []string) error {
@@ -587,13 +618,15 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 				}
 			}
 			if !isAllowed {
-				return fmt.Errorf("security violation: path %q is not within any allowedPaths", pathToCheck)
+				logger.ErrorContext(ctx, fmt.Sprintf("security violation: path %q is not within any allowedPaths for resource template %q", pathToCheck, r.Name))
+				return fmt.Errorf("security violation: path is not within any allowedPaths for resource template %q", r.Name)
 			}
 		} else {
 			parts := strings.Split(filepath.ToSlash(pathToCheck), "/")
 			for _, part := range parts {
 				if strings.HasPrefix(part, ".") && part != "." && part != ".." {
-					return fmt.Errorf("security violation: access to hidden file or directory %q is blocked when allowedPaths is not specified", pathToCheck)
+					logger.ErrorContext(ctx, fmt.Sprintf("security violation: access to hidden file or directory %q is blocked when allowedPaths is not specified for resource template %q", pathToCheck, r.Name))
+					return fmt.Errorf("security violation: access to hidden file or directory is blocked when allowedPaths is not specified for resource template %q", r.Name)
 				}
 			}
 		}
@@ -608,11 +641,12 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 
 	resolvedPath, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to evaluate symlinks for %q in resource template %q: %v", absPath, r.Name, err))
 		// file does not exist
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("file not found: %q: %w", pathStr, fs.ErrNotExist)
+			return nil, fmt.Errorf("file not found for resource template %q: %w", r.Name, fs.ErrNotExist)
 		}
-		return nil, fmt.Errorf("failed to evaluate symlinks for %q: %w", absPath, err)
+		return nil, fmt.Errorf("failed to evaluate symlinks for resource template %q", r.Name)
 	}
 
 	// Second security check on the resolved path to prevent symlink escape attacks
@@ -622,45 +656,60 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 
 	// Security check for extension on BOTH the requested path and resolved target
 	if err := validateExtension(pathStr); err != nil {
-		return nil, fmt.Errorf("security violation: requested file extension not allowed: %w", err)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: requested file extension not allowed for %q in resource template %q: %v", pathStr, r.Name, err))
+		return nil, fmt.Errorf("security violation: requested file extension not allowed for resource template %q: %w", r.Name, err)
 	}
 	if err := validateExtension(resolvedPath); err != nil {
-		return nil, fmt.Errorf("security violation: file extension not allowed: %w", err)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: file extension not allowed for %q in resource template %q: %v", resolvedPath, r.Name, err))
+		return nil, fmt.Errorf("security violation: file extension not allowed for resource template %q: %w", r.Name, err)
 	}
 
 	statInfo, err := os.Lstat(resolvedPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to lstat file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to lstat file %q for resource template %q: %v", resolvedPath, r.Name, err))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("file not found for resource template %q: %w", r.Name, fs.ErrNotExist)
+		}
+		return nil, fmt.Errorf("failed to lstat file for resource template %q", r.Name)
 	}
 
 	if statInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("security violation: TOCTOU symlink swap detected on %q", resolvedPath)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: TOCTOU symlink swap detected on %q for resource template %q", resolvedPath, r.Name))
+		return nil, fmt.Errorf("security violation: TOCTOU symlink swap detected for resource template %q", r.Name)
 	}
 
 	f, err := os.Open(resolvedPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to open file %q for resource template %q: %v", resolvedPath, r.Name, err))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("file not found for resource template %q: %w", r.Name, fs.ErrNotExist)
+		}
+		return nil, fmt.Errorf("failed to open file for resource template %q", r.Name)
 	}
 	defer f.Close()
 
 	openInfo, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to stat opened file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to stat opened file %q for resource template %q: %v", resolvedPath, r.Name, err))
+		return nil, fmt.Errorf("failed to stat opened file for resource template %q", r.Name)
 	}
 
 	if !os.SameFile(statInfo, openInfo) {
-		return nil, fmt.Errorf("security violation: TOCTOU file swap detected on %q between stat and open", resolvedPath)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: TOCTOU file swap detected on %q between stat and open for resource template %q", resolvedPath, r.Name))
+		return nil, fmt.Errorf("security violation: TOCTOU file swap detected between stat and open for resource template %q", r.Name)
 	}
 
 	if !openInfo.Mode().IsRegular() {
-		return nil, fmt.Errorf("security violation: file %q was swapped with a non-regular file during read", resolvedPath)
+		logger.ErrorContext(ctx, fmt.Sprintf("security violation: file %q was swapped with a non-regular file during read for resource template %q", resolvedPath, r.Name))
+		return nil, fmt.Errorf("security violation: file for resource template %q was swapped with a non-regular file during read", r.Name)
 	}
 
 	limit := *r.MaxSize
 	limitedReader := io.LimitReader(f, limit+1)
 	content, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file %q: %w", resolvedPath, err)
+		logger.ErrorContext(ctx, fmt.Sprintf("failed to read file %q for resource template %q: %v", resolvedPath, r.Name, err))
+		return nil, fmt.Errorf("failed to read file for resource template %q", r.Name)
 	}
 
 	if int64(len(content)) > limit {

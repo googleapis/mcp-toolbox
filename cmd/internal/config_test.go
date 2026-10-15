@@ -3154,7 +3154,12 @@ resourceTemplates:
 		t.Fatalf("resCfg.Initialize failed: %v", err)
 	}
 
-	content, err := res.Read(context.Background(), nil)
+	readCtx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := res.Read(readCtx, nil)
 	if err != nil {
 		t.Fatalf("res.Read failed: %v", err)
 	}
@@ -3172,7 +3177,7 @@ resourceTemplates:
 		t.Fatalf("tmplCfg.Initialize failed: %v", err)
 	}
 
-	tmplContent, err := tmpl.Read(context.Background(), map[string]any{"path": dataPath})
+	tmplContent, err := tmpl.Read(readCtx, map[string]any{"path": dataPath})
 	if err != nil {
 		t.Fatalf("tmpl.Read failed: %v", err)
 	}
