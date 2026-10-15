@@ -34,10 +34,33 @@ steps:
         cat /workspace/changed_files.txt
 
 
+  - id: "setup-airlock-auth"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor: ["-"]
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      TOKEN=$(gcloud auth print-access-token)
+      
+      # Write auth files to the persistent /workspace directory
+      echo "machine us-go.pkg.dev login oauth2accesstoken password $TOKEN" > /workspace/.netrc
+      echo "machine us-python.pkg.dev login oauth2accesstoken password $TOKEN" >> /workspace/.netrc
+      
+      cat > /workspace/.npmrc <<EOL
+      registry=https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:always-auth=true
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:_authToken=$TOKEN
+      EOL
+
+      echo "$TOKEN" > /workspace/.airlock_token
+
   - id: "install-dependencies"
     name: golang:1
-    waitFor: ["-"]
+    waitFor: ["setup-airlock-auth"]
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     volumes:
       - name: "go"
@@ -47,8 +70,11 @@ steps:
 
   - id: "compile-test-binary"
     name: golang:1
-    waitFor: ["install-dependencies"]
+    waitFor: ["setup-airlock-auth", "install-dependencies"]
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     volumes:
       - name: "go"
@@ -61,8 +87,11 @@ steps:
 
   - id: "compile-prompt-test-binary"
     name: golang:1
-    waitFor: ["install-dependencies"]
+    waitFor: ["setup-airlock-auth", "install-dependencies"]
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     volumes:
       - name: "go"
@@ -84,9 +113,12 @@ steps:
 
   - id: "prompts-custom"
     name: golang:1
-    waitFor: ["compile-prompt-test-binary"]
+    waitFor: ["setup-airlock-auth", "compile-prompt-test-binary"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     volumes:
       - name: "go"
@@ -98,9 +130,12 @@ steps:
 
   - id: "cloud-sql-pg"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "CLOUD_SQL_POSTGRES_PROJECT=$PROJECT_ID"
       - "CLOUD_SQL_POSTGRES_INSTANCE=$_CLOUD_SQL_POSTGRES_INSTANCE"
@@ -136,9 +171,12 @@ steps:
 
   - id: "alloydb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "ALLOYDB_PROJECT=$PROJECT_ID"
       - "ALLOYDB_CLUSTER=$_ALLOYDB_POSTGRES_CLUSTER"
@@ -166,9 +204,12 @@ steps:
 
   - id: "alloydb-pg"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "ALLOYDB_POSTGRES_PROJECT=$PROJECT_ID"
       - "ALLOYDB_POSTGRES_CLUSTER=$_ALLOYDB_POSTGRES_CLUSTER"
@@ -205,9 +246,12 @@ steps:
 
   - id: "alloydb-ai-nl"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "ALLOYDB_AI_NL_PROJECT=$PROJECT_ID"
       - "ALLOYDB_AI_NL_CLUSTER=$_ALLOYDB_AI_NL_CLUSTER"
@@ -237,9 +281,12 @@ steps:
 
   - id: "alloydb-omni"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     volumes:
       - name: "go"
@@ -262,9 +309,12 @@ steps:
 
   - id: "bigtable"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "BIGTABLE_PROJECT=$PROJECT_ID"
       - "BIGTABLE_INSTANCE=$_BIGTABLE_INSTANCE"
@@ -299,9 +349,12 @@ steps:
 
   - id: "bigquery"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "BIGQUERY_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -327,9 +380,12 @@ steps:
 
   - id: "cloud-gda"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "CLOUD_GDA_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -355,9 +411,12 @@ steps:
 
   - id: "dataplex"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "DATAPLEX_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -383,9 +442,12 @@ steps:
 
   - id: "datalineage"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "DATALINEAGE_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -411,9 +473,12 @@ steps:
 
   - id: "dataform"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     secretEnv: ["CLIENT_ID"]
     volumes:
@@ -439,9 +504,12 @@ steps:
 
   - id: "cloud-healthcare"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "HEALTHCARE_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -469,9 +537,12 @@ steps:
 
   - id: "cloud-logging-admin"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "LOGADMIN_PROJECT=$PROJECT_ID"
     secretEnv: ["CLIENT_ID"]
@@ -496,9 +567,12 @@ steps:
 
   - id: "cloud-storage"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "CLOUD_STORAGE_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -524,9 +598,12 @@ steps:
 
   - id: "postgres"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "POSTGRES_DATABASE=$_DATABASE_NAME"
       - "POSTGRES_HOST=$_POSTGRES_HOST"
@@ -555,9 +632,12 @@ steps:
 
   - id: "cockroachdb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID"]
@@ -585,9 +665,12 @@ steps:
 
   - id: "spanner"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SPANNER_PROJECT=$PROJECT_ID"
       - "SPANNER_DATABASE=$_DATABASE_NAME"
@@ -615,9 +698,12 @@ steps:
 
   - id: "spanner-omni"
     name: golang:1
-    waitFor: ["install-dependencies", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "install-dependencies", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID", "API_KEY"]
@@ -649,9 +735,12 @@ steps:
 
   - id: "neo4j"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "NEO4J_DATABASE=$_NEO4J_DATABASE"
       - "NEO4J_URI=$_NEO4J_URI"
@@ -677,9 +766,12 @@ steps:
 
   - id: "falkordb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     secretEnv: ["API_KEY"]
     volumes:
@@ -703,9 +795,12 @@ steps:
 
   - id: "cloud-sql-mssql"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "CLOUD_SQL_MSSQL_PROJECT=$PROJECT_ID"
       - "CLOUD_SQL_MSSQL_INSTANCE=$_CLOUD_SQL_MSSQL_INSTANCE"
@@ -735,9 +830,12 @@ steps:
 
   - id: "cloud-sql-mysql"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "CLOUD_SQL_MYSQL_PROJECT=$PROJECT_ID"
       - "CLOUD_SQL_MYSQL_INSTANCE=$_CLOUD_SQL_MYSQL_INSTANCE"
@@ -766,9 +864,12 @@ steps:
 
   - id: "mysql"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "MYSQL_DATABASE=$_DATABASE_NAME"
       - "MYSQL_HOST=$_MYSQL_HOST"
@@ -796,9 +897,12 @@ steps:
 
   - id: "mssql"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "MSSQL_DATABASE=$_DATABASE_NAME"
       - "MSSQL_HOST=$_MSSQL_HOST"
@@ -826,7 +930,7 @@ steps:
 
   # - id: "dgraph"
   #   name: golang:1
-  #   waitFor: ["compile-test-binary", "detect-changes"]
+  #   waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
   #   entrypoint: /bin/bash
   #   env:
   #     - "GOPATH=/gopath"
@@ -844,9 +948,12 @@ steps:
 
   - id: "http"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     secretEnv: ["CLIENT_ID"]
     volumes:
@@ -870,9 +977,12 @@ steps:
 
   - id: "sqlite"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     volumes:
@@ -897,9 +1007,12 @@ steps:
 
   - id: "couchbase"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID"]
@@ -924,9 +1037,12 @@ steps:
 
   - id: "redis"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["REDIS_ADDRESS", "REDIS_PASS", "CLIENT_ID"]
@@ -951,9 +1067,12 @@ steps:
 
   - id: "valkey"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "VALKEY_DATABASE=$_VALKEY_DATABASE"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -979,9 +1098,12 @@ steps:
 
   - id: "oceanbase"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "OCEANBASE_PORT=$_OCEANBASE_PORT"
       - "OCEANBASE_DATABASE=$_OCEANBASE_DATABASE"
@@ -1009,9 +1131,12 @@ steps:
 
   - id: "firestore"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "FIRESTORE_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -1037,9 +1162,12 @@ steps:
 
   - id: "firestore-mongodb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "FIRESTORE_MONGODB_PROJECT=$PROJECT_ID"
       - "FIRESTORE_MONGODB_DATABASE=$_FIRESTORE_MONGODB_DATABASE"
@@ -1066,9 +1194,12 @@ steps:
 
   - id: "mongodb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID"]
@@ -1093,9 +1224,12 @@ steps:
 
   - id: "looker"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "FIRESTORE_PROJECT=$PROJECT_ID"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
@@ -1130,9 +1264,12 @@ steps:
 
   - id: "mindsdb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "MINDSDB_PORT=$_MINDSDB_PORT"
       - "MINDSDB_DATABASE=$_MINDSDB_DATABASE"
@@ -1159,9 +1296,12 @@ steps:
 
   - id: "cloud-sql"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
     secretEnv: ["CLIENT_ID"]
     volumes:
@@ -1185,9 +1325,12 @@ steps:
 
   - id: "tidb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "TIDB_DATABASE=$_DATABASE_NAME"
       - "TIDB_HOST=$_TIDB_HOST"
@@ -1215,9 +1358,12 @@ steps:
 
   - id: "firebird"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "FIREBIRD_DATABASE=$_FIREBIRD_DATABASE_NAME"
       - "FIREBIRD_HOST=$_FIREBIRD_HOST"
@@ -1245,9 +1391,12 @@ steps:
 
   - id: "clickhouse"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "CLICKHOUSE_DATABASE=$_CLICKHOUSE_DATABASE"
       - "CLICKHOUSE_PORT=$_CLICKHOUSE_PORT"
@@ -1275,9 +1424,12 @@ steps:
 
   - id: "trino"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "TRINO_HOST=$_TRINO_HOST"
       - "TRINO_PORT=$_TRINO_PORT"
@@ -1306,9 +1458,12 @@ steps:
 
   - id: "yugabytedb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "YUGABYTEDB_DATABASE=$_YUGABYTEDB_DATABASE"
       - "YUGABYTEDB_PORT=$_YUGABYTEDB_PORT"
@@ -1334,9 +1489,12 @@ steps:
 
   - id: "elasticsearch"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID", "API_KEY"]
@@ -1361,9 +1519,12 @@ steps:
 
   - id: "snowflake"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
       - "SNOWFLAKE_DATABASE=$_SNOWFLAKE_DATABASE"
@@ -1391,9 +1552,12 @@ steps:
 
   - id: "cassandra"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv:
@@ -1419,9 +1583,12 @@ steps:
 
   - id: "scylladb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv:
@@ -1491,9 +1658,12 @@ steps:
 
   - id: "serverless-spark"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVERLESS_SPARK_LOCATION=$_REGION"
       - "SERVERLESS_SPARK_PROJECT=$PROJECT_ID"
@@ -1520,9 +1690,12 @@ steps:
 
   - id: "dataproc"
     name: "golang:1"
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "DATAPROC_PROJECT=$PROJECT_ID"
       - "DATAPROC_REGION=$_REGION"
@@ -1548,9 +1721,12 @@ steps:
 
   - id: "singlestore"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SINGLESTORE_PORT=$_SINGLESTORE_PORT"
       - "SINGLESTORE_USER=$_SINGLESTORE_USER"
@@ -1580,9 +1756,12 @@ steps:
 
   - id: "arcadedb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID"]
@@ -1607,9 +1786,12 @@ steps:
 
   - id: "mariadb"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "MARIADB_DATABASE=$_MARIADB_DATABASE"
       - "MARIADB_PORT=$_MARIADB_PORT"
@@ -1634,9 +1816,12 @@ steps:
 
   - id: "auth"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID"]
@@ -1658,9 +1843,12 @@ steps:
 
   - id: "databaseinsights"
     name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    waitFor: ["setup-airlock-auth", "compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+      - "HOME=/workspace" 
       - "GOPATH=/gopath"
       - "DATABASE_INSIGHTS_PROJECT=$PROJECT_ID"
       - "DATABASE_INSIGHTS_REGION=$_REGION"
@@ -1817,6 +2005,7 @@ options:
     name: projects/$PROJECT_ID/locations/us-central1/workerPools/integration-testing # Necessary for VPC network connection
 
 substitutions:
+  _AIRLOCK_AR_PROJECT: "artifact-foundry-prod"
   _RUN_EXPENSIVE_TESTS: "false"
   _DATABASE_NAME: test_database
   _FIREBIRD_DATABASE_NAME: /firebird/test_database.fdb
