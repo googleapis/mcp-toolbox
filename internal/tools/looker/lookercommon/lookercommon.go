@@ -396,7 +396,8 @@ type QueryApiClientContext struct {
 }
 
 type RenderOptions struct {
-	Format string `json:"format"`
+	Format             string `json:"format"`
+	GenerateDrillLinks *bool  `json:"generate_drill_links,omitempty"`
 }
 
 type RequestRunInlineQuery2 struct {
@@ -412,18 +413,24 @@ func RunInlineQuery2(l *v4.LookerSDK, request RequestRunInlineQuery2, options *r
 }
 
 func RunInlineQuery(ctx context.Context, sdk *v4.LookerSDK, wq *v4.WriteQuery, format string, options *rtl.ApiSettings) (string, error) {
+	return RunInlineQueryWithDrillLinks(ctx, sdk, wq, format, nil, options)
+}
+
+func RunInlineQueryWithDrillLinks(ctx context.Context, sdk *v4.LookerSDK, wq *v4.WriteQuery, format string, generateDrillLinks *bool, options *rtl.ApiSettings) (string, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return "", fmt.Errorf("unable to get logger from ctx: %s", err)
 	}
 	req := v4.RequestRunInlineQuery{
-		Body:         *wq,
-		ResultFormat: format,
+		Body:               *wq,
+		ResultFormat:       format,
+		GenerateDrillLinks: generateDrillLinks,
 	}
 	req2 := RequestRunInlineQuery2{
 		Query: *wq,
 		RenderOpts: RenderOptions{
-			Format: format,
+			Format:             format,
+			GenerateDrillLinks: generateDrillLinks,
 		},
 		QueryApiClientCtx: QueryApiClientContext{
 			Name: "MCP Toolbox",
@@ -554,4 +561,217 @@ func SearchLookmlDashboards(l *v4.LookerSDK, params map[string]any, options *rtl
 		return nil, err
 	}
 	return result, nil
+}
+
+func GetQuery(ctx context.Context, l *v4.LookerSDK, queryId string, options *rtl.ApiSettings) (*v4.Query, error) {
+	var result v4.Query
+	path := fmt.Sprintf("/queries/%s", url.PathEscape(queryId))
+	err := l.AuthSession.Do(&result, "GET", "/4.0", path, nil, nil, options)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func GetQueryBySlug(ctx context.Context, l *v4.LookerSDK, slug string, options *rtl.ApiSettings) (*v4.Query, error) {
+	var result v4.Query
+	path := fmt.Sprintf("/queries/slug/%s", url.PathEscape(slug))
+	err := l.AuthSession.Do(&result, "GET", "/4.0", path, nil, nil, options)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func RunSavedQuery(ctx context.Context, l *v4.LookerSDK, queryId string, format string, options *rtl.ApiSettings) (string, error) {
+	return RunSavedQueryWithDrillLinks(ctx, l, queryId, format, nil, options)
+}
+
+func RunSavedQueryWithDrillLinks(ctx context.Context, l *v4.LookerSDK, queryId string, format string, generateDrillLinks *bool, options *rtl.ApiSettings) (string, error) {
+	var result string
+	path := fmt.Sprintf("/queries/%s/run/%s", url.PathEscape(queryId), url.PathEscape(format))
+	var queryParams map[string]any
+	if generateDrillLinks != nil {
+		queryParams = map[string]any{
+			"generate_drill_links": *generateDrillLinks,
+		}
+	}
+	err := l.AuthSession.Do(&result, "GET", "/4.0", path, queryParams, nil, options)
+	if err != nil {
+		// Also try POST if GET failed
+		err = l.AuthSession.Do(&result, "POST", "/4.0", path, queryParams, nil, options)
+	}
+	return result, err
+}
+
+func stripCellLinks(val any) {
+	cellMap, ok := val.(map[string]any)
+	if !ok {
+		return
+	}
+	delete(cellMap, "links")
+	delete(cellMap, "filterable_value")
+	for k, nestedVal := range cellMap {
+		if k == "value" {
+			continue
+		}
+		if nestedMap, ok := nestedVal.(map[string]any); ok {
+			stripCellLinks(nestedMap)
+		}
+	}
+}
+
+func stripRowLinks(row map[string]any) {
+	for _, cellVal := range row {
+		stripCellLinks(cellVal)
+	}
+}
+
+// StripDrillLinks removes drill link arrays ("links") and unused "filterable_value"
+// strings from all cells in a Looker json_detail query response (data, totals_data,
+// row_totals, subtotals_data, pivots[].metadata) as well as bulky unused field and
+// top-level metadata so large query results remain compact.
+func StripDrillLinks(detailResp map[string]any) {
+	if detailResp == nil {
+		return
+	}
+	for _, topKey := range []string{
+		"sql",
+		"sql_explain",
+		"applied_filters",
+		"added_params",
+		"aggregate_table_used_info",
+		"drill_menu_build_time",
+		"always_filter",
+		"conditionally_filter_applied",
+		"applied_filter_expression",
+		"null_sort_treatment",
+		"supports_pivot_in_db",
+		"expired",
+		"ran_at",
+		"from_cache",
+		"result_source",
+	} {
+		delete(detailResp, topKey)
+	}
+	if dataRows, ok := detailResp["data"].([]any); ok {
+		for _, r := range dataRows {
+			if rowMap, ok := r.(map[string]any); ok {
+				stripRowLinks(rowMap)
+			}
+		}
+	}
+	if totalsMap, ok := detailResp["totals_data"].(map[string]any); ok {
+		stripRowLinks(totalsMap)
+	}
+	if rowTotalsMap, ok := detailResp["row_totals"].(map[string]any); ok {
+		stripRowLinks(rowTotalsMap)
+	}
+	if subtotalsMap, ok := detailResp["subtotals_data"].(map[string]any); ok {
+		for _, groupRows := range subtotalsMap {
+			if rows, ok := groupRows.([]any); ok {
+				for _, r := range rows {
+					if rowMap, ok := r.(map[string]any); ok {
+						stripRowLinks(rowMap)
+					}
+				}
+			}
+		}
+	} else if subtotalsSlice, ok := detailResp["subtotals_data"].([]any); ok {
+		for _, r := range subtotalsSlice {
+			if rowMap, ok := r.(map[string]any); ok {
+				stripRowLinks(rowMap)
+			}
+		}
+	}
+	if pivotsSlice, ok := detailResp["pivots"].([]any); ok {
+		for _, p := range pivotsSlice {
+			if pivotMap, ok := p.(map[string]any); ok {
+				if metaMap, ok := pivotMap["metadata"].(map[string]any); ok {
+					stripRowLinks(metaMap)
+				}
+			}
+		}
+	}
+	if fieldsMap, ok := detailResp["fields"].(map[string]any); ok {
+		for _, categoryVal := range fieldsMap {
+			if fieldList, ok := categoryVal.([]any); ok {
+				for _, f := range fieldList {
+					if fieldMap, ok := f.(map[string]any); ok {
+						for _, fieldKey := range []string{
+							"drill_fields",
+							"sql",
+							"sql_case",
+							"can",
+							"source_file",
+							"source_file_path",
+							"lookml_link",
+							"user_attribute_filter_types",
+							"available_custom_timeframes",
+							"liquid_expression",
+							"lookml_expression",
+							"synonyms",
+							"tags",
+							"times_used",
+							"original_view",
+							"field_group_label",
+							"field_group_variant",
+							"parameter",
+							"permanent",
+							"scope",
+							"suggest_dimension",
+							"suggest_explore",
+							"suggestable",
+							"suggestions",
+							"enumerations",
+						} {
+							delete(fieldMap, fieldKey)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// ExtractLookerErrorMessage extracts a human-readable error message from a
+// Looker Go SDK HTTP error containing an embedded JSON error object
+// (e.g., `response error. status=400 Bad Request. error={"message":"..."}`).
+// If no human-readable message can be extracted (or if the message is an internal
+// marker like "Sinatra::NotFound"), the original error is returned unchanged.
+func ExtractLookerErrorMessage(err error) error {
+	if err == nil {
+		return nil
+	}
+	raw := err.Error()
+	startIdx := strings.Index(raw, "{")
+	endIdx := strings.LastIndex(raw, "}")
+	if startIdx == -1 || endIdx <= startIdx {
+		return err
+	}
+
+	var parsed struct {
+		Message string `json:"message"`
+		Errors  []struct {
+			Message        string `json:"message"`
+			MessageDetails string `json:"message_details"`
+		} `json:"errors"`
+	}
+	if jsonErr := json.Unmarshal([]byte(raw[startIdx:endIdx+1]), &parsed); jsonErr != nil {
+		return err
+	}
+
+	msg := strings.TrimSpace(parsed.Message)
+	if msg == "" && len(parsed.Errors) > 0 {
+		msg = strings.TrimSpace(parsed.Errors[0].Message)
+		if msg == "" {
+			msg = strings.TrimSpace(parsed.Errors[0].MessageDetails)
+		}
+	}
+
+	if msg == "" || strings.EqualFold(msg, "Sinatra::NotFound") {
+		return err
+	}
+
+	return fmt.Errorf("%s", msg)
 }

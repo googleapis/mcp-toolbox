@@ -608,3 +608,159 @@ func TestProcessQueryArgsWithDynamicFields(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractLookerErrorMessage(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		inErr   error
+		wantMsg string
+	}{
+		{
+			desc:    "extracts message from 400 Bad Request JSON error",
+			inErr:   lookerTestError(`response error. status=400 Bad Request. error={"message":"Missing values were not filled because too many fill rows would be generated. Try filtering to reduce the size of the result.","documentation_url":"https://docs.cloud.google.com/looker/docs/r/err/4.0/400/post/queries/run/:result_format"}`),
+			wantMsg: "Missing values were not filled because too many fill rows would be generated. Try filtering to reduce the size of the result.",
+		},
+		{
+			desc:    "extracts message from nested errors array",
+			inErr:   lookerTestError(`response error. status=422 Unprocessable Entity. error={"errors":[{"message":"Invalid filter expression for users.created_date"}]}`),
+			wantMsg: "Invalid filter expression for users.created_date",
+		},
+		{
+			desc:    "preserves 404 Sinatra::NotFound error unchanged",
+			inErr:   lookerTestError(`response error. status=404 Not Found. error={"message":"Sinatra::NotFound"}`),
+			wantMsg: `response error. status=404 Not Found. error={"message":"Sinatra::NotFound"}`,
+		},
+		{
+			desc:    "preserves plain non-JSON error unchanged",
+			inErr:   lookerTestError("connection refused"),
+			wantMsg: "connection refused",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := lookercommon.ExtractLookerErrorMessage(tc.inErr)
+			if got == nil {
+				t.Fatalf("expected non-nil error")
+			}
+			if got.Error() != tc.wantMsg {
+				t.Errorf("ExtractLookerErrorMessage() = %q, want %q", got.Error(), tc.wantMsg)
+			}
+		})
+	}
+}
+
+type lookerTestError string
+
+func (e lookerTestError) Error() string { return string(e) }
+
+func TestStripDrillLinks(t *testing.T) {
+	detailResp := map[string]any{
+		"sql":             "SELECT * FROM orders",
+		"applied_filters": map[string]any{"orders.status": "complete"},
+		"from_cache":      true,
+		"data": []any{
+			map[string]any{
+				"orders.status": map[string]any{
+					"value":            "complete",
+					"filterable_value": "complete",
+					"links":            []any{map[string]any{"label": "Drill", "url": "/explore/x"}},
+				},
+				"orders.count": map[string]any{
+					"2025": map[string]any{
+						"value":            42,
+						"rendered":         "42",
+						"filterable_value": "42",
+						"links":            []any{map[string]any{"label": "Show All 42", "url": "/explore/y"}},
+					},
+				},
+			},
+		},
+		"pivots": []any{
+			map[string]any{
+				"key": "2025",
+				"metadata": map[string]any{
+					"orders.created_year": map[string]any{
+						"value":            "2025",
+						"filterable_value": "2025",
+						"links":            []any{map[string]any{"label": "Drill Year", "url": "/explore/p"}},
+					},
+				},
+			},
+		},
+		"totals_data": map[string]any{
+			"orders.count": map[string]any{
+				"value":            42,
+				"filterable_value": "42",
+				"links":            []any{map[string]any{"label": "Total Drill", "url": "/explore/z"}},
+			},
+		},
+		"fields": map[string]any{
+			"measures": []any{
+				map[string]any{
+					"name":                        "orders.count",
+					"label":                       "Order Count",
+					"drill_fields":                []any{"orders.id", "orders.created_date"},
+					"sql":                         "${TABLE}.id",
+					"can":                         map[string]any{"filter": true},
+					"user_attribute_filter_types": []any{"number"},
+					"available_custom_timeframes": []any{"day"},
+					"suggest_dimension":           "orders.count",
+				},
+			},
+		},
+	}
+
+	lookercommon.StripDrillLinks(detailResp)
+
+	for _, topKey := range []string{"sql", "applied_filters", "from_cache"} {
+		if _, exists := detailResp[topKey]; exists {
+			t.Errorf("expected top-level %q to be stripped from detailResp", topKey)
+		}
+	}
+
+	row := detailResp["data"].([]any)[0].(map[string]any)
+	statusCell := row["orders.status"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := statusCell[k]; exists {
+			t.Errorf("expected %q to be stripped from flat cell, got %v", k, statusCell)
+		}
+	}
+	if statusCell["value"] != "complete" {
+		t.Errorf("expected value to be preserved, got %v", statusCell["value"])
+	}
+
+	pivotCell := row["orders.count"].(map[string]any)["2025"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := pivotCell[k]; exists {
+			t.Errorf("expected %q to be stripped from pivoted cell, got %v", k, pivotCell)
+		}
+	}
+	if pivotCell["value"] != 42 {
+		t.Errorf("expected pivoted cell value 42 to be preserved, got %v", pivotCell["value"])
+	}
+
+	pivotMeta := detailResp["pivots"].([]any)[0].(map[string]any)["metadata"].(map[string]any)["orders.created_year"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := pivotMeta[k]; exists {
+			t.Errorf("expected %q to be stripped from pivot metadata cell, got %v", k, pivotMeta)
+		}
+	}
+
+	totalsCell := detailResp["totals_data"].(map[string]any)["orders.count"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := totalsCell[k]; exists {
+			t.Errorf("expected %q to be stripped from totals_data cell, got %v", k, totalsCell)
+		}
+	}
+
+	measureField := detailResp["fields"].(map[string]any)["measures"].([]any)[0].(map[string]any)
+	for _, strippedKey := range []string{"drill_fields", "sql", "can", "user_attribute_filter_types", "available_custom_timeframes", "suggest_dimension"} {
+		if _, exists := measureField[strippedKey]; exists {
+			t.Errorf("expected %q to be stripped from field metadata, got %v", strippedKey, measureField)
+		}
+	}
+	if measureField["name"] != "orders.count" || measureField["label"] != "Order Count" {
+		t.Errorf("expected essential field metadata to be preserved, got %v", measureField)
+	}
+}

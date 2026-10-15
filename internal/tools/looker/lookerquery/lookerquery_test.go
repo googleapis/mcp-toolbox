@@ -15,15 +15,32 @@
 package lookerquery_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	lkr "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquery"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"github.com/looker-open-source/sdk-codegen/go/rtl"
+	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
+
+type fakeLookerSource struct{}
+
+func (f fakeLookerSource) SourceType() string                  { return "looker" }
+func (f fakeLookerSource) ToConfig() sources.SourceConfig      { return nil }
+func (f fakeLookerSource) IsReadOnly() bool                    { return false }
+func (f fakeLookerSource) UseClientAuthorization() bool        { return false }
+func (f fakeLookerSource) GetAuthTokenHeaderName() string      { return "Authorization" }
+func (f fakeLookerSource) LookerApiSettings() *rtl.ApiSettings { return nil }
+func (f fakeLookerSource) GetLookerSDK(context.Context, string) (*v4.LookerSDK, error) {
+	return &v4.LookerSDK{}, nil
+}
 
 func TestParseFromYamlLookerQuery(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
@@ -107,4 +124,135 @@ func TestFailParseFromYamlLookerQuery(t *testing.T) {
 		})
 	}
 
+}
+
+func TestBuildWriteQueryWithOverrides(t *testing.T) {
+	baseFilters := map[string]any{
+		"orders.status": "completed",
+		"customer.city": "Springfield",
+	}
+	baseSorts := []string{"orders.count desc"}
+	filterConfig := map[string]any{"some": "config"}
+	clientId := "abc1234567890123456789"
+	limit := "100"
+
+	baseQuery := v4.Query{
+		Model:        "cypress_mysql",
+		View:         "customer",
+		Filters:      &baseFilters,
+		Sorts:        &baseSorts,
+		FilterConfig: &filterConfig,
+		ClientId:     &clientId,
+		Limit:        &limit,
+	}
+
+	filterOverrides := map[string]any{
+		"customer.last_name": "Simpson",
+		"customer.city":      "", // Empty string override clears default city filter
+	}
+	sortOverrides := []string{"customer.last_name asc"}
+
+	wq := lkr.BuildWriteQueryWithOverrides(baseQuery, filterOverrides, sortOverrides)
+
+	if wq.FilterConfig != nil {
+		t.Errorf("expected FilterConfig to be nil so it does not override Filters, got %v", wq.FilterConfig)
+	}
+	if wq.ClientId != nil {
+		t.Errorf("expected ClientId to be nil, got %v", wq.ClientId)
+	}
+	if wq.Filters == nil {
+		t.Fatalf("expected Filters to be non-nil")
+	}
+	wantFilters := map[string]any{
+		"orders.status":      "completed",
+		"customer.city":      "",
+		"customer.last_name": "Simpson",
+	}
+	if diff := cmp.Diff(wantFilters, *wq.Filters); diff != "" {
+		t.Errorf("unexpected filters diff (-want +got):\n%s", diff)
+	}
+	if wq.Sorts == nil || len(*wq.Sorts) != 1 || (*wq.Sorts)[0] != "customer.last_name asc" {
+		t.Errorf("expected Sorts override [\"customer.last_name asc\"], got %v", wq.Sorts)
+	}
+}
+
+func TestInitializeIncludesSavedQueryParameters(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "query",
+			Description: "Execute an inline or saved query",
+		},
+		Type:   "looker-query",
+		Source: "looker-source",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	manifest := tool.StaticManifest()
+	paramByName := make(map[string]bool)
+	for _, p := range manifest.Parameters {
+		paramByName[p.Name] = true
+		if p.Name == "query_id" || p.Name == "model" || p.Name == "explore" || p.Name == "fields" || p.Name == "generate_drill_links" {
+			if p.Required {
+				t.Errorf("expected parameter %q to be optional (Required=false) at schema level", p.Name)
+			}
+		}
+	}
+	for _, expected := range []string{"query_id", "model", "explore", "fields", "result_format", "vis_config", "generate_drill_links"} {
+		if !paramByName[expected] {
+			t.Errorf("expected parameter %q in tool manifest, got %+v", expected, manifest.Parameters)
+		}
+	}
+}
+
+func TestInvokeValidationErrors(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "query",
+			Description: "Execute an inline or saved query",
+		},
+		Type:   "looker-query",
+		Source: "looker-source",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	t.Run("invalid vis_config JSON", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "query_id", Value: "123"},
+			{Name: "vis_config", Value: "{not-valid-json"},
+		}
+		_, tbErr := tool.Invoke(ctx, fakeLookerSource{}, params, "")
+		if tbErr == nil {
+			t.Fatalf("expected error for invalid vis_config JSON, got nil")
+		}
+		if !strings.Contains(tbErr.Error(), "invalid vis_config JSON") {
+			t.Errorf("expected error to contain %q, got %q", "invalid vis_config JSON", tbErr.Error())
+		}
+	})
+
+	t.Run("invalid sorts slice elements for saved query", func(t *testing.T) {
+		params := parameters.ParamValues{
+			{Name: "query_id", Value: "123"},
+			{Name: "sorts", Value: []any{12345}},
+		}
+		_, tbErr := tool.Invoke(ctx, fakeLookerSource{}, params, "")
+		if tbErr == nil {
+			t.Fatalf("expected error for non-string sorts element, got nil")
+		}
+		if !strings.Contains(tbErr.Error(), "can't convert sorts to array of strings") {
+			t.Errorf("expected error to contain %q, got %q", "can't convert sorts to array of strings", tbErr.Error())
+		}
+	})
 }
