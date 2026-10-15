@@ -428,7 +428,12 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 		return err
 	}
 	defer func() {
-		_ = shutdown(ctx)
+		// The signal handler cancels ctx on SIGTERM/SIGINT, so reusing it here
+		// aborts the final telemetry export. Give shutdown its own bounded
+		// context, mirroring the HTTP server shutdown below.
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_ = shutdown(shutdownCtx)
 	}()
 
 	isCustomConfigured, err := opts.LoadConfig(ctx, &internal.ConfigParser{})
