@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -209,6 +210,22 @@ func TestParamManifest(t *testing.T) {
 			},
 		},
 		{
+			name: "allowedValues become an enum",
+			in: parameters.Parameters{
+				parameters.NewStringParameter("collection", "bar", parameters.WithStringAllowedValues([]any{"orders", "customers"})),
+				parameters.NewStringParameter("pattern", "bar", parameters.WithStringAllowedValues([]any{"^order_.*$"})),
+			},
+			wantSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]parameters.ParameterMcpManifest{
+					"collection": {Type: "string", Description: "bar", Enum: []any{"orders", "customers"}},
+					"pattern":    {Type: "string", Description: "bar"},
+				},
+				Required: []string{"collection", "pattern"},
+			},
+			wantAuthParam: map[string][]string{},
+		},
+		{
 			name: "urlParams is not nil, skips matched params",
 			in: parameters.Parameters{
 				parameters.NewStringParameter("foo-string", "bar"),
@@ -247,6 +264,24 @@ func TestParamManifest(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParamManifestEnumSerialization(t *testing.T) {
+	params := parameters.Parameters{
+		parameters.NewStringParameter("collection", "the collection to use", parameters.WithStringAllowedValues([]any{"orders", "customers"})),
+		parameters.NewStringParameter("plain", "no restriction"),
+	}
+	schema, _ := generateParamManifest(params, nil)
+	got, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("unable to marshal schema: %s", err)
+	}
+	if !strings.Contains(string(got), `"enum":["orders","customers"]`) {
+		t.Errorf("expected the collection enum in the serialized schema, got: %s", got)
+	}
+	if strings.Count(string(got), `"enum"`) != 1 {
+		t.Errorf("expected exactly one enum key in the serialized schema, got: %s", got)
 	}
 }
 
