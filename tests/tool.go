@@ -4586,6 +4586,100 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) 
 	}
 }
 
+// RunMSSQLGetDatabaseObjectSourceCodeTest runs tests against the mssql-get-database-object-source-code tool.
+func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, tableNameAuth string) {
+	invokeTcs := []struct {
+		name           string
+		api            string
+		requestBody    string
+		wantStatusCode int
+		wantContains   []string
+		isAgentErr     bool
+	}{
+		{
+			name:           "invoke get_database_object_source_code for tables namesOnly true",
+			api:            "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke",
+			requestBody:    `{"object_type": "tables", "namesOnly": true}`,
+			wantStatusCode: http.StatusOK,
+			wantContains:   []string{fmt.Sprintf("[dbo].[%s]", tableNameParam), fmt.Sprintf("[dbo].[%s]", tableNameAuth)},
+		},
+		{
+			name:           "invoke get_database_object_source_code for all objects namesOnly true",
+			api:            "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke",
+			requestBody:    `{"object_type": "all", "namesOnly": true}`,
+			wantStatusCode: http.StatusOK,
+			wantContains:   []string{fmt.Sprintf("[dbo].[%s]", tableNameParam), fmt.Sprintf("[dbo].[%s]", tableNameAuth)},
+		},
+		{
+			name:           "invoke get_database_object_source_code for tables namesOnly false",
+			api:            "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke",
+			requestBody:    `{"object_type": "tables", "namesOnly": false}`,
+			wantStatusCode: http.StatusOK,
+			wantContains:   []string{"-------------------------------------------------------"},
+		},
+		{
+			name:           "invoke get_database_object_source_code for assemblies",
+			api:            "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke",
+			requestBody:    `{"object_type": "assemblies", "namesOnly": false}`,
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:           "invoke get_database_object_source_code with invalid object_type",
+			api:            "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke",
+			requestBody:    `{"object_type": "invalid_type"}`,
+			wantStatusCode: http.StatusOK,
+			isAgentErr:     true,
+		},
+		{
+			name:           "invoke get_database_object_source_code with malformed namesOnly parameter",
+			api:            "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke",
+			requestBody:    `{"namesOnly": "not_a_boolean"}`,
+			wantStatusCode: http.StatusOK,
+			isAgentErr:     true,
+		},
+	}
+
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, respBytes := RunRequest(t, http.MethodPost, tc.api, bytes.NewBuffer([]byte(tc.requestBody)), nil)
+
+			if resp.StatusCode != tc.wantStatusCode {
+				t.Fatalf("response status code is not %d, got %d: %s", tc.wantStatusCode, resp.StatusCode, string(respBytes))
+			}
+
+			if tc.wantStatusCode == http.StatusOK {
+				var bodyWrapper map[string]json.RawMessage
+				if err := json.Unmarshal(respBytes, &bodyWrapper); err != nil {
+					t.Fatalf("error parsing response wrapper: %s, body: %s", err, string(respBytes))
+				}
+
+				if tc.isAgentErr {
+					if _, ok := bodyWrapper["error"]; !ok {
+						t.Fatalf("expected error in response body, got: %s", string(respBytes))
+					}
+					return
+				}
+
+				resultJSON, ok := bodyWrapper["result"]
+				if !ok {
+					t.Fatalf("unable to find 'result' in response body: %s", string(respBytes))
+				}
+
+				var resultString string
+				if err := json.Unmarshal(resultJSON, &resultString); err != nil {
+					resultString = string(resultJSON)
+				}
+
+				for _, wantSubstr := range tc.wantContains {
+					if !strings.Contains(resultString, wantSubstr) {
+						t.Errorf("expected result to contain %q, got: %s", wantSubstr, resultString)
+					}
+				}
+			}
+		})
+	}
+}
+
 func CreateAndLockPostgresTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tableName string) func() {
 	_, err := pool.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", pgx.Identifier{tableName}.Sanitize()))
 	if err != nil {

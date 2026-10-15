@@ -19,3 +19,4 @@ description: "Details of the Microsoft SQL Server prebuilt configuration."
 *   **Tools:**
     *   `execute_sql`: Executes a SQL query.
     *   `list_tables`: Lists tables in the database.
+    *   `get_database_object_source_code`: Retrieves source code or metadata for database objects.

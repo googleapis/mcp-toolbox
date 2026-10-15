@@ -320,6 +320,7 @@ The following tools are available to the LLM:
 
 1.  **list_tables**: lists tables and descriptions
 1.  **execute_sql**: execute any SQL statement
+1.  **get_database_object_source_code**: retrieves source code and metadata for database objects
 
 {{< notice note >}}
 Prebuilt tools are pre-1.0, so expect some tool changes between versions. LLMs
