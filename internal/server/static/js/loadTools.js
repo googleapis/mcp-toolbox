@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { renderToolInterface } from "./toolDisplay.js";
+import { renderToolInterface, setRegisteredTools } from "./toolDisplay.js";
 import { escapeHtml } from "./sanitize.js";
+import { createMcpHeaders, createMcpRequestBody } from "./mcpClient.js";
 
 let currentToolsList = [];
 
@@ -30,15 +31,8 @@ export async function loadTools(secondNavContent, toolDisplayArea, toolsetName) 
         const url = toolsetName ? `/mcp/${toolsetName}` : `/mcp`;
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'MCP-Protocol-Version': '2025-11-25'
-            },
-            body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: "1",
-                method: "tools/list",
-            })
+            headers: createMcpHeaders('tools/list'),
+            body: JSON.stringify(createMcpRequestBody('tools/list', {}, '1'))
         });
         
         if (!response.ok) {
@@ -75,6 +69,7 @@ function renderToolList(apiResponse, secondNavContent, toolDisplayArea) {
     }
 
     currentToolsList = apiResponse.result.tools;
+    setRegisteredTools(currentToolsList);
 
     if (currentToolsList.length === 0) {
         secondNavContent.textContent = 'No tools found.';
@@ -85,9 +80,23 @@ function renderToolList(apiResponse, secondNavContent, toolDisplayArea) {
     currentToolsList.forEach(toolObj => {
         const li = document.createElement('li');
         const button = document.createElement('button');
-        button.textContent = toolObj.name;
         button.dataset.toolname = toolObj.name;
         button.classList.add('tool-button');
+        button.title = toolObj.name;
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'tool-name';
+        nameSpan.textContent = toolObj.name;
+        button.appendChild(nameSpan);
+
+        const uiMeta = toolObj._meta?.ui || toolObj.ui;
+        if (uiMeta) {
+            const badge = document.createElement('span');
+            badge.className = 'tool-app-badge';
+            badge.textContent = 'APP';
+            button.appendChild(badge);
+        }
+
         button.addEventListener('click', (event) => handleToolClick(event, secondNavContent, toolDisplayArea));
         li.appendChild(button);
         ul.appendChild(li);
@@ -102,13 +111,14 @@ function renderToolList(apiResponse, secondNavContent, toolDisplayArea) {
  * @param {!HTMLElement} toolDisplayArea The HTML element where tool details will be shown.
  */
 function handleToolClick(event, secondNavContent, toolDisplayArea) {
-    const toolName = event.target.dataset.toolname;
+    const button = event.target.closest('button');
+    const toolName = button?.dataset.toolname;
     if (toolName) {
         const currentActive = secondNavContent.querySelector('.tool-button.active');
         if (currentActive) {
             currentActive.classList.remove('active');
         }
-        event.target.classList.add('active');
+        button.classList.add('active');
         renderToolDetails(toolName, toolDisplayArea);
     }
 }
@@ -130,12 +140,22 @@ function renderToolDetails(toolName, toolDisplayArea) {
 
     let toolAuthRequired = [];
     let toolAuthParams = {};
+    let toolUIMeta = null;
     if (toolObject._meta) {
-        if (toolObject._meta["toolbox/authInvoke"]) {
+        if (toolObject._meta["com.google.cloud/authInvoke"]) {
+            toolAuthRequired = toolObject._meta["com.google.cloud/authInvoke"];
+        } else if (toolObject._meta["toolbox/authInvoke"]) {
             toolAuthRequired = toolObject._meta["toolbox/authInvoke"];
         }
-        if (toolObject._meta["toolbox/authParam"]) {
+        if (toolObject._meta["com.google.cloud/authParam"]) {
+            toolAuthParams = toolObject._meta["com.google.cloud/authParam"];
+        } else if (toolObject._meta["toolbox/authParam"]) {
             toolAuthParams = toolObject._meta["toolbox/authParam"];
+        }
+        if (toolObject._meta.ui && toolObject._meta.ui.resourceUri) {
+            toolUIMeta = toolObject._meta.ui;
+        } else if (toolObject._meta["ui/resourceUri"]) {
+            toolUIMeta = { resourceUri: toolObject._meta["ui/resourceUri"] };
         }
     }
 
@@ -181,7 +201,8 @@ function renderToolDetails(toolName, toolDisplayArea) {
         name: toolName,
         description: toolObject.description || "No description provided.",
         authRequired: toolAuthRequired,
-        parameters: toolParameters
+        parameters: toolParameters,
+        ui: toolUIMeta
     };
 
     console.debug("Transformed toolInterfaceData:", toolInterfaceData);
