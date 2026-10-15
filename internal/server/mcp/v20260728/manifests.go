@@ -15,11 +15,13 @@
 package v20260728
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -270,7 +272,9 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if res.IsUI() {
 			continue
 		}
-		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
+		// Use res.GetName(), not the config key, so a SKILL.md is listed
+		// under the skill name from its frontmatter.
+		mcpManifest = append(mcpManifest, generateResourceManifest(res.GetName(), res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
 	}
 	return ListResourcesResult{
 		Resources: mcpManifest,
@@ -358,4 +362,76 @@ func GenerateGetGroupResult(pMgr *primitives.PrimitiveManager, g group.Group, ur
 		Resources:         listResourcesResult.Resources,
 		ResourceTemplates: listTemplatesResult.ResourceTemplates,
 	}, nil
+}
+
+// The catalogue is server-wide, so no group scopes it and none supplies its
+// ttlMs. Every client reads the same content, which is what public means.
+const (
+	skillsTTLMs      = group.DefaultTTLMs
+	skillsCacheScope = cacheScopePublic
+)
+
+// GenerateListSkillsResult rebuilds every skill from current file content.
+//
+// The digests are recomputed here rather than reused from startup, because a
+// host that fails to verify a digest recovers by asking again. Returning the
+// startup value would give it nothing to recover to.
+func GenerateListSkillsResult(ctx context.Context, pMgr *primitives.PrimitiveManager) (ListSkillsResult, error) {
+	// Skills are grouped per request, so a reload shows up on the next request.
+	resourcesMap, err := skillResources(pMgr)
+	if err != nil {
+		return ListSkillsResult{}, err
+	}
+	entries, err := skills.Discover(ctx, resourcesMap)
+	if err != nil {
+		return ListSkillsResult{}, err
+	}
+	// A nil slice would marshal to null; the wire shape is a list.
+	list := make([]Skill, 0, len(entries))
+	for _, e := range entries {
+		list = append(list, generateSkillManifest(e))
+	}
+	return ListSkillsResult{
+		Skills: list,
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      skillsTTLMs,
+			CacheScope: skillsCacheScope,
+		},
+	}, nil
+}
+
+// generateSkillManifest converts a skill to the wire type skills/list and
+// skills/get publish.
+func generateSkillManifest(e skills.Entry) Skill {
+	if e.Resources.Dynamic {
+		return DynamicSkill{URI: e.URI, Frontmatter: e.Frontmatter, Resources: skillsDynamicMarker}
+	}
+	// Non-nil, so an unpopulated list marshals to [] rather than null.
+	refs := make([]SkillResourceRef, 0, len(e.Resources.Refs))
+	for _, r := range e.Resources.Refs {
+		refs = append(refs, SkillResourceRef{URI: r.URI, Digest: r.Digest, Size: r.Size})
+	}
+	return StaticSkill{URI: e.URI, Frontmatter: e.Frontmatter, Resources: refs}
+}
+
+// skillResources returns the resources skills/list and skills/get group into
+// skills: those of the default group, which holds every non-UI resource. The
+// catalogue is server-wide, so no other group narrows it.
+func skillResources(pMgr *primitives.PrimitiveManager) (map[string]resources.Resource, error) {
+	g, ok := pMgr.GetGroup("")
+	if !ok {
+		return nil, fmt.Errorf("default group not found")
+	}
+	resourcesMap := make(map[string]resources.Resource, len(g.ResourceNames))
+	for _, name := range g.ResourceNames {
+		// A name can be missing only if a reload lands between the two
+		// lookups; the next request sees the new config whole.
+		if res, ok := pMgr.GetResource(name); ok {
+			resourcesMap[name] = res
+		}
+	}
+	return resourcesMap, nil
 }

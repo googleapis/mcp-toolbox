@@ -36,6 +36,22 @@ const UIMimeType = "text/html;profile=mcp-app"
 // BaseDirKey is the context key for storing the base directory path during config parsing.
 const BaseDirKey contextKey = "baseDir"
 
+// SkillScheme is how a resource belonging to an Agent Skill is addressed,
+// as skill://<skill-name>/<path>, whichever resource type backs it.
+const SkillScheme = "skill"
+
+// ValidateScheme checks uri against the schemes a resource may be addressed by:
+// nativeScheme, which is the resource's own type (eg. file), or SkillScheme. The
+// returned error names the accepted set, so callers need only prefix it with the
+// resource they were validating.
+func ValidateScheme(uri, nativeScheme string) error {
+	parsed, err := url.Parse(uri)
+	if err != nil || (parsed.Scheme != nativeScheme && parsed.Scheme != SkillScheme) {
+		return fmt.Errorf("must be '%s' or '%s'", nativeScheme, SkillScheme)
+	}
+	return nil
+}
+
 // GetBaseDirFromContext extracts the base directory path from the context.
 func GetBaseDirFromContext(ctx context.Context) string {
 	if ctx == nil {
@@ -275,6 +291,10 @@ func (c *ResourceConfigBase) Validate() error {
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	parsed.Host = strings.ToLower(parsed.Host)
 	c.URI = parsed.String()
+
+	if err := ValidateSkillURI(c.URI); err != nil {
+		return fmt.Errorf("invalid skill uri %q for resource %q: %w", c.URI, c.Name, err)
+	}
 
 	return nil
 }

@@ -31,6 +31,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 )
 
 const (
@@ -118,9 +119,10 @@ func (c *Config) Validate() error {
 	if err := c.ResourceConfigBase.Validate(); err != nil {
 		return err
 	}
-	parsed, _ := url.Parse(c.URI)
-	if !c.UI && parsed.Scheme != "file" {
-		return fmt.Errorf("invalid scheme for file resource %q: must be 'file'", c.Name)
+	if !c.UI {
+		if err := resources.ValidateScheme(c.URI, resourceType); err != nil {
+			return fmt.Errorf("invalid scheme for file resource %q: %w", c.Name, err)
+		}
 	}
 
 	if c.MaxSize != nil {
@@ -260,13 +262,27 @@ func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 	if size > *c.MaxSize {
 		size = *c.MaxSize
 	}
-	return &FileResource{
+	r := &FileResource{
 		Config:          *c,
 		Size:            size,
 		absPath:         absPath,
 		resolvedBaseDir: resolvedBaseDir,
 		isRelative:      isRelative,
-	}, nil
+	}
+
+	// SEP-2640 lists a SKILL.md under the name and description in its
+	// frontmatter, so read them now. If the frontmatter is invalid, keep the
+	// config values; skills.Validate will fail startup and explain why.
+	if skills.IsDoc(c.URI) {
+		content, err := r.Read(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read %s for resource %q: %w", c.URI, c.Name, err)
+		}
+		if s, ok := content.(string); ok {
+			r.skillName, r.skillDescription, _ = skills.DocIdentity(s)
+		}
+	}
+	return r, nil
 }
 
 // FileResource handles reading content from a local file.
@@ -277,6 +293,38 @@ type FileResource struct {
 	absPath         string
 	resolvedBaseDir string
 	isRelative      bool
+
+	// skillName and skillDescription come from a SKILL.md's frontmatter.
+	// They are empty for all other resources.
+	skillName        string
+	skillDescription string
+}
+
+// GetName returns the frontmatter name for a SKILL.md, and the config name
+// otherwise.
+func (r *FileResource) GetName() string {
+	if r.skillName != "" {
+		return r.skillName
+	}
+	return r.Name
+}
+
+// GetDescription returns the frontmatter description for a SKILL.md, and the
+// config description otherwise.
+func (r *FileResource) GetDescription() string {
+	if r.skillName != "" {
+		return r.skillDescription
+	}
+	return r.Description
+}
+
+// GetMimeType returns text/markdown for a SKILL.md, as SEP-2640 requires, and
+// the configured MIME type otherwise.
+func (r *FileResource) GetMimeType() string {
+	if r.skillName != "" {
+		return skills.DocMimeType
+	}
+	return r.MimeType
 }
 
 // GetSize returns the configured maximum size of the file.
@@ -447,9 +495,16 @@ func (c *TemplateConfig) Validate() error {
 	if err := c.ResourceTemplateConfigBase.Validate(); err != nil {
 		return err
 	}
-	parsed, _ := url.Parse(strings.ReplaceAll(c.URITemplate, "{path}", "path"))
-	if !c.UI && parsed.Scheme != "file" {
-		return fmt.Errorf("invalid scheme for file resource template %q: must be 'file'", c.Name)
+	if !c.UI {
+		// Only file:// is accepted. A skill:// template would look like part of
+		// a skill, but skills are built from resources only, so its files would
+		// never be listed or validated as part of one. ValidateScheme is not
+		// used because it also accepts skill://. url.Parse lowercases the
+		// scheme.
+		parsed, err := url.Parse(strings.ReplaceAll(c.URITemplate, "{path}", "path"))
+		if err != nil || parsed.Scheme != resourceType {
+			return fmt.Errorf("invalid scheme for file resource template %q: must be '%s'", c.Name, resourceType)
+		}
 	}
 
 	if c.MaxSize != nil {

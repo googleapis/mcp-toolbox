@@ -29,6 +29,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -64,6 +65,10 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 		return groupsListHandler(ctx, id, primitiveMgr, body, header)
 	case GROUPS_GET:
 		return groupsGetHandler(ctx, id, primitiveMgr, body, header)
+	case SKILLS_LIST:
+		return skillsListHandler(ctx, id, primitiveMgr, body, header)
+	case SKILLS_GET:
+		return skillsGetHandler(ctx, id, primitiveMgr, body, header)
 	default:
 		err := fmt.Errorf("invalid method %s", method)
 		return jsonrpc.NewError(id, jsonrpc.METHOD_NOT_FOUND, err.Error(), nil), err
@@ -132,13 +137,12 @@ func validateHeader(id jsonrpc.RequestId, header http.Header, method, name strin
 	return nil, nil
 }
 
-// validateToolboxExtension checks that the client negotiated the Toolbox
-// extension. Methods that are only part of the extension must not be served to
-// clients that did not declare it.
-func validateToolboxExtension(id jsonrpc.RequestId, params RequestParams, method string) (any, error) {
+// validateExtension rejects a method whose extension is not enabled on both
+// sides: declared by the client and not disabled on the server.
+func validateExtension(id jsonrpc.RequestId, params RequestParams, method, extURI string) (any, error) {
 	supportedExts := ParseSupportedExtensions(params.Meta.MetaClientCapabilities.Extensions)
-	if _, ok := supportedExts[ToolboxExtensionURI]; !ok {
-		err := fmt.Errorf("missing required client capability: method %q requires %s extension which is not supported by the client", method, ToolboxExtensionURI)
+	if _, ok := supportedExts[extURI]; !ok {
+		err := fmt.Errorf("missing required client capability: method %q requires %s extension which is not supported by the client", method, extURI)
 		return jsonrpc.NewError(id, jsonrpc.MISSING_REQUIRED_CLIENT_CAPABILITY, err.Error(), nil), err
 	}
 	return nil, nil
@@ -835,7 +839,7 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	if err != nil {
 		return validateErr, err
 	}
-	extErr, err := validateToolboxExtension(id, req.Params, GROUPS_LIST)
+	extErr, err := validateExtension(id, req.Params, GROUPS_LIST, ToolboxExtensionURI)
 	if err != nil {
 		return extErr, err
 	}
@@ -888,7 +892,7 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	if err != nil {
 		return validateErr, err
 	}
-	extErr, err := validateToolboxExtension(id, req.Params.RequestParams, GROUPS_GET)
+	extErr, err := validateExtension(id, req.Params.RequestParams, GROUPS_GET, ToolboxExtensionURI)
 	if err != nil {
 		return extErr, err
 	}
@@ -920,7 +924,7 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 	supportedExts := ParseSupportedExtensions(clientExts)
 	supportsUI := CheckUISupport(supportedExts)
-	// validateToolboxExtension above already established that the client
+	// validateExtension above already established that the client
 	// declared the extension, so secure params are always supported here.
 	result, err := GenerateGetGroupResult(primitiveMgr, g, urlParams, true, supportsUI)
 	if err != nil {
@@ -1225,4 +1229,129 @@ func validateAndMergeSecureParams(ctx context.Context, req *CallToolRequest, par
 	maps.Copy(toolArgument, req.Params.SecureArguments)
 
 	return toolArgument, nil, nil
+}
+
+// skillsListHandler serves skills/list. It returns every skill the server
+// declares.
+func skillsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling skills/list request")
+
+	var req ListSkillsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp skills/list request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, SKILLS_LIST, "")
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+	extErr, err := validateExtension(id, req.Params, SKILLS_LIST, SkillsExtensionURI)
+	if err != nil {
+		return extErr, err
+	}
+
+	if genAIAttrs := util.GenAIMetricAttrsFromContext(ctx); genAIAttrs != nil {
+		genAIAttrs.OperationName = "list_skills"
+	}
+
+	// A file that has become unreadable since startup fails the whole request.
+	// The catalogue is reported complete or not at all.
+	result, err := GenerateListSkillsResult(ctx, primitiveMgr)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("returning %d skills", len(result.Skills)))
+
+	meta, err := getResultMetadata(ctx, result.Meta)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
+}
+
+// skillsGetHandler serves skills/get for one skill URI.
+func skillsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	logger.DebugContext(ctx, "handling skills/get request")
+
+	var req GetSkillRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		err = fmt.Errorf("invalid mcp skills/get request: %w", err)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
+	}
+	validateHeaderErr, err := validateHeader(id, header, SKILLS_GET, req.Params.URI)
+	if err != nil {
+		return validateHeaderErr, err
+	}
+	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
+	if err != nil {
+		return validateErr, err
+	}
+	extErr, err := validateExtension(id, req.Params.RequestParams, SKILLS_GET, SkillsExtensionURI)
+	if err != nil {
+		return extErr, err
+	}
+
+	uri := req.Params.URI
+	logger.DebugContext(ctx, fmt.Sprintf("skill uri: %s", uri))
+
+	span := trace.SpanFromContext(ctx)
+	span.SetName(fmt.Sprintf("%s %s", SKILLS_GET, uri))
+	span.SetAttributes(attribute.String("gen_ai.skill.uri", uri))
+
+	if genAIAttrs := util.GenAIMetricAttrsFromContext(ctx); genAIAttrs != nil {
+		genAIAttrs.OperationName = "get_skill"
+	}
+
+	resourcesMap, err := skillResources(primitiveMgr)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	entry, found, err := skills.Get(ctx, resourcesMap, uri)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	if !found {
+		err := fmt.Errorf("unknown skill: %s", uri)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
+	}
+
+	meta, err := getResultMetadata(ctx, nil)
+	if err != nil {
+		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
+	}
+	result := GetSkillResult{
+		Skill: generateSkillManifest(entry),
+		Result: Result{
+			ResultType: resultTypeComplete,
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      skillsTTLMs,
+			CacheScope: skillsCacheScope,
+		},
+	}
+	result.Meta = meta
+
+	return jsonrpc.JSONRPCResponse{
+		Jsonrpc: jsonrpc.JSONRPC_VERSION,
+		Id:      id,
+		Result:  result,
+	}, nil
 }
