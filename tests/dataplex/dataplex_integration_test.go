@@ -413,12 +413,15 @@ func initDataplexDataProductConnection(ctx context.Context) (*dataplex.DataProdu
 	return client, nil
 }
 
-func TestDataplexToolEndpoints(t *testing.T) {
+func runDataplexCallTools(t *testing.T, options ...dataplexTestOption) {
 	sourceConfig := getDataplexVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
+	var args []string
+	if !dataplexMCPEnabled(options) {
+		args = append(args, "--enable-api")
+	}
 	bigqueryClient, err := initBigQueryConnection(ctx, DataplexProject)
 	if err != nil {
 		t.Fatalf("unable to create Cloud SQL connection pool: %s", err)
@@ -516,6 +519,15 @@ func TestDataplexToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		if err := cmd.Wait(shutdown); err != nil {
+			t.Errorf("stop toolbox: %v", err)
+		}
+		cmd.Close()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
@@ -525,20 +537,19 @@ func TestDataplexToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	runDataplexToolGetTest(t)
-	runDataplexSearchEntriesToolInvokeTest(t, tableName1, datasetName1)
-	runDataplexLookupEntryToolInvokeTest(t, tableName1, datasetName1)
-	runDataplexSearchAspectTypesToolInvokeTest(t, aspectTypeId)
-	runDataplexLookupContextToolInvokeTest(t, tableName1, datasetName1)
-	runDataplexSearchDataQualityScansToolInvokeTest(t, dataScanId, tableName1, datasetName1)
-	runDataplexListDataProductsToolInvokeTest(t, dataProductId1, dataProductId2)
-	runDataplexGetDataProductToolInvokeTest(t, dataProductId1)
-	runDataplexListDataAssetsToolInvokeTest(t, dataProductId1, dataAssetId1)
-	runDataplexGetDataAssetToolInvokeTest(t, dataProductId1, dataAssetId1)
-	runDataplexCreateAndUpdateDataProductToolsInvokeTest(t, dataplexDataProductClient, dataProductId3, dataProductId4)
-	runDataplexCreateAndUpdateDataAssetToolsInvokeTest(t, dataplexDataProductClient, dataProductId2, dataAssetId2, dataAssetId3, datasetName1, tableName1, datasetName2, tableName2)
-	runDataplexUpdateDataProductAspectsToolInvokeTest(t, dataProductId1, aspectTypeId)
-	runDataplexEnrichmentToolInvokeTest(t, tableName1, datasetName1, bucketName, dataplexDataScanClient)
+	runDataplexSearchEntriesToolInvokeTest(t, tableName1, datasetName1, options...)
+	runDataplexLookupEntryToolInvokeTest(t, tableName1, datasetName1, options...)
+	runDataplexSearchAspectTypesToolInvokeTest(t, aspectTypeId, options...)
+	runDataplexLookupContextToolInvokeTest(t, tableName1, datasetName1, options...)
+	runDataplexSearchDataQualityScansToolInvokeTest(t, dataScanId, tableName1, datasetName1, options...)
+	runDataplexListDataProductsToolInvokeTest(t, dataProductId1, dataProductId2, options...)
+	runDataplexGetDataProductToolInvokeTest(t, dataProductId1, options...)
+	runDataplexListDataAssetsToolInvokeTest(t, dataProductId1, dataAssetId1, options...)
+	runDataplexGetDataAssetToolInvokeTest(t, dataProductId1, dataAssetId1, options...)
+	runDataplexCreateAndUpdateDataProductToolsInvokeTest(t, dataplexDataProductClient, dataProductId3, dataProductId4, options...)
+	runDataplexCreateAndUpdateDataAssetToolsInvokeTest(t, dataplexDataProductClient, dataProductId2, dataAssetId2, dataAssetId3, datasetName1, tableName1, datasetName2, tableName2, options...)
+	runDataplexUpdateDataProductAspectsToolInvokeTest(t, dataProductId1, aspectTypeId, options...)
+	runDataplexEnrichmentToolInvokeTest(t, tableName1, datasetName1, bucketName, dataplexDataScanClient, options...)
 }
 
 func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, datasetName string, tableName string) func(*testing.T) {
@@ -1009,7 +1020,11 @@ func getDataplexToolsConfig(sourceConfig map[string]any) map[string]any {
 	return toolsFile
 }
 
-func runDataplexToolGetTest(t *testing.T) {
+func runDataplexToolGetTest(t *testing.T, options ...dataplexTestOption) {
+	if dataplexMCPEnabled(options) {
+		tests.RunMCPToolsListMethod(t, dataplexExpectedTools(t))
+		return
+	}
 	testCases := []struct {
 		name           string
 		toolName       string
@@ -1186,7 +1201,7 @@ func runDataplexToolGetTest(t *testing.T) {
 	}
 }
 
-func runDataplexSearchEntriesToolInvokeTest(t *testing.T, tableName string, datasetName string) {
+func runDataplexSearchEntriesToolInvokeTest(t *testing.T, tableName string, datasetName string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1270,22 +1285,8 @@ func runDataplexSearchEntriesToolInvokeTest(t *testing.T, tableName string, data
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				if result["result"] == nil && !tc.expectResult {
-					return
-				}
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
-			}
-			if !tc.expectResult && (resultStr == "" || resultStr == "[]") {
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
+			if tc.wantStatusCode != http.StatusOK {
 				return
 			}
 			var entries []interface{}
@@ -1308,19 +1309,14 @@ func runDataplexSearchEntriesToolInvokeTest(t *testing.T, tableName string, data
 				if _, ok := entry[tc.wantContentKey]; !ok {
 					t.Fatalf("expected entry to have key '%s', but it was not found in %v", tc.wantContentKey, entry)
 				}
-			} else {
-				isResultEmpty := resultStr == "" || resultStr == "[]" || resultStr == "null"
-				hasError := strings.Contains(resultStr, `"error":`)
-
-				if !isResultEmpty && !hasError {
-					t.Fatalf("expected an empty result or error message, but got: %s", resultStr)
-				}
+			} else if len(entries) != 0 {
+				t.Fatalf("expected no entries, got %s", resultStr)
 			}
 		})
 	}
 }
 
-func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datasetName string) {
+func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datasetName string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1333,6 +1329,7 @@ func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datase
 		requestHeader      map[string]string
 		requestBody        io.Reader
 		expectResult       bool
+		wantError          string
 		wantContentKey     string
 		dontWantContentKey string
 		aspectCheck        bool
@@ -1376,6 +1373,7 @@ func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datase
 		},
 		{
 			name:           "Failure - Invalid Entry Format",
+			wantError:      "invalid entry format",
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-lookup-entry-tool/invoke",
 			requestHeader:  map[string]string{},
 			requestBody:    bytes.NewBuffer([]byte(`{"entry":"invalid/entry/format"}`)),
@@ -1384,6 +1382,7 @@ func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datase
 		},
 		{
 			name:           "Failure - Entry Not Found or Permission Denied",
+			wantError:      "not.?found|permission.?denied",
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-lookup-entry-tool/invoke",
 			requestHeader:  map[string]string{},
 			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"entry\":\"projects/%s/locations/us/entryGroups/@bigquery/entries/bigquery.googleapis.com/projects/%s/datasets/%s\"}", DataplexProject, DataplexProject, "non-existent-dataset"))),
@@ -1402,6 +1401,7 @@ func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datase
 		},
 		{
 			name:           "Failure - Entry with Custom View without Aspect Types",
+			wantError:      "aspect",
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-lookup-entry-tool/invoke",
 			requestHeader:  map[string]string{},
 			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"entry\":\"projects/%s/locations/us/entryGroups/@bigquery/entries/bigquery.googleapis.com/projects/%s/datasets/%s/tables/%s\", \"view\": %d}", DataplexProject, DataplexProject, datasetName, tableName, 3))),
@@ -1422,61 +1422,36 @@ func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datase
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("Response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, tc.wantError, options...)
+			if !tc.expectResult {
+				return
+			}
+			var entry map[string]interface{}
+			if err := json.Unmarshal([]byte(resultStr), &entry); err != nil {
+				t.Fatalf("Error unmarshalling result string: %v. Raw result: %s", err, resultStr)
 			}
 
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("Error parsing response body: %v", err)
+			if _, ok := entry[tc.wantContentKey]; !ok {
+				t.Fatalf("Expected entry to have key '%s', but it was not found in %v", tc.wantContentKey, entry)
 			}
 
-			resultStr, hasResult := result["result"].(string)
-
-			if tc.expectResult {
-				if !hasResult || resultStr == "" || resultStr == "{}" || resultStr == "null" {
-					t.Fatalf("Expected a result, but got: %v", result)
+			if tc.dontWantContentKey != "" {
+				if _, ok := entry[tc.dontWantContentKey]; ok {
+					t.Fatalf("Expected entry to NOT have key '%s', but it was found", tc.dontWantContentKey)
 				}
+			}
 
-				var entry map[string]interface{}
-				if err := json.Unmarshal([]byte(resultStr), &entry); err != nil {
-					t.Fatalf("Error unmarshalling result string: %v. Raw result: %s", err, resultStr)
-				}
-
-				if _, ok := entry[tc.wantContentKey]; !ok {
-					t.Fatalf("Expected entry to have key '%s', but it was not found in %v", tc.wantContentKey, entry)
-				}
-
-				if tc.dontWantContentKey != "" {
-					if _, ok := entry[tc.dontWantContentKey]; ok {
-						t.Fatalf("Expected entry to NOT have key '%s', but it was found", tc.dontWantContentKey)
-					}
-				}
-
-				if tc.aspectCheck {
-					aspects, ok := entry["aspects"].(map[string]interface{})
-					if !ok || len(aspects) != 1 {
-						t.Fatalf("Expected exactly one aspect, but got %d", len(aspects))
-					}
-				}
-			} else {
-				foundError := false
-				if _, ok := result["error"]; ok {
-					foundError = true
-				} else if hasResult && strings.Contains(resultStr, `"error"`) {
-					foundError = true
-				}
-
-				if !foundError {
-					t.Fatalf("Expected an error in response, but none was found. Response: %v", result)
+			if tc.aspectCheck {
+				aspects, ok := entry["aspects"].(map[string]interface{})
+				if !ok || len(aspects) != 1 {
+					t.Fatalf("Expected exactly one aspect, but got %d", len(aspects))
 				}
 			}
 		})
 	}
 }
 
-func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId string) {
+func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1537,22 +1512,8 @@ func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId strin
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				if result["result"] == nil && !tc.expectResult {
-					return
-				}
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
-			}
-			if !tc.expectResult && (resultStr == "" || resultStr == "[]") {
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
+			if tc.wantStatusCode != http.StatusOK {
 				return
 			}
 			var entries []interface{}
@@ -1580,7 +1541,7 @@ func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId strin
 	}
 }
 
-func runDataplexLookupContextToolInvokeTest(t *testing.T, tableName string, datasetName string) {
+func runDataplexLookupContextToolInvokeTest(t *testing.T, tableName string, datasetName string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1596,6 +1557,7 @@ func runDataplexLookupContextToolInvokeTest(t *testing.T, tableName string, data
 		requestHeader  map[string]string
 		requestBody    io.Reader
 		expectResult   bool
+		wantError      string
 		wantContentKey string
 	}{
 		{
@@ -1627,6 +1589,7 @@ func runDataplexLookupContextToolInvokeTest(t *testing.T, tableName string, data
 		},
 		{
 			name:           "Failure - Invalid Resource Format",
+			wantError:      "invalid resource format",
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-lookup-context-tool/invoke",
 			requestHeader:  map[string]string{},
 			requestBody:    bytes.NewBufferString(`{"resources":["projects/test-project/invalid-format"]}`),
@@ -1636,6 +1599,7 @@ func runDataplexLookupContextToolInvokeTest(t *testing.T, tableName string, data
 		},
 		{
 			name:           "Failure - Resources with different locations",
+			wantError:      "same location",
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-lookup-context-tool/invoke",
 			requestHeader:  map[string]string{},
 			requestBody:    bytes.NewBufferString(`{"resources":["projects/test-project/locations/us/entryGroups/g1/entries/e1", "projects/test-project/locations/europe-west1/entryGroups/g2/entries/e2"]}`),
@@ -1647,30 +1611,10 @@ func runDataplexLookupContextToolInvokeTest(t *testing.T, tableName string, data
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("Response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, tc.wantError, options...)
 			if !tc.expectResult {
 				return
 			}
-
-			var response map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &response); err != nil {
-				t.Fatalf("Error parsing response body: %v\nRaw body: %s", err, string(bodyBytes))
-			}
-
-			resultPayload, ok := response["result"]
-			if !ok {
-				t.Fatalf("Expected to find 'result' key in API response, got: %v", response)
-			}
-
-			resultStr, ok := resultPayload.(string)
-			if !ok {
-				t.Fatalf("Expected 'result' payload to be a JSON string, got: %T", resultPayload)
-			}
-
 			var innerResult map[string]interface{}
 			if err := json.Unmarshal([]byte(resultStr), &innerResult); err != nil {
 				t.Fatalf("Error parsing inner result string: %v\nRaw string: %s", err, resultStr)
@@ -1689,7 +1633,7 @@ func runDataplexLookupContextToolInvokeTest(t *testing.T, tableName string, data
 	}
 }
 
-func runDataplexSearchDataQualityScansToolInvokeTest(t *testing.T, dataScanId string, tableName string, datasetName string) {
+func runDataplexSearchDataQualityScansToolInvokeTest(t *testing.T, dataScanId string, tableName string, datasetName string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1765,22 +1709,8 @@ func runDataplexSearchDataQualityScansToolInvokeTest(t *testing.T, dataScanId st
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				if result["result"] == nil && !tc.expectResult {
-					return
-				}
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
-			}
-			if !tc.expectResult && (resultStr == "" || resultStr == "[]") {
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
+			if tc.wantStatusCode != http.StatusOK {
 				return
 			}
 			var entries []interface{}
@@ -1808,7 +1738,7 @@ func runDataplexSearchDataQualityScansToolInvokeTest(t *testing.T, dataScanId st
 	}
 }
 
-func runDataplexListDataProductsToolInvokeTest(t *testing.T, dataProductId1 string, dataProductId2 string) {
+func runDataplexListDataProductsToolInvokeTest(t *testing.T, dataProductId1 string, dataProductId2 string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1864,20 +1794,9 @@ func runDataplexListDataProductsToolInvokeTest(t *testing.T, dataProductId1 stri
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
 			if !tc.expectResult {
 				return
-			}
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			var entries []interface{}
 			if err := json.Unmarshal([]byte(resultStr), &entries); err != nil {
@@ -1919,7 +1838,7 @@ func runDataplexListDataProductsToolInvokeTest(t *testing.T, dataProductId1 stri
 	}
 }
 
-func runDataplexGetDataProductToolInvokeTest(t *testing.T, dataProductId string) {
+func runDataplexGetDataProductToolInvokeTest(t *testing.T, dataProductId string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1975,20 +1894,9 @@ func runDataplexGetDataProductToolInvokeTest(t *testing.T, dataProductId string)
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
 			if !tc.expectResult {
 				return
-			}
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			var entry map[string]interface{}
 			if err := json.Unmarshal([]byte(resultStr), &entry); err != nil {
@@ -2020,7 +1928,7 @@ func runDataplexGetDataProductToolInvokeTest(t *testing.T, dataProductId string)
 	}
 }
 
-func runDataplexListDataAssetsToolInvokeTest(t *testing.T, dataProductId string, dataAssetId string) {
+func runDataplexListDataAssetsToolInvokeTest(t *testing.T, dataProductId string, dataAssetId string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2079,20 +1987,9 @@ func runDataplexListDataAssetsToolInvokeTest(t *testing.T, dataProductId string,
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
 			if !tc.expectResult {
 				return
-			}
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			var entries []interface{}
 			if err := json.Unmarshal([]byte(resultStr), &entries); err != nil {
@@ -2142,7 +2039,7 @@ func runDataplexListDataAssetsToolInvokeTest(t *testing.T, dataProductId string,
 	}
 }
 
-func runDataplexGetDataAssetToolInvokeTest(t *testing.T, dataProductId string, dataAssetId string) {
+func runDataplexGetDataAssetToolInvokeTest(t *testing.T, dataProductId string, dataAssetId string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2201,21 +2098,9 @@ func runDataplexGetDataAssetToolInvokeTest(t *testing.T, dataProductId string, d
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
 			if !tc.expectResult {
 				return
-			}
-
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			var entry map[string]interface{}
 			if err := json.Unmarshal([]byte(resultStr), &entry); err != nil {
@@ -2258,7 +2143,7 @@ func runDataplexGetDataAssetToolInvokeTest(t *testing.T, dataProductId string, d
 	}
 }
 
-func runDataplexCreateAndUpdateDataProductToolsInvokeTest(t *testing.T, client *dataplex.DataProductClient, dataProductIdAuth string, dataProductIdUnauth string) {
+func runDataplexCreateAndUpdateDataProductToolsInvokeTest(t *testing.T, client *dataplex.DataProductClient, dataProductIdAuth string, dataProductIdUnauth string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2384,20 +2269,9 @@ func runDataplexCreateAndUpdateDataProductToolsInvokeTest(t *testing.T, client *
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
 			if !tc.expectResult {
 				return
-			}
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			var invokeResp map[string]interface{}
 			if err := json.Unmarshal([]byte(resultStr), &invokeResp); err != nil {
@@ -2463,6 +2337,7 @@ func runDataplexCreateAndUpdateDataAssetToolsInvokeTest(
 	tableNameAuth string,
 	datasetNameUnauth string,
 	tableNameUnauth string,
+	options ...dataplexTestOption,
 ) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
@@ -2583,21 +2458,9 @@ func runDataplexCreateAndUpdateDataAssetToolsInvokeTest(
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
 			if !tc.expectResult {
 				return
-			}
-
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			var invokeResp map[string]interface{}
 			if err := json.Unmarshal([]byte(resultStr), &invokeResp); err != nil {
@@ -2662,7 +2525,7 @@ func runDataplexCreateAndUpdateDataAssetToolsInvokeTest(
 	}
 }
 
-func runDataplexEnrichmentToolInvokeTest(t *testing.T, tableName string, datasetName string, bucketName string, client *dataplex.DataScanClient) {
+func runDataplexEnrichmentToolInvokeTest(t *testing.T, tableName string, datasetName string, bucketName string, client *dataplex.DataScanClient, options ...dataplexTestOption) {
 	ctx := context.Background()
 	tableResource := fmt.Sprintf("//bigquery.googleapis.com/projects/%s/datasets/%s/tables/%s", DataplexProject, datasetName, tableName)
 	bucketResource := fmt.Sprintf("//storage.googleapis.com/projects/%s/buckets/%s", DataplexProject, bucketName)
@@ -2723,25 +2586,7 @@ func runDataplexEnrichmentToolInvokeTest(t *testing.T, tableName string, dataset
 			// Step 1: Invoke Generate/Discover/Check Tool
 			generateURL := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.generateToolName)
 			reqBytes, _ := json.Marshal(tc.generateReqBody)
-			resp, err := http.Post(generateURL, "application/json", bytes.NewBuffer(reqBytes))
-			if err != nil {
-				t.Fatalf("failed to invoke %s: %v", tc.generateToolName, err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				t.Fatalf("%s response status got %d, want 200. Body: %s", tc.generateToolName, resp.StatusCode, string(body))
-			}
-
-			var invokeResult map[string]any
-			if err := json.NewDecoder(resp.Body).Decode(&invokeResult); err != nil {
-				t.Fatalf("failed to decode response from %s: %v", tc.generateToolName, err)
-			}
-			resultStr, ok := invokeResult["result"].(string)
-			if !ok || resultStr == "" {
-				t.Fatalf("expected string result from %s, got: %v", tc.generateToolName, invokeResult)
-			}
+			resultStr := invokeDataplexTool(t, generateURL, bytes.NewReader(reqBytes), nil, http.StatusOK, "", options...)
 
 			var resMap map[string]string
 			if err := json.Unmarshal([]byte(resultStr), &resMap); err != nil {
@@ -2762,26 +2607,8 @@ func runDataplexEnrichmentToolInvokeTest(t *testing.T, tableName string, dataset
 			var scanID string
 			var opDone bool
 			for i := 0; i < 90; i++ {
-				opResp, err := http.Post(getOpURL, "application/json", bytes.NewBuffer(opReqBytes))
-				if err != nil {
-					t.Fatalf("failed to invoke get_operation: %v", err)
-				}
-				if opResp.StatusCode != http.StatusOK {
-					body, _ := io.ReadAll(opResp.Body)
-					opResp.Body.Close()
-					t.Fatalf("get_operation response status got %d, want 200. Body: %s", opResp.StatusCode, string(body))
-				}
-				var opResult map[string]any
-				if err := json.NewDecoder(opResp.Body).Decode(&opResult); err != nil {
-					opResp.Body.Close()
-					t.Fatalf("failed to decode response from get_operation: %v", err)
-				}
-				opResp.Body.Close()
+				opResultStr := invokeDataplexTool(t, getOpURL, bytes.NewReader(opReqBytes), nil, http.StatusOK, "", options...)
 
-				opResultStr, ok := opResult["result"].(string)
-				if !ok {
-					t.Fatalf("get_operation returned invalid result field: %v", opResult)
-				}
 				var innerOp map[string]any
 				if err := json.Unmarshal([]byte(opResultStr), &innerOp); err != nil {
 					t.Fatalf("failed to unmarshal inner operation details: %v", err)
@@ -2831,22 +2658,7 @@ func runDataplexEnrichmentToolInvokeTest(t *testing.T, tableName string, dataset
 			// Step 3: Get Run Status
 			runReqBody := map[string]any{"scanId": scanID, "location": "us-central1"}
 			runReqBytes, _ := json.Marshal(runReqBody)
-			runResp, err := http.Post(runStatusURL, "application/json", bytes.NewBuffer(runReqBytes))
-			if err != nil {
-				t.Fatalf("failed to invoke get_run_status: %v", err)
-			}
-			defer runResp.Body.Close()
-
-			if runResp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(runResp.Body)
-				t.Fatalf("get_run_status response status got %d, want 200. Body: %s", runResp.StatusCode, string(body))
-			}
-
-			var runResult map[string]any
-			if err := json.NewDecoder(runResp.Body).Decode(&runResult); err != nil {
-				t.Fatalf("failed to decode response from get_run_status: %v", err)
-			}
-			runResultStr, _ := runResult["result"].(string)
+			runResultStr := invokeDataplexTool(t, runStatusURL, bytes.NewReader(runReqBytes), nil, http.StatusOK, "", options...)
 
 			var jobStatus map[string]any
 			if err := json.Unmarshal([]byte(runResultStr), &jobStatus); err != nil {
@@ -2857,22 +2669,7 @@ func runDataplexEnrichmentToolInvokeTest(t *testing.T, tableName string, dataset
 			getResultURL := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.getResultToolName)
 			resultReqBody := map[string]any{"scanId": scanID, "location": "us-central1"}
 			resultReqBytes, _ := json.Marshal(resultReqBody)
-			resultResp, err := http.Post(getResultURL, "application/json", bytes.NewBuffer(resultReqBytes))
-			if err != nil {
-				t.Fatalf("failed to invoke %s: %v", tc.getResultToolName, err)
-			}
-			defer resultResp.Body.Close()
-
-			if resultResp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resultResp.Body)
-				t.Fatalf("%s response status got %d, want 200. Body: %s", tc.getResultToolName, resultResp.StatusCode, string(body))
-			}
-
-			var innerResult map[string]any
-			if err := json.NewDecoder(resultResp.Body).Decode(&innerResult); err != nil {
-				t.Fatalf("failed to decode response from %s: %v", tc.getResultToolName, err)
-			}
-			innerResultStr, _ := innerResult["result"].(string)
+			innerResultStr := invokeDataplexTool(t, getResultURL, bytes.NewReader(resultReqBytes), nil, http.StatusOK, "", options...)
 
 			var scanData map[string]any
 			if err := json.Unmarshal([]byte(innerResultStr), &scanData); err != nil {
@@ -2887,7 +2684,7 @@ func runDataplexEnrichmentToolInvokeTest(t *testing.T, tableName string, dataset
 	}
 }
 
-func runDataplexUpdateDataProductAspectsToolInvokeTest(t *testing.T, dataProductId string, aspectTypeId string) {
+func runDataplexUpdateDataProductAspectsToolInvokeTest(t *testing.T, dataProductId string, aspectTypeId string, options ...dataplexTestOption) {
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2955,21 +2752,9 @@ func runDataplexUpdateDataProductAspectsToolInvokeTest(t *testing.T, dataProduct
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := tests.RunRequest(t, http.MethodPost, tc.api, tc.requestBody, tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code got %d, want %d\nResponse body: %s", resp.StatusCode, tc.wantStatusCode, string(bodyBytes))
-			}
+			resultStr := invokeDataplexTool(t, tc.api, tc.requestBody, tc.requestHeader, tc.wantStatusCode, "", options...)
 			if !tc.expectResult {
 				return
-			}
-
-			var result map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &result); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			resultStr, ok := result["result"].(string)
-			if !ok {
-				t.Fatalf("expected 'result' field to be a string, got %T", result["result"])
 			}
 			var invokeResp map[string]interface{}
 			if err := json.Unmarshal([]byte(resultStr), &invokeResp); err != nil {
