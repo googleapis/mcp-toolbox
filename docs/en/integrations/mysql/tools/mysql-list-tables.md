@@ -13,8 +13,10 @@ tables in a MySQL database.
 
 `mysql-list-tables` lists detailed schema information (object type, columns,
 constraints, indexes, triggers, owner, comment) as JSON for user-created tables
-(ordinary or partitioned). Filters by a comma-separated list of names. If names
-are omitted, it lists all tables in user schemas. The output format can be set
+(ordinary or partitioned) in the configured database. Filters by a
+comma-separated list of names. If names are omitted, it lists all tables in that
+database. If no database is configured, it includes tables across all user
+schemas. The output format can be set
 to `simple` which will return only the table names or `detailed` which is the
 default.
 
@@ -22,7 +24,7 @@ The tool takes the following input parameters:
 
 | Parameter       | Type   | Description                                                                                                                                                    | Required |
 |:----------------|:-------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------|:---------|
-| `table_names`   | string | Filters by a comma-separated list of names. By default, it lists all tables in user schemas. Default: `""`                                                     | No       |
+| `table_names`   | string | Filters by a comma-separated list of names in the configured database. If no database is configured, includes all user schemas. An empty string lists all tables. Default: `""` | No       |
 | `output_format` | string | Indicate the output format of table schema. `simple` will return only the table names, `detailed` will return the full table information. Default: `detailed`. | No       |
 
 ## Compatible Sources

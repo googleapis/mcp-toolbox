@@ -176,6 +176,7 @@ const listTablesStatement = `
     CROSS JOIN (SELECT @table_names := ?, @output_format := ?) AS variables
     WHERE
         T.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+        AND (NULLIF(TRIM(?), '') IS NULL OR T.TABLE_SCHEMA = ?)
         AND (NULLIF(TRIM(@table_names), '') IS NULL OR FIND_IN_SET(T.TABLE_NAME, @table_names))
         AND T.TABLE_TYPE = 'BASE TABLE'
     ORDER BY
@@ -199,6 +200,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	MySQLPool() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
+	MySQLDatabase() string
 }
 
 type Config struct {
@@ -256,7 +258,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if outputFormat != "simple" && outputFormat != "detailed" {
 		return nil, util.NewAgentError(fmt.Sprintf("invalid value for output_format: must be 'simple' or 'detailed', but got %q", outputFormat), nil)
 	}
-	resp, err := source.RunSQL(ctx, listTablesStatement, []any{tableNames, outputFormat})
+	// Bind the database directly so the comparison uses MySQL's schema-name collation.
+	database := source.MySQLDatabase()
+	resp, err := source.RunSQL(ctx, listTablesStatement, []any{tableNames, outputFormat, database, database})
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

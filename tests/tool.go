@@ -3055,14 +3055,12 @@ func RunMySQLListTablesTest(t *testing.T, databaseName, tableNameParam, tableNam
 		wantStatusCode int
 		want           any
 		isSimple       bool
-		isAllTables    bool
 	}{
 		{
 			name:           "invoke list_tables for all tables detailed output",
 			requestBody:    bytes.NewBufferString(`{"table_names":""}`),
 			wantStatusCode: http.StatusOK,
 			want:           []objectDetails{authTableWant, paramTableWant},
-			isAllTables:    true,
 		},
 		{
 			name:           "invoke list_tables detailed output",
@@ -3155,6 +3153,9 @@ func RunMySQLListTablesTest(t *testing.T, databaseName, tableNameParam, tableNam
 				}
 				details := []map[string]any{}
 				for _, table := range tables {
+					if table.SchemaName != databaseName {
+						t.Fatalf("table %q belongs to schema %q, want %q", table.ObjectName, table.SchemaName, databaseName)
+					}
 					var d map[string]any
 					if err := json.Unmarshal([]byte(table.ObjectDetails), &d); err != nil {
 						t.Fatalf("failed to unmarshal nested ObjectDetails string: %v", err)
@@ -3169,6 +3170,9 @@ func RunMySQLListTablesTest(t *testing.T, databaseName, tableNameParam, tableNam
 				}
 				details := []objectDetails{}
 				for _, table := range tables {
+					if table.SchemaName != databaseName {
+						t.Fatalf("table %q belongs to schema %q, want %q", table.ObjectName, table.SchemaName, databaseName)
+					}
 					var d objectDetails
 					if err := json.Unmarshal([]byte(table.ObjectDetails), &d); err != nil {
 						t.Fatalf("failed to unmarshal nested ObjectDetails string: %v", err)
@@ -3182,19 +3186,6 @@ func RunMySQLListTablesTest(t *testing.T, databaseName, tableNameParam, tableNam
 				cmpopts.SortSlices(func(a, b objectDetails) bool { return a.ObjectName < b.ObjectName }),
 				cmpopts.SortSlices(func(a, b column) bool { return a.ColumnName < b.ColumnName }),
 				cmpopts.SortSlices(func(a, b map[string]any) bool { return a["name"].(string) < b["name"].(string) }),
-			}
-
-			// Checking only the current database where the test tables are created to avoid brittle tests.
-			if tc.isAllTables {
-				filteredGot := []objectDetails{}
-				if got != nil {
-					for _, item := range got.([]objectDetails) {
-						if item.SchemaName == databaseName {
-							filteredGot = append(filteredGot, item)
-						}
-					}
-				}
-				got = filteredGot
 			}
 
 			if diff := cmp.Diff(tc.want, got, opts...); diff != "" {
