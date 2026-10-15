@@ -53,10 +53,10 @@ jobs:
             curl -Isf "${REGISTRY_URL}" > /dev/null
 
             if [ $? -eq 0 ]; then
-              echo "✅ Image found! Continuing to next steps."
+              echo "Image found! Continuing to next steps."
               exit 0
             else
-              echo "❌ Image not found (likely 404 error) on attempt $i."
+              echo "Image not found (likely 404 error) on attempt $i."
               if [ $i -lt ${MAX_ATTEMPTS} ]; then
                 echo "Sleeping for 5 minutes before next attempt..."
                 sleep 2m
@@ -69,7 +69,11 @@ jobs:
 
       - name: Install MCP Publisher
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          MCP_PUBLISHER_VERSION="v1.8.1"
+          MCP_PUBLISHER_SHA256="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" -o mcp-publisher.tar.gz
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xz -f mcp-publisher.tar.gz mcp-publisher
 
       - name: Login to MCP Registry
         run: ./mcp-publisher login github-oidc
