@@ -250,3 +250,63 @@ func TestCheckVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestPrebuiltGroupInstructions(t *testing.T) {
+	t.Setenv("POSTGRES_HOST", "localhost")
+	t.Setenv("POSTGRES_PORT", "5432")
+	t.Setenv("POSTGRES_DATABASE", "mock")
+	t.Setenv("POSTGRES_USER", "mock")
+	t.Setenv("POSTGRES_PASSWORD", "mock")
+	t.Setenv("BIGQUERY_PROJECT", "mock")
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	tests := []struct {
+		desc            string
+		prebuiltConfigs []string
+		wantInstruction bool
+	}{
+		{
+			desc:            "single prebuilt with specific toolset inherits instructions",
+			prebuiltConfigs: []string{"bigquery/data"},
+			wantInstruction: true,
+		},
+		{
+			desc:            "single prebuilt toolset that doesn't have description does not inherit instructions",
+			prebuiltConfigs: []string{"postgres/data"},
+			wantInstruction: false,
+		},
+		{
+			desc:            "prebuilt source with multiple toolsets does not set default instructions",
+			prebuiltConfigs: []string{"postgres"},
+			wantInstruction: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			opts := &ToolboxOptions{
+				PrebuiltConfigs: tt.prebuiltConfigs,
+			}
+			parser := &ConfigParser{}
+			_, err := opts.LoadConfig(ctx, parser)
+			if err != nil {
+				t.Fatalf("unexpected error loading config: %v", err)
+			}
+
+			defaultGroup, exists := opts.Cfg.GroupConfigs[""]
+			if tt.wantInstruction {
+				if !exists || defaultGroup.Description == "" {
+					t.Errorf("expected default group with description, got %v", defaultGroup)
+				}
+			} else {
+				if exists && defaultGroup.Description != "" {
+					t.Errorf("expected no default group instructions, got %q", defaultGroup.Description)
+				}
+			}
+		})
+	}
+}

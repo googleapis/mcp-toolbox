@@ -844,7 +844,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 			version = mcputil.GetLatestSupportedVersion(s.enableDraftSpecs)
 		}
 
-		result, err := mcp.ProcessMethod(ctx, version, baseMessage.Id, baseMessage.Method, group.Group{}, nil, body, nil)
+		result, err := mcp.ProcessMethod(ctx, version, baseMessage.Id, baseMessage.Method, group.Group{}, s.PrimitiveMgr, body, nil)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			if rpcErr, ok := result.(jsonrpc.JSONRPCError); ok {
