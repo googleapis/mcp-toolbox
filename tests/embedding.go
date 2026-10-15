@@ -99,7 +99,13 @@ func AddSemanticSearchConfig(t *testing.T, config map[string]any, toolKind, inse
 
 // RunSemanticSearchToolInvokeTest runs the insert_docs and search_docs tools
 // via both HTTP and MCP endpoints and verifies the output.
-func RunSemanticSearchToolInvokeTest(t *testing.T, insertWant, mcpInsertWant, searchWant string) {
+// Pass WithMCPExec() to run only the MCP test cases.
+func RunSemanticSearchToolInvokeTest(t *testing.T, insertWant, mcpInsertWant, searchWant string, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	// Initialize MCP session once for the MCP test cases
 	sessionId := RunInitialize(t, "2024-11-05")
 
@@ -166,6 +172,9 @@ func RunSemanticSearchToolInvokeTest(t *testing.T, insertWant, mcpInsertWant, se
 
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
+			if config.isMCP && !tc.isMcp {
+				t.Skip("legacy /api test case is skipped when running over MCP")
+			}
 			var bodyReader io.Reader
 			headers := map[string]string{}
 
