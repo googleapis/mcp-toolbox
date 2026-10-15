@@ -15,16 +15,16 @@
 package v20260728
 
 import (
-	"encoding/json"
-	"mime"
 	"slices"
+
+	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 )
 
 const (
 	// UIExtensionURI is the extension URI for MCP Apps UI support.
-	UIExtensionURI = "io.modelcontextprotocol/ui"
+	UIExtensionURI = mcputil.UIExtensionURI
 	// UIMimeType is the required MIME type for MCP Apps UI resources.
-	UIMimeType = "text/html;profile=mcp-app"
+	UIMimeType = mcputil.UIMimeType
 )
 
 // ToolboxExtensionURI identifies the experimental Toolbox MCP extension.
@@ -65,31 +65,10 @@ func ParseSupportedExtensions(clientExtensions map[string]any) map[string]any {
 
 // ValidateUISupport checks whether the capability payload advertises valid MCP Apps UI support.
 func ValidateUISupport(cap McpUiClientCapabilities) bool {
-	for _, mt := range cap.MimeTypes {
-		if mt == UIMimeType {
-			return true
-		}
-		mediaType, params, err := mime.ParseMediaType(mt)
-		if err == nil && mediaType == "text/html" && params["profile"] == "mcp-app" {
-			return true
-		}
-	}
-	return false
+	return mcputil.ValidateUISupport(mcputil.McpUiClientCapabilities{MimeTypes: cap.MimeTypes})
 }
 
 // CheckUISupport checks whether the negotiated extensions contain valid MCP Apps UI capability.
 func CheckUISupport(supportedExts map[string]any) bool {
-	extVal, ok := supportedExts[UIExtensionURI]
-	if !ok || extVal == nil {
-		return false
-	}
-	data, err := json.Marshal(extVal)
-	if err != nil {
-		return false
-	}
-	var uiCaps McpUiClientCapabilities
-	if err := json.Unmarshal(data, &uiCaps); err != nil {
-		return false
-	}
-	return ValidateUISupport(uiCaps)
+	return mcputil.CheckUISupport(supportedExts)
 }

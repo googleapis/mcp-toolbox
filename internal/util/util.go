@@ -400,3 +400,19 @@ func EnableDraftSpecsFromContext(ctx context.Context) (bool, bool) {
 	}
 	return false, false
 }
+
+// disableExtensionCheckKey is the key to check if the server disabled client extension capability checks
+const disableExtensionCheckKey contextKey = "disableExtensionCheck"
+
+// WithDisableExtensionCheck adds the disable-extension-check flag to the context
+func WithDisableExtensionCheck(ctx context.Context, disable bool) context.Context {
+	return context.WithValue(ctx, disableExtensionCheckKey, disable)
+}
+
+// DisableExtensionCheckFromContext retrieves the disable-extension-check flag from context
+func DisableExtensionCheckFromContext(ctx context.Context) bool {
+	if disable, ok := ctx.Value(disableExtensionCheckKey).(bool); ok {
+		return disable
+	}
+	return false
+}

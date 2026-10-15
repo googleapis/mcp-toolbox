@@ -19,6 +19,7 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -26,7 +27,7 @@ import (
 )
 
 // generateToolManifest generates Tool for list tools result
-func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string) Tool {
+func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string, uiMeta map[string]any) Tool {
 	inputSchema, authParams := generateParamManifest(params, urlParams)
 
 	var toolAnnotations *ToolAnnotations
@@ -50,6 +51,9 @@ func generateToolManifest(name, desc string, authInvoke []string, params paramet
 	}
 	if len(authParams) > 0 {
 		metadata["toolbox/authParam"] = authParams
+	}
+	if uiMeta != nil {
+		metadata["ui"] = uiMeta
 	}
 	if len(metadata) > 0 {
 		mcpManifest.Metadata = metadata
@@ -99,7 +103,7 @@ func generateParamManifest(ps parameters.Parameters, urlParams map[string]string
 }
 
 // GenerateListToolsResult generates tools/list method result according to mcp schema
-func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string) (ListToolsResult, error) {
+func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsUI bool) (ListToolsResult, error) {
 	mcpManifest := make([]Tool, 0, len(g.ToolNames))
 	for _, toolName := range g.ToolNames {
 		tool, ok := pMgr.GetTool(toolName)
@@ -122,7 +126,11 @@ func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, u
 		if err != nil {
 			return ListToolsResult{}, fmt.Errorf("error getting parameters for tool %q: %w", toolName, err)
 		}
-		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams)
+		var uiMeta map[string]any
+		if supportsUI {
+			uiMeta = mcputil.ResolveToolUIMetadata(pMgr, tool)
+		}
+		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams, uiMeta)
 		mcpManifest = append(mcpManifest, toolManifest)
 	}
 	return ListToolsResult{Tools: mcpManifest}, nil
@@ -178,6 +186,10 @@ func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Grou
 		if !ok {
 			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
 		}
+		// If Resource is of type UI skip adding it to the list/resources response.
+		if res.IsUI() {
+			continue
+		}
 		mcpManifest = append(mcpManifest, generateResourceManifest(name, res.GetDescription(), res.GetURI(), res.GetMimeType()))
 	}
 	return ListResourcesResult{Resources: mcpManifest}, nil
@@ -200,6 +212,10 @@ func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g gr
 		tmpl, ok := pMgr.GetResourceTemplate(name)
 		if !ok {
 			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
+		}
+		// If Resource Template is of type UI skip adding it to the list/resource templates response.
+		if tmpl.IsUI() {
+			continue
 		}
 		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType()))
 	}
