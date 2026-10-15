@@ -114,6 +114,9 @@ type ServerConfig struct {
 	DisableVersionCheck bool
 	// OpenAIAppsChallengeFile specifies the path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.
 	OpenAIAppsChallengeFile string
+	// ToolSuggestions controls how much an unknown-tool error discloses about
+	// the tools that do exist.
+	ToolSuggestions tools.SuggestionMode
 }
 
 type logFormat string
