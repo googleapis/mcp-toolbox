@@ -588,6 +588,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 	}{
 		{
 			name:          "invoke create-table-templateParams-tool",
+			enabled:       true,
 			ddl:           true,
 			toolName:      "create-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -597,6 +598,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke insert-table-templateParams-tool",
+			enabled:       true,
 			insert:        true,
 			toolName:      "insert-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -606,6 +608,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke insert-table-templateParams-tool",
+			enabled:       true,
 			insert:        true,
 			toolName:      "insert-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -615,6 +618,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-tool",
+			enabled:       true,
 			toolName:      "select-templateParams-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"tableName": tableName},
@@ -623,6 +627,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-combined-tool",
+			enabled:       true,
 			toolName:      "select-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"id": 1, "tableName": tableName},
@@ -631,6 +636,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-combined-tool with no results",
+			enabled:       true,
 			toolName:      "select-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"id": 999, "tableName": tableName},
@@ -648,6 +654,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-filter-templateParams-combined-tool",
+			enabled:       true,
 			toolName:      "select-filter-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"name": "Alex", "tableName": tableName, "columnFilter": configs.nameColFilter},
@@ -656,6 +663,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke drop-table-templateParams-tool",
+			enabled:       true,
 			ddl:           true,
 			toolName:      "drop-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -667,7 +675,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
 			if !tc.enabled {
-				return
+				t.Skip("template case disabled for this source")
 			}
 			// if test case is DDL and source support ddl test cases
 			ddlAllow := !tc.ddl || (tc.ddl && configs.supportDdl)
@@ -3309,10 +3317,13 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
 			var wg sync.WaitGroup
-			defer wg.Wait()
 
 			queryCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
+			// Let the queries finish before cancelling their connections. MariaDB
+			// can keep running a query after the client disconnects, which leaks
+			// active queries into the next API or MCP test.
+			defer wg.Wait()
 
 			if tc.clientSleepSecs > 0 {
 				numClients := tc.numClients
