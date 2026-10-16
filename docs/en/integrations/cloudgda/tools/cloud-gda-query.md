@@ -86,6 +86,15 @@ How many accounts who have region in Prague are eligible for loans? A3 contains 
 }
 ```
 
+## Output Format
+
+The tool returns the `QueryDataResponse` fields (`generatedQuery`, `intentExplanation`, `naturalLanguageAnswer`, `queryResult`, and `disambiguationQuestion`) as the tool result content.
+
+When returned by the Gemini Data Analytics API, `tokenUsage` and `pipelineDebugInfo` are stripped from the model-visible content and attached to the result metadata (`_meta`) instead:
+
+- `com.google.cloud.geminidataanalytics/tokenUsage`: Token usage counts (`inputTokenCount` and `outputTokenCount`).
+- `com.google.cloud.geminidataanalytics/pipelineDebugInfo`: Internal pipeline diagnostic payload.
+
 ## Reference
 
 | **field**         | **type** | **required** | **description**                                                                                                                                                                                                                                              |

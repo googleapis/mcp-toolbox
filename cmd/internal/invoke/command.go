@@ -24,6 +24,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/spf13/cobra"
@@ -153,6 +154,13 @@ func runInvoke(cmd *cobra.Command, args []string, opts *internal.ToolboxOptions)
 		errMsg := fmt.Errorf("tool execution failed: %w", err)
 		opts.Logger.ErrorContext(ctx, errMsg.Error())
 		return errMsg
+	}
+
+	result, resultMeta := tools.SplitResultMeta(result)
+	if len(resultMeta) > 0 {
+		if m, err := json.Marshal(resultMeta); err == nil {
+			opts.Logger.InfoContext(ctx, fmt.Sprintf("result metadata: %s", m))
+		}
 	}
 
 	// Print Result

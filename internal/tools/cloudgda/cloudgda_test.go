@@ -28,6 +28,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	cloudgdatool "github.com/googleapis/mcp-toolbox/internal/tools/cloudgda"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestParseFromYaml(t *testing.T) {
@@ -272,12 +273,71 @@ func TestInvoke(t *testing.T) {
 		t.Fatalf("tool invocation failed: %v", err)
 	}
 
-	gotResp, ok := result.(*geminidataanalyticspb.QueryDataResponse)
+	res, meta := tools.SplitResultMeta(result)
+	if meta != nil {
+		t.Errorf("expected nil meta, got %v", meta)
+	}
+	gotResp, ok := res.(*geminidataanalyticspb.QueryDataResponse)
 	if !ok {
-		t.Fatalf("expected result type *geminidataanalyticspb.QueryDataResponse, got %T", result)
+		t.Fatalf("expected result type *geminidataanalyticspb.QueryDataResponse, got %T", res)
 	}
 
 	if diff := cmp.Diff(expectedResp, gotResp, cmpopts.IgnoreUnexported(geminidataanalyticspb.QueryDataResponse{})); diff != "" {
 		t.Errorf("unexpected result mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestInvokeReturnsUsageAndDebugInfoAsMeta(t *testing.T) {
+	t.Parallel()
+
+	debug, err := structpb.NewStruct(map[string]any{"steps": []any{"plan", "generate"}})
+	if err != nil {
+		t.Fatalf("failed to build debug struct: %v", err)
+	}
+	upstream := &geminidataanalyticspb.QueryDataResponse{
+		GeneratedQuery:    "SELECT 1;",
+		TokenUsage:        &geminidataanalyticspb.TokenUsage{InputTokenCount: 1200, OutputTokenCount: 80},
+		PipelineDebugInfo: debug,
+	}
+	fake := &fakeSource{
+		projectID:      "test-project",
+		expectedQuery:  "q",
+		expectedParent: "projects/test-project/locations/us-central1",
+		response:       upstream,
+	}
+	toolCfg := cloudgdatool.Config{
+		ConfigBase: tools.ConfigBase{Name: "query-data-tool", Description: "Query Gemini Data Analytics"},
+		Type:       "cloud-gemini-data-analytics-query",
+		Source:     "mock-gda-source",
+		Location:   "us-central1",
+	}
+	tool, err := toolCfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+	ctx := testutils.ContextWithUserAgent(context.Background(), "test-user-agent")
+	result, err := tool.Invoke(ctx, fake, parameters.ParamValues{{Name: "query", Value: "q"}}, "")
+	if err != nil {
+		t.Fatalf("tool invocation failed: %v", err)
+	}
+
+	res, meta := tools.SplitResultMeta(result)
+	gotResp, ok := res.(*geminidataanalyticspb.QueryDataResponse)
+	if !ok {
+		t.Fatalf("expected *geminidataanalyticspb.QueryDataResponse, got %T", res)
+	}
+	wantResp := &geminidataanalyticspb.QueryDataResponse{GeneratedQuery: "SELECT 1;"}
+	if diff := cmp.Diff(wantResp, gotResp, cmpopts.IgnoreUnexported(geminidataanalyticspb.QueryDataResponse{})); diff != "" {
+		t.Errorf("content should not carry usage or debug info (-want +got):\n%s", diff)
+	}
+	wantMeta := map[string]any{
+		cloudgdatool.MetaKeyTokenUsage:        map[string]any{"inputTokenCount": int32(1200), "outputTokenCount": int32(80)},
+		cloudgdatool.MetaKeyPipelineDebugInfo: map[string]any{"steps": []any{"plan", "generate"}},
+	}
+	if diff := cmp.Diff(wantMeta, meta); diff != "" {
+		t.Errorf("meta mismatch (-want +got):\n%s", diff)
+	}
+	if upstream.GetTokenUsage() == nil || upstream.GetPipelineDebugInfo() == nil {
+		t.Errorf("upstream response must not be mutated")
 	}
 }

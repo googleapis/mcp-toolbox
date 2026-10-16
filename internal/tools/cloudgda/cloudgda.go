@@ -27,6 +27,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const resourceType string = "cloud-gemini-data-analytics-query"
@@ -212,7 +213,36 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
 	}
-	return resp, nil
+	return splitResponseMeta(resp), nil
+}
+
+// Result metadata keys. Token usage and the pipeline debug trace describe the
+// QueryData call itself, not the answer, so they are returned as result
+// metadata (MCP `_meta`) for the calling application instead of being placed
+// in the content the model reads.
+const (
+	MetaKeyTokenUsage        = "com.google.cloud.geminidataanalytics/tokenUsage"
+	MetaKeyPipelineDebugInfo = "com.google.cloud.geminidataanalytics/pipelineDebugInfo"
+)
+
+func splitResponseMeta(resp *geminidataanalyticspb.QueryDataResponse) tools.ResultWithMeta {
+	if resp == nil || (resp.GetTokenUsage() == nil && resp.GetPipelineDebugInfo() == nil) {
+		return tools.ResultWithMeta{Result: resp}
+	}
+	meta := make(map[string]any)
+	if u := resp.GetTokenUsage(); u != nil {
+		meta[MetaKeyTokenUsage] = map[string]any{
+			"inputTokenCount":  u.GetInputTokenCount(),
+			"outputTokenCount": u.GetOutputTokenCount(),
+		}
+	}
+	if d := resp.GetPipelineDebugInfo(); d != nil {
+		meta[MetaKeyPipelineDebugInfo] = d.AsMap()
+	}
+	out := proto.Clone(resp).(*geminidataanalyticspb.QueryDataResponse)
+	out.TokenUsage = nil
+	out.PipelineDebugInfo = nil
+	return tools.ResultWithMeta{Result: out, Meta: meta}
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {

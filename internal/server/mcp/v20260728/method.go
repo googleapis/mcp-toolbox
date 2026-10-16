@@ -634,6 +634,13 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 		}
 	}
 
+	results, resultMeta := tools.SplitResultMeta(results)
+	for k, v := range resultMeta {
+		if _, reserved := meta[k]; !reserved {
+			meta[k] = v
+		}
+	}
+
 	content := make([]TextContent, 0)
 
 	sliceRes, ok := results.([]any)
