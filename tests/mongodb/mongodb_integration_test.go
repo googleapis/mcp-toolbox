@@ -68,38 +68,89 @@ func getMongoDBVars(uri string) map[string]any {
 	}
 }
 
-func initMongoDbDatabase(ctx context.Context, uri, database string) (*mongo.Database, error) {
-	// Create a new mongodb Database
+// Expected results shared by the REST and MCP MongoDB integration tests.
+const (
+	mongoDBSelect1Want               = `[{"_id":3,"id":3,"name":"Sid"}]`
+	mongoDBMyToolId3NameAliceWant    = `[{"_id":5,"id":3,"name":"Alice"}]`
+	mongoDBMyToolById4Want           = `[]`
+	mongoDBMcpMyFailToolWant         = `invalid JSON input: missing colon after key `
+	mongoDBMcpMyToolId3NameAliceWant = `{"jsonrpc":"2.0","id":"my-tool","result":{"content":[{"type":"text","text":"{\"_id\":5,\"id\":3,\"name\":\"Alice\"}"}]}}`
+	mongoDBMcpAuthRequiredWant       = `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"_id\":3,\"id\":3,\"name\":\"Sid\"}"}]}}`
+)
+
+// setupMongoDBInstance starts an ephemeral MongoDB container, registers its
+// termination on cleanup and returns its connection URI.
+func setupMongoDBInstance(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	uri, cleanupContainer := setupMongoDBContainer(ctx, t)
+	t.Cleanup(cleanupContainer)
+	return uri
+}
+
+// seedMongoDB connects to the MongoDB instance and seeds the test collection.
+// The collection is dropped and the client disconnected on cleanup.
+func seedMongoDB(ctx context.Context, t *testing.T, uri string) {
+	t.Helper()
 	client, err := mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to mongodb: %s", err)
+		t.Fatalf("unable to connect to mongodb: %s", err)
 	}
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to mongodb: %s", err)
+	t.Cleanup(func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			t.Errorf("unable to disconnect from mongodb: %s", err)
+		}
+	})
+	if err := client.Ping(ctx, nil); err != nil {
+		t.Fatalf("unable to connect to mongodb: %s", err)
 	}
-	return client.Database(database), nil
+
+	collection := client.Database(MongoDbDatabase).Collection("test_collection")
+
+	// Registered before seeding so a partially failed setup is still cleaned
+	// up. Runs before the client is disconnected.
+	t.Cleanup(func() {
+		if err := collection.Drop(context.Background()); err != nil {
+			t.Errorf("Teardown failed: %s", err)
+		}
+	})
+
+	if err := collection.Drop(ctx); err != nil {
+		t.Logf("Warning: failed to drop collection before setup: %v", err)
+	}
+
+	documents := []map[string]any{
+		{"_id": 1, "id": 1, "name": "Alice", "email": tests.ServiceAccountEmail},
+		{"_id": 14, "id": 2, "name": "FakeAlice", "email": "fakeAlice@gmail.com"},
+		{"_id": 2, "id": 2, "name": "Jane"},
+		{"_id": 3, "id": 3, "name": "Sid"},
+		{"_id": 5, "id": 3, "name": "Alice", "email": "alice@gmail.com"},
+		{"_id": 6, "id": 100, "name": "ToBeDeleted", "email": "bob@gmail.com"},
+		{"_id": 7, "id": 101, "name": "ToBeDeleted", "email": "bob1@gmail.com"},
+		{"_id": 8, "id": 101, "name": "ToBeDeleted", "email": "bob2@gmail.com"},
+		{"_id": 9, "id": 300, "name": "ToBeUpdatedToBob", "email": "bob@gmail.com"},
+		{"_id": 10, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
+		{"_id": 11, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
+		{"_id": 12, "id": 500, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
+		{"_id": 13, "id": 501, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
+	}
+	for _, doc := range documents {
+		if _, err := collection.InsertOne(ctx, doc); err != nil {
+			t.Fatalf("unable to insert test data: %s", err)
+		}
+	}
 }
 
 func TestMongoDBToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	uri, cleanupContainer := setupMongoDBContainer(ctx, t)
-	defer cleanupContainer()
-
+	uri := setupMongoDBInstance(ctx, t)
 	sourceConfig := getMongoDBVars(uri)
 
 	args := []string{"--enable-api"}
 
-	database, err := initMongoDbDatabase(ctx, uri, MongoDbDatabase)
-	if err != nil {
-		t.Fatalf("unable to create MongoDB connection: %s", err)
-	}
-
 	// set up data for param tool
-	teardownDB := setupMongoDB(t, ctx, database)
-	defer teardownDB(t)
+	seedMongoDB(ctx, t, uri)
 
 	// Write config into a file and pass it to command
 	toolsFile := getMongoDBToolsConfig(sourceConfig, MongoDbToolType)
@@ -108,7 +159,8 @@ func TestMongoDBToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer waitCancel()
@@ -118,68 +170,127 @@ func TestMongoDBToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
-	select1Want := `[{"_id":3,"id":3,"name":"Sid"}]`
-	myToolId3NameAliceWant := `[{"_id":5,"id":3,"name":"Alice"}]`
-	myToolById4Want := `[]`
-	mcpMyFailToolWant := `invalid JSON input: missing colon after key `
-	mcpMyToolId3NameAliceWant := `{"jsonrpc":"2.0","id":"my-tool","result":{"content":[{"type":"text","text":"{\"_id\":5,\"id\":3,\"name\":\"Alice\"}"}]}}`
-	mcpAuthRequiredWant := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"_id\":3,\"id\":3,\"name\":\"Sid\"}"}]}}`
-
 	// Run tests
 	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want,
-		tests.WithMyToolId3NameAliceWant(myToolId3NameAliceWant),
-		tests.WithMyArrayToolWant(myToolId3NameAliceWant),
-		tests.WithMyToolById4Want(myToolById4Want),
+	tests.RunToolInvokeTest(t, mongoDBSelect1Want,
+		tests.WithMyToolId3NameAliceWant(mongoDBMyToolId3NameAliceWant),
+		tests.WithMyArrayToolWant(mongoDBMyToolId3NameAliceWant),
+		tests.WithMyToolById4Want(mongoDBMyToolById4Want),
 	)
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, select1Want,
-		tests.WithMcpMyToolId3NameAliceWant(mcpMyToolId3NameAliceWant),
-		tests.WithMcpSelect1Want(mcpAuthRequiredWant),
+	tests.RunMCPToolCallMethod(t, mongoDBMcpMyFailToolWant, mongoDBSelect1Want,
+		tests.WithMcpMyToolId3NameAliceWant(mongoDBMcpMyToolId3NameAliceWant),
+		tests.WithMcpSelect1Want(mongoDBMcpAuthRequiredWant),
 	)
 
-	delete1Want := "1"
-	deleteManyWant := "2"
-	runToolDeleteInvokeTest(t, delete1Want, deleteManyWant)
-
-	insert1Want := `"68666e1035bb36bf1b4d47fb"`
-	insertManyWant := `["68667a6436ec7d0363668db7","68667a6436ec7d0363668db8","68667a6436ec7d0363668db9"]`
-	runToolInsertInvokeTest(t, insert1Want, insertManyWant)
-
-	update1Want := "1"
-	updateManyWant := "[2,0,2]"
-	runToolUpdateInvokeTest(t, update1Want, updateManyWant)
-
-	aggregate1Want := `[{"id":2}]`
-	aggregateManyWant := `[{"id":500},{"id":501}]`
-	runToolAggregateInvokeTest(t, aggregate1Want, aggregateManyWant)
-
-	runToolRuntimeCollectionInvokeTest(t, select1Want)
+	runMongoDBRESTInvokeTests(t, ctx)
 }
 
-func runToolRuntimeCollectionInvokeTest(t *testing.T, want string) {
-	// The tool has no collection in its config, so it is supplied at runtime.
-	invokeTcs := []struct {
-		name        string
-		requestBody io.Reader
-		want        string
-	}{
+// mongoDBInvokeTestCase describes one tool invocation shared by the REST and
+// MCP MongoDB integration tests. want is the REST result string. wantMCPErr is
+// set for invocations the tool rejects; over MCP these return an error result
+// containing this text.
+type mongoDBInvokeTestCase struct {
+	name       string
+	toolName   string
+	args       map[string]any
+	want       string
+	wantMCPErr string
+}
+
+// getMongoDBInvokeTestCases returns the delete, insert, update, aggregate and
+// runtime collection invocations exercised by both the REST and MCP MongoDB
+// integration tests. The cases run in order against the seeded collection.
+func getMongoDBInvokeTestCases() []mongoDBInvokeTestCase {
+	return []mongoDBInvokeTestCase{
 		{
-			name:        "invoke with runtime collection",
-			requestBody: bytes.NewBuffer([]byte(`{ "id": 3, "collection": "test_collection" }`)),
-			want:        want,
+			name:     "invoke my-delete-one-tool",
+			toolName: "my-delete-one-tool",
+			args:     map[string]any{"id": 100},
+			want:     "1",
 		},
 		{
-			name:        "invoke without collection returns an error",
-			requestBody: bytes.NewBuffer([]byte(`{ "id": 3 }`)),
-			want:        `{"error":"parameter \"collection\" is required"}`,
+			name:     "invoke my-delete-many-tool",
+			toolName: "my-delete-many-tool",
+			args:     map[string]any{"id": 101},
+			want:     "2",
+		},
+		{
+			name:     "invoke my-insert-one-tool",
+			toolName: "my-insert-one-tool",
+			args:     map[string]any{"data": `{ "_id": { "$oid": "68666e1035bb36bf1b4d47fb" },  "id" : 200 }`},
+			want:     `"68666e1035bb36bf1b4d47fb"`,
+		},
+		{
+			name:     "invoke my-insert-many-tool",
+			toolName: "my-insert-many-tool",
+			args:     map[string]any{"data": `[{ "_id": { "$oid": "68667a6436ec7d0363668db7"} , "id" : 201 }, { "_id" : { "$oid": "68667a6436ec7d0363668db8"}, "id" : 202 }, { "_id": { "$oid": "68667a6436ec7d0363668db9"}, "id": 203 }]`},
+			want:     `["68667a6436ec7d0363668db7","68667a6436ec7d0363668db8","68667a6436ec7d0363668db9"]`,
+		},
+		{
+			name:     "invoke my-update-one-tool",
+			toolName: "my-update-one-tool",
+			args:     map[string]any{"id": 300, "name": "Bob"},
+			want:     "1",
+		},
+		{
+			name:     "invoke my-update-many-tool",
+			toolName: "my-update-many-tool",
+			args:     map[string]any{"id": 400, "name": "Alice"},
+			want:     "[2,0,2]",
+		},
+		{
+			name:     "invoke my-aggregate-tool",
+			toolName: "my-aggregate-tool",
+			args:     map[string]any{"name": "Jane"},
+			want:     `[{"id":2}]`,
+		},
+		{
+			name:     "invoke my-aggregate-tool",
+			toolName: "my-aggregate-tool",
+			args:     map[string]any{"name": "ToBeAggregated"},
+			want:     `[{"id":500},{"id":501}]`,
+		},
+		{
+			name:       "invoke my-read-only-aggregate-tool",
+			toolName:   "my-read-only-aggregate-tool",
+			args:       map[string]any{"name": "ToBeAggregated"},
+			want:       `{"error":"error processing request: this is not a read-only pipeline: {\"$out\":\"target_collection\"}"}`,
+			wantMCPErr: "this is not a read-only pipeline",
+		},
+		{
+			name:     "invoke my-read-write-aggregate-tool",
+			toolName: "my-read-write-aggregate-tool",
+			args:     map[string]any{"name": "ToBeAggregated"},
+			want:     "[]",
+		},
+		{
+			// The tool has no collection in its config, so it is supplied at runtime.
+			name:     "invoke with runtime collection",
+			toolName: "my-runtime-collection-tool",
+			args:     map[string]any{"id": 3, "collection": "test_collection"},
+			want:     mongoDBSelect1Want,
+		},
+		{
+			name:       "invoke without collection returns an error",
+			toolName:   "my-runtime-collection-tool",
+			args:       map[string]any{"id": 3},
+			want:       `{"error":"parameter \"collection\" is required"}`,
+			wantMCPErr: `parameter "collection" is required`,
 		},
 	}
+}
 
-	api := "http://127.0.0.1:5000/api/tool/my-runtime-collection-tool/invoke"
-	for _, tc := range invokeTcs {
+// runMongoDBRESTInvokeTests runs the shared invocation cases against the REST
+// API.
+func runMongoDBRESTInvokeTests(t *testing.T, ctx context.Context) {
+	for _, tc := range getMongoDBInvokeTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPost, api, tc.requestBody)
+			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+			reqBytes, err := json.Marshal(tc.args)
+			if err != nil {
+				t.Fatalf("unable to marshal request body: %s", err)
+			}
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBuffer(reqBytes))
 			if err != nil {
 				t.Fatalf("unable to create request: %s", err)
 			}
@@ -208,353 +319,6 @@ func runToolRuntimeCollectionInvokeTest(t *testing.T, want string) {
 			}
 		})
 	}
-}
-
-func runToolDeleteInvokeTest(t *testing.T, delete1Want, deleteManyWant string) {
-	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
-		{
-			name:          "invoke my-delete-one-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-delete-one-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "id" : 100 }`)),
-			want:          delete1Want,
-			isErr:         false,
-		},
-		{
-			name:          "invoke my-delete-many-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-delete-many-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "id" : 101 }`)),
-			want:          deleteManyWant,
-			isErr:         false,
-		},
-	}
-
-	for _, tc := range invokeTcs {
-
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func runToolInsertInvokeTest(t *testing.T, insert1Want, insertManyWant string) {
-	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
-		{
-			name:          "invoke my-insert-one-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-insert-one-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "data" : "{ \"_id\": { \"$oid\": \"68666e1035bb36bf1b4d47fb\" },  \"id\" : 200 }" }"`)),
-			want:          insert1Want,
-			isErr:         false,
-		},
-		{
-			name:          "invoke my-insert-many-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-insert-many-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "data" : "[{ \"_id\": { \"$oid\": \"68667a6436ec7d0363668db7\"} , \"id\" : 201 }, { \"_id\" : { \"$oid\": \"68667a6436ec7d0363668db8\"}, \"id\" : 202 }, { \"_id\": { \"$oid\": \"68667a6436ec7d0363668db9\"}, \"id\": 203 }]" }`)),
-			want:          insertManyWant,
-			isErr:         false,
-		},
-	}
-
-	for _, tc := range invokeTcs {
-
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func runToolUpdateInvokeTest(t *testing.T, update1Want, updateManyWant string) {
-	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
-		{
-			name:          "invoke my-update-one-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-update-one-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "id": 300, "name": "Bob" }`)),
-			want:          update1Want,
-			isErr:         false,
-		},
-		{
-			name:          "invoke my-update-many-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-update-many-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "id": 400, "name" : "Alice" }`)),
-			want:          updateManyWant,
-			isErr:         false,
-		},
-	}
-
-	for _, tc := range invokeTcs {
-
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func runToolAggregateInvokeTest(t *testing.T, aggregate1Want string, aggregateManyWant string) {
-	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
-		{
-			name:          "invoke my-aggregate-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-aggregate-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "name": "Jane" }`)),
-			want:          aggregate1Want,
-			isErr:         false,
-		},
-		{
-			name:          "invoke my-aggregate-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-aggregate-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "name" : "ToBeAggregated" }`)),
-			want:          aggregateManyWant,
-			isErr:         false,
-		},
-		{
-			name:          "invoke my-read-only-aggregate-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-read-only-aggregate-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "name" : "ToBeAggregated" }`)),
-			want:          `{"error":"error processing request: this is not a read-only pipeline: {\"$out\":\"target_collection\"}"}`,
-			isErr:         false,
-		},
-		{
-			name:          "invoke my-read-write-aggregate-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-read-write-aggregate-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{ "name" : "ToBeAggregated" }`)),
-			want:          "[]",
-			isErr:         false,
-		},
-	}
-
-	for _, tc := range invokeTcs {
-
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func setupMongoDB(t *testing.T, ctx context.Context, database *mongo.Database) func(*testing.T) {
-	collectionName := "test_collection"
-
-	if err := database.Collection(collectionName).Drop(ctx); err != nil {
-		t.Logf("Warning: failed to drop collection before setup: %v", err)
-	}
-
-	documents := []map[string]any{
-		{"_id": 1, "id": 1, "name": "Alice", "email": tests.ServiceAccountEmail},
-		{"_id": 14, "id": 2, "name": "FakeAlice", "email": "fakeAlice@gmail.com"},
-		{"_id": 2, "id": 2, "name": "Jane"},
-		{"_id": 3, "id": 3, "name": "Sid"},
-		{"_id": 5, "id": 3, "name": "Alice", "email": "alice@gmail.com"},
-		{"_id": 6, "id": 100, "name": "ToBeDeleted", "email": "bob@gmail.com"},
-		{"_id": 7, "id": 101, "name": "ToBeDeleted", "email": "bob1@gmail.com"},
-		{"_id": 8, "id": 101, "name": "ToBeDeleted", "email": "bob2@gmail.com"},
-		{"_id": 9, "id": 300, "name": "ToBeUpdatedToBob", "email": "bob@gmail.com"},
-		{"_id": 10, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
-		{"_id": 11, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
-		{"_id": 12, "id": 500, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
-		{"_id": 13, "id": 501, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
-	}
-	for _, doc := range documents {
-		_, err := database.Collection(collectionName).InsertOne(ctx, doc)
-		if err != nil {
-			t.Fatalf("unable to insert test data: %s", err)
-		}
-	}
-
-	return func(t *testing.T) {
-		// tear down test
-		err := database.Collection(collectionName).Drop(ctx)
-		if err != nil {
-			t.Errorf("Teardown failed: %s", err)
-		}
-	}
-
 }
 
 func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[string]any {
