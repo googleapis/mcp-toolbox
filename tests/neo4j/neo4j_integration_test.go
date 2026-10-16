@@ -337,7 +337,12 @@ func TestNeo4jToolEndpoints(t *testing.T) {
 			if err != nil {
 				t.Fatalf("error marshaling request body: %s", err)
 			}
-			resp, err := http.Post(api, "application/json", bytes.NewBuffer(reqBytes))
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBuffer(reqBytes))
+			if err != nil {
+				t.Fatalf("error creating request: %s", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("error when sending a request: %s", err)
 			}
