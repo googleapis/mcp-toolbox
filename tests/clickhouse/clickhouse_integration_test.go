@@ -306,7 +306,7 @@ func (tr clickHouseTransport) invoke(t *testing.T, ctx context.Context, toolName
 
 	var body map[string]any
 	if err := json.Unmarshal(respBody, &body); err != nil {
-		t.Fatalf("error parsing response body")
+		t.Fatalf("error parsing response body %q: %s", string(respBody), err)
 	}
 	got, ok := body["result"].(string)
 	if !ok {
@@ -664,7 +664,7 @@ func runClickHouseSQLToolTest(t *testing.T, tr clickHouseTransport) {
 			var rows []any
 			err := json.Unmarshal([]byte(res.result), &rows)
 			if err != nil {
-				t.Fatalf("error parsing result")
+				t.Fatalf("error parsing result %q: %s", res.result, err)
 			}
 
 			if len(rows) != tc.resultSliceLen {
@@ -776,7 +776,7 @@ func runClickHouseExecuteSQLToolTest(t *testing.T, tr clickHouseTransport) {
 			var rows []any
 			err := json.Unmarshal([]byte(res.result), &rows)
 			if err != nil {
-				t.Fatalf("error parsing result")
+				t.Fatalf("error parsing result %q: %s", res.result, err)
 			}
 
 			if len(rows) != tc.resultSliceLen {
@@ -849,7 +849,7 @@ func runClickHouseEdgeCasesTest(t *testing.T, tr clickHouseTransport) {
 		var rows []any
 		err := json.Unmarshal([]byte(res.result), &rows)
 		if err != nil {
-			t.Fatalf("error parsing result")
+			t.Fatalf("error parsing result %q: %s", res.result, err)
 		}
 
 		// Should return [{1:1}]
@@ -889,7 +889,7 @@ func runClickHouseEdgeCasesTest(t *testing.T, tr clickHouseTransport) {
 		var rows []any
 		err = json.Unmarshal([]byte(res.result), &rows)
 		if err != nil {
-			t.Fatalf("error parsing result")
+			t.Fatalf("error parsing result %q: %s", res.result, err)
 		}
 
 		if len(rows) != 2 {
@@ -920,7 +920,7 @@ func runClickHouseEdgeCasesTest(t *testing.T, tr clickHouseTransport) {
 				var rows []any
 				err := json.Unmarshal([]byte(res.result), &rows)
 				if err != nil {
-					t.Errorf("error parsing result")
+					t.Errorf("error parsing result %q: %s", res.result, err)
 				}
 
 				if len(rows) != n+1 {
@@ -1043,7 +1043,7 @@ func runClickHouseListDatabasesToolTest(t *testing.T, tr clickHouseTransport) {
 		var databases []map[string]any
 		err := json.Unmarshal([]byte(res.result), &databases)
 		if err != nil {
-			t.Errorf("error parsing result")
+			t.Errorf("error parsing result %q: %s", res.result, err)
 		}
 
 		// Should contain at least the default database and our test database - system and default
@@ -1136,7 +1136,7 @@ func runClickHouseListTablesToolTest(t *testing.T, tr clickHouseTransport) {
 		var tables []map[string]any
 		err := json.Unmarshal([]byte(res.result), &tables)
 		if err != nil {
-			t.Errorf("error parsing result")
+			t.Errorf("error parsing result %q: %s", res.result, err)
 		}
 
 		// Should contain exactly 2 tables that we created
