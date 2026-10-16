@@ -231,8 +231,8 @@ func TestArcadeDBToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	seedFixtures(t)
 	t.Cleanup(func() { teardownFixtures(t) })
+	seedFixtures(t)
 
 	// Manifest tests: assert each tool exposes the expected parameter surface.
 	manifestTcs := []struct {

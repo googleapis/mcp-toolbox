@@ -92,8 +92,8 @@ func TestArcadeDBMCPCallTool(t *testing.T) {
 
 	startArcadeDBMCPServer(t, ctx)
 
-	seedFixtures(t)
 	t.Cleanup(func() { teardownFixtures(t) })
+	seedFixtures(t)
 
 	for _, tc := range getArcadeDBInvokeTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
