@@ -32,6 +32,11 @@ import (
 	"github.com/googleapis/mcp-toolbox/tests"
 )
 
+// singleStoreCleanupTimeout bounds each cleanup query. Cleanups detach from the
+// test context's cancellation (it is already cancelled when they run), so they
+// need their own deadline to fail fast if the database stops responding.
+const singleStoreCleanupTimeout = 30 * time.Second
+
 var (
 	SingleStoreSourceType = "singlestore"
 	SingleStoreToolType   = "singlestore-sql"
@@ -110,7 +115,9 @@ func getSingleStoreWants() (string, string, string, string) {
 func setupSingleStoreTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) {
 	t.Helper()
 	t.Cleanup(func() {
-		if _, err := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), singleStoreCleanupTimeout)
+		defer cancel()
+		if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
 	})
@@ -308,7 +315,9 @@ func TestSingleStoreToolEndpoints(t *testing.T) {
 	// Create table for semantic search. The drop is registered first so a
 	// partially failed setup is still cleaned up.
 	t.Cleanup(func() {
-		if _, err := pool.ExecContext(context.WithoutCancel(ctx), "DROP TABLE IF EXISTS senseai_docs;"); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), singleStoreCleanupTimeout)
+		defer cancel()
+		if _, err := pool.ExecContext(cleanupCtx, "DROP TABLE IF EXISTS senseai_docs;"); err != nil {
 			t.Logf("Teardown failed: %s", err)
 		}
 	})
