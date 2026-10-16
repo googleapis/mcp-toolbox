@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -32,6 +33,16 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+)
+
+const (
+	// clickHouseImage is the image used for the ephemeral test container.
+	clickHouseImage = "clickhouse/clickhouse-server:25.7"
+	// clickHouseContainerPassword is the password set on the ephemeral test
+	// container's default user.
+	clickHouseContainerPassword = "toolbox-test-password"
 )
 
 var (
@@ -101,49 +112,244 @@ func initClickHouseConnectionPool(host, port, user, pass, dbname, protocol strin
 	return pool, nil
 }
 
-func TestClickHouse(t *testing.T) {
-	sourceConfig := getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+// setupClickHouseContainer starts an ephemeral ClickHouse container and
+// returns its host and mapped HTTP port, along with a cleanup function that
+// terminates it.
+func setupClickHouseContainer(ctx context.Context, t *testing.T) (string, string, func()) {
+	t.Helper()
 
-	args := []string{"--enable-api"}
+	req := testcontainers.ContainerRequest{
+		Image:        clickHouseImage,
+		ExposedPorts: []string{"8123/tcp"},
+		Env: map[string]string{
+			"CLICKHOUSE_PASSWORD":                  clickHouseContainerPassword,
+			"CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT": "1",
+		},
+		WaitingFor: wait.ForHTTP("/ping").WithPort("8123/tcp").WithStartupTimeout(120 * time.Second),
+	}
 
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start ClickHouse container: %s", err)
+	}
+
+	cleanup := func() {
+		if err := container.Terminate(context.Background()); err != nil {
+			t.Fatalf("failed to terminate container: %s", err)
+		}
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get container host: %s", err)
+	}
+
+	port, err := container.MappedPort(ctx, "8123")
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get container mapped port 8123: %s", err)
+	}
+
+	return host, port.Port(), cleanup
+}
+
+// setupClickHouseInstance points the suite at a ClickHouse instance. It
+// defaults to an ephemeral container; the CLICKHOUSE_* environment variables
+// take precedence when pointing the suite at an external instance. The
+// package-level connection variables are restored on cleanup so each test gets
+// its own container.
+func setupClickHouseInstance(ctx context.Context, t *testing.T) {
+	t.Helper()
+	origHost, origPort, origUser, origPass := ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass
+	origDatabase, origProtocol := ClickHouseDatabase, ClickHouseProtocol
+	t.Cleanup(func() {
+		ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass = origHost, origPort, origUser, origPass
+		ClickHouseDatabase, ClickHouseProtocol = origDatabase, origProtocol
+	})
+
+	if ClickHouseHost != "" {
+		return
+	}
+	host, port, cleanup := setupClickHouseContainer(ctx, t)
+	t.Cleanup(cleanup)
+	ClickHouseHost, ClickHousePort = host, port
+	ClickHouseUser = "default"
+	ClickHousePass = clickHouseContainerPassword
+	ClickHouseDatabase = "default"
+	ClickHouseProtocol = "http"
+}
+
+// openClickHousePool opens a connection pool to the configured ClickHouse
+// instance and closes it on cleanup.
+func openClickHousePool(t *testing.T) *sql.DB {
+	t.Helper()
 	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
 	if err != nil {
 		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() {
+		if err := pool.Close(); err != nil {
+			t.Errorf("unable to close ClickHouse connection pool: %s", err)
+		}
+	})
+	return pool
+}
+
+// clickHouseTransport selects how the tests talk to the toolbox server: the
+// legacy REST API, or the MCP endpoint when isMCP is set.
+type clickHouseTransport struct {
+	isMCP bool
+}
+
+// clickHouseResult is the outcome of a tool invocation. result holds the tool
+// result as the REST API returns it: for MCP, the content blocks are parsed and
+// flattened into a single JSON array. toolErr is set when the tool reported an
+// error: an MCP error result, or an {"error": ...} result over REST.
+type clickHouseResult struct {
+	status  int
+	result  string
+	toolErr bool
+}
+
+// startServer starts the toolbox server with toolsFile and waits until it is
+// ready to serve. The REST API is only enabled for the non-MCP transport.
+func (tr clickHouseTransport) startServer(t *testing.T, ctx context.Context, toolsFile map[string]any) {
+	t.Helper()
+	var args []string
+	if !tr.isMCP {
+		args = append(args, "--enable-api")
+	}
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+}
+
+// invoke calls toolName with args through the selected transport.
+func (tr clickHouseTransport) invoke(t *testing.T, ctx context.Context, toolName string, args map[string]any) clickHouseResult {
+	t.Helper()
+	if args == nil {
+		args = map[string]any{}
+	}
+
+	if tr.isMCP {
+		statusCode, mcpResp, err := tests.InvokeMCPTool(t, toolName, args, nil)
+		if err != nil {
+			return clickHouseResult{status: statusCode, result: err.Error(), toolErr: true}
+		}
+		if mcpResp.Error != nil {
+			return clickHouseResult{status: statusCode, result: mcpResp.Error.Message, toolErr: true}
+		}
+		if mcpResp.Result.IsError {
+			var errText strings.Builder
+			for _, content := range mcpResp.Result.Content {
+				errText.WriteString(content.Text)
+			}
+			return clickHouseResult{status: statusCode, result: errText.String(), toolErr: true}
+		}
+		rows := []any{}
+		for _, content := range mcpResp.Result.Content {
+			var item any
+			if err := json.Unmarshal([]byte(content.Text), &item); err != nil {
+				rows = append(rows, content.Text)
+				continue
+			}
+			if slice, ok := item.([]any); ok {
+				rows = append(rows, slice...)
+			} else {
+				rows = append(rows, item)
+			}
+		}
+		b, err := json.Marshal(rows)
+		if err != nil {
+			t.Fatalf("error marshaling MCP result: %s", err)
+		}
+		return clickHouseResult{status: statusCode, result: string(b)}
+	}
+
+	api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+	reqBytes, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("error marshaling request body: %s", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		t.Fatalf("error creating request: %s", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("error when sending a request: %s", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("error reading response body: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return clickHouseResult{status: resp.StatusCode, result: string(respBody)}
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(respBody, &body); err != nil {
+		t.Fatalf("error parsing response body")
+	}
+	got, ok := body["result"].(string)
+	if !ok {
+		got = string(respBody)
+	}
+	// Tool errors are returned over REST as a successful response whose result
+	// is an {"error": ...} object.
+	var errResult map[string]any
+	toolErr := json.Unmarshal([]byte(got), &errResult) == nil && errResult["error"] != nil
+	return clickHouseResult{status: resp.StatusCode, result: got, toolErr: toolErr}
+}
+
+// setupClickHouseToolsTest seeds the tables used by the shared tool fixtures
+// and returns the template parameter table name and the tools file.
+func setupClickHouseToolsTest(t *testing.T, ctx context.Context) (string, map[string]any) {
+	t.Helper()
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
+	pool := openClickHousePool(t)
 
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getClickHouseSQLParamToolInfo(tableNameParam)
-	teardownTable1 := setupClickHouseSQLTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	setupClickHouseSQLTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
 
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getClickHouseSQLAuthToolInfo(tableNameAuth)
-	teardownTable2 := setupClickHouseSQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	setupClickHouseSQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 
 	toolsFile := tests.GetToolsConfig(sourceConfig, ClickHouseToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
 	toolsFile = addClickHouseExecuteSqlConfig(t, toolsFile)
 	tmplSelectCombined, tmplSelectFilterCombined := getClickHouseSQLTmplToolStatement()
 	toolsFile = addClickHouseTemplateParamConfig(t, toolsFile, ClickHouseToolType, tmplSelectCombined, tmplSelectFilterCombined)
+	return tableNameTemplateParam, toolsFile
+}
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+func TestClickHouse(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+
+	tableNameTemplateParam, toolsFile := setupClickHouseToolsTest(t, ctx)
+	clickHouseTransport{}.startServer(t, ctx, toolsFile)
 
 	// Get configs for tests
 	select1Want, mcpSelect1Want, mcpMyFailToolWant, createTableStatement, nilIdWant := getClickHouseWants()
@@ -264,20 +470,15 @@ func addClickHouseTemplateParamConfig(t *testing.T, config map[string]any, toolT
 }
 
 func TestClickHouseBasicConnection(t *testing.T) {
-	sourceConfig := getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
-
-	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
-	if err != nil {
-		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
-	}
-	defer pool.Close()
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
+	pool := openClickHousePool(t)
 
 	// Test basic connection
-	err = pool.PingContext(ctx)
+	err := pool.PingContext(ctx)
 	if err != nil {
 		t.Fatalf("unable to ping ClickHouse: %s", err)
 	}
@@ -318,19 +519,7 @@ func TestClickHouseBasicConnection(t *testing.T) {
 		},
 	}
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	clickHouseTransport{}.startServer(t, ctx, toolsFile)
 
 	tests.RunToolGetTest(t)
 	t.Logf("✅ ClickHouse basic connection test completed successfully")
@@ -346,17 +535,23 @@ func getClickHouseWants() (string, string, string, string, string) {
 }
 
 func TestClickHouseSQLTool(t *testing.T) {
-	_ = getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	runClickHouseSQLToolTest(t, clickHouseTransport{})
+}
+
+// runClickHouseSQLToolTest exercises the clickhouse-sql tool: plain and
+// parameterized selects, empty results and invalid SQL.
+func runClickHouseSQLToolTest(t *testing.T, tr clickHouseTransport) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
-	if err != nil {
-		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
-	}
-	defer pool.Close()
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
+	pool := openClickHousePool(t)
 
 	tableName := "test_sql_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	t.Cleanup(func() {
+		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+	})
 	createTableSQL := fmt.Sprintf(`
 		CREATE TABLE %s (
 			id UInt32,
@@ -366,13 +561,10 @@ func TestClickHouseSQLTool(t *testing.T) {
 		) ENGINE = Memory
 	`, tableName)
 
-	_, err = pool.ExecContext(ctx, createTableSQL)
+	_, err := pool.ExecContext(ctx, createTableSQL)
 	if err != nil {
 		t.Fatalf("Failed to create test table: %v", err)
 	}
-	defer func() {
-		_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
-	}()
 
 	insertSQL := fmt.Sprintf("INSERT INTO %s (id, name, age) VALUES (?, ?, ?), (?, ?, ?), (?, ?, ?)", tableName)
 	_, err = pool.ExecContext(ctx, insertSQL, 1, "Alice", 25, 2, "Bob", 30, 3, "Charlie", 35)
@@ -382,7 +574,7 @@ func TestClickHouseSQLTool(t *testing.T) {
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
-			"my-instance": getClickHouseVars(t),
+			"my-instance": sourceConfig,
 		},
 		"tools": map[string]any{
 			"test-select": map[string]any{
@@ -418,84 +610,65 @@ func TestClickHouseSQLTool(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	tr.startServer(t, ctx, toolsFile)
 
 	tcs := []struct {
 		name           string
 		toolName       string
-		requestBody    []byte
+		args           map[string]any
 		resultSliceLen int
 		isErr          bool
 	}{
 		{
 			name:           "SimpleSelect",
 			toolName:       "test-select",
-			requestBody:    []byte(`{}`),
+			args:           map[string]any{},
 			resultSliceLen: 3,
 		},
 		{
 			name:           "ParameterizedQuery",
 			toolName:       "test-param-query",
-			requestBody:    []byte(`{"min_age": 28}`),
+			args:           map[string]any{"min_age": 28},
 			resultSliceLen: 2,
 		},
 		{
 			name:           "EmptyResult",
 			toolName:       "test-empty-result",
-			requestBody:    []byte(`{"id": 999}`), // non-existent id
+			args:           map[string]any{"id": 999}, // non-existent id
 			resultSliceLen: 0,
 		},
 		{
-			name:        "InvalidSQL",
-			toolName:    "test-invalid-sql",
-			requestBody: []byte(``),
-			isErr:       true,
+			name:     "InvalidSQL",
+			toolName: "test-invalid-sql",
+			args:     map[string]any{},
+			isErr:    true,
 		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
-			resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer(tc.requestBody), nil)
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
+			res := tr.invoke(t, ctx, tc.toolName, tc.args)
+			if tc.isErr {
+				if res.status != http.StatusOK || res.toolErr {
 					return
 				}
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+				t.Fatalf("expected an error, got: %s", res.result)
 			}
-
-			var body map[string]interface{}
-			err := json.Unmarshal(respBody, &body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
+			if res.status != http.StatusOK {
+				t.Fatalf("response status code is not 200, got %d: %s", res.status, res.result)
 			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
+			if res.toolErr {
+				t.Fatalf("unexpected error result: %s", res.result)
 			}
-			t.Logf("result is %s", got)
+			t.Logf("result is %s", res.result)
 
-			var res []any
-			err = json.Unmarshal([]byte(got), &res)
+			var rows []any
+			err := json.Unmarshal([]byte(res.result), &rows)
 			if err != nil {
 				t.Fatalf("error parsing result")
 			}
 
-			if len(res) != tc.resultSliceLen {
-				t.Errorf("Expected %d results, got %d", tc.resultSliceLen, len(res))
+			if len(rows) != tc.resultSliceLen {
+				t.Errorf("Expected %d results, got %d", tc.resultSliceLen, len(rows))
 			}
 		})
 	}
@@ -504,21 +677,28 @@ func TestClickHouseSQLTool(t *testing.T) {
 }
 
 func TestClickHouseExecuteSQLTool(t *testing.T) {
-	_ = getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	runClickHouseExecuteSQLToolTest(t, clickHouseTransport{})
+}
+
+// runClickHouseExecuteSQLToolTest exercises the clickhouse-execute-sql tool:
+// DDL, DML and queries, plus rejected invocations.
+func runClickHouseExecuteSQLToolTest(t *testing.T, tr clickHouseTransport) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
-	if err != nil {
-		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
-	}
-	defer pool.Close()
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
+	pool := openClickHousePool(t)
 
 	tableName := "test_exec_sql_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	// The table is created through the tool; drop it if a case fails midway.
+	t.Cleanup(func() {
+		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+	})
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
-			"my-instance": getClickHouseVars(t),
+			"my-instance": sourceConfig,
 		},
 		"tools": map[string]any{
 			"execute-sql-tool": map[string]any{
@@ -529,20 +709,8 @@ func TestClickHouseExecuteSQLTool(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
+	tr.startServer(t, ctx, toolsFile)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
 	tcs := []struct {
 		name           string
 		sql            string
@@ -584,41 +752,35 @@ func TestClickHouseExecuteSQLTool(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			param := fmt.Sprintf(`{"sql": "%s"}`, tc.sql)
-			api := "http://127.0.0.1:5000/api/tool/execute-sql-tool/invoke"
-			resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(param)), nil)
-			if resp.StatusCode != http.StatusOK {
+			res := tr.invoke(t, ctx, "execute-sql-tool", map[string]any{"sql": tc.sql})
+			if res.status != http.StatusOK {
 				if tc.isErr {
 					return
 				}
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+				t.Fatalf("response status code is not 200, got %d: %s", res.status, res.result)
 			}
 			if tc.isErr {
 				t.Fatalf("expecting an error from server")
 			}
 			if tc.isAgentErr {
+				// Over MCP a rejected invocation must be reported as an error result.
+				if tr.isMCP && !res.toolErr {
+					t.Fatalf("expected an error result, got: %s", res.result)
+				}
 				return
 			}
-
-			var body map[string]interface{}
-			err := json.Unmarshal(respBody, &body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
+			if res.toolErr {
+				t.Fatalf("unexpected error result: %s", res.result)
 			}
 
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			var res []any
-			err = json.Unmarshal([]byte(got), &res)
+			var rows []any
+			err := json.Unmarshal([]byte(res.result), &rows)
 			if err != nil {
 				t.Fatalf("error parsing result")
 			}
 
-			if len(res) != tc.resultSliceLen {
-				t.Errorf("Expected %d results, got %d", tc.resultSliceLen, len(res))
+			if len(rows) != tc.resultSliceLen {
+				t.Errorf("Expected %d results, got %d", tc.resultSliceLen, len(rows))
 			}
 		})
 	}
@@ -627,20 +789,23 @@ func TestClickHouseExecuteSQLTool(t *testing.T) {
 }
 
 func TestClickHouseEdgeCases(t *testing.T) {
-	_ = getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	runClickHouseEdgeCasesTest(t, clickHouseTransport{})
+}
+
+// runClickHouseEdgeCasesTest exercises long queries, null values and
+// concurrent invocations.
+func runClickHouseEdgeCasesTest(t *testing.T, tr clickHouseTransport) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
-	if err != nil {
-		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
-	}
-	defer pool.Close()
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
+	pool := openClickHousePool(t)
 
 	tableName := "test_nulls_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	toolsFile := map[string]any{
 		"sources": map[string]any{
-			"my-instance": getClickHouseVars(t),
+			"my-instance": sourceConfig,
 		},
 		"tools": map[string]any{
 			"execute-sql-tool": map[string]any{
@@ -666,20 +831,8 @@ func TestClickHouseEdgeCases(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
+	tr.startServer(t, ctx, toolsFile)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
 	t.Run("VeryLongQuery", func(t *testing.T) {
 		// Create a very long but valid query
 		var conditions []string
@@ -688,37 +841,27 @@ func TestClickHouseEdgeCases(t *testing.T) {
 		}
 		longQuery := "SELECT 1 WHERE " + strings.Join(conditions, " AND ")
 
-		api := "http://127.0.0.1:5000/api/tool/execute-sql-tool/invoke"
-		param := fmt.Sprintf(`{"sql": "%s"}`, longQuery)
-		resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(param)), nil)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+		res := tr.invoke(t, ctx, "execute-sql-tool", map[string]any{"sql": longQuery})
+		if res.status != http.StatusOK || res.toolErr {
+			t.Fatalf("unexpected response, status %d: %s", res.status, res.result)
 		}
 
-		var body map[string]interface{}
-		err := json.Unmarshal(respBody, &body)
-		if err != nil {
-			t.Fatalf("error parsing response body")
-		}
-
-		got, ok := body["result"].(string)
-		if !ok {
-			t.Fatalf("unable to find result in response body")
-		}
-
-		var res []any
-		err = json.Unmarshal([]byte(got), &res)
+		var rows []any
+		err := json.Unmarshal([]byte(res.result), &rows)
 		if err != nil {
 			t.Fatalf("error parsing result")
 		}
 
 		// Should return [{1:1}]
-		if len(res) != 1 {
-			t.Errorf("Expected 1 result from long query, got %d", len(res))
+		if len(rows) != 1 {
+			t.Errorf("Expected 1 result from long query, got %d", len(rows))
 		}
 	})
 
 	t.Run("NullValues", func(t *testing.T) {
+		t.Cleanup(func() {
+			_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+		})
 		createSQL := fmt.Sprintf(`
 			CREATE TABLE %s (
 				id UInt32,
@@ -726,13 +869,10 @@ func TestClickHouseEdgeCases(t *testing.T) {
 			) ENGINE = Memory
 		`, tableName)
 
-		_, err = pool.ExecContext(ctx, createSQL)
+		_, err := pool.ExecContext(ctx, createSQL)
 		if err != nil {
 			t.Fatalf("Failed to create table: %v", err)
 		}
-		defer func() {
-			_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
-		}()
 
 		// Insert null value
 		insertSQL := fmt.Sprintf("INSERT INTO %s (id, nullable_field) VALUES (1, NULL), (2, 'not null')", tableName)
@@ -741,35 +881,23 @@ func TestClickHouseEdgeCases(t *testing.T) {
 			t.Fatalf("Failed to insert null value: %v", err)
 		}
 
-		api := "http://127.0.0.1:5000/api/tool/test-null-values/invoke"
-		resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(`{}`)), nil)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+		res := tr.invoke(t, ctx, "test-null-values", map[string]any{})
+		if res.status != http.StatusOK || res.toolErr {
+			t.Fatalf("unexpected response, status %d: %s", res.status, res.result)
 		}
 
-		var body map[string]interface{}
-		err := json.Unmarshal(respBody, &body)
-		if err != nil {
-			t.Fatalf("error parsing response body")
-		}
-
-		got, ok := body["result"].(string)
-		if !ok {
-			t.Fatalf("unable to find result in response body")
-		}
-
-		var res []any
-		err = json.Unmarshal([]byte(got), &res)
+		var rows []any
+		err = json.Unmarshal([]byte(res.result), &rows)
 		if err != nil {
 			t.Fatalf("error parsing result")
 		}
 
-		if len(res) != 2 {
-			t.Errorf("Expected 2 result from long query, got %d", len(res))
+		if len(rows) != 2 {
+			t.Errorf("Expected 2 result from long query, got %d", len(rows))
 		}
 
 		// Check that null is properly handled
-		if firstRow, ok := res[0].(map[string]any); ok {
+		if firstRow, ok := rows[0].(map[string]any); ok {
 			if _, hasNullableField := firstRow["nullable_field"]; !hasNullableField {
 				t.Error("Expected nullable_field in result")
 			}
@@ -783,32 +911,20 @@ func TestClickHouseEdgeCases(t *testing.T) {
 			go func(n int) {
 				defer func() { done <- true }()
 
-				params := fmt.Sprintf(`{"limit": %d}`, n+1)
-				api := "http://127.0.0.1:5000/api/tool/test-concurrent/invoke"
-				resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(params)), nil)
-				if resp.StatusCode != http.StatusOK {
-					t.Errorf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+				res := tr.invoke(t, ctx, "test-concurrent", map[string]any{"limit": n + 1})
+				if res.status != http.StatusOK || res.toolErr {
+					t.Errorf("unexpected response, status %d: %s", res.status, res.result)
+					return
 				}
 
-				var body map[string]interface{}
-				err := json.Unmarshal(respBody, &body)
-				if err != nil {
-					t.Errorf("error parsing response body")
-				}
-
-				got, ok := body["result"].(string)
-				if !ok {
-					t.Errorf("unable to find result in response body")
-				}
-
-				var res []any
-				err = json.Unmarshal([]byte(got), &res)
+				var rows []any
+				err := json.Unmarshal([]byte(res.result), &rows)
 				if err != nil {
 					t.Errorf("error parsing result")
 				}
 
-				if len(res) != n+1 {
-					t.Errorf("Query %d: expected %d results, got %d", n, n+1, len(res))
+				if len(rows) != n+1 {
+					t.Errorf("Query %d: expected %d results, got %d", n, n+1, len(rows))
 				}
 			}(i)
 		}
@@ -850,9 +966,17 @@ func getClickHouseSQLTmplToolStatement() (string, string) {
 	return tmplSelectCombined, tmplSelectFilterCombined
 }
 
-// SetupClickHouseSQLTable creates and inserts data into a table of tool
-// compatible with clickhouse-sql tool
-func setupClickHouseSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) func(*testing.T) {
+// setupClickHouseSQLTable creates and inserts data into a table of tool
+// compatible with clickhouse-sql tool. The table is dropped on cleanup; the
+// cleanup is registered first so a partially failed setup is still cleaned up.
+func setupClickHouseSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) {
+	t.Helper()
+	t.Cleanup(func() {
+		if _, err := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
+			t.Errorf("Teardown failed: %s", err)
+		}
+	})
+
 	err := pool.PingContext(ctx)
 	if err != nil {
 		t.Fatalf("unable to connect to test database: %s", err)
@@ -869,40 +993,35 @@ func setupClickHouseSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, cr
 	if err != nil {
 		t.Fatalf("unable to insert test data: %s", err)
 	}
-
-	return func(t *testing.T) {
-		// tear down test
-		_, err = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s", tableName))
-		if err != nil {
-			t.Errorf("Teardown failed: %s", err)
-		}
-	}
 }
 
 func TestClickHouseListDatabasesTool(t *testing.T) {
-	_ = getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	runClickHouseListDatabasesToolTest(t, clickHouseTransport{})
+}
+
+// runClickHouseListDatabasesToolTest exercises the clickhouse-list-databases
+// tool.
+func runClickHouseListDatabasesToolTest(t *testing.T, tr clickHouseTransport) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
-	if err != nil {
-		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
-	}
-	defer pool.Close()
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
+	pool := openClickHousePool(t)
 
 	// Create a test database
 	testDBName := "test_list_db_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
-	_, err = pool.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", testDBName))
+	t.Cleanup(func() {
+		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
+	})
+	_, err := pool.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", testDBName))
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	defer func() {
-		_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
-	}()
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
-			"my-instance": getClickHouseVars(t),
+			"my-instance": sourceConfig,
 		},
 		"tools": map[string]any{
 			"test-list-databases": map[string]any{
@@ -913,52 +1032,28 @@ func TestClickHouseListDatabasesTool(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	tr.startServer(t, ctx, toolsFile)
 
 	t.Run("ListDatabases", func(t *testing.T) {
-		api := "http://127.0.0.1:5000/api/tool/test-list-databases/invoke"
-		resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(`{}`)), nil)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+		res := tr.invoke(t, ctx, "test-list-databases", map[string]any{})
+		if res.status != http.StatusOK || res.toolErr {
+			t.Fatalf("unexpected response, status %d: %s", res.status, res.result)
 		}
 
-		var body map[string]interface{}
-		err := json.Unmarshal(respBody, &body)
-		if err != nil {
-			t.Fatalf("error parsing response body")
-		}
-
-		databases, ok := body["result"].(string)
-		if !ok {
-			t.Fatalf("unable to find result in response body")
-		}
-		var res []map[string]any
-		err = json.Unmarshal([]byte(databases), &res)
+		var databases []map[string]any
+		err := json.Unmarshal([]byte(res.result), &databases)
 		if err != nil {
 			t.Errorf("error parsing result")
 		}
 
 		// Should contain at least the default database and our test database - system and default
-		if len(res) < 2 {
-			t.Errorf("Expected at least 2 databases, got %d", len(res))
+		if len(databases) < 2 {
+			t.Errorf("Expected at least 2 databases, got %d", len(databases))
 		}
 
 		found := false
 		foundDefault := false
-		for _, db := range res {
+		for _, db := range databases {
 			if name, ok := db["name"].(string); ok {
 				if name == testDBName {
 					found = true
@@ -983,25 +1078,27 @@ func TestClickHouseListDatabasesTool(t *testing.T) {
 }
 
 func TestClickHouseListTablesTool(t *testing.T) {
-	_ = getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	runClickHouseListTablesToolTest(t, clickHouseTransport{})
+}
+
+// runClickHouseListTablesToolTest exercises the clickhouse-list-tables tool.
+func runClickHouseListTablesToolTest(t *testing.T, tr clickHouseTransport) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
-	if err != nil {
-		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
-	}
-	defer pool.Close()
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
+	pool := openClickHousePool(t)
 
 	// Create a test database with tables
 	testDBName := "test_list_tables_db_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
-	_, err = pool.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", testDBName))
+	t.Cleanup(func() {
+		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
+	})
+	_, err := pool.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", testDBName))
 	if err != nil {
 		t.Fatalf("Failed to create test database: %v", err)
 	}
-	defer func() {
-		_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", testDBName))
-	}()
 
 	// Create test tables in the test database
 	testTable1 := "test_table_1"
@@ -1017,7 +1114,7 @@ func TestClickHouseListTablesTool(t *testing.T) {
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
-			"my-instance": getClickHouseVars(t),
+			"my-instance": sourceConfig,
 		},
 		"tools": map[string]any{
 			"test-list-tables": map[string]any{
@@ -1028,53 +1125,28 @@ func TestClickHouseListTablesTool(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	tr.startServer(t, ctx, toolsFile)
 
 	t.Run("ListTables", func(t *testing.T) {
-		api := "http://127.0.0.1:5000/api/tool/test-list-tables/invoke"
-		params := fmt.Sprintf(`{"database": "%s"}`, testDBName)
-		resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(params)), nil)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+		res := tr.invoke(t, ctx, "test-list-tables", map[string]any{"database": testDBName})
+		if res.status != http.StatusOK || res.toolErr {
+			t.Fatalf("unexpected response, status %d: %s", res.status, res.result)
 		}
 
-		var body map[string]interface{}
-		err := json.Unmarshal(respBody, &body)
-		if err != nil {
-			t.Fatalf("error parsing response body")
-		}
-
-		tables, ok := body["result"].(string)
-		if !ok {
-			t.Fatalf("Expected result to be []map[string]any, got %T", tables)
-		}
-		var res []map[string]any
-		err = json.Unmarshal([]byte(tables), &res)
+		var tables []map[string]any
+		err := json.Unmarshal([]byte(res.result), &tables)
 		if err != nil {
 			t.Errorf("error parsing result")
 		}
 
 		// Should contain exactly 2 tables that we created
-		if len(res) != 2 {
-			t.Errorf("Expected 2 tables, got %d", len(res))
+		if len(tables) != 2 {
+			t.Errorf("Expected 2 tables, got %d", len(tables))
 		}
 
 		foundTable1 := false
 		foundTable2 := false
-		for _, table := range res {
+		for _, table := range tables {
 			if name, ok := table["name"].(string); ok {
 				if name == testTable1 {
 					foundTable1 = true
@@ -1102,10 +1174,9 @@ func TestClickHouseListTablesTool(t *testing.T) {
 	})
 
 	t.Run("ListTablesWithMissingDatabase", func(t *testing.T) {
-		api := "http://127.0.0.1:5000/api/tool/test-list-tables/invoke"
-		resp, _ := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(`{}`)), nil)
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Expected 200 OK for missing database parameter, but got %d", resp.StatusCode)
+		res := tr.invoke(t, ctx, "test-list-tables", map[string]any{})
+		if res.status != http.StatusOK {
+			t.Errorf("Expected 200 OK for missing database parameter, but got %d", res.status)
 		}
 	})
 
@@ -1119,7 +1190,8 @@ func TestClickHouseListTablesTool(t *testing.T) {
 func TestClickHouseSQLToolWithEmbedding(t *testing.T) {
 	// Skip if ClickHouse infra isn't configured (matches the rest of this
 	// suite). If it is, a missing API_KEY is a real misconfiguration (e.g. the
-	// CI secret was dropped) — fail loudly rather than skip silently.
+	// CI secret was dropped) — fail loudly rather than skip silently. This test
+	// intentionally has no container fallback.
 	sourceConfig := getClickHouseVars(t)
 	if os.Getenv("API_KEY") == "" {
 		t.Fatal("'API_KEY' not set; required for the embedding integration test")
@@ -1127,16 +1199,9 @@ func TestClickHouseSQLToolWithEmbedding(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
+	pool := openClickHousePool(t)
 
-	pool, err := initClickHouseConnectionPool(ClickHouseHost, ClickHousePort, ClickHouseUser, ClickHousePass, ClickHouseDatabase, ClickHouseProtocol)
-	if err != nil {
-		t.Fatalf("unable to create ClickHouse connection pool: %s", err)
-	}
-	defer pool.Close()
-
-	vectorTableName, tearDownVectorTable := setupClickHouseVectorTable(t, ctx, pool)
-	defer tearDownVectorTable(t)
+	vectorTableName := setupClickHouseVectorTable(t, ctx, pool)
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
@@ -1148,30 +1213,23 @@ func TestClickHouseSQLToolWithEmbedding(t *testing.T) {
 	insertStmt, searchStmt := getClickHouseVectorSearchStmts(vectorTableName)
 	toolsFile = tests.AddSemanticSearchConfig(t, toolsFile, ClickHouseToolType, insertStmt, searchStmt)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	clickHouseTransport{}.startServer(t, ctx, toolsFile)
 
 	tests.RunSemanticSearchToolInvokeTest(t, "[]", "", "The quick brown fox")
 }
 
 // setupClickHouseVectorTable creates a ClickHouse table with an Array(Float32)
-// embedding column for the semantic search test, and returns its name plus a
-// teardown helper.
-func setupClickHouseVectorTable(t *testing.T, ctx context.Context, pool *sql.DB) (string, func(*testing.T)) {
+// embedding column for the semantic search test and returns its name. The
+// table is dropped on cleanup.
+func setupClickHouseVectorTable(t *testing.T, ctx context.Context, pool *sql.DB) string {
 	t.Helper()
 
 	tableName := "vector_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	t.Cleanup(func() {
+		if _, err := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
+			t.Errorf("failed to drop table %s: %v", tableName, err)
+		}
+	})
 
 	createTableStmt := fmt.Sprintf(`CREATE TABLE %s (
 		content String,
@@ -1182,11 +1240,7 @@ func setupClickHouseVectorTable(t *testing.T, ctx context.Context, pool *sql.DB)
 		t.Fatalf("failed to create table %s: %v", tableName, err)
 	}
 
-	return tableName, func(t *testing.T) {
-		if _, err := pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
-			t.Errorf("failed to drop table %s: %v", tableName, err)
-		}
-	}
+	return tableName
 }
 
 // getClickHouseVectorSearchStmts returns the insert and cosine-distance search
