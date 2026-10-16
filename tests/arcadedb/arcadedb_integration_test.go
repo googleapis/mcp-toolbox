@@ -141,36 +141,39 @@ func teardownFixtures(t *testing.T) {
 	arcadeExecSQL(t, fmt.Sprintf("DROP TYPE %s IF EXISTS UNSAFE", integrationTestVertexType))
 }
 
-// TestArcadeDBToolEndpoints spins up a toolbox server backed by a live
-// ArcadeDB instance and exercises the manifest and invoke surfaces of the
-// Cypher and SQL execution tools, including readOnly enforcement, dry_run
-// plan output, and parameter binding.
-func TestArcadeDBToolEndpoints(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	t.Cleanup(cancel)
-
-	var containerCleanup func()
+// setupArcadeDBInstance points the suite at an ArcadeDB instance. It defaults
+// to an ephemeral container; the ARCADEDB_* environment variables take
+// precedence when pointing the suite at an external instance. The
+// package-level connection variables are restored on cleanup so each test gets
+// its own container.
+func setupArcadeDBInstance(ctx context.Context, t *testing.T) {
+	t.Helper()
+	origURI, origHTTPURL, origUser, origPass, origDatabase := ArcadeDBURI, ArcadeDBHTTPURL, ArcadeDBUser, ArcadeDBPass, ArcadeDBDatabase
+	t.Cleanup(func() {
+		ArcadeDBURI, ArcadeDBHTTPURL, ArcadeDBUser, ArcadeDBPass, ArcadeDBDatabase = origURI, origHTTPURL, origUser, origPass, origDatabase
+	})
 
 	if ArcadeDBURI != "" {
-		containerCleanup = func() {}
-	} else {
-		boltURI, httpURL, cleanupFn := setupArcadeDBContainer(ctx, t)
-		containerCleanup = cleanupFn
-		ArcadeDBURI = boltURI
-		ArcadeDBHTTPURL = httpURL
-		ArcadeDBUser = "root"
-		ArcadeDBPass = "playwithdata"
-		ArcadeDBDatabase = "test_database"
-
-		createDatabase(t, httpURL, ArcadeDBDatabase)
+		return
 	}
-	t.Cleanup(containerCleanup)
+	boltURI, httpURL, cleanupFn := setupArcadeDBContainer(ctx, t)
+	t.Cleanup(cleanupFn)
+	ArcadeDBURI = boltURI
+	ArcadeDBHTTPURL = httpURL
+	ArcadeDBUser = "root"
+	ArcadeDBPass = "playwithdata"
+	ArcadeDBDatabase = "test_database"
 
+	createDatabase(t, httpURL, ArcadeDBDatabase)
+}
+
+// getArcadeDBToolsConfig returns the tools file shared by the ArcadeDB
+// integration tests.
+func getArcadeDBToolsConfig(t *testing.T) map[string]any {
+	t.Helper()
 	sourceConfig := getArcadeDBVars(t)
 
-	args := []string{"--enable-api"}
-
-	toolsFile := map[string]any{
+	return map[string]any{
 		"sources": map[string]any{
 			"my-arcadedb": sourceConfig,
 		},
@@ -199,6 +202,20 @@ func TestArcadeDBToolEndpoints(t *testing.T) {
 			},
 		},
 	}
+}
+
+// TestArcadeDBToolEndpoints spins up a toolbox server backed by a live
+// ArcadeDB instance and exercises the manifest and invoke surfaces of the
+// Cypher and SQL execution tools, including readOnly enforcement, dry_run
+// plan output, and parameter binding.
+func TestArcadeDBToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	t.Cleanup(cancel)
+
+	setupArcadeDBInstance(ctx, t)
+
+	args := []string{"--enable-api"}
+	toolsFile := getArcadeDBToolsConfig(t)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
@@ -323,181 +340,21 @@ func TestArcadeDBToolEndpoints(t *testing.T) {
 	}
 
 	// Invoke tests: end-to-end through the toolbox against the live ArcadeDB.
-	invokeTcs := []struct {
-		name         string
-		api          string
-		requestBody  io.Reader
-		wantStatus   int
-		validateFunc func(t *testing.T, body string)
-	}{
-		{
-			name:        "cypher: simple read",
-			api:         "http://127.0.0.1:5000/api/tool/my-execute-cypher/invoke",
-			requestBody: bytes.NewBufferString(`{"cypher": "RETURN 1 AS a"}`),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, `"a":1`) {
-					t.Errorf("expected result to contain \"a\":1, got %s", body)
-				}
-			},
-		},
-		{
-			name:        "cypher: read from seeded vertex type",
-			api:         "http://127.0.0.1:5000/api/tool/my-execute-cypher/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"cypher": "MATCH (n:%s) RETURN count(n) AS c"}`, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, `"c":2`) {
-					t.Errorf("expected count 2 for seeded fixture, got %s", body)
-				}
-			},
-		},
-		{
-			name: "cypher: parameterized read",
-			api:  "http://127.0.0.1:5000/api/tool/my-execute-cypher/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(
-				`{"cypher": "MATCH (n:%s {name: $name}) RETURN n.age AS age", "params": {"name": "Alice"}}`,
-				integrationTestVertexType,
-			)),
-			wantStatus: http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, `"age":30`) {
-					t.Errorf("expected age 30 for Alice, got %s", body)
-				}
-			},
-		},
-		{
-			name:        "cypher: dry_run returns a plan",
-			api:         "http://127.0.0.1:5000/api/tool/my-execute-cypher/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"cypher": "MATCH (n:%s) RETURN n", "dry_run": true}`, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				var result []map[string]any
-				if err := json.Unmarshal([]byte(body), &result); err != nil {
-					t.Fatalf("failed to unmarshal dry_run result: %v\nbody: %s", err, body)
-				}
-				if len(result) == 0 {
-					t.Fatalf("expected a query plan, got empty result: %s", body)
-				}
-				if _, ok := result[0]["operator"]; !ok {
-					t.Errorf("expected key 'operator' in dry_run response, got: %s", body)
-				}
-			},
-		},
-		{
-			name:        "cypher: readOnly rejects write",
-			api:         "http://127.0.0.1:5000/api/tool/my-readonly-cypher/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"cypher": "CREATE (n:%s {name: 'Mallory'})"}`, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(strings.ToLower(body), "read-only") {
-					t.Errorf("expected read-only rejection, got %s", body)
-				}
-			},
-		},
-		{
-			name:        "sql: simple read",
-			api:         "http://127.0.0.1:5000/api/tool/my-execute-sql/invoke",
-			requestBody: bytes.NewBufferString(`{"sql": "SELECT 1 AS a"}`),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, `"a":1`) {
-					t.Errorf("expected result to contain \"a\":1, got %s", body)
-				}
-			},
-		},
-		{
-			name:        "sql: read from seeded vertex type",
-			api:         "http://127.0.0.1:5000/api/tool/my-execute-sql/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"sql": "SELECT count(*) AS c FROM %s"}`, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, `"c":2`) {
-					t.Errorf("expected count 2 for seeded fixture, got %s", body)
-				}
-			},
-		},
-		{
-			name: "sql: parameterized read",
-			api:  "http://127.0.0.1:5000/api/tool/my-execute-sql/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(
-				`{"sql": "SELECT age FROM %s WHERE name = :name", "params": {"name": "Bob"}}`,
-				integrationTestVertexType,
-			)),
-			wantStatus: http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, `"age":25`) {
-					t.Errorf("expected age 25 for Bob, got %s", body)
-				}
-			},
-		},
-		{
-			name:        "sql: dry_run returns a plan",
-			api:         "http://127.0.0.1:5000/api/tool/my-execute-sql/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"sql": "SELECT * FROM %s", "dry_run": true}`, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if !strings.Contains(body, "executionPlan") && !strings.Contains(body, "executionPlanAsString") {
-					t.Errorf("expected an execution plan in dry_run response, got %s", body)
-				}
-			},
-		},
-		{
-			name:        "sql: readOnly rejects write",
-			api:         "http://127.0.0.1:5000/api/tool/my-readonly-sql/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"sql": "INSERT INTO %s SET name = 'Mallory'"}`, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				low := strings.ToLower(body)
-				if !strings.Contains(low, "read-only") && !strings.Contains(low, "readonly") && !strings.Contains(low, "idempotent") {
-					t.Errorf("expected read-only rejection on write, got %s", body)
-				}
-			},
-		},
-		{
-			name:        "sql: readOnly rejects stacked write after read",
-			api:         "http://127.0.0.1:5000/api/tool/my-readonly-sql/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"sql": "SELECT * FROM %s; DELETE FROM %s"}`, integrationTestVertexType, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				low := strings.ToLower(body)
-				if !strings.Contains(low, "read-only") && !strings.Contains(low, "readonly") && !strings.Contains(low, "idempotent") && !strings.Contains(low, "syntax error") && !strings.Contains(low, "mismatched input") {
-					t.Errorf("expected stacked write to be rejected under readOnly, got %s", body)
-				}
-				// Sanity-check that the DELETE did not actually run.
-				count := arcadeCountVertices(t, integrationTestVertexType)
-				if count != 2 {
-					t.Errorf("expected fixture count to remain 2 after rejected stacked statement, got %d", count)
-				}
-			},
-		},
-		{
-			name:        "sql: write then read round-trip",
-			api:         "http://127.0.0.1:5000/api/tool/my-execute-sql/invoke",
-			requestBody: bytes.NewBufferString(fmt.Sprintf(`{"sql": "INSERT INTO %s SET name = 'Carol', age = 40"}`, integrationTestVertexType)),
-			wantStatus:  http.StatusOK,
-			validateFunc: func(t *testing.T, body string) {
-				if strings.Contains(strings.ToLower(body), "error") {
-					t.Errorf("unexpected error on INSERT: %s", body)
-				}
-				count := arcadeCountVertices(t, integrationTestVertexType)
-				if count != 3 {
-					t.Errorf("expected fixture count to be 3 after INSERT, got %d", count)
-				}
-			},
-		},
-	}
-
-	for _, tc := range invokeTcs {
+	for _, tc := range getArcadeDBInvokeTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := http.Post(tc.api, "application/json", tc.requestBody)
+			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+			reqBytes, err := json.Marshal(tc.args)
+			if err != nil {
+				t.Fatalf("error marshaling request body: %s", err)
+			}
+			resp, err := http.Post(api, "application/json", bytes.NewBuffer(reqBytes))
 			if err != nil {
 				t.Fatalf("error when sending a request: %s", err)
 			}
 			defer resp.Body.Close()
-			if resp.StatusCode != tc.wantStatus {
+			if resp.StatusCode != http.StatusOK {
 				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code: got %d, want %d: %s", resp.StatusCode, tc.wantStatus, string(bodyBytes))
+				t.Fatalf("response status code: got %d, want %d: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
 			}
 
 			var body map[string]any
@@ -512,6 +369,165 @@ func TestArcadeDBToolEndpoints(t *testing.T) {
 				tc.validateFunc(t, got)
 			}
 		})
+	}
+}
+
+// arcadeDBInvokeTestCase describes one tool invocation shared by the REST and
+// MCP ArcadeDB integration tests. wantErr marks invocations the tool is
+// expected to reject; the MCP test asserts these return an error result.
+type arcadeDBInvokeTestCase struct {
+	name         string
+	toolName     string
+	args         map[string]any
+	wantErr      bool
+	validateFunc func(t *testing.T, body string)
+}
+
+// getArcadeDBInvokeTestCases returns the tool invocations exercised by both the
+// REST and MCP ArcadeDB integration tests.
+func getArcadeDBInvokeTestCases() []arcadeDBInvokeTestCase {
+	return []arcadeDBInvokeTestCase{
+		{
+			name:     "cypher: simple read",
+			toolName: "my-execute-cypher",
+			args:     map[string]any{"cypher": "RETURN 1 AS a"},
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"a":1`) {
+					t.Errorf("expected result to contain \"a\":1, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "cypher: read from seeded vertex type",
+			toolName: "my-execute-cypher",
+			args:     map[string]any{"cypher": fmt.Sprintf("MATCH (n:%s) RETURN count(n) AS c", integrationTestVertexType)},
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"c":2`) {
+					t.Errorf("expected count 2 for seeded fixture, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "cypher: parameterized read",
+			toolName: "my-execute-cypher",
+			args:     map[string]any{"cypher": fmt.Sprintf("MATCH (n:%s {name: $name}) RETURN n.age AS age", integrationTestVertexType), "params": map[string]any{"name": "Alice"}},
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"age":30`) {
+					t.Errorf("expected age 30 for Alice, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "cypher: dry_run returns a plan",
+			toolName: "my-execute-cypher",
+			args:     map[string]any{"cypher": fmt.Sprintf("MATCH (n:%s) RETURN n", integrationTestVertexType), "dry_run": true},
+			validateFunc: func(t *testing.T, body string) {
+				var result []map[string]any
+				if err := json.Unmarshal([]byte(body), &result); err != nil {
+					t.Fatalf("failed to unmarshal dry_run result: %v\nbody: %s", err, body)
+				}
+				if len(result) == 0 {
+					t.Fatalf("expected a query plan, got empty result: %s", body)
+				}
+				if _, ok := result[0]["operator"]; !ok {
+					t.Errorf("expected key 'operator' in dry_run response, got: %s", body)
+				}
+			},
+		},
+		{
+			name:     "cypher: readOnly rejects write",
+			toolName: "my-readonly-cypher",
+			args:     map[string]any{"cypher": fmt.Sprintf("CREATE (n:%s {name: 'Mallory'})", integrationTestVertexType)},
+			wantErr:  true,
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(strings.ToLower(body), "read-only") {
+					t.Errorf("expected read-only rejection, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "sql: simple read",
+			toolName: "my-execute-sql",
+			args:     map[string]any{"sql": "SELECT 1 AS a"},
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"a":1`) {
+					t.Errorf("expected result to contain \"a\":1, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "sql: read from seeded vertex type",
+			toolName: "my-execute-sql",
+			args:     map[string]any{"sql": fmt.Sprintf("SELECT count(*) AS c FROM %s", integrationTestVertexType)},
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"c":2`) {
+					t.Errorf("expected count 2 for seeded fixture, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "sql: parameterized read",
+			toolName: "my-execute-sql",
+			args:     map[string]any{"sql": fmt.Sprintf("SELECT age FROM %s WHERE name = :name", integrationTestVertexType), "params": map[string]any{"name": "Bob"}},
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, `"age":25`) {
+					t.Errorf("expected age 25 for Bob, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "sql: dry_run returns a plan",
+			toolName: "my-execute-sql",
+			args:     map[string]any{"sql": fmt.Sprintf("SELECT * FROM %s", integrationTestVertexType), "dry_run": true},
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, "executionPlan") && !strings.Contains(body, "executionPlanAsString") {
+					t.Errorf("expected an execution plan in dry_run response, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "sql: readOnly rejects write",
+			toolName: "my-readonly-sql",
+			args:     map[string]any{"sql": fmt.Sprintf("INSERT INTO %s SET name = 'Mallory'", integrationTestVertexType)},
+			wantErr:  true,
+			validateFunc: func(t *testing.T, body string) {
+				low := strings.ToLower(body)
+				if !strings.Contains(low, "read-only") && !strings.Contains(low, "readonly") && !strings.Contains(low, "idempotent") {
+					t.Errorf("expected read-only rejection on write, got %s", body)
+				}
+			},
+		},
+		{
+			name:     "sql: readOnly rejects stacked write after read",
+			toolName: "my-readonly-sql",
+			args:     map[string]any{"sql": fmt.Sprintf("SELECT * FROM %s; DELETE FROM %s", integrationTestVertexType, integrationTestVertexType)},
+			wantErr:  true,
+			validateFunc: func(t *testing.T, body string) {
+				low := strings.ToLower(body)
+				if !strings.Contains(low, "read-only") && !strings.Contains(low, "readonly") && !strings.Contains(low, "idempotent") && !strings.Contains(low, "syntax error") && !strings.Contains(low, "mismatched input") {
+					t.Errorf("expected stacked write to be rejected under readOnly, got %s", body)
+				}
+				// Sanity-check that the DELETE did not actually run.
+				count := arcadeCountVertices(t, integrationTestVertexType)
+				if count != 2 {
+					t.Errorf("expected fixture count to remain 2 after rejected stacked statement, got %d", count)
+				}
+			},
+		},
+		{
+			name:     "sql: write then read round-trip",
+			toolName: "my-execute-sql",
+			args:     map[string]any{"sql": fmt.Sprintf("INSERT INTO %s SET name = 'Carol', age = 40", integrationTestVertexType)},
+			validateFunc: func(t *testing.T, body string) {
+				if strings.Contains(strings.ToLower(body), "error") {
+					t.Errorf("unexpected error on INSERT: %s", body)
+				}
+				count := arcadeCountVertices(t, integrationTestVertexType)
+				if count != 3 {
+					t.Errorf("expected fixture count to be 3 after INSERT, got %d", count)
+				}
+			},
+		},
 	}
 }
 
