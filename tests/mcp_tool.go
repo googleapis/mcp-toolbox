@@ -572,6 +572,261 @@ func GetTemplateParamMCPExpectedTools() []MCPToolManifest {
 	}
 }
 
+// GetPostgresPrebuiltMCPExpectedTools returns the MCP manifests for the tools loaded by AddPostgresPrebuiltConfig.
+func GetPostgresPrebuiltMCPExpectedTools() []MCPToolManifest {
+	return []MCPToolManifest{
+		{
+			Name:        "database_overview",
+			Description: "Fetches the current state of the PostgreSQL server, returning the version, whether it's a replica, uptime duration, maximum connection limit, number of current connections, number of active connections, and the percentage of connections in use.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}},
+		},
+		{
+			Name:        "get_column_cardinality",
+			Description: "Estimates the number of unique values (cardinality) quickly for one or all columns in a specific PostgreSQL table by using the database's internal statistics, returning the results in descending order of estimated cardinality. Please run ANALYZE on the table before using this tool to get accurate results. The tool returns the column_name and the estimated_cardinality. If the column_name is not provided, the tool returns all columns along with their estimated cardinality.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"column_name": map[string]any{"description": "Optional: The column name for which the cardinality is to be found. If not provided, cardinality for all columns will be returned.", "type": "string"},
+					"schema_name": map[string]any{"default": "public", "description": "Optional: The schema name in which the table is present.", "type": "string"},
+					"table_name":  map[string]any{"description": "Required: The table name in which the column is present.", "type": "string"},
+				},
+				"required": []any{"table_name"},
+			},
+		},
+		{
+			Name:        "list_active_queries",
+			Description: "Lists active queries in the database.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"exclude_application_names": map[string]any{"default": "", "description": "Optional: A comma-separated list of application names to exclude from the query results. This is useful for filtering out queries from specific applications (e.g., 'psql', 'pgAdmin', 'DBeaver'). The match is case-sensitive. Whitespace around commas and names is automatically handled. If this parameter is omitted, no applications are excluded.", "type": "string"},
+					"limit":                     map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
+					"min_duration":              map[string]any{"default": "1 minute", "description": "Optional: Only show queries running at least this long (e.g., '1 minute', '1 second', '2 seconds').", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_available_extensions",
+			Description: "Lists available extensions in the database.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}},
+		},
+		{
+			Name:        "list_database_stats",
+			Description: "Lists the key performance and activity statistics for each PostgreSQL databasein the instance, offering insights into cache efficiency, transaction throughputrow-level activity, temporary file usage, and contention. It returns: the database name, whether the database is connectable,  database owner, default tablespace name, the percentage of data blocks found in the buffer cache rather than being read from disk (a higher value indicates better cache performance), the total number of disk blocks read from disk, the total number of times disk blocks were found already in the cache; the total number of committed transactions, the total number of rolled back transactions, the percentage of rolled back transactions compared to the total number of completed transactions, the total number of rows returned by queries, the total number of live rows fetched by scans, the total number of rows inserted, the total number of rows updated, the total number of rows deleted, the number of temporary files created by queries, the total size of all temporary files created by queries in bytes, the number of query cancellations due to conflicts with recovery, the number of deadlocks detected, the current number of active connections to the database, the timestamp of the last statistics reset, and total database size in bytes.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"database_name":      map[string]any{"default": "", "description": "Optional: A specific database name pattern to search for.", "type": "string"},
+					"database_owner":     map[string]any{"default": "", "description": "Optional: A specific database owner name pattern to search for.", "type": "string"},
+					"default_tablespace": map[string]any{"default": "", "description": "Optional: A specific default tablespace name pattern to search for.", "type": "string"},
+					"include_templates":  map[string]any{"default": false, "description": "Optional: Whether to include template databases in the results.", "type": "boolean"},
+					"limit":              map[string]any{"default": float64(10), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
+					"order_by":           map[string]any{"default": "", "description": "Optional: The field to order the results by. Valid values are 'size' and 'commit'.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_indexes",
+			Description: "Lists available user indexes in the database, excluding system schemas (pg_catalog, information_schema). For each index, the following properties are returned: schema name, table name, index name, index type (access method), a boolean indicating if it's a unique index, a boolean indicating if it's for a primary key, the index definition, index size in bytes, the number of index scans, the number of index tuples read, the number of table tuples fetched via index scans, and a boolean indicating if the index has been used at least once.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"index_name":  map[string]any{"default": "", "description": "Optional: a text to filter results by index name. The input is used within a LIKE clause.", "type": "string"},
+					"limit":       map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return. Default is 50", "type": "integer"},
+					"only_unused": map[string]any{"default": false, "description": "Optional: If true, only returns indexes that have never been used.", "type": "boolean"},
+					"schema_name": map[string]any{"default": "", "description": "Optional: a text to filter results by schema name. The input is used within a LIKE clause.", "type": "string"},
+					"table_name":  map[string]any{"default": "", "description": "Optional: a text to filter results by table name. The input is used within a LIKE clause.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_installed_extensions",
+			Description: "Lists installed extensions in the database.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}},
+		},
+		{
+			Name:        "list_locks",
+			Description: "Identifies all locks held by active processes showing the process ID, user, query text, and an aggregated list of all transactions and specific locks (relation, mode, grant status) associated with each process.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}},
+		},
+		{
+			Name:        "list_pg_settings",
+			Description: "Lists configuration parameters for the postgres server ordered lexicographically, with a default limit of 50 rows. It returns the parameter name, its current setting, unit of measurement, a short description, the source of the current setting (e.g., default, configuration file, session), and whether a restart is required when the parameter value is changed.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":        map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
+					"setting_name": map[string]any{"default": "", "description": "Optional: A specific configuration parameter name pattern to search for.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_publication_tables",
+			Description: "Lists all publication tables in the database. Returns the publication name, schema name, and table name, along with definition details indicating if it publishes all tables, whether it replicates inserts, updates, deletes, or truncates, and the publication owner.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":             map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
+					"publication_names": map[string]any{"default": "", "description": "Optional: Filters by a comma-separated list of publication names.", "type": "string"},
+					"schema_names":      map[string]any{"default": "", "description": "Optional: Filters by a comma-separated list of schema names.", "type": "string"},
+					"table_names":       map[string]any{"default": "", "description": "Optional: Filters by a comma-separated list of table names.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_query_stats",
+			Description: "Lists performance statistics for executed queries ordered by total time, filtering by database name pattern if provided. This tool requires the pg_stat_statements extension to be installed. The tool returns the database name, query text, execution count, timing metrics (total, min, max, mean), rows affected, and buffer cache I/O statistics (hits and reads).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"database_name": map[string]any{"default": "", "description": "Optional: The database name to list query stats for.", "type": "string"},
+					"limit":         map[string]any{"default": float64(50), "description": "Optional: The maximum number of results to return. Defaults to 50.", "type": "integer"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_roles",
+			Description: "Lists all the user-created roles in the instance . It returns the role name, Object ID, the maximum number of concurrent connections the role can make, along with boolean indicators for: superuser status, privilege inheritance from member roles, ability to create roles, ability to create databases, ability to log in, replication privilege, and the ability to bypass row-level security, the password expiration timestamp, a list of direct members belonging to this role, and a list of other roles/groups that this role is a member of.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":     map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return. Default is 50", "type": "integer"},
+					"role_name": map[string]any{"default": "", "description": "Optional: a text to filter results by role name. The input is used within a LIKE clause.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_schemas",
+			Description: "Lists all schemas in the database ordered by schema name and excluding system and temporary schemas. It returns the schema name, schema owner, grants, number of functions, number of tables and number of views within each schema.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":       map[string]any{"default": float64(10), "description": "Optional: The maximum number of schemas to return.", "type": "integer"},
+					"owner":       map[string]any{"default": "", "description": "Optional: A specific schema owner name pattern to search for.", "type": "string"},
+					"schema_name": map[string]any{"default": "", "description": "Optional: A specific schema name pattern to search for.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_sequences",
+			Description: "Lists sequences in the database. Returns sequence name, schema name, sequence owner, data type of the sequence, starting value, minimum value, maximum value of the sequence, the value by which the sequence is incremented, and the last value generated by the sequence in the current session",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":         map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return. Default is 50", "type": "integer"},
+					"schema_name":   map[string]any{"default": "", "description": "Optional: A specific schema name pattern to search for.", "type": "string"},
+					"sequence_name": map[string]any{"default": "", "description": "Optional: A specific sequence name pattern to search for.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_stored_procedure",
+			Description: "Retrieves stored procedure metadata returning schema name, procedure name, procedure owner, language, definition, and description, filtered by optional role name (procedure owner), schema name, and limit (default 20).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":       map[string]any{"default": float64(20), "description": "Optional: The maximum number of stored procedures to return. Defaults to 20.", "type": "integer"},
+					"role_name":   map[string]any{"description": "Optional: The owner name to filter the stored procedures by. Defaults to NULL.", "type": "string"},
+					"schema_name": map[string]any{"description": "Optional: The schema name to filter the stored procedures by. Defaults to NULL.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_table_stats",
+			Description: "Lists the user table statistics in the database ordered by number of\n        sequential scans with a default limit of 50 rows. Returns the following\n        columns: schema name, table name, table size in bytes, number of\n        sequential scans, number of index scans, idx_scan_ratio_percent (showing\n        the percentage of total scans that utilized an index, where a low ratio\n        indicates missing or ineffective indexes), number of live rows, number\n        of dead rows, dead_row_ratio_percent (indicating potential table bloat),\n        total number of rows inserted, updated, and deleted, the timestamps\n        for the last_vacuum, last_autovacuum, and last_autoanalyze operations.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":       map[string]any{"default": float64(50), "description": "Optional: The maximum number of results to return", "type": "integer"},
+					"owner":       map[string]any{"description": "Optional: A specific owner to filter by", "type": "string"},
+					"schema_name": map[string]any{"default": "public", "description": "Optional: A specific schema name to filter by", "type": "string"},
+					"sort_by":     map[string]any{"description": "Optional: The column to sort by", "type": "string"},
+					"table_name":  map[string]any{"description": "Optional: A specific table name to filter by", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_tables",
+			Description: "Lists tables in the database.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"output_format": map[string]any{"default": "detailed", "description": "Optional: Use 'simple' for names only or 'detailed' for full info.", "type": "string"},
+					"table_names":   map[string]any{"default": "", "description": "Optional: A comma-separated list of table names. If empty, details for all tables will be listed.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_tablespaces",
+			Description: "Lists all tablespaces in the database. Returns the tablespace name, owner name, size in bytes(if the current user has CREATE privileges on the tablespace, otherwise NULL), internal object ID, the access control list regarding permissions, and any specific tablespace options.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":           map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
+					"tablespace_name": map[string]any{"default": "", "description": "Optional: a text to filter results by tablespace name. The input is used within a LIKE clause.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_triggers",
+			Description: "Lists all non-internal triggers in a database. Returns trigger name, schema name, table name, whether its enabled or disabled, timing (e.g BEFORE/AFTER of the event), the  events that cause the trigger to fire such as INSERT, UPDATE, or DELETE, whether the trigger activates per ROW or per STATEMENT, the handler function executed by the trigger and full definition.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":        map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
+					"schema_name":  map[string]any{"default": "", "description": "Optional: A specific schema name pattern to search for.", "type": "string"},
+					"table_name":   map[string]any{"default": "", "description": "Optional: A specific table name pattern to search for.", "type": "string"},
+					"trigger_name": map[string]any{"default": "", "description": "Optional: A specific trigger name pattern to search for.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "list_views",
+			Description: "Lists views in the database from pg_views with a default limit of 50 rows. Returns schemaname, viewname, ownername and the definition.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":       map[string]any{"default": float64(50), "description": "Optional: The maximum number of rows to return.", "type": "integer"},
+					"schema_name": map[string]any{"default": "", "description": "Optional: A specific schema name to search for.", "type": "string"},
+					"view_name":   map[string]any{"default": "", "description": "Optional: A specific view name to search for.", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "long_running_transactions",
+			Description: "Identifies and lists database transactions that exceed a specified time limit. For each of the long running transactions, the output contains the process id, database name, user name, application name, client address, state, connection age, transaction age, query age, last activity age, wait event type, wait event, and query string.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"limit":        map[string]any{"default": float64(20), "description": "Optional: The maximum number of long-running transactions to return. Defaults to 20.", "type": "integer"},
+					"min_duration": map[string]any{"default": "5 minutes", "description": "Optional: Only show transactions running at least this long (e.g., '1 minute', '15 minutes', '30 seconds').", "type": "string"},
+				},
+				"required": []any{},
+			},
+		},
+		{
+			Name:        "replication_stats",
+			Description: "Lists each replica's process ID, user name, application name, backend_xmin (standby's xmin horizon reported by hot_standby_feedback), client IP address, connection state, and sync_state, along with lag sizes in bytes for sent_lag (primary to sent), write_lag (sent to written), flush_lag (written to flushed), replay_lag (flushed to replayed), and the overall total_lag (primary to replayed).",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}},
+		},
+	}
+}
+
 // RunMCPSecureToolInvokeTest runs integration test cases verifying secure-params protocol constraints.
 func RunMCPSecureToolInvokeTest(t *testing.T, options ...McpTestOption) {
 	t.Helper()
