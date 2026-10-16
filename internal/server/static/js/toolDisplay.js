@@ -14,7 +14,6 @@
 
 import { handleRunTool, displayResults } from './runTool.js';
 import { createGoogleAuthMethodItem } from './auth.js'
-import { escapeHtml } from './sanitize.js'
 
 /**
  * Helper function to create form inputs for parameters.
@@ -329,11 +328,78 @@ function createAuthTokenInfoDropdown() {
 }
 
 /**
+ * Attaches right-edge, bottom-edge, and bottom-right corner resize handles
+ * to the tool info column and description box.
+ */
+function attachToolInfoResizeHandles(toolInfoContainer, descBox, gridContainer) {
+    const rightHandle = document.createElement('div');
+    rightHandle.className = 'col-resize-handle col-resize-right';
+    rightHandle.title = 'Drag to resize column width';
+
+    const bottomHandle = document.createElement('div');
+    bottomHandle.className = 'col-resize-handle col-resize-bottom';
+    bottomHandle.title = 'Drag to resize description height';
+
+    const cornerHandle = document.createElement('div');
+    cornerHandle.className = 'col-resize-handle col-resize-corner';
+    cornerHandle.title = 'Drag to resize width and height';
+
+    toolInfoContainer.appendChild(rightHandle);
+    toolInfoContainer.appendChild(bottomHandle);
+    toolInfoContainer.appendChild(cornerHandle);
+
+    const setupDrag = (handle, resizeWidth, resizeHeight, cursor) => {
+        handle.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startWidth = toolInfoContainer.offsetWidth;
+            const startHeight = descBox.offsetHeight;
+
+            handle.classList.add('active');
+            document.body.style.cursor = cursor;
+            document.body.style.userSelect = 'none';
+
+            const onMouseMove = (moveEvent) => {
+                if (resizeWidth) {
+                    const maxWidth = Math.max(200, gridContainer.clientWidth - 220);
+                    const newWidth = Math.max(200, Math.min(startWidth + (moveEvent.clientX - startX), maxWidth));
+                    toolInfoContainer.style.width = `${newWidth}px`;
+                }
+                if (resizeHeight) {
+                    const newHeight = Math.max(100, startHeight + (moveEvent.clientY - startY));
+                    descBox.style.maxHeight = 'none';
+                    descBox.style.height = `${newHeight}px`;
+                }
+            };
+
+            const onMouseUp = () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                handle.classList.remove('active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    };
+
+    setupDrag(rightHandle, true, false, 'ew-resize');
+    setupDrag(bottomHandle, false, true, 'ns-resize');
+    setupDrag(cornerHandle, true, true, 'nwse-resize');
+}
+
+/**
  * Renders the tool display area.
  */
 export function renderToolInterface(tool, containerElement) {
     const TOOL_ID = tool.id;
-    containerElement.innerHTML = '';
+    containerElement.replaceChildren();
 
     let lastResults = null;
     let currentHeaders = {
@@ -358,13 +424,25 @@ export function renderToolInterface(tool, containerElement) {
     const descBox = document.createElement('div');
 
     nameBox.className = 'tool-box tool-name';
-    nameBox.innerHTML = `<h5>Name:</h5><p>${escapeHtml(tool.name)}</p>`;
+    const nameHeader = document.createElement('h5');
+    nameHeader.textContent = 'Name:';
+    const nameParagraph = document.createElement('p');
+    nameParagraph.textContent = tool.name;
+    nameBox.appendChild(nameHeader);
+    nameBox.appendChild(nameParagraph);
+
     descBox.className = 'tool-box tool-description';
-    descBox.innerHTML = `<h5>Description:</h5><p>${escapeHtml(tool.description)}</p>`;
+    const descHeader = document.createElement('h5');
+    descHeader.textContent = 'Description:';
+    const descParagraph = document.createElement('p');
+    descParagraph.textContent = tool.description;
+    descBox.appendChild(descHeader);
+    descBox.appendChild(descParagraph);
 
     toolInfoContainer.className = 'tool-info';
     toolInfoContainer.appendChild(nameBox);
     toolInfoContainer.appendChild(descBox);
+    attachToolInfoResizeHandles(toolInfoContainer, descBox, gridContainer);
     gridContainer.appendChild(toolInfoContainer);
 
     const DISLCAIMER_INFO = "*Checked parameters are sent with the value from their text field. Empty fields will be sent as an empty string. To exclude a parameter, uncheck it."
@@ -374,7 +452,9 @@ export function renderToolInterface(tool, containerElement) {
     const disclaimerText = document.createElement('div');
 
     paramsContainer.className = 'tool-params tool-box';
-    paramsContainer.innerHTML = '<h5>Parameters:</h5>';
+    const paramsTitle = document.createElement('h5');
+    paramsTitle.textContent = 'Parameters:';
+    paramsContainer.appendChild(paramsTitle);
     paramsHeader.className = 'params-header';
     paramsContainer.appendChild(paramsHeader);
     disclaimerText.textContent = DISLCAIMER_INFO;
