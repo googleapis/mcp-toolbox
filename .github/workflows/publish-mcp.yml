@@ -15,9 +15,7 @@
 name: Publish to MCP Registry
 
 on:
-  push:
-    tags: ["v*"]  # Triggers on version tags like v1.0.0
-  # allow manual triggering with no inputs required
+  # Triggered after Stage 2 promotes the container image to Artifact Registry
   workflow_dispatch:
 
 jobs:
@@ -28,9 +26,6 @@ jobs:
       contents: read
 
     steps:
-      - name: Delay workflow execution
-        run: sleep 1200
-
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -42,9 +37,6 @@ jobs:
           MAX_ATTEMPTS=10
           VERSION=$(jq -r '.version' server.json)
           REGISTRY_URL="https://us-central1-docker.pkg.dev/v2/database-toolbox/toolbox/toolbox/manifests/${VERSION}"
-
-          # initially sleep time to wait for the version release
-          sleep 3m
 
           for i in $(seq 1 ${MAX_ATTEMPTS}); do
             echo "Attempt $i: Checking for image ${REGISTRY_URL}..."
@@ -58,7 +50,7 @@ jobs:
             else
               echo "❌ Image not found (likely 404 error) on attempt $i."
               if [ $i -lt ${MAX_ATTEMPTS} ]; then
-                echo "Sleeping for 5 minutes before next attempt..."
+                echo "Sleeping for 2 minutes before next attempt..."
                 sleep 2m
               else
                 echo "Maximum attempts reached. Image not found."

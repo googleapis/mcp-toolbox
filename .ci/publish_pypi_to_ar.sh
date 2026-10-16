@@ -19,8 +19,9 @@
 #
 # Required CWD: repo root.
 #
-# Binaries (toolbox.<os>.<arch>) must be pre-staged in the workspace by an
-# earlier Cloud Build step. The retry pipeline downloads them from GCS first.
+# Binaries (toolbox.<os>.<arch>) must be pre-staged in the workspace from GCS by
+# the earlier fetch-binaries step (in both promote.cloudbuild.yaml and
+# pypi_retry.cloudbuild.yaml).
 #
 # AR doesn't support twine's `--skip-existing` flag. If this version already
 # has wheels in AR (e.g., from a prior run where Exit Gate failed to externally
@@ -83,6 +84,32 @@ build_wheel "toolbox.darwin.amd64"  "macosx_10_14_x86_64"  "toolbox"
 build_wheel "toolbox.windows.amd64" "win_amd64"            "toolbox.exe"
 build_wheel "toolbox.windows.arm64" "win_arm64"            "toolbox.exe"
 
-twine upload \
-  --repository-url "${AR_URL}" \
-  "${DIST_DIR}"/*.whl
+python - "${AR_URL}" "${DIST_DIR}" <<'PY'
+import glob
+import os
+import subprocess
+import sys
+import keyring
+import requests
+
+ar_url, dist_dir = sys.argv[1], sys.argv[2]
+simple_url = ar_url.rstrip("/") + "/simple/toolbox-server/"
+cred = keyring.get_credential(ar_url, None)
+auth = (cred.username, cred.password) if cred else None
+resp = requests.get(simple_url, auth=auth, timeout=30)
+existing = resp.text if resp.status_code == 200 else ""
+
+to_upload = []
+for whl in sorted(glob.glob(os.path.join(dist_dir, "*.whl"))):
+    fname = os.path.basename(whl)
+    if fname in existing:
+        print(f"Skipping {fname}: already in AR")
+    else:
+        to_upload.append(whl)
+
+if to_upload:
+    subprocess.run(
+        ["twine", "upload", "--repository-url", ar_url, *to_upload],
+        check=True,
+    )
+PY
