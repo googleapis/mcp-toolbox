@@ -245,7 +245,8 @@ func (tr firestoreTransport) mustInvoke(t *testing.T, ctx context.Context, toolN
 
 // invokeCase invokes a tool for a test case. It returns the result and
 // whether the case should go on to check it. A failed call ends the case when
-// isErr is set, and fails the test otherwise.
+// isErr is set, and fails the test otherwise. A successful call fails the test
+// when isErr is set.
 func (tr firestoreTransport) invokeCase(t *testing.T, ctx context.Context, toolName string, args map[string]any, isErr bool) (string, bool) {
 	t.Helper()
 	res := tr.mustInvoke(t, ctx, toolName, args)
@@ -254,6 +255,9 @@ func (tr firestoreTransport) invokeCase(t *testing.T, ctx context.Context, toolN
 			return "", false
 		}
 		t.Fatalf("invoking %s failed (status %d): %s", toolName, res.status, res.result)
+	}
+	if isErr {
+		t.Fatalf("expected invoking %s to fail, but it succeeded: %s", toolName, res.result)
 	}
 	return res.result, true
 }
@@ -857,7 +861,7 @@ func runFirestoreUpdateDocumentTest(t *testing.T, ctx context.Context, tr firest
 			isErr:    false,
 		},
 		{
-			name: "invalid field in updateMask",
+			name: "updateMask field missing from documentData deletes it",
 			args: map[string]any{
 				"documentPath": docPath,
 				"documentData": map[string]any{
@@ -865,7 +869,8 @@ func runFirestoreUpdateDocumentTest(t *testing.T, ctx context.Context, tr firest
 				},
 				"updateMask": []any{"field1", "nonExistentField"},
 			},
-			isErr: true, // Should fail because nonExistentField is not in documentData
+			wantKeys: []string{"documentPath", "updateTime"},
+			isErr:    false,
 		},
 	}
 
