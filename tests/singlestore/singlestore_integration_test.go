@@ -105,31 +105,31 @@ func getSingleStoreWants() (string, string, string, string) {
 }
 
 // setupSingleStoreTable creates and inserts data into a table of tool
-// compatible with singlestore-sql tool
-func setupSingleStoreTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) func(*testing.T) {
+// compatible with singlestore-sql tool. The table is dropped on cleanup; the
+// cleanup is registered first so a partially failed setup is still cleaned up.
+func setupSingleStoreTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) {
+	t.Helper()
+	t.Cleanup(func() {
+		if _, err := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); err != nil {
+			t.Errorf("Teardown failed: %s", err)
+		}
+	})
+
 	err := pool.PingContext(ctx)
 	if err != nil {
 		t.Fatalf("unable to connect to test database: %s", err)
 	}
 
 	// Create table
-	_, err = pool.QueryContext(ctx, createStatement)
+	_, err = pool.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
 	// Insert test data
-	_, err = pool.QueryContext(ctx, insertStatement, params...)
+	_, err = pool.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
 		t.Fatalf("unable to insert test data: %s", err)
-	}
-
-	return func(t *testing.T) {
-		// tear down test
-		_, err = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s;", tableName))
-		if err != nil {
-			t.Errorf("Teardown failed: %s", err)
-		}
 	}
 }
 
@@ -223,12 +223,12 @@ func initSingleStoreConnectionPool(cfg singlestoresrc.Config) (*sql.DB, error) {
 	return pool, nil
 }
 
-func TestSingleStoreToolEndpoints(t *testing.T) {
+// setupSingleStoreTest opens a connection pool, seeds the tables used by the
+// shared tool fixtures and returns the template parameter table name, the pool
+// and the tools file. The pool is closed and the tables dropped on cleanup.
+func setupSingleStoreTest(t *testing.T, ctx context.Context) (string, *sql.DB, map[string]any) {
+	t.Helper()
 	sourceConfig := getSingleStoreVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	args := []string{"--enable-api"}
 
 	cfg := singlestoresrc.Config{
 		Host:     SingleStoreHost,
@@ -241,6 +241,11 @@ func TestSingleStoreToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create SingleStore connection pool: %s", err)
 	}
+	t.Cleanup(func() {
+		if err := pool.Close(); err != nil {
+			t.Errorf("unable to close SingleStore connection pool: %s", err)
+		}
+	})
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -249,19 +254,28 @@ func TestSingleStoreToolEndpoints(t *testing.T) {
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSingleStoreParamToolInfo(tableNameParam)
-	teardownTable1 := setupSingleStoreTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	setupSingleStoreTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getSingleStoreAuthToolInfo(tableNameAuth)
-	teardownTable2 := setupSingleStoreTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	setupSingleStoreTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 
 	// Write config into a file and pass it to command
 	toolsFile := getSingleStoreToolsConfig(sourceConfig, SingleStoreToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
 	toolsFile = addSingleStoreExecuteSQLConfig(t, toolsFile)
 	tmplSelectCombined, tmplSelectFilterCombined := getSingleStoreTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, SingleStoreToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
+
+	return tableNameTemplateParam, pool, toolsFile
+}
+
+func TestSingleStoreToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	args := []string{"--enable-api"}
+
+	tableNameTemplateParam, pool, toolsFile := setupSingleStoreTest(t, ctx)
 
 	insertStmt := `INSERT INTO senseai_docs (content, embedding) VALUES (?, JSON_ARRAY_PACK(?))`
 	searchStmt := `SELECT content FROM senseai_docs ORDER BY DOT_PRODUCT(embedding, JSON_ARRAY_PACK(?)) DESC LIMIT 1`
@@ -270,10 +284,11 @@ func TestSingleStoreToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
 	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
@@ -290,17 +305,17 @@ func TestSingleStoreToolEndpoints(t *testing.T) {
 	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
 
-	// Create table for semantic search
+	// Create table for semantic search. The drop is registered first so a
+	// partially failed setup is still cleaned up.
+	t.Cleanup(func() {
+		if _, err := pool.ExecContext(context.WithoutCancel(ctx), "DROP TABLE IF EXISTS senseai_docs;"); err != nil {
+			t.Logf("Teardown failed: %s", err)
+		}
+	})
 	_, err = pool.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS senseai_docs (id INT AUTO_INCREMENT PRIMARY KEY, content TEXT, embedding BLOB);")
 	if err != nil {
 		t.Fatalf("unable to create semantic search table: %s", err)
 	}
-	defer func() {
-		_, err = pool.ExecContext(ctx, "DROP TABLE IF EXISTS senseai_docs;")
-		if err != nil {
-			t.Logf("Teardown failed: %s", err)
-		}
-	}()
 
 	// Semantic search tests
 	httpSemanticInsertWant := `[]`
