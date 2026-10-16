@@ -96,7 +96,7 @@ func seedMongoDB(ctx context.Context, t *testing.T, uri string) {
 		t.Fatalf("unable to connect to mongodb: %s", err)
 	}
 	t.Cleanup(func() {
-		if err := client.Disconnect(context.Background()); err != nil {
+		if err := client.Disconnect(context.WithoutCancel(ctx)); err != nil {
 			t.Errorf("unable to disconnect from mongodb: %s", err)
 		}
 	})
@@ -109,7 +109,7 @@ func seedMongoDB(ctx context.Context, t *testing.T, uri string) {
 	// Registered before seeding so a partially failed setup is still cleaned
 	// up. Runs before the client is disconnected.
 	t.Cleanup(func() {
-		if err := collection.Drop(context.Background()); err != nil {
+		if err := collection.Drop(context.WithoutCancel(ctx)); err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
 	})
@@ -118,25 +118,23 @@ func seedMongoDB(ctx context.Context, t *testing.T, uri string) {
 		t.Logf("Warning: failed to drop collection before setup: %v", err)
 	}
 
-	documents := []map[string]any{
-		{"_id": 1, "id": 1, "name": "Alice", "email": tests.ServiceAccountEmail},
-		{"_id": 14, "id": 2, "name": "FakeAlice", "email": "fakeAlice@gmail.com"},
-		{"_id": 2, "id": 2, "name": "Jane"},
-		{"_id": 3, "id": 3, "name": "Sid"},
-		{"_id": 5, "id": 3, "name": "Alice", "email": "alice@gmail.com"},
-		{"_id": 6, "id": 100, "name": "ToBeDeleted", "email": "bob@gmail.com"},
-		{"_id": 7, "id": 101, "name": "ToBeDeleted", "email": "bob1@gmail.com"},
-		{"_id": 8, "id": 101, "name": "ToBeDeleted", "email": "bob2@gmail.com"},
-		{"_id": 9, "id": 300, "name": "ToBeUpdatedToBob", "email": "bob@gmail.com"},
-		{"_id": 10, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
-		{"_id": 11, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
-		{"_id": 12, "id": 500, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
-		{"_id": 13, "id": 501, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
+	documents := []any{
+		map[string]any{"_id": 1, "id": 1, "name": "Alice", "email": tests.ServiceAccountEmail},
+		map[string]any{"_id": 14, "id": 2, "name": "FakeAlice", "email": "fakeAlice@gmail.com"},
+		map[string]any{"_id": 2, "id": 2, "name": "Jane"},
+		map[string]any{"_id": 3, "id": 3, "name": "Sid"},
+		map[string]any{"_id": 5, "id": 3, "name": "Alice", "email": "alice@gmail.com"},
+		map[string]any{"_id": 6, "id": 100, "name": "ToBeDeleted", "email": "bob@gmail.com"},
+		map[string]any{"_id": 7, "id": 101, "name": "ToBeDeleted", "email": "bob1@gmail.com"},
+		map[string]any{"_id": 8, "id": 101, "name": "ToBeDeleted", "email": "bob2@gmail.com"},
+		map[string]any{"_id": 9, "id": 300, "name": "ToBeUpdatedToBob", "email": "bob@gmail.com"},
+		map[string]any{"_id": 10, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
+		map[string]any{"_id": 11, "id": 400, "name": "ToBeUpdatedToAlice", "email": "alice@gmail.com"},
+		map[string]any{"_id": 12, "id": 500, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
+		map[string]any{"_id": 13, "id": 501, "name": "ToBeAggregated", "email": "agatha@gmail.com"},
 	}
-	for _, doc := range documents {
-		if _, err := collection.InsertOne(ctx, doc); err != nil {
-			t.Fatalf("unable to insert test data: %s", err)
-		}
+	if _, err := collection.InsertMany(ctx, documents); err != nil {
+		t.Fatalf("unable to insert test data: %s", err)
 	}
 }
 
