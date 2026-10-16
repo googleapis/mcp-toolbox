@@ -87,6 +87,13 @@ steps:
 
         export TAGS="-t ${_DOCKER_URI}:$SHORT_SHA -t ${_DOCKER_URI}:$REF_NAME"
 
+        if [[ "${_PUSH_TO_EXIT_GATES:-false}" != "true" ]]; then
+          echo "Dry run: Skipping docker push."
+          export PUSH_ARGS=""
+        else
+          export PUSH_ARGS="--push"
+        fi
+
         docker buildx build \
           --platform linux/amd64,linux/arm64 \
           --build-arg BASE_IMAGE="us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1" \
@@ -96,7 +103,7 @@ steps:
           --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
           --secret id=airlock_token,src=/workspace/.airlock_token \
           $TAGS \
-          --push .
+          $PUSH_ARGS .
 
 
   - id: "build-linux-amd64"
