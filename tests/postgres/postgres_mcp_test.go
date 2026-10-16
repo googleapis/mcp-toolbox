@@ -57,7 +57,7 @@ func TestPostgresMCPListTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer waitCancel()
@@ -91,6 +91,7 @@ func TestPostgresMCPCallTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create postgres connection pool: %s", err)
 	}
+	t.Cleanup(pool.Close)
 
 	// Generate a unique ID
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -108,12 +109,12 @@ func TestPostgresMCPCallTool(t *testing.T) {
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetPostgresSQLParamToolInfo(tableNameParam)
 	teardownTable1 := tests.SetupPostgresSQLTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	t.Cleanup(func() { teardownTable1(t) })
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := tests.GetPostgresSQLAuthToolInfo(tableNameAuth)
 	teardownTable2 := tests.SetupPostgresSQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	t.Cleanup(func() { teardownTable2(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, PostgresToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -126,7 +127,7 @@ func TestPostgresMCPCallTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer waitCancel()
