@@ -213,7 +213,7 @@ func getFirestoreMCPManifests() []tests.MCPToolManifest {
 	}
 }
 
-func TestFirestoreMCPToolEndpoints(t *testing.T) {
+func TestFirestoreMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
