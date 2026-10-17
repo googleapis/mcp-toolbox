@@ -501,7 +501,7 @@ func getCloudStorageMCPManifests() []tests.MCPToolManifest {
 	}
 }
 
-func TestCloudStorageMCPToolEndpoints(t *testing.T) {
+func TestCloudStorageMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
