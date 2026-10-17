@@ -25,7 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/tests"
 )
 
-func TestCloudGdaMCPToolEndpoints(t *testing.T) {
+func TestCloudGdaMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -198,7 +198,7 @@ func TestCloudGDAConversationalAnalyticsMCPListTools(t *testing.T) {
 	tests.RunMCPToolsListMethod(t, getConversationalAnalyticsMCPManifests())
 }
 
-func TestCloudGDAConversationalAnalyticsMCPTools(t *testing.T) {
+func TestCloudGDAConversationalAnalyticsMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
