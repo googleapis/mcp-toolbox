@@ -36,7 +36,7 @@ func TestDataprocMCPListTools(t *testing.T) {
 	})
 }
 
-func TestDataprocClustersMCPToolEndpoints(t *testing.T) {
+func TestDataprocMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute) // Clusters take time
 	defer cancel()
 
