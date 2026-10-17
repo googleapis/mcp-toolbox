@@ -37,7 +37,7 @@ func TestMindsDBMCPListTools(t *testing.T) {
 	})
 }
 
-func TestMindsDBMCPToolEndpoints(t *testing.T) {
+func TestMindsDBMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
