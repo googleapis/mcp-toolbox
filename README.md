@@ -1132,6 +1132,14 @@ The Public API includes the Toolbox Server (CLI, configuration manifests, and pr
 - **Minor versions** are incremented for new features, including modifications to pre-built toolsets or beta features.
 - **Patch versions** are incremented for backward-compatible bug fixes.
 
+### Container Tagging Policy
+
+Official container images are published to `us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox`:
+
+- **Version tags (`vX.Y.Z` and `X.Y.Z`, e.g., `v1.14.0` and `1.14.0`):** Immutable tags pinned to a specific release digest (`linux/amd64` and `linux/arm64`). Once published, version tags are never overwritten. Pinning to a specific version tag or image digest (`@sha256:...`) is recommended for production workloads.
+- **`latest` tag:** A floating tag that points to the most recent stable release digest and is updated automatically whenever a new versioned release is promoted.
+- **Development images (`us-central1-docker.pkg.dev/database-toolbox/toolbox-dev/toolbox`):** Continuous builds from the `main` branch are published with the floating `:main` tag and commit `:<SHORT_SHA>` tag for testing and development only.
+
 For more details, see our [Full Versioning Policy](https://mcp-toolbox.dev/reference/versioning/).
 
 ---
