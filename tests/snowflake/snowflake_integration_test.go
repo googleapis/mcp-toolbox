@@ -40,6 +40,9 @@ var (
 	SnowflakeSchema     = os.Getenv("SNOWFLAKE_SCHEMA")
 	SnowflakeWarehouse  = os.Getenv("SNOWFLAKE_WAREHOUSE")
 	SnowflakeRole       = os.Getenv("SNOWFLAKE_ROLE")
+
+	SnowflakePrivateKeyPath       = os.Getenv("SNOWFLAKE_PRIVATE_KEY_PATH")
+	SnowflakePrivateKeyPassphrase = os.Getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
 )
 
 func getSnowflakeVars(t *testing.T) map[string]any {
@@ -164,6 +167,69 @@ func TestSnowflake(t *testing.T) {
 		tests.WithExecuteCreateWant(`[{"status":"Table T successfully created."}]`),
 		tests.WithExecuteDropWant(`[{"status":"T successfully dropped."}]`))
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+}
+
+// TestSnowflakeKeyPairAuth verifies the source connects with key-pair (JWT)
+// authentication. It requires an RSA public key registered on 'SNOWFLAKE_USER'.
+func TestSnowflakeKeyPairAuth(t *testing.T) {
+	if SnowflakePrivateKeyPath == "" {
+		t.Skip("'SNOWFLAKE_PRIVATE_KEY_PATH' not set")
+	}
+	switch "" {
+	case SnowflakeAccount:
+		t.Fatal("'SNOWFLAKE_ACCOUNT' not set")
+	case SnowflakeUser:
+		t.Fatal("'SNOWFLAKE_USER' not set")
+	case SnowflakeDatabase:
+		t.Fatal("'SNOWFLAKE_DATABASE' not set")
+	case SnowflakeSchema:
+		t.Fatal("'SNOWFLAKE_SCHEMA' not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	sourceConfig := map[string]any{
+		"type":                 SnowflakeSourceType,
+		"account":              SnowflakeAccount,
+		"user":                 SnowflakeUser,
+		"privateKeyPath":       SnowflakePrivateKeyPath,
+		"privateKeyPassphrase": SnowflakePrivateKeyPassphrase,
+		"database":             SnowflakeDatabase,
+		"schema":               SnowflakeSchema,
+		"warehouse":            SnowflakeWarehouse,
+		"role":                 SnowflakeRole,
+	}
+	toolsFile := map[string]any{
+		"sources": map[string]any{
+			"my-instance": sourceConfig,
+		},
+		"tools": map[string]any{
+			"my-simple-tool": map[string]any{
+				"type":        SnowflakeToolType,
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+				"statement":   "SELECT 1",
+			},
+		},
+	}
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, "--enable-api")
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	select1Want, _, _, _ := getSnowflakeWants()
+	tests.RunToolInvokeParametersTest(t, "my-simple-tool", []byte(`{}`), select1Want)
 }
 
 // addSnowflakeExecuteSqlConfig gets the tools config for `snowflake-execute-sql`
