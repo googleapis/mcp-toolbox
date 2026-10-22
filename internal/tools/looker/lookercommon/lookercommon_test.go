@@ -609,6 +609,51 @@ func TestProcessQueryArgsWithDynamicFields(t *testing.T) {
 	}
 }
 
+func TestExtractLookerErrorMessage(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		inErr   error
+		wantMsg string
+	}{
+		{
+			desc:    "extracts message from 400 Bad Request JSON error",
+			inErr:   lookerTestError(`response error. status=400 Bad Request. error={"message":"Missing values were not filled because too many fill rows would be generated. Try filtering to reduce the size of the result.","documentation_url":"https://docs.cloud.google.com/looker/docs/r/err/4.0/400/post/queries/run/:result_format"}`),
+			wantMsg: "Missing values were not filled because too many fill rows would be generated. Try filtering to reduce the size of the result.",
+		},
+		{
+			desc:    "extracts message from nested errors array",
+			inErr:   lookerTestError(`response error. status=422 Unprocessable Entity. error={"errors":[{"message":"Invalid filter expression for users.created_date"}]}`),
+			wantMsg: "Invalid filter expression for users.created_date",
+		},
+		{
+			desc:    "preserves 404 Sinatra::NotFound error unchanged",
+			inErr:   lookerTestError(`response error. status=404 Not Found. error={"message":"Sinatra::NotFound"}`),
+			wantMsg: `response error. status=404 Not Found. error={"message":"Sinatra::NotFound"}`,
+		},
+		{
+			desc:    "preserves plain non-JSON error unchanged",
+			inErr:   lookerTestError("connection refused"),
+			wantMsg: "connection refused",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := lookercommon.ExtractLookerErrorMessage(tc.inErr)
+			if got == nil {
+				t.Fatalf("expected non-nil error")
+			}
+			if got.Error() != tc.wantMsg {
+				t.Errorf("ExtractLookerErrorMessage() = %q, want %q", got.Error(), tc.wantMsg)
+			}
+		})
+	}
+}
+
+type lookerTestError string
+
+func (e lookerTestError) Error() string { return string(e) }
+
 func TestStripDrillLinks(t *testing.T) {
 	detailResp := map[string]any{
 		"sql":             "SELECT * FROM orders",
@@ -719,3 +764,103 @@ func TestStripDrillLinks(t *testing.T) {
 		t.Errorf("expected essential field metadata to be preserved, got %v", measureField)
 	}
 }
+
+func TestExceedsMCPPayloadLimit(t *testing.T) {
+	small := map[string]any{"status": "success"}
+	if size, exceeded := lookercommon.ExceedsMCPPayloadLimit(small, 1024); exceeded || size == 0 {
+		t.Errorf("expected small payload not to exceed 1024 bytes, got size=%d exceeded=%v", size, exceeded)
+	}
+	if _, exceeded := lookercommon.ExceedsMCPPayloadLimit(small, 5); !exceeded {
+		t.Errorf("expected small payload to exceed 5 bytes")
+	}
+}
+
+func TestNormalizeFilterKeys(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		filters map[string]any
+		fields  []string
+		hints   []string
+		want    map[string]any
+	}{
+		{
+			desc:    "rewrites underscored key matching field in fields",
+			filters: map[string]any{"order_items_created_date": "12 months"},
+			fields:  []string{"order_items.created_date", "order_items.count"},
+			want:    map[string]any{"order_items.created_date": "12 months"},
+		},
+		{
+			desc:    "rewrites underscored key matching multi-word view prefix from explore or fields",
+			filters: map[string]any{"order_items_created_month": "2024"},
+			fields:  []string{"order_items.count"},
+			hints:   []string{"order_items"},
+			want:    map[string]any{"order_items.created_month": "2024"},
+		},
+		{
+			desc:    "rewrites single-underscore key when view is not in fields",
+			filters: map[string]any{"users_state": "California"},
+			fields:  []string{"order_items.count"},
+			hints:   []string{"order_items"},
+			want:    map[string]any{"users.state": "California"},
+		},
+		{
+			desc:    "strips surrounding square brackets and quotes from keys",
+			filters: map[string]any{"[order_items.status]": "'Complete'"},
+			fields:  []string{"order_items.count"},
+			want:    map[string]any{"order_items.status": "Complete"},
+		},
+		{
+			desc:    "leaves dotted keys untouched",
+			filters: map[string]any{"inventory_items.created_date": "7 days"},
+			fields:  []string{"inventory_items.count"},
+			want:    map[string]any{"inventory_items.created_date": "7 days"},
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := lookercommon.NormalizeFilterKeys(tc.filters, tc.fields, tc.hints...)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("NormalizeFilterKeys() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEnsurePivotsInFieldsAndValidateDetailResponse(t *testing.T) {
+	fields, err := lookercommon.EnsurePivotsInFields([]string{"orders.created_year", "orders.count"}, []string{"orders.status"})
+	if err != nil {
+		t.Fatalf("unexpected error from EnsurePivotsInFields: %v", err)
+	}
+	wantFields := []string{"orders.created_year", "orders.count", "orders.status"}
+	if diff := cmp.Diff(wantFields, fields); diff != "" {
+		t.Errorf("EnsurePivotsInFields() mismatch (-want +got):\n%s", diff)
+	}
+
+	if _, err := lookercommon.EnsurePivotsInFields([]string{"orders.count"}, []string{"invalid_pivot_without_dot"}); err == nil {
+		t.Errorf("expected error for pivot field without dot")
+	}
+
+	// Valid pivot present in fields.pivots
+	validDetail := map[string]any{
+		"fields": map[string]any{
+			"pivots": []any{
+				map[string]any{"name": "orders.status"},
+			},
+		},
+	}
+	if err := lookercommon.ValidatePivotsInDetailResponse([]string{"orders.status"}, validDetail); err != nil {
+		t.Errorf("expected valid pivot to pass, got %v", err)
+	}
+
+	// Invalid pivot dropped by Looker (fields.pivots is empty)
+	droppedDetail := map[string]any{
+		"fields": map[string]any{
+			"pivots": []any{},
+		},
+	}
+	if err := lookercommon.ValidatePivotsInDetailResponse([]string{"order_items.status"}, droppedDetail); err == nil {
+		t.Errorf("expected error when Looker drops invalid pivot and returns empty fields.pivots")
+	}
+}
+
