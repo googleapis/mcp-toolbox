@@ -807,6 +807,59 @@ func GetMySQLDataTypeToolInfo(tableName string) DataTypeToolInfo {
 	}
 }
 
+// GetSQLiteDataTypeToolInfo returns statements and expected results for data
+// type test cases for sqlite-sql type
+func GetSQLiteDataTypeToolInfo(tableName string) DataTypeToolInfo {
+	createStatement := fmt.Sprintf(`CREATE TABLE %s (
+		id INTEGER PRIMARY KEY,
+		json_val TEXT,
+		long_text_val TEXT,
+		unicode_val TEXT,
+		numeric_text_val TEXT,
+		int_val INTEGER,
+		bigint_val INTEGER,
+		real_val REAL,
+		bool_val BOOLEAN,
+		date_val DATE,
+		datetime_val DATETIME,
+		blob_val BLOB,
+		null_val TEXT
+	);`, tableName)
+	insertStatement := fmt.Sprintf(`INSERT INTO %s VALUES (
+		1, '%s', '%s', '%s', '12345', -42, 9007199254740993, 3.5, 1,
+		'2024-01-15', '2024-01-15 10:30:45', X'DEADBEEF', NULL
+	);`, tableName, dataTypeJSON, dataTypeLongText, dataTypeUnicode)
+
+	return DataTypeToolInfo{
+		CreateStatement: createStatement,
+		InsertStatement: insertStatement,
+		ToolStatements: map[string]string{
+			"my-datatype-tool": fmt.Sprintf("SELECT * FROM %s ORDER BY id;", tableName),
+		},
+		Wants: map[string][]any{
+			"my-datatype-tool": {
+				map[string]any{
+					"id":            json.Number("1"),
+					"json_val":      dataTypeJSONWant(),
+					"long_text_val": dataTypeLongText,
+					"unicode_val":   dataTypeUnicode,
+					// TODO: every TEXT value is parsed as JSON, so a numeric string
+					// comes back as a number (#3659).
+					"numeric_text_val": json.Number("12345"),
+					"int_val":          json.Number("-42"),
+					"bigint_val":       json.Number("9007199254740993"),
+					"real_val":         json.Number("3.5"),
+					"bool_val":         json.Number("1"),
+					"date_val":         "2024-01-15T00:00:00Z",
+					"datetime_val":     "2024-01-15T10:30:45Z",
+					"blob_val":         "3q2+7w==",
+					"null_val":         nil,
+				},
+			},
+		},
+	}
+}
+
 // AddDataTypeToolConfig adds a tool for each data type test statement
 func AddDataTypeToolConfig(t *testing.T, config map[string]any, toolType string, toolStatements map[string]string) map[string]any {
 	tools, ok := config["tools"].(map[string]any)
