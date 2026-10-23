@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/firebase/genkit/go v1.4.0
-	github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2
+	github.com/googleapis/mcp-toolbox-sdk-go/core v1.2.0
 	github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit v0.6.0
 )
 
@@ -24,8 +24,8 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
-	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
+	github.com/googleapis/gax-go/v2 v2.18.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
@@ -46,7 +46,7 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	google.golang.org/api v0.265.0 // indirect
+	google.golang.org/api v0.272.0 // indirect
 	google.golang.org/genai v1.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/grpc v1.83.2 // indirect
