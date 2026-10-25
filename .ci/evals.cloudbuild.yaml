@@ -20,6 +20,19 @@
 # steps inherit _EVAL_HARNESSES unless they set their own.
 
 steps:
+  - id: "setup-airlock-auth"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor: ["-"]
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      TOKEN=$(gcloud auth print-access-token)
+      
+      # Write auth files to the persistent /workspace directory
+      echo "machine us-go.pkg.dev login oauth2accesstoken password $TOKEN" > /workspace/.netrc
+
+      echo "$TOKEN" > /workspace/.airlock_token
+
   # Narrows a pull request run to the databases it touched. Empty on a scheduled
   # build, which run_evals.sh runs in full.
   - id: "detect-changes"
@@ -47,10 +60,14 @@ steps:
         cat /workspace/changed_files.txt
 
   - id: "build-toolbox"
-    name: golang:1
-    waitFor: ["detect-changes"]
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    waitFor: ["detect-changes", "setup-airlock-auth"]
     env:
       - "CGO_ENABLED=1"  # godror does not build without cgo
+      - "HOME=/workspace"
+      - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+      - "GONOSUMDB=*"
+
     script: |
       bash /workspace/.ci/run_evals.sh --check-any || exit 0
       go build -o /workspace/toolbox .
@@ -240,6 +257,7 @@ timeout: 7200s
 # Everything not defined here comes from the trigger; run_evals.sh fails the
 # step when one is missing.
 substitutions:
+  _AIRLOCK_AR_PROJECT: "artifact-foundry-prod"
   _EVAL_HARNESSES: "claude_cli"
   # Presubmit runs override this so their rows stay out of the scheduled runs.
   _EVAL_GROUP: "mcp-toolbox"
