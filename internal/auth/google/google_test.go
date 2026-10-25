@@ -231,3 +231,77 @@ func TestValidateMCPAuth_Opaque_Fallback(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMCPAuth_Opaque_Claims(t *testing.T) {
+	tests := []struct {
+		name       string
+		respBody   string
+		wantClaims map[string]any
+		wantAbsent []string
+	}{
+		{
+			name:     "verified email and sub are exposed",
+			respBody: `{"aud": "my-aud", "scope": "openid email", "sub": "12345", "email": "user@example.com", "email_verified": "true"}`,
+			wantClaims: map[string]any{
+				"aud":            "my-aud",
+				"scope":          "openid email",
+				"sub":            "12345",
+				"email":          "user@example.com",
+				"email_verified": true,
+			},
+		},
+		{
+			name:       "unverified email is not exposed",
+			respBody:   `{"aud": "my-aud", "scope": "openid email", "sub": "12345", "email": "user@example.com", "email_verified": "false"}`,
+			wantClaims: map[string]any{"aud": "my-aud", "sub": "12345"},
+			wantAbsent: []string{"email", "email_verified"},
+		},
+		{
+			name:       "missing email_verified is not exposed",
+			respBody:   `{"aud": "my-aud", "scope": "openid", "sub": "12345", "email": "user@example.com"}`,
+			wantClaims: map[string]any{"aud": "my-aud", "sub": "12345"},
+			wantAbsent: []string{"email", "email_verified"},
+		},
+		{
+			name:       "no identity fields (no email/openid scope)",
+			respBody:   `{"aud": "my-aud", "scope": "https://www.googleapis.com/auth/drive"}`,
+			wantClaims: map[string]any{"aud": "my-aud"},
+			wantAbsent: []string{"sub", "email", "email_verified"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &http.Client{
+				Transport: mockRoundTripper(func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader(tc.respBody)),
+						Header:     make(http.Header),
+					}, nil
+				}),
+			}
+			a := AuthService{
+				Config: Config{Audience: "my-aud"},
+				client: mockClient,
+			}
+			header := make(http.Header)
+			header.Set("Authorization", "Bearer some-opaque-token")
+
+			claims, err := a.ValidateMCPAuth(context.Background(), header)
+			if err != nil {
+				t.Fatalf("ValidateMCPAuth() returned unexpected error: %v", err)
+			}
+			for k, want := range tc.wantClaims {
+				if got := claims[k]; got != want {
+					t.Errorf("claims[%q] = %v, want %v", k, got, want)
+				}
+			}
+			for _, k := range tc.wantAbsent {
+				if _, ok := claims[k]; ok {
+					t.Errorf("claims[%q] should be absent, got %v", k, claims[k])
+				}
+			}
+		})
+	}
+}
