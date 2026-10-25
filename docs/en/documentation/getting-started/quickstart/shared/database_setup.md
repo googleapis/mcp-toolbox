@@ -1,4 +1,4 @@
-<!-- This file has been used in local_quickstart.md, local_quickstart_go.md & local_quickstart_js.md -->
+<!-- This file has been used in local_quickstart.md, local_quickstart_go.md, local_quickstart_js.md & local_quickstart_java.md -->
 <!-- [START database_setup] -->
 In this section, we will create a database, insert some data that needs to be
 accessed by our agent, and create a database user for Toolbox to connect with.
