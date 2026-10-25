@@ -31,6 +31,7 @@ kind: tool
 name: list_tables
 type: oracle-sql
 source: oracle-source
+readOnly: true
 description: Lists all user tables in the connected schema, including segment size, row count, and last analyzed date. Filters by a comma-separated list of names. If names are omitted, lists all tables in the current user's schema.
 statement: |
   SELECT
@@ -52,6 +53,7 @@ kind: tool
 name: list_active_sessions
 type: oracle-sql
 source: oracle-source
+readOnly: true
 description: List the top N (default 50) currently running database sessions (STATUS='ACTIVE'), showing SID, OS User, Program, and the current SQL statement text.
 statement: |
   SELECT
@@ -98,6 +100,7 @@ kind: tool
 name: list_top_sql_by_resource
 type: oracle-sql
 source: oracle-source
+readOnly: true
 description: List the top N (default 5) SQL statements from the library cache based on a chosen resource metric (CPU, I/O, or Elapsed Time). Shows SQL ID, execution count, buffer gets, disk reads, CPU time, and elapsed time.
 statement: |
   SELECT
@@ -131,6 +134,7 @@ kind: tool
 name: list_tablespace_usage
 type: oracle-sql
 source: oracle-source
+readOnly: true
 description: List tablespace names, total size, free space, and used percentage to monitor storage utilization.
 statement: |
   SELECT
@@ -152,6 +156,7 @@ kind: tool
 name: list_invalid_objects
 type: oracle-sql
 source: oracle-source
+readOnly: true
 description: Lists all database objects that are in an invalid state, requiring recompilation (e.g., procedures, functions, views).
 statement: |
   SELECT

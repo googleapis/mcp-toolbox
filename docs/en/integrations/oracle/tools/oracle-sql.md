@@ -15,9 +15,17 @@ The specified SQL statement is executed using [prepared statements][oracle-stmt]
 for security and performance. It expects parameter placeholders in the SQL query
 to be in the native Oracle format (e.g., `:1`, `:2`).
 
-By default, tools are configured as **read-only** (SAFE mode). To execute data modification 
-statements (INSERT, UPDATE, DELETE), you must explicitly set the `readOnly` 
-field to `false`.
+By default, the statement runs as a query. Set `readOnly` to `true` to run it as
+a read-only transaction, so the database itself rejects writes and locking reads.
+Set it to `false` to run the statement as DML, which reports the number of
+affected rows instead of returning rows.
+
+> **Note:** A read-only transaction does not stop DDL, which commits implicitly,
+> or PL/SQL that writes in its own autonomous transaction
+> (`PRAGMA AUTONOMOUS_TRANSACTION`). See [Read-Only Access][ro-access] for
+> enforcing this in the database instead.
+
+[ro-access]: ../source.md#read-only-access
 
 [oracle-stmt]: https://docs.oracle.com/javase/tutorial/jdbc/basics/prepared.html
 
