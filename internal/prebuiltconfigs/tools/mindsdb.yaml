@@ -35,8 +35,8 @@ name: parameterized_sql
 type: mindsdb-sql
 source: mindsdb
 statement: |
-  SELECT * FROM {{.table_name}} 
-  WHERE {{.condition_column}} = ?
+  SELECT * FROM {{identifier .table_name}}
+  WHERE {{identifier .condition_column}} = ?
   LIMIT {{.limit}}
 description: |
   Execute parameterized SQL queries on MindsDB database.

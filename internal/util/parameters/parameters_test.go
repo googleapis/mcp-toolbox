@@ -2592,3 +2592,53 @@ func TestProcessParametersValidation(t *testing.T) {
 func ptr[T any](v T) *T {
 	return &v
 }
+
+func TestSafeIdentifier(t *testing.T) {
+	tcs := []struct {
+		in    string
+		valid bool
+	}{
+		// Allowed: plain and dot-qualified identifiers.
+		{"users", true},
+		{"my_table", true},
+		{"T1", true},
+		{"_internal", true},
+		{"datasource.table", true},
+		{"a", true},
+
+		// Rejected: empty, whitespace, control characters.
+		{"", false},
+		{" ", false},
+		{"\t", false},
+		{"\n", false},
+
+		// Rejected: leading digit.
+		{"1table", false},
+
+		// Rejected: identifier-quoting characters.
+		{"`users`", false},
+		{`"users"`, false},
+
+		// Rejected: separators, terminators and injection metacharacters.
+		{"users; DROP TABLE x", false},
+		{"t1 WHERE 1=1 UNION SELECT 1", false},
+		{"1=1 OR 1=1", false},
+		{"users LIMIT 0", false},
+		{".table", false},
+		{"schema.table.", false},
+	}
+	for _, tc := range tcs {
+		got, err := parameters.SafeIdentifier(tc.in)
+		if tc.valid {
+			if err != nil {
+				t.Errorf("SafeIdentifier(%q) returned unexpected error: %v", tc.in, err)
+				continue
+			}
+			if got != tc.in {
+				t.Errorf("SafeIdentifier(%q) = %q, want %q", tc.in, got, tc.in)
+			}
+		} else if err == nil {
+			t.Errorf("SafeIdentifier(%q) = %q, want error", tc.in, got)
+		}
+	}
+}
