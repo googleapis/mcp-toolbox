@@ -1,0 +1,24 @@
+{
+  "name": "database-schema-discovery",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "dependencies": {
+    "mssql": "^12.5.5",
+    "mysql2": "^3.22.5",
+    "pg": "^8.22.0",
+    "sqlite3": "^6.0.1",
+    "yaml": "^2.9.0",
+    "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2"
+  }
+}
