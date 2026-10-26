@@ -1408,6 +1408,13 @@ func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user
 			want:           fmt.Sprintf("[%s,%s]", getDetailedWant(tableNameAuth, authTableColumns), getDetailedWant(tableNameParam, paramTableColumns)),
 		},
 		{
+			name:           "invoke list_tables with multiple table names and surrounding whitespace",
+			toolName:       "list_tables",
+			args:           map[string]any{"table_names": fmt.Sprintf("  %s , %s  ", tableNameParam, tableNameAuth)},
+			wantStatusCode: http.StatusOK,
+			want:           fmt.Sprintf("[%s,%s]", getDetailedWant(tableNameAuth, authTableColumns), getDetailedWant(tableNameParam, paramTableColumns)),
+		},
+		{
 			name:           "invoke list_tables with non-existent table",
 			toolName:       "list_tables",
 			args:           map[string]any{"table_names": "non_existent_table"},

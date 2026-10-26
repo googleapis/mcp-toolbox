@@ -48,7 +48,7 @@ const listTablesStatement = `
         CROSS JOIN desired_relkinds dk
         WHERE
             t.relkind = ANY(dk.kinds) -- Filter by selected table relkinds ('r', 'p')
-            AND (NULLIF(TRIM($1), '') IS NULL OR t.relname = ANY(string_to_array($1,','))) -- $1 is object_names
+            AND (NULLIF(TRIM($1), '') IS NULL OR t.relname = ANY(regexp_split_to_array(TRIM($1), '\s*,\s*'))) -- $1 is object_names
             AND ns.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast','google_ml')
             AND ns.nspname NOT LIKE 'pg_temp_%' AND ns.nspname NOT LIKE 'pg_toast_temp_%'
     ),
