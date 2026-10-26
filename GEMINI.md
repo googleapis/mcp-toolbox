@@ -9,11 +9,11 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 
 ## Tech Stack
 
--   **Language:** Go (1.23+)
+-   **Language:** Go (1.26.7+)
 -   **Documentation:** Hugo (Extended Edition v0.146.0+)
 -   **Containerization:** Docker
 -   **CI/CD:** GitHub Actions, Google Cloud Build
--   **Linting:** `golangci-lint`
+-   **Linting:** `golangci-lint`, `zizmor` (GitHub Actions workflows)
 
 ## Key Directories
 
@@ -35,8 +35,10 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 
 ### Prerequisites
 
--   Go 1.23 or later.
+-   Go 1.26.7 or later.
 -   Docker (for building container images and running some tests).
+-   `golangci-lint` (for Go linting).
+-   `zizmor` (for GitHub Actions workflow security linting).
 -   Access to necessary Google Cloud resources for integration testing (if applicable).
 
 ### Building and Running
@@ -53,7 +55,26 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
     -   Run specific source tests: `go test -race -v ./tests/<source_dir>`
     -   Example: `go test -race -v ./tests/alloydbpg`
     -   Add new sources to `.ci/integration.cloudbuild.yaml`
--   **Linting:** `golangci-lint run --fix`
+
+### Linting
+
+-   **Go Changes:** Always run `golangci-lint` after any changes to Go files (`*.go`, `go.mod`, `go.sum`):
+    ```bash
+    golangci-lint run --fix
+    ```
+-   **GitHub Actions Workflow Changes:** Always run `zizmor` for any changes to `.github/workflows`:
+    ```bash
+    zizmor .github/workflows
+    ```
+    Or audit a specific workflow file:
+    ```bash
+    zizmor .github/workflows/<workflow_file>.yaml
+    ```
+    If an intentional pattern is flagged that is verified to be safe, document the rationale and suppress it with an inline ignore comment:
+    ```yaml
+    # zizmor flags <rule>, but <reason why it is safe>.
+    # zizmor: ignore[<rule>]
+    ```
 
 
 ## Developing Documentation
@@ -161,6 +182,7 @@ Before proposing or making a change, check it for the vulnerability classes most
 -   **Credentials and secrets:** Never log, hardcode, or echo back a credential, API key, connection string, or token. Read secrets from config/environment, not from tool parameters.
 -   **Path/command injection:** Treat any user-supplied string used to build a file path or a shell/subprocess argument as untrusted; validate or reject it rather than passing it through unchecked.
 -   **Auth bypass:** The server enforces each tool's `authRequired`/`scopesRequired` (read via `GetAuthRequired`/`GetScopesRequired`) for every invocation. Do not override these getters or add a code path that skips the checks.
+-   **CI/CD workflow security:** When modifying GitHub Actions workflows under `.github/workflows/`, audit for security vulnerabilities (e.g., dangerous triggers, script injection, cache poisoning) by running `zizmor .github/workflows`.
 
 If a change touches a `source` or `tool` implementation, call out the relevant point(s) above explicitly in the PR description rather than leaving them implicit.
 
