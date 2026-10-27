@@ -253,7 +253,7 @@ func (s *Source) QueryLogs(ctx context.Context, params QueryLogsParams, accessTo
 	// Set up iterator
 	it := client.Entries(ctx, opts...)
 
-	var results []map[string]any
+	results := []map[string]any{}
 	for len(results) < params.Limit {
 		entry, err := it.Next()
 		if err == iterator.Done {
