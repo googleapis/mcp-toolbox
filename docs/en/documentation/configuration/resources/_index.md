@@ -61,11 +61,12 @@ allowedPaths:
 |---------------|----------------------------------------|--------------|--------------------------------------------------------------------------------------------------------------|
 | `name`        | string                                 | Yes          | Unique identifier for the resource.                                                                          |
 | `type`        | string                                 | Yes          | The type of resource. Supported types: `"text"` and `"file"`.                                                |
-| `uri`         | string                                 | No           | Unique URI for the resource. Defaults to `text://{name}` for text resources, or `file:///{normalized_path}` for file resources. |
+| `uri`         | string                                 | No           | Unique URI for the resource. Defaults to `text://{name}` for text resources, or `file:///{normalized_path}` for file resources. A file resource can also use a `skill://` URI, which makes it part of an [Agent Skill](../skills/serving.md). |
 | `description` | string                                 | No           | A brief explanation of what the resource contains.                                                           |
 | `title`       | string                                 | No           | Human-readable title for the resource.                                                                       |
 | `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files; defaults to `text/html;profile=mcp-app` when `ui: true`. |
 | `ui`          | bool                                   | No           | Set to `true` to designate this resource as an interactive UI app. UI resources are globally accessible and omitted from `resources/list`. See [MCP Apps](../mcp-apps/). |
+| `dynamic`     | bool                                   | No           | Set to `true` on a skill's `SKILL.md` resource to publish the dynamic marker in place of file digests. A dynamic skill publishes no digests, so a client cannot verify what it fetched. Valid only on a `skill://<skill-path>/SKILL.md` URI. See [Serving Skills over MCP](../skills/serving.md). |
 | `annotations` | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
 
 ## Resource Template Schema (`kind: resourceTemplate`)

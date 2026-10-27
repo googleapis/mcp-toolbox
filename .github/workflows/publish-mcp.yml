@@ -13,10 +13,16 @@
 # limitations under the License.
 
 name: Publish to MCP Registry
+run-name: Publish ${{ inputs.version_tag }} to MCP Registry
 
 on:
   # Triggered after Stage 2 promotes the container image to Artifact Registry
   workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'The release version tag to publish (e.g., v1.15.0)'
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -29,6 +35,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.version_tag }}
           persist-credentials: false
 
       - name: Wait for image in Artifact Registry

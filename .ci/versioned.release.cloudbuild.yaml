@@ -12,6 +12,33 @@
 # limitations under the License.
 
 steps:
+  - id: "secure_content_scan"
+    name: "us-central1-docker.pkg.dev/louhi-prod-1/louhi-helper/louhi-helper-v2"
+    waitFor: ["-"]
+    args:
+    - "secure_content_scan"
+    - "--allowed_prefixes"
+    - "https://python.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://maven.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://go.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://apt.pkg.dev/projects/${_AIRLOCK_AR_PROJECT}/"
+    - "https://us-python.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://us-apt.pkg.dev/projects/${_AIRLOCK_AR_PROJECT}/"
+    - "https://storage.googleapis.com/toolbox-build-assets/"
+    - "gcr.io/distroless/"
+    - "golang:"
+    - "gcr.io/cloud-builders/"
+    - "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    results:
+      - name: "allowed_uri_prefix"
+        attestationContent: "allowed_uri_prefix"
+        attestationType: "https://bcid.corp.google.com/build-content-restrictions/v0.1"
+
   - id: "setup-airlock-auth"
     name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ["-"]
