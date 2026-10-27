@@ -92,8 +92,9 @@ Two limits are worth planning around:
 
 Treat `allowedLocalRoots` as a guardrail layered on top of OS permissions
 rather than a replacement for them: run Toolbox as a user that only has access
-to the files it needs. If `allowedLocalRoots` is omitted, every absolute path
-the server process can reach is allowed.
+to the files it needs. If `allowedLocalRoots` is omitted, local file access is
+disabled: `cloud-storage-upload-object` and `cloud-storage-download-object`
+reject every local path until at least one root is configured.
 
 [iam-overview]: https://cloud.google.com/storage/docs/access-control/iam
 [adc]: https://cloud.google.com/docs/authentication#adc
