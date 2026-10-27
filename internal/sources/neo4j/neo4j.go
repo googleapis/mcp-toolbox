@@ -153,7 +153,7 @@ func (s *Source) RunQuery(ctx context.Context, cypherStr string, params map[stri
 		return []map[string]any{execPlan}, nil
 	}
 
-	var out []map[string]any
+	out := []map[string]any{}
 	keys := results.Keys
 	records := results.Records
 	for _, record := range records {
