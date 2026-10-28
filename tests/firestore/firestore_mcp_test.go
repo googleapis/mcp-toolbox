@@ -213,6 +213,18 @@ func getFirestoreMCPManifests() []tests.MCPToolManifest {
 	}
 }
 
+func TestFirestoreMCPListTools(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	tr := firestoreTransport{isMCP: true}
+	tr.startServer(t, ctx, getFirestoreToolsConfig(getFirestoreVars(t)))
+
+	t.Run("verify tools/list registry returns complete manifest", func(t *testing.T) {
+		tests.RunMCPToolsListMethod(t, getFirestoreMCPManifests())
+	})
+}
+
 func TestFirestoreMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -221,8 +233,6 @@ func TestFirestoreMCPCallTool(t *testing.T) {
 
 	tr := firestoreTransport{isMCP: true}
 	tr.startServer(t, ctx, toolsFile)
-
-	tests.RunMCPToolsListMethod(t, getFirestoreMCPManifests())
 
 	// Run Firestore-specific MCP test
 	runFirestoreMCPToolCallMethod(t, d.docPath1, d.docPath2)
