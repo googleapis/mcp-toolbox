@@ -1189,11 +1189,8 @@ steps:
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
-      - "TIDB_DATABASE=$_DATABASE_NAME"
-      - "TIDB_HOST=$_TIDB_HOST"
-      - "TIDB_PORT=$_TIDB_PORT"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
-    secretEnv: ["CLIENT_ID", "TIDB_USER", "TIDB_PASS"]
+    secretEnv: ["CLIENT_ID"]
     volumes:
       - name: "go"
         path: "/gopath"
@@ -1747,10 +1744,6 @@ availableSecrets:
       env: LOOKER_CLIENT_ID
     - versionName: projects/$PROJECT_ID/secrets/looker_client_secret/versions/latest
       env: LOOKER_CLIENT_SECRET
-    - versionName: projects/$PROJECT_ID/secrets/tidb_user/versions/latest
-      env: TIDB_USER
-    - versionName: projects/$PROJECT_ID/secrets/tidb_pass/versions/latest
-      env: TIDB_PASS
     - versionName: projects/$PROJECT_ID/secrets/clickhouse_host/versions/latest
       env: CLICKHOUSE_HOST
     - versionName: projects/$PROJECT_ID/secrets/clickhouse_user/versions/latest
@@ -1842,8 +1835,6 @@ substitutions:
   _LOOKER_LOCATION: "us"
   _LOOKER_PROJECT: "149671255749"
   _LOOKER_VERIFY_SSL: "true"
-  _TIDB_HOST: 127.0.0.1
-  _TIDB_PORT: "4000"
   _CLICKHOUSE_DATABASE: "default"
   _CLICKHOUSE_PORT: "8123"
   _CLICKHOUSE_PROTOCOL: "http"
