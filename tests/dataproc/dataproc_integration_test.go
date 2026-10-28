@@ -697,6 +697,11 @@ func runAuthTest(t *testing.T, ctx context.Context, tr dataprocTransport, toolNa
 			if res.status != tc.wantCode {
 				t.Errorf("status code got %d, want %d. Body: %s", res.status, tc.wantCode, res.body)
 			}
+			// Over MCP a tool error is returned with HTTP 200, so a successful
+			// call must also not be an error result.
+			if tc.wantCode == http.StatusOK && res.toolErr {
+				t.Errorf("unexpected error result: %s", res.body)
+			}
 		})
 	}
 }
