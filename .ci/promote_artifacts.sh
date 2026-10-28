@@ -128,13 +128,18 @@ upsert_tag() {
 }
 
 tag_with_children() {
-  local prefix="$1" repo="$2" digest="$3" suffix="$4" child
+  local prefix="$1" repo="$2" digest="$3" suffix="$4" children child
   local encoded_package="${PACKAGE_NAME//\//%2F}"
   upsert_tag "${prefix}-${suffix}" "${repo}" "${digest}"
-  for child in $(curl -fsSL --retry 3 \
+  children=$(curl -fsSL --retry 3 \
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${repo}/dockerImages/${encoded_package}@${digest}" \
-    | jq -r '.imageManifests[]?.digest // empty | select(startswith("sha256:"))'); do
+    | jq -r '.imageManifests[]?.digest // empty | select(startswith("sha256:"))')
+  if [[ -z "${children}" ]]; then
+    echo "ERROR: No child manifests found for ${repo}/${PACKAGE_NAME}@${digest}" >&2
+    exit 1
+  fi
+  for child in ${children}; do
     local child_sha="${child#sha256:}"
     upsert_tag "${prefix}-${child_sha:0:12}" "${repo}" "${child}"
   done
