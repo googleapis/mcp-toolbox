@@ -357,6 +357,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	res, resMeta := tools.SplitResultMeta(res)
 	resMarshal, err := json.Marshal(res)
 	if err != nil {
 		err = fmt.Errorf("unable to marshal result: %w", err)
@@ -365,7 +366,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = render.Render(w, r, &resultResponse{Result: string(resMarshal)})
+	_ = render.Render(w, r, &resultResponse{Result: string(resMarshal), Meta: resMeta})
 }
 
 var _ render.Renderer = &resultResponse{} // Renderer interface for managing response payloads.
@@ -373,6 +374,9 @@ var _ render.Renderer = &resultResponse{} // Renderer interface for managing res
 // resultResponse is the response sent back when the tool was invocated successfully.
 type resultResponse struct {
 	Result string `json:"result"` // result of tool invocation
+	// Meta carries out-of-band metadata from the tool (e.g. upstream token
+	// usage) intended for the calling application, not the model.
+	Meta map[string]any `json:"meta,omitempty"`
 }
 
 // Render renders a single payload and respond to the client request.
