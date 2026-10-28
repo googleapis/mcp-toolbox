@@ -9,6 +9,10 @@ description: >
 A `prompt` represents a reusable prompt template that can be retrieved and used
 by MCP clients.
 
+{{< notice note >}}
+You can use [Groups](../groups/) to organize prompts into collections. When you connect to a group's endpoint, `prompts/list` returns only the prompts in that group. The default endpoint returns all prompts.
+{{< /notice >}}
+
 A Prompt is essentially a template for a message or a series of messages that
 can be sent to a Large Language Model (LLM). The Toolbox server implements the
 `prompts/list` and `prompts/get` methods from the [Model Context Protocol

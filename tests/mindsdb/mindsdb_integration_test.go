@@ -169,6 +169,25 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 				"description": "Tool to test invocation with array params.",
 				"statement":   "SELECT 1 as id, 'Alice' as name UNION SELECT 3 as id, 'Sid' as name",
 			},
+			"my-secure-tool": map[string]any{
+				"type":        MindsDBToolType,
+				"source":      "my-instance",
+				"description": "Tool to test secure parameters.",
+				"statement":   "SELECT 1 as id, 'Alice' as name UNION SELECT 3 as id, 'Sid' as name",
+				"parameters": []map[string]any{
+					{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user ID",
+					},
+					{
+						"name":        "name",
+						"type":        "string",
+						"description": "user name",
+						"secure":      true,
+					},
+				},
+			},
 			"my-auth-tool": map[string]any{
 				"type":        MindsDBToolType,
 				"source":      "my-instance",

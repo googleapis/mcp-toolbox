@@ -23,12 +23,40 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	cockroachdbsource "github.com/googleapis/mcp-toolbox/internal/sources/cockroachdb"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tccockroachdb "github.com/testcontainers/testcontainers-go/modules/cockroachdb"
 )
+
+func TestCockroachDBQueryLimits(t *testing.T) {
+	source := &cockroachdbsource.Source{Config: cockroachdbsource.Config{MaxRowLimit: 100}}
+	tests := []struct {
+		name string
+		sql  string
+		want string
+	}{
+		{"existing limit", "SELECT *\nFROM users\nLIMIT 50", "SELECT *\nFROM users\nLIMIT 50"},
+		{"limit in line comment", "SELECT * FROM users -- LIMIT is not here", "SELECT * FROM users -- LIMIT is not here\nLIMIT 100"},
+		{"limit in nested block comment", "SELECT * FROM users /* outer /* LIMIT */ comment */", "SELECT * FROM users /* outer /* LIMIT */ comment */ LIMIT 100"},
+		{"limit in quoted text", `SELECT 'LIMIT', "LIMIT", $$LIMIT$$ FROM users`, `SELECT 'LIMIT', "LIMIT", $$LIMIT$$ FROM users LIMIT 100`},
+		{"multiline semicolon", "\n\tSELECT *\n\tFROM users\n\tORDER BY id;\n", "SELECT *\n\tFROM users\n\tORDER BY id LIMIT 100"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := source.ApplyQueryLimits(tt.sql)
+			if err != nil {
+				t.Fatalf("ApplyQueryLimits returned an error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ApplyQueryLimits() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 var (
 	CockroachDBSourceType = "cockroachdb"

@@ -84,8 +84,9 @@ type: firestore-validate-rules
 source: firestore-source
 description: Checks the provided Firestore Rules source for syntax and validation errors. Provide the source code to validate.
 ---
-kind: toolset
+kind: group
 name: data
+description: Handles NoSQL document operations and collection hierarchy exploration. Use for CRUD tasks and data retrieval. Provides flexible document manipulation and structured querying.
 tools:
 - get_documents
 - add_documents

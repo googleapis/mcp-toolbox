@@ -53,10 +53,10 @@ We currently support different versions of the MCP protocol.
 
 | Constant | Description |
 | :--- | :--- |
-| `Protocol.MCP` | **(Default)** Alias for the default MCP version (currently `2025-11-25`). |
-| `Protocol.MCP_LATEST` | Alias for the latest stable MCP version (currently `2025-11-25`). |
-| `Protocol.MCP_DRAFT` | Alias for the upcoming draft MCP version (currently `DRAFT-2026-v1`). |
-| `Protocol.MCP_v2026_DRAFT` | MCP Protocol draft version DRAFT-2026-v1. |
+| `Protocol.MCP` | **(Default)** Alias for the default MCP version (currently `2026-07-28`). |
+| `Protocol.MCP_LATEST` | Alias for the latest stable MCP version (currently `2026-07-28`). |
+| `Protocol.MCP_DRAFT` | Alias for the upcoming draft MCP version (currently `2026-07-28`). |
+| `Protocol.MCP_v20260728` | MCP Protocol version 2026-07-28. |
 | `Protocol.MCP_v20251125` | MCP Protocol version 2025-11-25. |
 | `Protocol.MCP_v20250618` | MCP Protocol version 2025-06-18. |
 | `Protocol.MCP_v20250326` | MCP Protocol version 2025-03-26. |
@@ -260,6 +260,56 @@ toolset = ToolboxToolset(
 )
 ```
 
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in `toolbox-adk` version `1.4.0` (with `toolbox-core` >= `1.4.0`) and require MCP protocol version `2026-07-28` or newer with the `com.google.cloud/toolbox.v1` extension. For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime values (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see or control.
+
+When tools define `secure: true` parameters in their Toolbox server configuration:
+* **Schema Isolation:** Secure parameters are completely stripped from the ADK Gemini tool declaration (`tool.declaration` / `tool._get_declaration()`), so the LLM model never sees them in prompt instructions or context windows.
+* **Prompt Injection Defense:** If a model attempts to generate arguments containing a secure parameter name, execution is rejected immediately.
+* **Fast-Fail Validation:** Missing required secure parameters fail locally prior to network transmission.
+* **Direct Application Injection:** Secure parameters must be supplied directly by your application out-of-band:
+
+```python
+from toolbox_adk import ToolboxToolset, ToolboxClient
+
+# Option A: Bind secure parameters globally on ToolboxToolset
+toolset = ToolboxToolset(
+    server_url="http://127.0.0.1:5000",
+    secure_params={
+        "customer_id": "cust_12345",
+        "session_token": lambda: get_session_token(),  # Sync or async callables supported
+    },
+)
+
+# Option B: Bind secure parameters when loading tools via ToolboxClient
+client = ToolboxClient("http://127.0.0.1:5000")
+bound_tool = await client.load_tool(
+    "search_secure_data",
+    secure_params={"customer_id": "cust_12345"}
+)
+
+# Option C: Bind to an un-bound loaded tool (returns a new immutable tool)
+raw_tool = await client.load_tool("search_secure_data")
+single_bound = raw_tool.bind_secure_param("customer_id", "cust_12345")
+multi_bound = raw_tool.bind_secure_params({
+    "customer_id": "cust_12345",
+    "session_token": "token-xyz",
+})
+```
+
+### Cross-Binding Guidance & Mutual Exclusivity
+
+* Calling `tool.bind_param()` on a secure parameter raises:  
+  `ValueError: parameter '<name>' is a secure parameter; use bind_secure_param/bind_secure_params instead`
+* Calling `tool.bind_secure_param()` on a regular parameter raises:  
+  `ValueError: parameter '<name>' is a regular parameter; use bind_param/bind_params instead`
+
+
 ## OpenTelemetry
 
 The SDK supports OpenTelemetry tracing and metrics via the `toolbox-core` layer, following the [MCP Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/mcp).
@@ -283,3 +333,25 @@ toolset = ToolboxToolset(
 
 Configure your OpenTelemetry `TracerProvider` and `MeterProvider` before creating the client. See the [toolbox-core OpenTelemetry documentation](https://mcp-toolbox.dev/documentation/connect-to/toolbox-sdks/python-sdk/core/#opentelemetry) for a full setup example.
 
+### Per-call Telemetry Attributes
+
+Use `TelemetryAttributes` to attach model, user, and agent metadata to each tool invocation:
+
+```python
+from toolbox_adk import ToolboxToolset
+from toolbox_core import TelemetryAttributes
+
+def get_telemetry_attributes(tool_context):
+    return TelemetryAttributes(
+        llm_model="gemini-3.6-flash",
+        user_id=tool_context.state.get("user_id"),
+        agent_id="agent-abc",
+    )
+
+toolset = ToolboxToolset(
+    server_url="http://127.0.0.1:5000",
+    telemetry_attributes=get_telemetry_attributes,
+)
+```
+
+`telemetry_attributes` also accepts a static `TelemetryAttributes` instance or an async callable. When wrapping a core tool directly, pass the same argument to `ToolboxTool`. See the [toolbox-core telemetry attributes documentation](https://mcp-toolbox.dev/documentation/connect-to/toolbox-sdks/python-sdk/core/#per-call-telemetry-attributes) for field details.

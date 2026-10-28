@@ -64,7 +64,7 @@ func TestParseFromYamlSpannerSearch(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -90,19 +90,9 @@ func (m mockSpannerSource) GetCatalogClient(ctx context.Context, tokenString str
 func (m mockSpannerSource) InvokeSearchCatalog(ctx context.Context, params map[string]any, tokenStr string) ([]searchcatalog.DataplexSearchResponse, error) {
 	return m.searchResponse, m.err
 }
+func (m mockSpannerSource) IsReadOnly() bool               { return false }
 func (m mockSpannerSource) SourceType() string             { return "spanner" }
 func (m mockSpannerSource) ToConfig() sources.SourceConfig { return nil }
-
-type mockSourceProvider struct {
-	source sources.Source
-}
-
-func (m mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	if m.source != nil {
-		return m.source, true
-	}
-	return nil, false
-}
 
 func TestConfig_Initialize(t *testing.T) {
 	cfg := spannersearchcatalog.Config{
@@ -137,7 +127,6 @@ func TestTool_Invoke(t *testing.T) {
 			},
 		},
 	}
-	sourceProvider := mockSourceProvider{source: mockSource}
 
 	cfg := spannersearchcatalog.Config{
 		ConfigBase: tools.ConfigBase{
@@ -158,7 +147,7 @@ func TestTool_Invoke(t *testing.T) {
 		},
 	}
 
-	resp, err := tool.Invoke(ctx, sourceProvider, params, tools.AccessToken(""))
+	resp, err := tool.Invoke(ctx, mockSource, params, tools.AccessToken(""))
 	if err != nil {
 		t.Fatalf("Invoke failed: %v", err)
 	}

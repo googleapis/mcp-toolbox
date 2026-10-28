@@ -47,7 +47,7 @@ timeout: 1200s
 
 substitutions:
   _TARGET_LANG: "go"
-  _IMAGE: "golang:1.25.7"
+  _IMAGE: "golang:1.25.8"
   _TARGET_ROOT: "docs/en/documentation/configuration/pre-post-processing/go"
   _TABLE_NAME: "hotels_go_pre_post_processing"
   _SQL_FILE: ".ci/sample_tests/setup_hotels.sql"

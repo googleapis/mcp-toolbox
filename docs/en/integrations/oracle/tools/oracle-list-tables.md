@@ -1,5 +1,5 @@
 ---
-title: "list_tables"
+title: "oracle-list-tables"
 type: docs
 weight: 1
 description: > 
@@ -33,11 +33,12 @@ field to `false`.
 > names, or other parts of the query.
 
 ```yaml
-tools:
-  list_tables:
-    kind: oracle-sql
-    source: my-oracle-instance
-    statement: |
-      SELECT table_name from user_tables;
-    description: |
-      Lists all table names in the current user's schema.
+kind: tool
+name: list_tables
+type: oracle-sql
+source: my-oracle-instance
+statement: |
+  SELECT table_name from user_tables;
+description: |
+  Lists all table names in the current user's schema.
+```

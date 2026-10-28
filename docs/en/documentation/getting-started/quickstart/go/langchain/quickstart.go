@@ -59,7 +59,7 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize the Google AI client (LLM).
-	llm, err := googleai.New(ctx, googleai.WithAPIKey(genaiKey), googleai.WithDefaultModel("gemini-2.0-flash"))
+	llm, err := googleai.New(ctx, googleai.WithAPIKey(genaiKey), googleai.WithDefaultModel("gemini-3.6-flash"))
 	if err != nil {
 		log.Fatalf("Failed to create Google AI client: %v", err)
 	}

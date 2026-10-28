@@ -13,10 +13,10 @@
 # limitations under the License.
 #
 # Retry-only pipeline for the OSS Exit Gate npm publish steps. Use when the
-# npm portion of the versioned release fails after Go binaries are already in
-# GCS. Each platform package's prepack script downloads its binary from GCS by
-# version, and publish_npm_to_ar.sh's idempotency check skips packages already
-# in AR.
+# npm portion of the Stage 2 promotion pipeline (.ci/promote.cloudbuild.yaml)
+# fails after signed Go binaries are already in GCS. Each platform package's
+# prepack script downloads its binary from GCS by version, and
+# publish_npm_to_ar.sh's idempotency check skips packages already in AR.
 #
 # Invoke after checking out the version's tag locally:
 #   git checkout v<X.Y.Z>
@@ -24,6 +24,7 @@
 #     --config=.ci/npm_retry.cloudbuild.yaml \
 #     --region=us-central1 \
 #     --service-account=projects/database-toolbox/serviceAccounts/release@database-toolbox.iam.gserviceaccount.com \
+#     --substitutions=_PUSH_TO_EXIT_GATES="true" \
 #     .
 
 steps:
@@ -39,6 +40,9 @@ steps:
       - "publish-npm-to-ar"
     env:
       - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh npm
@@ -49,3 +53,8 @@ options:
   logging: CLOUD_LOGGING_ONLY
   pool:
     name: projects/$PROJECT_ID/locations/us-central1/workerPools/run-release
+
+substitutions:
+  _EXIT_GATE_PROJECT: "mcp-toolbox"
+  _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
+  _PUSH_TO_EXIT_GATES: "false"

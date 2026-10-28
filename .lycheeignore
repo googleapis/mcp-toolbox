@@ -44,3 +44,9 @@ https://www.oceanbase.com/
 
 # Ignore social media and blog profiles to reduce external request overhead
 https://medium.com/@mcp_toolbox
+
+# Maven Central artifact repository blocks automated scrapers with 403
+^https?://mvnrepository\.com/.*
+
+# Documentation pages pending deployment to production
+https://mcp-toolbox.dev/documentation/configuration/resources/

@@ -20,11 +20,13 @@ import (
 	"slices"
 
 	"github.com/goccy/go-yaml"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 )
 
 const resourceType string = "mongodb-delete-one"
@@ -49,14 +51,14 @@ type compatibleSource interface {
 }
 
 type Config struct {
-	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Database         string                 `yaml:"database" validate:"required"`
-	Collection       string                 `yaml:"collection" validate:"required"`
-	FilterPayload    string                 `yaml:"filterPayload" validate:"required"`
-	FilterParams     parameters.Parameters  `yaml:"filterParams"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	tools.ConfigBase        `yaml:",inline"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	FilterPayload           string                `yaml:"filterPayload" validate:"required"`
+	FilterParams            parameters.Parameters `yaml:"filterParams"`
 }
 
 // validate interface
@@ -72,6 +74,11 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	}
 
 	allParameters := slices.Concat(cfg.FilterParams)
+
+	if err := mongodbcommon.ValidateCollectionConfig(cfg.Collection, cfg.CollectionAllowedValues); err != nil {
+		return nil, err
+	}
+	allParameters = mongodbcommon.WithRuntimeCollectionParam(cfg.Collection, cfg.CollectionAllowedValues, allParameters)
 
 	if err := parameters.CheckDuplicateParameters(allParameters); err != nil {
 		return nil, err
@@ -99,23 +106,39 @@ type Tool struct {
 	tools.BaseTool[Config]
 }
 
+func (t Tool) GetSourceName() string {
+	return t.Cfg.Source
+}
+
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg
 }
 
-func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, err)
+func (t Tool) ValidateSource(source sources.Source) error {
+	_, ok := source.(compatibleSource)
+	if !ok {
+		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
+	return nil
+}
 
+func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	source, ok := s.(compatibleSource)
+	if !ok {
+		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
+	}
 	paramsMap := params.AsMap()
+
+	collection, tbErr := mongodbcommon.ResolveCollection(t.Cfg.Collection, paramsMap)
+	if tbErr != nil {
+		return nil, tbErr
+	}
 
 	filterString, err := parameters.PopulateTemplateWithJSON("MongoDBDeleteOneFilter", t.Cfg.FilterPayload, paramsMap)
 	if err != nil {
 		return nil, util.NewAgentError("error populating filter", err)
 	}
-	resp, err := source.DeleteOne(ctx, filterString, t.Cfg.Database, t.Cfg.Collection)
+	resp, err := source.DeleteOne(ctx, filterString, t.Cfg.Database, collection)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

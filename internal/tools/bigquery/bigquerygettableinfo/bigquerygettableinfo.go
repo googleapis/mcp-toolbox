@@ -59,9 +59,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -94,16 +93,27 @@ type Tool struct {
 	tools.BaseTool[Config]
 }
 
+func (t Tool) GetSourceName() string {
+	return t.Cfg.Source
+}
+
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg
 }
 
-func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, err)
+func (t Tool) ValidateSource(source sources.Source) error {
+	_, ok := source.(compatibleSource)
+	if !ok {
+		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
+	return nil
+}
 
+func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	source, ok := s.(compatibleSource)
+	if !ok {
+		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
+	}
 	mapParams := params.AsMap()
 	projectId, ok := mapParams[projectKey].(string)
 	if !ok {
@@ -137,23 +147,109 @@ func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, par
 		return nil, util.ProcessGcpError(err)
 	}
 
-	return metadata, nil
+	return toCompactTableMetadata(metadata), nil
 }
 
-func (t Tool) RequiresClientAuthorization(primitiveMgr tools.SourceProvider) (bool, error) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return false, err
-	}
-	return source.UseClientAuthorization(), nil
+// compactTableMetadata wraps bigqueryapi.TableMetadata with a compact Schema while preserving top-level field order.
+type compactTableMetadata struct {
+	Name        string                `json:"Name"`
+	Location    string                `json:"Location"`
+	Description string                `json:"Description"`
+	Schema      []*compactFieldSchema `json:"Schema"`
+	*bigqueryapi.TableMetadata
 }
 
-func (t Tool) GetAuthTokenHeaderName(primitiveMgr tools.SourceProvider) (string, error) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return "", err
+// compactFieldSchema mirrors bigqueryapi.FieldSchema, omitting zero-valued optional fields in JSON.
+type compactFieldSchema struct {
+	Name                   string                        `json:"Name"`
+	Description            string                        `json:"Description,omitempty"`
+	Repeated               bool                          `json:"Repeated,omitempty"`
+	Required               bool                          `json:"Required,omitempty"`
+	Type                   bigqueryapi.FieldType         `json:"Type"`
+	PolicyTags             *bigqueryapi.PolicyTagList    `json:"PolicyTags,omitempty"`
+	Schema                 []*compactFieldSchema         `json:"Schema,omitempty"`
+	MaxLength              int64                         `json:"MaxLength,omitempty"`
+	Precision              int64                         `json:"Precision,omitempty"`
+	Scale                  int64                         `json:"Scale,omitempty"`
+	DefaultValueExpression string                        `json:"DefaultValueExpression,omitempty"`
+	Collation              string                        `json:"Collation,omitempty"`
+	RangeElementType       *bigqueryapi.RangeElementType `json:"RangeElementType,omitempty"`
+	RoundingMode           bigqueryapi.RoundingMode      `json:"RoundingMode,omitempty"`
+	TimestampPrecision     int64                         `json:"TimestampPrecision,omitempty"`
+}
+
+func toCompactTableMetadata(md *bigqueryapi.TableMetadata) *compactTableMetadata {
+	if md == nil {
+		return nil
 	}
-	return source.GetAuthTokenHeaderName(), nil
+	return &compactTableMetadata{
+		Name:          md.Name,
+		Location:      md.Location,
+		Description:   md.Description,
+		Schema:        toCompactSchema(md.Schema),
+		TableMetadata: md,
+	}
+}
+
+func toCompactSchema(schema bigqueryapi.Schema) []*compactFieldSchema {
+	if schema == nil {
+		return nil
+	}
+	compact := make([]*compactFieldSchema, 0, len(schema))
+	for _, f := range schema {
+		if f == nil {
+			continue
+		}
+		compact = append(compact, toCompactFieldSchema(f))
+	}
+	return compact
+}
+
+func toCompactFieldSchema(f *bigqueryapi.FieldSchema) *compactFieldSchema {
+	if f == nil {
+		return nil
+	}
+	var policyTags *bigqueryapi.PolicyTagList
+	if f.PolicyTags != nil && len(f.PolicyTags.Names) > 0 {
+		policyTags = f.PolicyTags
+	}
+	var rangeElementType *bigqueryapi.RangeElementType
+	if f.RangeElementType != nil && f.RangeElementType.Type != "" {
+		rangeElementType = f.RangeElementType
+	}
+	return &compactFieldSchema{
+		Name:                   f.Name,
+		Description:            f.Description,
+		Repeated:               f.Repeated,
+		Required:               f.Required,
+		Type:                   f.Type,
+		PolicyTags:             policyTags,
+		Schema:                 toCompactSchema(f.Schema),
+		MaxLength:              f.MaxLength,
+		Precision:              f.Precision,
+		Scale:                  f.Scale,
+		DefaultValueExpression: f.DefaultValueExpression,
+		Collation:              f.Collation,
+		RangeElementType:       rangeElementType,
+		RoundingMode:           f.RoundingMode,
+		TimestampPrecision:     f.TimestampPrecision,
+	}
+}
+
+func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return false, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
+	}
+	return s.UseClientAuthorization(), nil
+}
+
+func (t Tool) GetAuthTokenHeaderName(source sources.Source) (string, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return "", fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
+	}
+	return s.GetAuthTokenHeaderName(), nil
 }
 
 // buildParams builds the tool's parameters from the source's allowed-dataset configuration.
@@ -167,22 +263,22 @@ func buildParams(allowedDatasets []string, defaultProject string) parameters.Par
 }
 
 // resolveParams builds the tool's parameters using the source's allowed-dataset configuration.
-func (t Tool) resolveParams(srcs map[string]sources.Source) (parameters.Parameters, error) {
-	s, err := tools.GetCompatibleSourceFromMap[compatibleSource](srcs, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return nil, err
+func (t Tool) resolveParams(source sources.Source) (parameters.Parameters, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return nil, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
 	return buildParams(s.BigQueryAllowedDatasets(), s.BigQueryProject()), nil
 }
 
 // GetParameters returns the tool's parameters, resolved against the source.
-func (t Tool) GetParameters(srcs map[string]sources.Source) (parameters.Parameters, error) {
-	return t.resolveParams(srcs)
+func (t Tool) GetParameters(source sources.Source) (parameters.Parameters, error) {
+	return t.resolveParams(source)
 }
 
 // Manifest returns the tool's manifest, resolved against the source.
-func (t Tool) Manifest(srcs map[string]sources.Source) (tools.Manifest, error) {
-	params, err := t.resolveParams(srcs)
+func (t Tool) Manifest(source sources.Source) (tools.Manifest, error) {
+	params, err := t.resolveParams(source)
 	if err != nil {
 		return tools.Manifest{}, err
 	}

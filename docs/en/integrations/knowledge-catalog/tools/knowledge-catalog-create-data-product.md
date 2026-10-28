@@ -1,7 +1,7 @@
 ---
 title: "dataplex-create-data-product"
 type: docs
-weight: 2
+weight: 1
 description: >
   A "dataplex-create-data-product" tool allows to create a new Data Product.
 ---

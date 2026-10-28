@@ -22,11 +22,13 @@ database: ${CLOUD_SQL_POSTGRES_DATABASE}
 user: ${CLOUD_SQL_POSTGRES_USER:}
 password: ${CLOUD_SQL_POSTGRES_PASSWORD:}
 ipType: ${CLOUD_SQL_POSTGRES_IP_TYPE:public}
+readOnly: ${CLOUD_SQL_POSTGRES_READONLY:false}
 ---
 kind: source
 name: cloud-sql-admin-source
 type: cloud-sql-admin
 defaultProject: ${CLOUD_SQL_POSTGRES_PROJECT:}
+readOnly: ${CLOUD_SQL_POSTGRES_READONLY:false}
 ---
 kind: source
 name: cloud-monitoring-source
@@ -36,7 +38,7 @@ kind: tool
 name: execute_sql
 type: postgres-execute-sql
 source: cloudsql-pg-source
-description: Use this tool to execute a single SQL statement.
+description: Executes a single PostgreSQL statement and returns result rows as JSON. Use dedicated schema tools (list_tables, list_schemas, list_views, list_indexes) for inspecting database objects. Only use this tool for custom data queries not covered by those tools.
 ---
 kind: tool
 name: list_tables
@@ -457,8 +459,9 @@ name: improve_query_recall
 type: vector-assist-improve-query-recall
 source: cloudsql-pg-source
 ---
-kind: toolset
+kind: group
 name: admin
+description: Use these skills when you need to provision new Cloud SQL instances, create databases and users, clone existing environments, and monitor the progress of long-running operations.
 tools:
 - create_instance
 - get_instance
@@ -469,8 +472,9 @@ tools:
 - wait_for_operation
 - clone_instance
 ---
-kind: toolset
+kind: group
 name: lifecycle
+description: Use these skills when you need to manage the lifecycle of your instances, including performing backups and restores, checking major version upgrade compatibility, and monitoring overall instance status.
 tools:
 - create_backup
 - restore_backup
@@ -480,8 +484,9 @@ tools:
 - get_instance
 - list_instances
 ---
-kind: toolset
+kind: group
 name: data
+description: Use these skills when you need to explore the database structure, discover schema objects like views or stored procedures, and execute custom SQL queries to interact with your data.
 tools:
 - execute_sql
 - list_tables
@@ -492,8 +497,9 @@ tools:
 - list_sequences
 - list_stored_procedure
 ---
-kind: toolset
+kind: group
 name: monitor
+description: Use these skills when you need to troubleshoot performance bottlenecks, analyze query execution plans, identify resource-heavy processes, and monitor system-level PromQL metrics.
 tools:
 - get_system_metrics
 - get_query_metrics
@@ -504,8 +510,9 @@ tools:
 - long_running_transactions
 - list_locks
 ---
-kind: toolset
+kind: group
 name: health
+description: Use these skills when you need to audit database health, identify storage bloat, find invalid indexes, analyze table statistics, and manage maintenance configurations like autovacuum.
 tools:
 - list_top_bloated_tables
 - list_invalid_indexes
@@ -516,8 +523,9 @@ tools:
 - database_overview
 - list_pg_settings
 ---
-kind: toolset
+kind: group
 name: view-config
+description: Use these skills when you need to discover and manage PostgreSQL extensions or fine-tune engine-level settings such as memory allocation and server configuration parameters.
 tools:
 - list_available_extensions
 - list_installed_extensions
@@ -526,8 +534,9 @@ tools:
 - database_overview
 - get_instance
 ---
-kind: toolset
+kind: group
 name: replication
+description: Use these skills when you need to monitor replication health, manage sync states between nodes, and audit database roles and security settings to ensure environment integrity.
 tools:
 - replication_stats
 - list_replication_slots
@@ -536,8 +545,9 @@ tools:
 - list_pg_settings
 - database_overview
 ---
-kind: toolset
+kind: group
 name: vectorassist
+description: Use these skills to set up and optimize production-ready vector workloads by simply expressing your intent and performance requirements.
 tools:
 - execute_sql
 - define_spec

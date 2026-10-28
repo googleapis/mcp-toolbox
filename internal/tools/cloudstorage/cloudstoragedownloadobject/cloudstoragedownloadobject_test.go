@@ -114,7 +114,7 @@ func TestParseFromYamlCloudStorageDownloadObject(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -149,15 +149,6 @@ func (m *mockSource) DownloadObject(ctx context.Context, bucket, object, destina
 	m.gotDest = destination
 	m.gotOverwrite = overwrite
 	return map[string]any{"destination": destination, "bytes": int64(11), "contentType": "text/plain"}, nil
-}
-
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
 }
 
 func TestInvokeValidation(t *testing.T) {
@@ -195,7 +186,6 @@ func TestInvokeValidation(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			src := &mockSource{}
-			primitiveMgr := &mockSourceProvider{source: src}
 			ov := false
 			if b, ok := tc.overwrite.(bool); ok {
 				ov = b
@@ -206,7 +196,7 @@ func TestInvokeValidation(t *testing.T) {
 				{Name: "destination", Value: tc.dest},
 				{Name: "overwrite", Value: ov},
 			}
-			_, toolErr := tool.Invoke(context.Background(), primitiveMgr, params, "")
+			_, toolErr := tool.Invoke(context.Background(), src, params, "")
 			if tc.wantErr {
 				if toolErr == nil {
 					t.Fatalf("expected error, got nil")
@@ -263,7 +253,7 @@ func TestConfiguredParametersHiddenAndForwarded(t *testing.T) {
 		{Name: "object", Value: "path/to/object.txt"},
 		{Name: "destination", Value: filepath.Join("nested", "out.txt")},
 	}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	wantDest := filepath.Join(destDir, "nested", "out.txt")
@@ -344,7 +334,7 @@ func TestConfiguredDestinationDirRejectsEscapingDestination(t *testing.T) {
 		{Name: "destination", Value: filepath.Join("..", "escape.txt")},
 		{Name: "overwrite", Value: false},
 	}
-	_, toolErr := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, "")
+	_, toolErr := tool.Invoke(context.Background(), src, params, "")
 	if toolErr == nil || !strings.Contains(toolErr.Error(), "destination") {
 		t.Fatalf("Invoke() error = %v, want destination error", toolErr)
 	}

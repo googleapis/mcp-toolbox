@@ -63,6 +63,13 @@ The AlloyDB MCP server provides the following tools:
 
 ## Custom MCP Server Configuration
 
+The MCP server is configured using environment variables.
+
+```bash
+export ALLOYDB_POSTGRES_PROJECT="<your-gcp-project-id>"
+export ALLOYDB_POSTGRES_READONLY="true"  # Optional: `true`, `false`. Defaults to `false`. When set to `true`, write-capable admin tools (e.g., create_cluster, create_instance, create_user) are suppressed.
+```
+
 Add the following configuration to your MCP client (e.g., `settings.json` for Gemini CLI, `mcp_config.json` for Antigravity):
 
 ```json

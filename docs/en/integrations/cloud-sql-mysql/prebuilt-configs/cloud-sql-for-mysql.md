@@ -14,8 +14,8 @@ description: "Details of the Cloud SQL for MySQL prebuilt configuration."
     *   `CLOUD_SQL_MYSQL_DATABASE`: The name of the database to connect to.
     *   `CLOUD_SQL_MYSQL_USER`: The database username.
     *   `CLOUD_SQL_MYSQL_PASSWORD`: The password for the database user.
-    *   `CLOUD_SQL_MYSQL_IP_TYPE`: The IP type i.e. "Public
-     or "Private" (Default: Public).
+    *   `CLOUD_SQL_MYSQL_IP_TYPE`: The IP type i.e. "Public" or "Private" (Default: Public).
+    *   `CLOUD_SQL_MYSQL_READONLY`: (Optional) When set to `true`, enforces read-only execution on the database connection (`read_only_connection:true`) and suppresses write-capable tools. Default: `false`.
 *   **Permissions:**
     *   **Cloud SQL Client** (`roles/cloudsql.client`) to connect to the
         instance.

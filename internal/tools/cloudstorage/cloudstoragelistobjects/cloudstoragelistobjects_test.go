@@ -114,7 +114,7 @@ func TestParseFromYamlCloudStorageListObjects(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -145,15 +145,6 @@ func (m *mockSource) ListObjects(ctx context.Context, bucket, prefix, delimiter 
 	return map[string]any{"objects": []any{}, "prefixes": []string{}, "nextPageToken": ""}, nil
 }
 
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
-}
-
 func TestInvokeMaxResultsValidation(t *testing.T) {
 	tcs := []struct {
 		desc        string
@@ -179,7 +170,6 @@ func TestInvokeMaxResultsValidation(t *testing.T) {
 			}
 
 			src := &mockSource{}
-			primitiveMgr := &mockSourceProvider{source: src}
 
 			params := parameters.ParamValues{
 				{Name: "bucket", Value: "my-bucket"},
@@ -189,7 +179,7 @@ func TestInvokeMaxResultsValidation(t *testing.T) {
 				{Name: "page_token", Value: ""},
 			}
 
-			_, toolErr := tool.Invoke(context.Background(), primitiveMgr, params, "")
+			_, toolErr := tool.Invoke(context.Background(), src, params, "")
 			if toolErr == nil {
 				t.Fatalf("expected error for max_results=%d, got nil", tc.maxResults)
 			}
@@ -235,7 +225,7 @@ func TestConfiguredParametersHiddenAndForwarded(t *testing.T) {
 		{Name: "max_results", Value: 0},
 		{Name: "page_token", Value: ""},
 	}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotBucket != "baked-bucket" || src.gotPrefix != "logs/" || src.gotDelimiter != "/" {

@@ -1,7 +1,7 @@
 ---
 title: "dataplex-update-data-product"
 type: docs
-weight: 2
+weight: 1
 description: >
   A "dataplex-update-data-product" tool updates metadata for an existing Data Product in Knowledge Catalog.
 ---

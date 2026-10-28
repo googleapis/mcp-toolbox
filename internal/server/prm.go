@@ -14,6 +14,12 @@
 
 package server
 
+import (
+	"fmt"
+	"net/url"
+	"strings"
+)
+
 // ProtectedResourceMetadata represents the OAuth 2.0 Protected Resource Metadata document as defined in RFC 9728.
 // Reference: https://datatracker.ietf.org/doc/html/rfc9728
 type ProtectedResourceMetadata struct {
@@ -66,4 +72,35 @@ type ProtectedResourceMetadata struct {
 	// OPTIONAL. A JWT containing metadata parameters about the protected resource
 	// as claims. Consists of the entire signed JWT string.
 	SignedMetadata string `json:"signed_metadata,omitempty"`
+}
+
+// getPRMURL returns the full URL to advertise in WWW-Authenticate headers.
+func (s *Server) getPRMURL() string {
+	return s.prmURL
+}
+
+// parsePRMURL returns the full URL to advertise in WWW-Authenticate headers from a toolbox URL.
+func parsePRMURL(toolboxUrl string) (string, error) {
+	if toolboxUrl == "" {
+		return "/.well-known/oauth-protected-resource", nil
+	}
+	u, err := url.Parse(toolboxUrl)
+	if err != nil {
+		return "", fmt.Errorf("invalid toolbox-url %q: %w", toolboxUrl, err)
+	}
+	if u.Scheme != "" || u.Host != "" {
+		if u.Scheme == "" || u.Host == "" {
+			return "", fmt.Errorf("invalid toolbox-url %q: must be a valid absolute URL with scheme and host", toolboxUrl)
+		}
+		path := strings.TrimSuffix(u.Path, "/")
+		return u.Scheme + "://" + u.Host + "/.well-known/oauth-protected-resource" + path, nil
+	}
+	path := strings.TrimSuffix(u.Path, "/")
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if path == "/" {
+		return "/.well-known/oauth-protected-resource", nil
+	}
+	return "/.well-known/oauth-protected-resource" + path, nil
 }

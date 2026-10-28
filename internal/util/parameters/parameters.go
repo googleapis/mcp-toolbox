@@ -169,7 +169,12 @@ func ParseParams(ps Parameters, data map[string]any, claimsMap map[string]map[st
 	return params, nil
 }
 
-func EmbedParams(ctx context.Context, ps Parameters, paramValues ParamValues, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel, formatter embeddingmodels.VectorFormatter) (ParamValues, error) {
+// PrimitiveManagerI defines the minimal view of the primitive manager needed by parameters.
+type PrimitiveManagerI interface {
+	GetEmbeddingModel(string) (embeddingmodels.EmbeddingModel, bool)
+}
+
+func EmbedParams(ctx context.Context, ps Parameters, paramValues ParamValues, pMgr PrimitiveManagerI, formatter embeddingmodels.VectorFormatter) (ParamValues, error) {
 
 	type ParamToEmbed struct {
 		OriginalValue string
@@ -199,7 +204,7 @@ func EmbedParams(ctx context.Context, ps Parameters, paramValues ParamValues, em
 
 	// Batch embedding request sent to each model
 	for modelName, params := range parametersToEmbed {
-		model, ok := embeddingModelsMap[modelName]
+		model, ok := pMgr.GetEmbeddingModel(modelName)
 		if !ok {
 			return nil, fmt.Errorf("embedding model does not exist: %s", modelName)
 		}
@@ -306,6 +311,13 @@ func ProcessParameters(templateParams Parameters, params Parameters) (Parameters
 		return nil, nil, err
 	}
 
+	// verify parameter restrictions
+	for _, p := range allParameters {
+		if err := validateParameter(p); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	// create Toolbox manifest
 	paramManifest := allParameters.Manifest()
 	if paramManifest == nil {
@@ -313,6 +325,22 @@ func ProcessParameters(templateParams Parameters, params Parameters) (Parameters
 	}
 
 	return allParameters, paramManifest, nil
+}
+
+// validateParameter validates that parameter configuration adheres to system constraints.
+func validateParameter(p Parameter) error {
+	if p.GetSecure() {
+		if len(p.GetAuthServices()) > 0 {
+			return fmt.Errorf("parameter %q cannot have both 'secure' set to true and 'authServices' specified", p.GetName())
+		}
+		if p.GetDefault() != nil {
+			return fmt.Errorf("parameter %q cannot have both 'secure' set to true and 'default' specified", p.GetName())
+		}
+		if !p.GetRequired() {
+			return fmt.Errorf("parameter %q cannot have both 'secure' set to true and 'required' set to false", p.GetName())
+		}
+	}
+	return nil
 }
 
 type Parameter interface {
@@ -329,6 +357,7 @@ type Parameter interface {
 	Parse(any) (any, error)
 	Manifest() ParameterManifest
 	McpManifest() (ParameterMcpManifest, []string)
+	GetSecure() bool
 }
 
 // Parameters is a type used to allow unmarshal a list of parameters
@@ -369,7 +398,16 @@ func parseParamFromDelayedUnmarshaler(ctx context.Context, u *util.DelayedUnmars
 		return nil, fmt.Errorf("parameter 'type' field must be a string, got %T", t)
 	}
 
-	return ParseParameter(ctx, p, typeStr)
+	param, err := ParseParameter(ctx, p, typeStr)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := validateParameter(param); err != nil {
+		return nil, err
+	}
+
+	return param, nil
 }
 
 // ParseParameter parses a raw map into a Parameter object based on its "type" field.
@@ -479,11 +517,17 @@ type CommonParameter struct {
 	AuthServices   []ParamAuthService `yaml:"authServices"`
 	EmbeddedBy     string             `yaml:"embeddedBy"`
 	ValueFromParam string             `yaml:"valueFromParam"`
+	Secure         bool               `yaml:"secure"`
 }
 
 // GetName returns the name specified for the Parameter.
 func (p *CommonParameter) GetName() string {
 	return p.Name
+}
+
+// GetSecure returns whether the parameter is secure.
+func (p *CommonParameter) GetSecure() bool {
+	return p.Secure
 }
 
 // GetDesc returns the description specified for the Parameter.

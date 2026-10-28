@@ -101,7 +101,7 @@ type: cloud-storage-delete-object
 source: cloud-storage-source
 description: Deletes a Cloud Storage object.
 ---
-kind: toolset
+kind: group
 name: cloud-storage-buckets
 description: Use these tools when you need to administer cloud storage buckets, including listing and creating buckets, inspecting bucket metadata and access control policies, and deleting buckets.
 tools:
@@ -111,7 +111,7 @@ tools:
   - get_bucket_iam_policy
   - delete_bucket
 ---
-kind: toolset
+kind: group
 name: cloud-storage-objects
 description: Use these tools when you need to manage files and objects in cloud storage — listing, reading, writing, copying, moving, or deleting objects and retrieving their metadata.
 tools:

@@ -28,10 +28,10 @@ Use the `--prebuilt` flag to skip configuration files and instantly expose stand
 *   **Setup:** Requires relevant environment variables (e.g., `BIGQUERY_PROJECT` or `POSTGRES_HOST`).
 
 ### 2. Custom Tools (`tools.yaml`)
-The toolbox requires a `tools.yaml` file in the current working directory to define sources, tools, and prompts.
+The toolbox requires a `tools.yaml` file in the current working directory to define sources, tools, prompts, resources, and groups.
 
 *   **Usage:** The server loads `tools.yaml` automatically, or use `--config <path>`.
-*   **Function:** Defines `sources` (connection details) and `tools` (specific SQL/logic with descriptions for the LLM).
+*   **Function:** Defines `sources` (connection details), `tools` (specific SQL/logic with descriptions for the LLM), prompts, and resources.
 
 #### Example `tools.yaml`
 
@@ -64,6 +64,17 @@ prompts:
       - name: "code"
         description: "The code to review"
         required: true
+resources:
+  db-schema-ddl:
+    type: text
+    description: "PostgreSQL DDL schema for customer tables."
+    mimeType: text/x-sql
+    text: |
+      CREATE TABLE users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL
+      );
 ```
 
 To learn more on how to configure your toolbox, visit the [official docsite](https://mcp-toolbox.dev/documentation/configuration/).

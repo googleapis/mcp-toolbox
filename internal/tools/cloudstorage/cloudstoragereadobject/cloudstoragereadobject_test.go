@@ -107,7 +107,7 @@ func TestParseFromYamlCloudStorageReadObject(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -140,15 +140,6 @@ func (m *mockSource) ReadObject(ctx context.Context, bucket, object string, offs
 	return map[string]any{"content": "hello", "contentType": "text/plain", "size": 5}, nil
 }
 
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
-}
-
 func TestConfiguredBucketHiddenAndForwarded(t *testing.T) {
 	cfg := Config{
 		ConfigBase: tools.ConfigBase{
@@ -174,7 +165,7 @@ func TestConfiguredBucketHiddenAndForwarded(t *testing.T) {
 		{Name: "object", Value: "o"},
 		{Name: "range", Value: "bytes=5-9"},
 	}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotBucket != "baked-bucket" || src.gotObject != "o" || src.gotOffset != 5 || src.gotLength != 5 {

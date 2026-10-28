@@ -53,8 +53,8 @@ The `dataplex-search-dq-scans` tool accepts the following optional parameters:
 ## Example
 
 ```yaml
-kind: tools
-name: dataplex-search-dq-scans
+kind: tool
+name: search_dq_scans
 type: dataplex-search-dq-scans
 source: my-dataplex-source
 description: Use this tool to search for data quality scans.

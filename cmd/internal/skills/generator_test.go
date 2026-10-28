@@ -175,7 +175,7 @@ func TestFormatParameters(t *testing.T) {
 
 func TestGenerateSkillMarkdown(t *testing.T) {
 	toolsMap := map[string]tools.Tool{
-		"tool1": testutils.NewMockTool("tool1", "First tool",
+		"tool1": testutils.NewMockTool("tool1", "First tool", "",
 			[]parameters.Parameter{
 				parameters.NewStringParameter("p1", "d1"),
 			}, false, false),

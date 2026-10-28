@@ -18,11 +18,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/cmd/internal"
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/sqlite"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/sqlite/sqlitesql"
 	"github.com/spf13/cobra"
 )
@@ -313,6 +316,94 @@ toolsets:
 	}
 }
 
+func TestGenerateSkill_SpecificGroup(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputDir := filepath.Join(tmpDir, "skills")
+
+	// On this lineage groups are seeded from toolsets, so --group targets a
+	// toolset-derived group by name.
+	toolsFileContent := `
+sources:
+  my-sqlite:
+    kind: sqlite
+    database: ":memory:"
+tools:
+  hello-sqlite:
+    kind: sqlite-sql
+    source: my-sqlite
+    description: "hello tool"
+    statement: "SELECT 'hello' as greeting"
+  bye-sqlite:
+    kind: sqlite-sql
+    source: my-sqlite
+    description: "bye tool"
+    statement: "SELECT 'bye' as greeting"
+toolsets:
+  greeting:
+    - hello-sqlite
+  farewell:
+    - bye-sqlite
+`
+
+	toolsFilePath := filepath.Join(tmpDir, "tools.yaml")
+	if err := os.WriteFile(toolsFilePath, []byte(toolsFileContent), 0644); err != nil {
+		t.Fatalf("failed to write tools file: %v", err)
+	}
+
+	args := []string{
+		"skills-generate",
+		"--config", toolsFilePath,
+		"--output-dir", outputDir,
+		"--name", "my-group-skill",
+		"--description", "fallback description",
+		"--group", "farewell",
+	}
+
+	got, err := invokeCommand(args)
+	if err != nil {
+		t.Fatalf("command failed: %v\nOutput: %s", err, got)
+	}
+
+	// --group produces a single skill named exactly --name.
+	skillPath := filepath.Join(outputDir, "my-group-skill")
+	if _, err := os.Stat(skillPath); os.IsNotExist(err) {
+		t.Fatalf("skill directory not created: %s", skillPath)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "my-group-skill-farewell")); !os.IsNotExist(err) {
+		t.Fatalf("--group should not produce a per-group suffixed directory")
+	}
+
+	content, err := os.ReadFile(filepath.Join(skillPath, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("failed to read SKILL.md: %v", err)
+	}
+	if !strings.Contains(string(content), "### bye-sqlite") {
+		t.Errorf("SKILL.md does not contain '### bye-sqlite' tool header")
+	}
+	if strings.Contains(string(content), "### hello-sqlite") {
+		t.Errorf("SKILL.md should not contain '### hello-sqlite' tool header")
+	}
+}
+
+func TestGenerateSkill_GroupAndToolsetMutuallyExclusive(t *testing.T) {
+	tmpDir := t.TempDir()
+	toolsFilePath := filepath.Join(tmpDir, "tools.yaml")
+	if err := os.WriteFile(toolsFilePath, []byte("tools: {}"), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	args := []string{
+		"skills-generate",
+		"--config", toolsFilePath,
+		"--name", "test",
+		"--group", "a",
+		"--toolset", "b",
+	}
+	if _, err := invokeCommand(args); err == nil {
+		t.Fatal("expected error when --group and --toolset are both set, got nil")
+	}
+}
+
 func TestGenerateSkill_NoConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	outputDir := filepath.Join(tmpDir, "skills")
@@ -350,10 +441,6 @@ func TestGenerateSkill_MissingArguments(t *testing.T) {
 			name: "missing name",
 			args: []string{"skills-generate", "--config", toolsFilePath, "--description", "test"},
 		},
-		{
-			name: "missing description",
-			args: []string{"skills-generate", "--config", toolsFilePath, "--name", "test"},
-		},
 	}
 
 	for _, tt := range tests {
@@ -361,6 +448,208 @@ func TestGenerateSkill_MissingArguments(t *testing.T) {
 			got, err := invokeCommand(tt.args)
 			if err == nil {
 				t.Fatalf("expected command to fail due to missing arguments, but it succeeded\nOutput: %s", got)
+			}
+		})
+	}
+}
+
+func TestBuildSkillContents(t *testing.T) {
+	tests := []struct {
+		name      string
+		cmd       *skillsCmd
+		toolsMap  map[string]tools.Tool
+		groupsMap map[string]group.Group
+		want      map[string]skillContent
+		wantErr   bool
+	}{
+		{
+			// len(groupsMap) > 1 (default group plus named groups) triggers group mode.
+			name: "group mode: group description takes precedence over flag, flag is fallback",
+			cmd:  &skillsCmd{name: "my-skill", description: "flag fallback"},
+			groupsMap: map[string]group.Group{
+				"": group.NewGroup(group.GroupConfig{Name: ""}),
+				"with-desc": group.NewGroup(
+					group.GroupConfig{Name: "with-desc", Description: "group's own description"}),
+				"no-desc": group.NewGroup(
+					group.GroupConfig{Name: "no-desc"}),
+			},
+			// The default nameless group is skipped, so it produces no skill.
+			want: map[string]skillContent{
+				"my-skill-with-desc": {tools: map[string]tools.Tool{}, description: "group's own description"},
+				"my-skill-no-desc":   {tools: map[string]tools.Tool{}, description: "flag fallback"},
+			},
+		},
+		{
+			name: "toolset mode: uses flag description, ignores group description",
+			cmd:  &skillsCmd{name: "my-skill", description: "flag desc", toolset: "my-toolset"},
+			groupsMap: map[string]group.Group{
+				"": group.NewGroup(group.GroupConfig{Name: ""}),
+				"my-toolset": group.NewGroup(
+					group.GroupConfig{Name: "my-toolset", Description: "ignored in toolset mode"}),
+			},
+			want: map[string]skillContent{
+				"my-skill": {tools: map[string]tools.Tool{}, description: "flag desc"},
+			},
+		},
+		{
+			name:     "all-tools mode: falls back to flag when default group has no description",
+			cmd:      &skillsCmd{name: "my-skill", description: "flag desc"},
+			toolsMap: map[string]tools.Tool{},
+			groupsMap: map[string]group.Group{
+				"": group.NewGroup(group.GroupConfig{Name: ""}),
+			},
+			want: map[string]skillContent{
+				"my-skill": {tools: map[string]tools.Tool{}, description: "flag desc"},
+			},
+		},
+		{
+			name:     "all-tools mode: default group description takes precedence over flag",
+			cmd:      &skillsCmd{name: "my-skill", description: "flag desc"},
+			toolsMap: map[string]tools.Tool{},
+			groupsMap: map[string]group.Group{
+				"": group.NewGroup(group.GroupConfig{Name: "", Description: "default group description"}),
+			},
+			want: map[string]skillContent{
+				"my-skill": {tools: map[string]tools.Tool{}, description: "default group description"},
+			},
+		},
+		{
+			name: "single group flag: uses selected group's description",
+			cmd:  &skillsCmd{name: "my-skill", description: "flag fallback", group: "with-desc"},
+			groupsMap: map[string]group.Group{
+				"": group.NewGroup(group.GroupConfig{Name: ""}),
+				"with-desc": group.NewGroup(
+					group.GroupConfig{Name: "with-desc", Description: "group's own description"}),
+				"no-desc": group.NewGroup(
+					group.GroupConfig{Name: "no-desc"}),
+			},
+			want: map[string]skillContent{
+				"my-skill": {tools: map[string]tools.Tool{}, description: "group's own description"},
+			},
+		},
+		{
+			name: "single group flag: falls back to flag when group has no description",
+			cmd:  &skillsCmd{name: "my-skill", description: "flag fallback", group: "no-desc"},
+			groupsMap: map[string]group.Group{
+				"": group.NewGroup(group.GroupConfig{Name: ""}),
+				"with-desc": group.NewGroup(
+					group.GroupConfig{Name: "with-desc", Description: "group's own description"}),
+				"no-desc": group.NewGroup(
+					group.GroupConfig{Name: "no-desc"}),
+			},
+			want: map[string]skillContent{
+				"my-skill": {tools: map[string]tools.Tool{}, description: "flag fallback"},
+			},
+		},
+		{
+			name: "single group flag: unknown group errors",
+			cmd:  &skillsCmd{name: "my-skill", group: "nope"},
+			groupsMap: map[string]group.Group{
+				"": group.NewGroup(group.GroupConfig{Name: ""}),
+				"with-desc": group.NewGroup(
+					group.GroupConfig{Name: "with-desc", Description: "group's own description"}),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.cmd.buildSkillContents(tt.toolsMap, tt.groupsMap)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("buildSkillContents failed: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildSkillContents() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveSkillName(t *testing.T) {
+	tests := []struct {
+		name            string
+		flagName        string
+		group           string
+		toolset         string
+		prebuiltConfigs []string
+		want            string
+		wantErr         bool
+	}{
+		{
+			name:     "explicit name wins",
+			flagName: "my-skill",
+			want:     "my-skill",
+		},
+		{
+			name:            "explicit name wins over prebuilt",
+			flagName:        "my-skill",
+			prebuiltConfigs: []string{"alloydb-postgres"},
+			want:            "my-skill",
+		},
+		{
+			name:     "explicit name wins over group",
+			flagName: "my-skill",
+			group:    "greeting",
+			want:     "my-skill",
+		},
+		{
+			name:  "defaults to group",
+			group: "greeting",
+			want:  "greeting",
+		},
+		{
+			name:    "defaults to toolset",
+			toolset: "greeting",
+			want:    "greeting",
+		},
+		{
+			name:            "group wins over prebuilt",
+			group:           "greeting",
+			prebuiltConfigs: []string{"alloydb-postgres"},
+			want:            "greeting",
+		},
+		{
+			name:            "defaults to single prebuilt",
+			prebuiltConfigs: []string{"alloydb-postgres"},
+			want:            "alloydb-postgres",
+		},
+		{
+			name:            "sanitizes slashes in single prebuilt",
+			prebuiltConfigs: []string{"alloydb-postgres/some-toolset"},
+			want:            "alloydb-postgres-some-toolset",
+		},
+		{
+			name:    "no name and no prebuilt errors",
+			wantErr: true,
+		},
+		{
+			name:            "no name and multiple prebuilts errors",
+			prebuiltConfigs: []string{"alloydb-postgres", "cloud-sql-postgres"},
+			wantErr:         true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveSkillName(tt.flagName, tt.group, tt.toolset, tt.prebuiltConfigs)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (got %q)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
 	}

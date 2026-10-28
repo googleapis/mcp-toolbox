@@ -35,7 +35,7 @@ var (
 	SnowflakeToolType   = "snowflake-sql"
 	SnowflakeAccount    = os.Getenv("SNOWFLAKE_ACCOUNT")
 	SnowflakeUser       = os.Getenv("SNOWFLAKE_USER")
-	SnowflakePassword   = os.Getenv("SNOWFLAKE_PASS")
+	SnowflakePassword   = os.Getenv("SNOWFLAKE_PASSWORD")
 	SnowflakeDatabase   = os.Getenv("SNOWFLAKE_DATABASE")
 	SnowflakeSchema     = os.Getenv("SNOWFLAKE_SCHEMA")
 	SnowflakeWarehouse  = os.Getenv("SNOWFLAKE_WAREHOUSE")
@@ -155,7 +155,10 @@ func TestSnowflake(t *testing.T) {
 		tests.WithMyToolId3NameAliceWant(`[{"ID":"1","NAME":"Alice"},{"ID":"3","NAME":"Sid"}]`),
 		tests.WithMyToolById4Want(`[{"ID":"4","NAME":null}]`),
 	)
-	tests.RunMCPToolCallMethod(t, failInvocationWant, mcpSelect1Want, tests.WithMcpMyToolId3NameAliceWant(`{"jsonrpc":"2.0","id":"my-tool","result":{"content":[{"type":"text","text":"{\"ID\":\"1\",\"NAME\":\"Alice\"}"},{"type":"text","text":"{\"ID\":\"3\",\"NAME\":\"Sid\"}"}]}}`))
+	tests.RunMCPToolCallMethod(t, failInvocationWant, mcpSelect1Want,
+		tests.WithMcpMyToolId3NameAliceWant(`{"jsonrpc":"2.0","id":"my-tool","result":{"content":[{"type":"text","text":"{\"ID\":\"1\",\"NAME\":\"Alice\"}"},{"type":"text","text":"{\"ID\":\"3\",\"NAME\":\"Sid\"}"}]}}`),
+		tests.WithMcpMySecureToolWant(`[{"ID":"1","NAME":"Alice"},{"ID":"3","NAME":"Sid"}]`),
+	)
 
 	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want,
 		tests.WithExecuteCreateWant(`[{"status":"Table T successfully created."}]`),

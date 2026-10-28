@@ -20,11 +20,13 @@ import (
 	"slices"
 
 	"github.com/goccy/go-yaml"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 )
 
 const resourceType string = "mongodb-aggregate"
@@ -49,16 +51,16 @@ type compatibleSource interface {
 }
 
 type Config struct {
-	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Database         string                 `yaml:"database" validate:"required"`
-	Collection       string                 `yaml:"collection" validate:"required"`
-	PipelinePayload  string                 `yaml:"pipelinePayload" validate:"required"`
-	PipelineParams   parameters.Parameters  `yaml:"pipelineParams" validate:"required"`
-	Canonical        bool                   `yaml:"canonical"`
-	ReadOnly         bool                   `yaml:"readOnly"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	tools.ConfigBase        `yaml:",inline"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	PipelinePayload         string                `yaml:"pipelinePayload" validate:"required"`
+	PipelineParams          parameters.Parameters `yaml:"pipelineParams" validate:"required"`
+	Canonical               bool                  `yaml:"canonical"`
+	ReadOnly                bool                  `yaml:"readOnly"`
 }
 
 // validate interface
@@ -74,6 +76,15 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	}
 
 	allParameters := slices.Concat(cfg.PipelineParams)
+
+	if err := mongodbcommon.ValidateCollectionConfig(cfg.Collection, cfg.CollectionAllowedValues); err != nil {
+		return nil, err
+	}
+	allParameters = mongodbcommon.WithRuntimeCollectionParam(cfg.Collection, cfg.CollectionAllowedValues, allParameters)
+
+	if err := parameters.CheckDuplicateParameters(allParameters); err != nil {
+		return nil, err
+	}
 
 	paramManifest := allParameters.Manifest()
 	if paramManifest == nil {
@@ -97,22 +108,39 @@ type Tool struct {
 	tools.BaseTool[Config]
 }
 
+func (t Tool) GetSourceName() string {
+	return t.Cfg.Source
+}
+
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg
 }
 
-func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, err)
+func (t Tool) ValidateSource(source sources.Source) error {
+	_, ok := source.(compatibleSource)
+	if !ok {
+		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
+	}
+	return nil
+}
+
+func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	source, ok := s.(compatibleSource)
+	if !ok {
+		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
+	}
+	paramsMap := params.AsMap()
+
+	collection, tbErr := mongodbcommon.ResolveCollection(t.Cfg.Collection, paramsMap)
+	if tbErr != nil {
+		return nil, tbErr
 	}
 
-	paramsMap := params.AsMap()
 	pipelineString, err := parameters.PopulateTemplateWithJSON("MongoDBAggregatePipeline", t.Cfg.PipelinePayload, paramsMap)
 	if err != nil {
 		return nil, util.NewAgentError("error populating pipeline", err)
 	}
-	resp, err := source.Aggregate(ctx, pipelineString, t.Cfg.Canonical, t.Cfg.ReadOnly, t.Cfg.Database, t.Cfg.Collection)
+	resp, err := source.Aggregate(ctx, pipelineString, t.Cfg.Canonical, t.Cfg.ReadOnly, t.Cfg.Database, collection)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

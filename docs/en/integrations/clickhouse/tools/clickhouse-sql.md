@@ -92,11 +92,12 @@ CREATE TABLE documents (
 Define the embedding model:
 
 ```yaml
-embeddingModels:
-  gemini-model:
-    kind: gemini
-    model: gemini-embedding-001
-    dimension: 768
+kind: embeddingModel
+name: gemini-model
+type: gemini
+apiKey: ${GOOGLE_API_KEY}
+model: gemini-embedding-001
+dimension: 768
 ```
 
 Define an ingestion tool that embeds `content` before insert by mirroring it
@@ -143,7 +144,7 @@ parameters:
 ```
 
 Only `string`-typed parameters may declare `embeddedBy`. The embedding model
-must be defined under the top-level `embeddingModels:` key of the same
+must be defined as an `embeddingModel` kind of the same
 configuration file.
 
 ## Reference

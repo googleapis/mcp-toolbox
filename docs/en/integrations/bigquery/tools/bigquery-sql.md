@@ -10,16 +10,20 @@ description: >
 
 A `bigquery-sql` tool executes a pre-defined SQL statement.
 
-The behavior of this tool is influenced by the `writeMode` setting on its
-`bigquery` source:
+The behavior of this tool is influenced by the `readOnly` and `writeMode`
+settings on its `bigquery` source:
 
-- **`allowed` (default) and `blocked`:** These modes do not impose any
-  restrictions on the `bigquery-sql` tool. The pre-defined SQL statement will be
-  executed as-is.
-- **`protected`:** This mode enables session-based execution. The tool will
-  operate within the same BigQuery session as other tools using the same source,
-  allowing it to interact with temporary resources like `TEMP` tables created
-  within that session.
+- **Read-Only Mode:** When a source is configured with
+  `readOnly: true` (or `writeMode: blocked` / `writeMode: protected`),
+  `bigquery-sql` tools default to write-capable annotations (`readOnlyHint: false`)
+  and are automatically suppressed from registration during server startup to
+  protect data integrity and optimize agent context window. To keep a pre-defined
+  read-only query active in read-only mode, explicitly annotate the tool with
+  `readOnlyHint: true`.
+- **`protected`:** This mode enables session-based
+  execution. The tool will operate within the same BigQuery session as other
+  tools using the same source, allowing it to interact with temporary resources
+  like `TEMP` tables created within that session.
 
 ## Compatible Sources
 

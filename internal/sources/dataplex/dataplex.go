@@ -19,11 +19,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	dataplexapi "cloud.google.com/go/dataplex/apiv1"
 	"cloud.google.com/go/dataplex/apiv1/dataplexpb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
+	resourcemanager "cloud.google.com/go/resourcemanager/apiv3"
+	resourcemanagerpb "cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/cenkalti/backoff/v6"
 	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
@@ -79,15 +82,47 @@ func (r Config) SourceConfigType() string {
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
 	// Initializes a Dataplex source
-	client, dataScanClient, dataProductClient, err := initDataplexConnection(ctx, tracer, r.Name, r.Project, r.ImpersonateServiceAccount, r.Scopes)
+	client, dataScanClient, dataProductClient, projectsClient, err := initDataplexConnection(ctx, tracer, r.Name, r.Project, r.ImpersonateServiceAccount, r.Scopes)
 	if err != nil {
 		return nil, err
 	}
+
+	// Resolve project number
+	proj, err := projectsClient.GetProject(ctx, &resourcemanagerpb.GetProjectRequest{
+		Name: "projects/" + r.Project,
+	})
+	if err != nil {
+		client.Close()
+		dataScanClient.Close()
+		dataProductClient.Close()
+		projectsClient.Close()
+		return nil, fmt.Errorf("failed to get project details for project %q: %w", r.Project, err)
+	}
+	parts := strings.Split(proj.Name, "/")
+	if len(parts) < 2 {
+		client.Close()
+		dataScanClient.Close()
+		dataProductClient.Close()
+		projectsClient.Close()
+		return nil, fmt.Errorf("unexpected project resource name format: %q", proj.Name)
+	}
+	projectNumberStr := parts[1]
+	projectNumber, err := strconv.ParseInt(projectNumberStr, 10, 64)
+	if err != nil {
+		client.Close()
+		dataScanClient.Close()
+		dataProductClient.Close()
+		projectsClient.Close()
+		return nil, fmt.Errorf("failed to parse project number %q as int64: %w", projectNumberStr, err)
+	}
+
 	s := &Source{
 		Config:            r,
 		Client:            client,
 		DataScanClient:    dataScanClient,
 		dataProductClient: dataProductClient,
+		projectsClient:    projectsClient,
+		projectNumber:     projectNumber,
 	}
 
 	return s, nil
@@ -100,6 +135,12 @@ type Source struct {
 	Client            *dataplexapi.CatalogClient
 	DataScanClient    *dataplexapi.DataScanClient
 	dataProductClient *dataplexapi.DataProductClient
+	projectsClient    *resourcemanager.ProjectsClient
+	projectNumber     int64
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {
@@ -113,6 +154,14 @@ func (s *Source) ToConfig() sources.SourceConfig {
 
 func (s *Source) ProjectID() string {
 	return s.Project
+}
+
+func (s *Source) ProjectNumber() int64 {
+	return s.projectNumber
+}
+
+func (s *Source) ProjectsClient() *resourcemanager.ProjectsClient {
+	return s.projectsClient
 }
 
 func (s *Source) CatalogClient() *dataplexapi.CatalogClient {
@@ -134,13 +183,13 @@ func initDataplexConnection(
 	project string,
 	impersonateServiceAccount string,
 	scopes []string,
-) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, *dataplexapi.DataProductClient, error) {
+) (*dataplexapi.CatalogClient, *dataplexapi.DataScanClient, *dataplexapi.DataProductClient, *resourcemanager.ProjectsClient, error) {
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
 	defer span.End()
 
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	var opts []option.ClientOption
@@ -157,7 +206,7 @@ func initDataplexConnection(
 			Scopes:          credScopes,
 		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create impersonated credentials for %q for project %q: %w", impersonateServiceAccount, project, err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to create impersonated credentials for %q for project %q: %w", impersonateServiceAccount, project, err)
 		}
 		opts = []option.ClientOption{
 			option.WithUserAgent(userAgent),
@@ -167,7 +216,7 @@ func initDataplexConnection(
 		// Use default credentials
 		cred, err := google.FindDefaultCredentials(ctx, credScopes...)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to find default Google Cloud credentials for project %q: %w", project, err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to find default Google Cloud credentials for project %q: %w", project, err)
 		}
 		opts = []option.ClientOption{
 			option.WithUserAgent(userAgent),
@@ -177,19 +226,31 @@ func initDataplexConnection(
 
 	client, err := dataplexapi.NewCatalogClient(ctx, opts...)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create Dataplex client for project %q: %w", project, err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to create Dataplex client for project %q: %w", project, err)
 	}
 
 	dataScanClient, err := dataplexapi.NewDataScanClient(ctx, opts...)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create Dataplex DataScan client for project %q: %w", project, err)
+		client.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to create Dataplex DataScan client for project %q: %w", project, err)
 	}
 
 	dataProductClient, err := dataplexapi.NewDataProductClient(ctx, opts...)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create Dataplex DataProduct client for project %q: %w", project, err)
+		client.Close()
+		dataScanClient.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to create Dataplex DataProduct client for project %q: %w", project, err)
 	}
-	return client, dataScanClient, dataProductClient, nil
+
+	projectsClient, err := resourcemanager.NewProjectsClient(ctx, opts...)
+	if err != nil {
+		client.Close()
+		dataScanClient.Close()
+		dataProductClient.Close()
+		return nil, nil, nil, nil, fmt.Errorf("failed to create ResourceManager projects client for project %q: %w", project, err)
+	}
+
+	return client, dataScanClient, dataProductClient, projectsClient, nil
 }
 
 func (s *Source) LookupEntry(ctx context.Context, name string, view int, aspectTypes []string, entry string) (*dataplexpb.Entry, error) {
@@ -785,6 +846,14 @@ func (s *Source) UpdateDataAsset(
 		"locationId":  parts[3],
 		"operationId": parts[5],
 	}, nil
+}
+
+func (s *Source) UpdateEntry(ctx context.Context, entry *dataplexpb.Entry, updateMask *fieldmaskpb.FieldMask) (*dataplexpb.Entry, error) {
+	req := &dataplexpb.UpdateEntryRequest{
+		Entry:      entry,
+		UpdateMask: updateMask,
+	}
+	return s.CatalogClient().UpdateEntry(ctx, req)
 }
 
 func (s *Source) GenerateDataInsights(ctx context.Context, location, resourcePath string, publish bool) (string, error) {

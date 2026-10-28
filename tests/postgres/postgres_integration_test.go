@@ -28,26 +28,26 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
 	PostgresSourceType = "postgres"
 	PostgresToolType   = "postgres-sql"
 	PostgresDatabase   = os.Getenv("POSTGRES_DATABASE")
-	PostgresHost       = os.Getenv("POSTGRES_HOST")
-	PostgresPort       = os.Getenv("POSTGRES_PORT")
 	PostgresUser       = os.Getenv("POSTGRES_USER")
 	PostgresPass       = os.Getenv("POSTGRES_PASS")
 )
 
-func getPostgresVars(t *testing.T) map[string]any {
+func getPostgresVars(t *testing.T, host string, port string) map[string]any {
 	switch "" {
+	case host:
+		t.Fatal("'PostgresHost' was empty")
+	case port:
+		t.Fatal("'PostgressPort' was empty")
 	case PostgresDatabase:
 		t.Fatal("'POSTGRES_DATABASE' not set")
-	case PostgresHost:
-		t.Fatal("'POSTGRES_HOST' not set")
-	case PostgresPort:
-		t.Fatal("'POSTGRES_PORT' not set")
 	case PostgresUser:
 		t.Fatal("'POSTGRES_USER' not set")
 	case PostgresPass:
@@ -56,8 +56,8 @@ func getPostgresVars(t *testing.T) map[string]any {
 
 	return map[string]any{
 		"type":     PostgresSourceType,
-		"host":     PostgresHost,
-		"port":     PostgresPort,
+		"host":     host,
+		"port":     port,
 		"database": PostgresDatabase,
 		"user":     PostgresUser,
 		"password": PostgresPass,
@@ -81,10 +81,35 @@ func initPostgresConnectionPool(host, port, user, pass, dbname string) (*pgxpool
 	return pool, nil
 }
 
+func setupPostgresTestContainer(ctx context.Context, t *testing.T) (string, string, func()) {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image:        "pgvector/pgvector:pg16",
+		Cmd:          []string{"postgres", "-c", "shared_preload_libraries=pg_stat_statements"},
+		ExposedPorts: []string{"5432/tcp"},
+		Env: map[string]string{
+			"POSTGRES_USER":     PostgresUser,
+			"POSTGRES_PASSWORD": PostgresPass,
+			"POSTGRES_DB":       PostgresDatabase,
+		},
+		WaitingFor: wait.ForAll(
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+			wait.ForExposedPort(),
+		),
+	}
+
+	return tests.SetupGenericPostgresTestContainer(ctx, t, req)
+}
+
 func TestPostgres(t *testing.T) {
-	sourceConfig := getPostgresVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	PostgresHost, PostgresPort, containerCleanup := setupPostgresTestContainer(ctx, t)
+	t.Cleanup(containerCleanup)
+
+	sourceConfig := getPostgresVars(t, PostgresHost, PostgresPort)
 
 	args := []string{"--enable-api"}
 

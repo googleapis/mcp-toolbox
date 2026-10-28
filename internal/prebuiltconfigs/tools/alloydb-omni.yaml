@@ -272,8 +272,9 @@ name: list_stored_procedure
 type: postgres-list-stored-procedure
 source: alloydb-omni-source
 ---
-kind: toolset
+kind: group
 name: data
+description: Use these skills when you need to explore the database structure, identify schema objects like views and triggers, and execute SQL queries to interact with your data.
 tools:
 - execute_sql
 - list_tables
@@ -284,8 +285,9 @@ tools:
 - list_sequences
 - list_stored_procedure
 ---
-kind: toolset
+kind: group
 name: performance
+description: Use these skills when you need to analyze query performance, generate execution plans, check table/column statistics, and monitor overall database activity.
 tools:
 - execute_sql
 - get_query_plan
@@ -295,8 +297,9 @@ tools:
 - list_database_stats
 - list_active_queries
 ---
-kind: toolset
+kind: group
 name: monitor
+description: Use these skills when you need to troubleshoot production issues by identifying locks, tracking long-running transactions, and getting a high-level view of server state.
 tools:
 - database_overview
 - list_active_queries
@@ -305,8 +308,9 @@ tools:
 - list_database_stats
 - list_pg_settings
 ---
-kind: toolset
+kind: group
 name: optimize
+description: Use these skills when you need to fine-tune the database engine settings, manage extensions, or optimize the columnar engine for better analytical performance.
 tools:
 - list_pg_settings
 - list_memory_configurations
@@ -316,8 +320,9 @@ tools:
 - list_columnar_configurations
 - list_columnar_recommended_columns
 ---
-kind: toolset
+kind: group
 name: health
+description: Use these skills when you need to audit database health, identify storage bloat, find broken indexes, and verify tablespace or maintenance configurations.
 tools:
 - list_top_bloated_tables
 - list_invalid_indexes
@@ -326,16 +331,18 @@ tools:
 - database_overview
 - list_autovacuum_configurations
 ---
-kind: toolset
+kind: group
 name: replication
+description: Use these skills when you need to monitor the health of database replication, manage sync states between nodes, and audit publication tables for distributed setups.
 tools:
 - replication_stats
 - list_replication_slots
 - list_publication_tables
 - database_overview
 ---
-kind: toolset
+kind: group
 name: access-control
+description: Use these skills when you need to manage user roles, inspect permissions, and verify security-related configuration parameters.
 tools:
 - list_roles
 - list_pg_settings

@@ -24,13 +24,13 @@ kind: tool
 name: execute_sql
 type: spanner-execute-sql
 source: spanner-source
-description: Use this tool to execute DML SQL. Please use the PostgreSQL interface for Spanner.
+description: Execute read-write SQL statements that modify the database (DML), such as INSERT, UPDATE, DELETE, or table alterations. Do not use this tool for standard data queries or SELECT statements. Please use the PostgreSQL interface for Spanner.
 ---
 kind: tool
-name: execute_sql_dql
+name: execute_sql_readonly
 type: spanner-execute-sql
 source: spanner-source
-description: Use this tool to execute DQL SQL. Please use the PostgreSQL interface for Spanner.
+description: Execute read-only SQL queries (DQL) such as SELECT statements, metadata inspections, or information_schema queries. Use this tool as the default for any data retrieval tasks. Use the PostgreSQL interface for Spanner.
 readOnly: true
 ---
 kind: tool
@@ -240,13 +240,13 @@ kind: toolset
 name: data
 tools:
 - execute_sql
-- execute_sql_dql
+- execute_sql_readonly
 - list_tables
 ---
 kind: toolset
 name: data_with_discovery
 tools:
 - execute_sql
-- execute_sql_dql
+- execute_sql_readonly
 - list_tables
 - search_catalog

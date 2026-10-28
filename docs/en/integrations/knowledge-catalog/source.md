@@ -363,7 +363,7 @@ This abbreviated syntax works for the qualified predicates except for `label` in
 
 ## Tool: lookup_entry
 ### Request
-1. Always try to limit the size of the response by specifying `aspect_types` parameter. Make sure to include to select view=CUSTOM when using aspect_types parameter. If you do not know the name of the aspect type, use the `search_aspect_types` tool.
+1. Always try to limit the size of the response by specifying the aspect_types parameter. Make sure to select view=CUSTOM when using the aspect_types parameter. If you do not know the name of the aspect type, refer to the list of system aspect types in the Aspect Types section above.
 2. If you do not know the name of the entry, use `search_entries` tool
 ### Response
 1. Unless asked for a specific aspect, respond with all aspects attached to the entry.
@@ -439,4 +439,26 @@ This abbreviated syntax works for the qualified predicates except for `label` in
 ### Response
 1. Present the location ID and operation ID returned immediately by the tool call.
 2. Poll the returned operation using the `get_operation` tool until completion at intervals of ~5 seconds.
+
+## Tool: update_data_product_aspects
+### Request
+1. Use this tool to update metadata aspects (like `overview` or `contacts`) on an existing Data Product Entry.
+2. You must provide `locationId`, `dataProductId`, and `aspects`.
+3. The `aspects` parameter is an array of aspects. Each aspect contains:
+   - `projectId` (string, required): The project ID of the aspect type (use `"dataplex-types"` for system aspects).
+   - `locationId` (string, required): The location ID of the aspect type (use `"global"` for system aspects).
+   - `aspectTypeId` (string, required): The name of the aspect type (e.g. `"overview"` or `"refresh-cadence"`).
+   - `data` (object, required): The aspect payload details.
+     - For `"overview"` (documentation), the `data` object accepts: `content` (string, required, markdown or text), `contentType` (string, optional, `MARKDOWN` or `HTML`), and `links` (array of objects with `url` and `title`).
+     - For `"refresh-cadence"` (contract), the `data` object accepts: `frequency` (string, required: `Daily`, `Weekly`, `Monthly`, etc.), `refreshTime` (string, optional, e.g. `"09:00 PST"`), `thresholdInMinutes` (int, optional), and `cronSchedule` (string, optional).
+### Response
+1. Present the updated entry details including `name`, `entrySource`, `entryType`, and the list of updated `aspects` (each containing `projectId`, `locationId`, `aspectTypeId`, and `data`).
+
+## Tool: get_operation
+### Request
+1. Use this tool to retrieve the status of an asynchronous long-running operation (LRO) like scan creation or data product/asset creation/updation.
+2. You must provide `operationName`, a fully-qualified operation name string having format `projects/{projectId}/locations/{locationId}/operations/{operationId}`.
+### Response
+1. Present whether the operation is done (`done: true` or `done: false`).
+2. Once the operation is completed (`done: true`), the response result will contain either an error (if it failed), or the created/updated resource (like `DataScan`, `DataProduct`, or `DataAsset`).
 ```

@@ -79,10 +79,10 @@ We currently support different versions of the MCP protocol.
 
 | Constant | Description |
 | :--- | :--- |
-| `Protocol.MCP` | **(Default)** Alias for the default MCP version (currently `2025-11-25`). |
-| `Protocol.MCP_LATEST` | Alias for the latest stable MCP version (currently `2025-11-25`). |
-| `Protocol.MCP_DRAFT` | Alias for the upcoming draft MCP version (currently `DRAFT-2026-v1`). |
-| `Protocol.MCP_v2026_DRAFT` | MCP Protocol draft version DRAFT-2026-v1. |
+| `Protocol.MCP` | **(Default)** Alias for the default MCP version (currently `2026-07-28`). |
+| `Protocol.MCP_LATEST` | Alias for the latest stable MCP version (currently `2026-07-28`). |
+| `Protocol.MCP_DRAFT` | Alias for the upcoming draft MCP version (currently `2026-07-28`). |
+| `Protocol.MCP_v20260728` | MCP Protocol version 2026-07-28. |
 | `Protocol.MCP_v20251125` | MCP Protocol version 2025-11-25. |
 | `Protocol.MCP_v20250618` | MCP Protocol version 2025-06-18. |
 | `Protocol.MCP_v20250326` | MCP Protocol version 2025-03-26. |
@@ -408,6 +408,52 @@ dynamic_bound_tool = tool.bind_param("param", get_dynamic_value)
 You don't need to modify tool configurations to bind parameter values.
 {{< /notice >}}
 
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in `toolbox-llamaindex` version `0.9.0` (with `toolbox-core` >= `1.4.0`) and require MCP protocol version `2026-07-28` or newer with the `com.google.cloud/toolbox.v1` extension. For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime values (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see or control.
+
+* **Schema Isolation:** Secure parameters are automatically omitted from LlamaIndex's tool metadata and parameter definitions (`tool.metadata.fn_schema`), keeping model context clean and preventing parameter hallucination or leakage.
+* **Prompt Injection Defense:** If a model attempts to supply a secure parameter in standard arguments, execution fails immediately.
+* **Fast-Fail Validation:** Missing required secure parameters fail locally before invocation.
+* **Binding While Loading or After:** You can provide secure parameters when loading tools or bind them to loaded tools (both synchronous and asynchronous clients supported):
+
+```python
+from toolbox_llamaindex import ToolboxClient
+
+client = ToolboxClient("http://127.0.0.1:5000")
+
+# Option A: Bind secure parameters when loading tools (sync or async)
+bound_tool = client.load_tool("search_secure_data", secure_params={"customer_id": "cust_12345"})
+tools = client.load_toolset("my-set", secure_params={"customer_id": "cust_12345"})
+
+# Async client loading:
+# bound_tool = await client.aload_tool("search_secure_data", secure_params={"customer_id": "cust_12345"})
+# tools = await client.aload_toolset("my-set", secure_params={"customer_id": "cust_12345"})
+
+# Option B: Bind secure parameters to an un-bound loaded tool (returns a new immutable tool)
+raw_tool = client.load_tool("search_secure_data")
+single_bound = raw_tool.bind_secure_param("customer_id", "cust_12345")
+multi_bound = raw_tool.bind_secure_params({
+    "customer_id": "cust_12345",
+    "session_token": "token-xyz",
+})
+
+# Option C: Dynamic callable (evaluated per invocation)
+dynamic_tool = raw_tool.bind_secure_param("customer_id", lambda: get_current_user_id())
+```
+
+### Cross-Binding Guidance & Mutual Exclusivity
+
+* Calling `tool.bind_param()` on a secure parameter raises:  
+  `ValueError: parameter '<name>' is a secure parameter; use bind_secure_param/bind_secure_params instead`
+* Calling `tool.bind_secure_param()` on a regular parameter raises:  
+  `ValueError: parameter '<name>' is a regular parameter; use bind_param/bind_params instead`
+
+
 ## Asynchronous Usage
 
 For better performance through [cooperative
@@ -453,3 +499,26 @@ with ToolboxClient("http://127.0.0.1:5000", telemetry_enabled=True) as toolbox:
 ```
 
 Configure your OpenTelemetry `TracerProvider` and `MeterProvider` before creating the client. See the [toolbox-core OpenTelemetry documentation](https://mcp-toolbox.dev/documentation/connect-to/toolbox-sdks/python-sdk/core/#opentelemetry) for a full setup example.
+
+### Per-call Telemetry Attributes
+
+Use `TelemetryAttributes` to attach model, user, and agent metadata to tool invocations:
+
+```py
+from toolbox_core import TelemetryAttributes
+from toolbox_llamaindex import ToolboxClient
+
+attrs = TelemetryAttributes(
+    llm_model="gemini-3.6-flash",
+    user_id="user-123",
+    agent_id="agent-abc",
+)
+
+with ToolboxClient("http://127.0.0.1:5000") as toolbox:
+    tools = toolbox.load_toolset("my-toolset", telemetry_attributes=attrs)
+
+    tool = toolbox.load_tool("my-tool")
+    instrumented_tool = tool.add_telemetry_attributes(attrs)
+```
+
+You can pass `telemetry_attributes` to `load_tool()` or `load_toolset()`, or call `add_telemetry_attributes()` on a loaded tool. See the [toolbox-core telemetry attributes documentation](https://mcp-toolbox.dev/documentation/connect-to/toolbox-sdks/python-sdk/core/#per-call-telemetry-attributes) for field details.

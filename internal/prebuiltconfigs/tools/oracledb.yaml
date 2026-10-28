@@ -167,8 +167,9 @@ statement: |
   ORDER BY
       owner, object_type, object_name
 ---
-kind: toolset
+kind: group
 name: oracle_database_tools
+description: Use these skills to manage and monitor Oracle databases by executing SQL statements, exploring schema metadata, analyzing query performance, monitoring active sessions and resource consumption, and managing storage and object health.
 tools:
 - execute_sql
 - list_tables

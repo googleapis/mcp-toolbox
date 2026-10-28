@@ -464,8 +464,9 @@ description: |
   - project_id (required): The unique ID of the LookML project.
   - branch (required): The branch to delete.
 ---
-kind: toolset
+kind: group
 name: looker_dev_tools
+description: These skills are built for LookML developers, data engineers, and administrators who manage the backbone of Looker.
 tools:
 - health_pulse
 - health_analyze

@@ -54,9 +54,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 

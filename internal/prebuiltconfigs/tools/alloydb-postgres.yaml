@@ -23,6 +23,7 @@ database: ${ALLOYDB_POSTGRES_DATABASE}
 user: ${ALLOYDB_POSTGRES_USER:}
 password: ${ALLOYDB_POSTGRES_PASSWORD:}
 ipType: ${ALLOYDB_POSTGRES_IP_TYPE:public}
+readOnly: ${ALLOYDB_POSTGRES_READONLY:false}
 ---
 kind: source
 name: cloud-monitoring-source
@@ -32,6 +33,7 @@ kind: source
 name: alloydb-admin-source
 type: alloydb-admin
 defaultProject: ${ALLOYDB_POSTGRES_PROJECT:}
+readOnly: ${ALLOYDB_POSTGRES_READONLY:false}
 ---
 kind: tool
 name: execute_sql
@@ -421,8 +423,9 @@ name: list_instances
 type: alloydb-list-instances
 source: alloydb-admin-source
 ---
-kind: toolset
+kind: group
 name: admin
+description: Use these skills when you need to provision new AlloyDB clusters and instances, monitor their creation status, and retrieve high-level configuration or health data for the environment.
 tools:
 - create_cluster
 - get_cluster
@@ -433,8 +436,9 @@ tools:
 - database_overview
 - wait_for_operation
 ---
-kind: toolset
+kind: group
 name: access-management
+description: Use these skills when you need to manage database users, inspect permissions and roles, and verify global configuration parameters related to security and access control.
 tools:
 - create_user
 - list_users
@@ -443,8 +447,9 @@ tools:
 - list_pg_settings
 - database_overview
 ---
-kind: toolset
+kind: group
 name: data
+description: Use these skills when you need to explore the database schema, identify objects like views and triggers, and execute custom SQL queries to interact with your data.
 tools:
 - execute_sql
 - list_tables
@@ -455,8 +460,9 @@ tools:
 - list_sequences
 - list_stored_procedure
 ---
-kind: toolset
+kind: group
 name: monitor
+description: Use these skills when you need to troubleshoot slow performance, analyze query execution plans, identify resource-heavy processes, and monitor system-level PromQL metrics.
 tools:
 - list_active_queries
 - list_query_stats
@@ -467,8 +473,9 @@ tools:
 - list_locks
 - list_database_stats
 ---
-kind: toolset
+kind: group
 name: health
+description: Use these skills when you need to optimize storage, identify index issues, analyze table statistics, or manage autovacuum and tablespace configurations to maintain peak database health.
 tools:
 - list_top_bloated_tables
 - list_invalid_indexes
@@ -479,8 +486,9 @@ tools:
 - database_overview
 - get_instance
 ---
-kind: toolset
+kind: group
 name: optimize
+description: Use these skills when you need to discover and manage PostgreSQL extensions or fine-tune engine-level settings such as memory allocation and server configuration parameters.
 tools:
 - list_available_extensions
 - list_installed_extensions
@@ -489,8 +497,9 @@ tools:
 - database_overview
 - get_cluster
 ---
-kind: toolset
+kind: group
 name: replication
+description: Use these skills when you need to monitor replication health, manage sync states between nodes, and ensure the high availability and data distribution of your AlloyDB cluster.
 tools:
 - replication_stats
 - list_replication_slots

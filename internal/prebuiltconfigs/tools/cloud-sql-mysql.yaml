@@ -22,11 +22,13 @@ database: ${CLOUD_SQL_MYSQL_DATABASE}
 user: ${CLOUD_SQL_MYSQL_USER:}
 password: ${CLOUD_SQL_MYSQL_PASSWORD:}
 ipType: ${CLOUD_SQL_MYSQL_IP_TYPE:PUBLIC}
+readOnly: ${CLOUD_SQL_MYSQL_READONLY:false}
 ---
 kind: source
 name: cloud-sql-admin-source
 type: cloud-sql-admin
 defaultProject: ${CLOUD_SQL_MYSQL_PROJECT:}
+readOnly: ${CLOUD_SQL_MYSQL_READONLY:false}
 ---
 kind: source
 name: cloud-monitoring-source
@@ -229,8 +231,9 @@ name: list_databases
 type: cloud-sql-list-databases
 source: cloud-sql-admin-source
 ---
-kind: toolset
+kind: group
 name: admin
+description: Use these skills when you need to provision new Cloud SQL for MySQL instances, create databases and users, and monitor the progress of infrastructure operations.
 tools:
 - create_instance
 - get_instance
@@ -240,16 +243,18 @@ tools:
 - create_user
 - wait_for_operation
 ---
-kind: toolset
+kind: group
 name: data
+description: Use these skills when you need to explore your database schema, execute SQL queries to interact with your data, and inspect how MySQL plans to execute your statements.
 tools:
 - execute_sql
 - list_tables
 - get_query_plan
 - list_active_queries
 ---
-kind: toolset
+kind: group
 name: monitor
+description: Use these skills when you need to troubleshoot slow queries, analyze system-level PromQL metrics, and identify structural performance issues like table fragmentation or missing unique indexes.
 tools:
 - get_query_plan
 - list_active_queries
@@ -261,8 +266,9 @@ tools:
 - list_tables_missing_unique_indexes
 - show_query_stats
 ---
-kind: toolset
+kind: group
 name: lifecycle
+description: Use these skills when you need to manage the durability and safety of your data by creating backups, restoring from previous states, or cloning instances for recovery and testing.
 tools:
 - create_backup
 - restore_backup

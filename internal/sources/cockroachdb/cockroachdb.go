@@ -122,6 +122,10 @@ type Source struct {
 	Pool *pgxpool.Pool
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }
@@ -299,6 +303,96 @@ func (s *Source) CanExecuteWrite(sql string) error {
 	return nil
 }
 
+// limitClauseRegexp matches a LIMIT keyword regardless of surrounding
+// whitespace, so multiline or tab-formatted queries are detected too.
+var limitClauseRegexp = regexp.MustCompile(`(?i)\bLIMIT\b`)
+
+func stripSQLCommentsAndQuotedText(sql string) (string, bool) {
+	var result strings.Builder
+	result.Grow(len(sql))
+	trailingLineComment := false
+
+	for i := 0; i < len(sql); {
+		switch {
+		case sql[i] == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			trailingLineComment = true
+			for i < len(sql) && sql[i] != '\n' {
+				result.WriteByte(' ')
+				i++
+			}
+		case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			depth := 1
+			result.WriteString("  ")
+			i += 2
+			for i < len(sql) && depth > 0 {
+				switch {
+				case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
+					depth++
+					result.WriteString("  ")
+					i += 2
+				case sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/':
+					depth--
+					result.WriteString("  ")
+					i += 2
+				default:
+					result.WriteByte(' ')
+					i++
+				}
+			}
+		case sql[i] == '\'' || sql[i] == '"':
+			quote := sql[i]
+			result.WriteByte(' ')
+			i++
+			for i < len(sql) {
+				result.WriteByte(' ')
+				if sql[i] == '\\' && i+1 < len(sql) {
+					result.WriteByte(' ')
+					i += 2
+					continue
+				}
+				if sql[i] == quote {
+					if i+1 < len(sql) && sql[i+1] == quote {
+						result.WriteByte(' ')
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+		case sql[i] == '$':
+			end := i + 1
+			for end < len(sql) && (sql[end] == '_' || sql[end] >= 'a' && sql[end] <= 'z' || sql[end] >= 'A' && sql[end] <= 'Z' || end > i+1 && sql[end] >= '0' && sql[end] <= '9') {
+				end++
+			}
+			if end >= len(sql) || sql[end] != '$' {
+				result.WriteByte(sql[i])
+				i++
+				continue
+			}
+			delimiter := sql[i : end+1]
+			closing := strings.Index(sql[end+1:], delimiter)
+			if closing < 0 {
+				result.WriteByte(sql[i])
+				i++
+				continue
+			}
+			quotedLength := end + 1 + closing + len(delimiter) - i
+			result.WriteString(strings.Repeat(" ", quotedLength))
+			i += quotedLength
+		default:
+			result.WriteByte(sql[i])
+			if sql[i] == '\n' {
+				trailingLineComment = false
+			}
+			i++
+		}
+	}
+
+	return result.String(), trailingLineComment
+}
+
 // ApplyQueryLimits applies row limits to a SQL query for MCP security compliance.
 // Context timeout management is the responsibility of the caller (following Go best practices).
 // Returns potentially modified SQL with LIMIT clause for SELECT queries.
@@ -308,12 +402,22 @@ func (s *Source) ApplyQueryLimits(sql string) (string, error) {
 	// Apply row limit only to SELECT queries
 	if sqlType == SQLTypeSelect && s.MaxRowLimit > 0 {
 		// Check if query already has LIMIT clause
-		normalized := strings.ToUpper(sql)
-		if !strings.Contains(normalized, " LIMIT ") {
+		searchableSQL, trailingLineComment := stripSQLCommentsAndQuotedText(sql)
+		if limitClauseRegexp.MatchString(searchableSQL) {
+			slog.Warn("configured row limit skipped because query already contains a LIMIT clause", "source", s.Name, "maxRowLimit", s.MaxRowLimit)
+		} else {
 			// Add LIMIT clause - trim trailing whitespace and semicolon
+			trimmedSearchable := strings.TrimRight(searchableSQL, " \t\r\n")
+			if strings.HasSuffix(trimmedSearchable, ";") {
+				semiColonIdx := len(trimmedSearchable) - 1
+				sql = sql[:semiColonIdx] + sql[semiColonIdx+1:]
+			}
 			sql = strings.TrimSpace(sql)
-			sql = strings.TrimSuffix(sql, ";")
-			sql = fmt.Sprintf("%s LIMIT %d", sql, s.MaxRowLimit)
+			separator := " "
+			if trailingLineComment {
+				separator = "\n"
+			}
+			sql = fmt.Sprintf("%s%sLIMIT %d", sql, separator, s.MaxRowLimit)
 		}
 	}
 
@@ -401,6 +505,10 @@ func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tr
 
 		if err == nil {
 			return pool, nil
+		}
+
+		if pool != nil {
+			pool.Close()
 		}
 
 		if attempt < maxRetries {

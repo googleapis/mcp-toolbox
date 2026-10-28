@@ -7,11 +7,12 @@
 // BANNER CONFIGURATION
 // ==========================================================================
 const BANNER_CONFIG = {
-  title: "Google Cloud Storage (GCS) is Now Available in MCP Toolbox!",
-  message: "GCS is now natively supported in MCP Toolbox, providing prebuilt toolsets and custom secure tooling.",
+  title: "MCP Toolbox Now Supports the New Stateless MCP Spec!",
+  message: "Try out the new 2026-07-28 stateless MCP spec for better scaling.",
   linkText: "Read the launch blog!",
-  linkUrl: "https://medium.com/@mcp_toolbox/turning-data-into-context-google-cloud-storage-gcs-is-now-available-in-mcp-toolbox-5880f368846a"
+  linkUrl: "https://medium.com/google-cloud/mcp-toolbox-adds-support-for-the-new-july-28-mcp-spec-a0fbe401cbba"
 };
+
 
 document.addEventListener('DOMContentLoaded', function() {
 

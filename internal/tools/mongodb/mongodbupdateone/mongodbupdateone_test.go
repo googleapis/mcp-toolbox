@@ -222,7 +222,7 @@ func TestParseFromYamlMongoQuery(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -286,7 +286,7 @@ func TestFailParseFromYamlMongoQuery(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}
@@ -297,4 +297,95 @@ func TestFailParseFromYamlMongoQuery(t *testing.T) {
 		})
 	}
 
+}
+
+func collectionParam(params parameters.Parameters) *parameters.StringParameter {
+	for _, p := range params {
+		if sp, ok := p.(*parameters.StringParameter); ok && sp.GetName() == "collection" {
+			return sp
+		}
+	}
+	return nil
+}
+
+var noCollectionConfig = `
+            kind: tool
+            name: example_tool
+            type: mongodb-update-one
+            source: my-instance
+            description: some description
+            database: test_db
+            filterPayload: |
+                { name: {{json .name}} }
+            updatePayload: |
+                { $set : { item: {{json .item}} } }
+            updateParams:
+                - name: item
+                  type: string
+                  description: small description
+`
+
+func TestRuntimeCollection(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	// collection is optional now, so a config without it should still parse.
+	if _, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(noCollectionConfig)); err != nil {
+		t.Fatalf("expected config without collection to parse, got: %s", err)
+	}
+
+	tcs := []struct {
+		desc          string
+		collection    string
+		allowedValues []string
+		wantParam     bool
+		wantAllowed   int
+		wantErr       bool
+	}{
+		{"omitted exposes a required runtime param", "", nil, true, 0, false},
+		{"omitted with allowed values restricts the param", "", []string{"orders", "customers"}, true, 2, false},
+		{"set in config exposes no runtime param", "test_coll", nil, false, 0, false},
+		{"collection and allowedValues together is an error", "test_coll", []string{"orders"}, false, 0, true},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := mongodbupdateone.Config{
+				ConfigBase:              tools.ConfigBase{Name: "example_tool", Description: "some description"},
+				Collection:              tc.collection,
+				CollectionAllowedValues: tc.allowedValues,
+			}
+			tool, err := cfg.Initialize(ctx)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected an error when collection and collectionAllowedValues are both set")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unable to initialize tool: %s", err)
+			}
+			params, err := tool.GetParameters(nil)
+			if err != nil {
+				t.Fatalf("unable to get parameters: %s", err)
+			}
+			p := collectionParam(params)
+			if !tc.wantParam {
+				if p != nil {
+					t.Error("did not expect a collection parameter when collection is set in config")
+				}
+				return
+			}
+			if p == nil {
+				t.Fatal("expected a runtime collection parameter when collection is omitted")
+			}
+			if p.Required == nil || !*p.Required {
+				t.Error("expected the runtime collection parameter to be required")
+			}
+			if len(p.AllowedValues) != tc.wantAllowed {
+				t.Errorf("expected %d allowed values, got %d", tc.wantAllowed, len(p.AllowedValues))
+			}
+		})
+	}
 }

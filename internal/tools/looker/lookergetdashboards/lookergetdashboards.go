@@ -17,13 +17,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -53,9 +56,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -85,7 +87,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewReadOnlyAnnotations),
+			lookercommon.ReadOnlyAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: params.Manifest(), AuthRequired: cfg.AuthRequired},
 			params,
 		),
@@ -99,16 +101,133 @@ type Tool struct {
 	tools.BaseTool[Config]
 }
 
+func (t Tool) GetSourceName() string {
+	return t.Cfg.Source
+}
+
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg
 }
 
-func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, err)
+func (t Tool) ValidateSource(source sources.Source) error {
+	_, ok := source.(compatibleSource)
+	if !ok {
+		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
+	return nil
+}
 
+func dashboardToMap(v v4.Dashboard) map[string]any {
+	vMap := make(map[string]any)
+	if v.Id != nil {
+		vMap["id"] = *v.Id
+	}
+	if v.Title != nil {
+		vMap["title"] = *v.Title
+	}
+	if v.Description != nil {
+		vMap["description"] = *v.Description
+	}
+	if v.CertificationMetadata != nil {
+		vMap["certification_metadata"] = v.CertificationMetadata
+	}
+	return vMap
+}
+
+type lookerFieldMatcher struct {
+	raw     string
+	isNull  bool
+	notNull bool
+	re      *regexp.Regexp
+}
+
+// compileLookerFieldMatcher pre-compiles a Looker search pattern
+// (case-insensitive, supporting '%' and '_' SQL LIKE wildcards, "IS NULL",
+// and "NOT NULL"; if no '%' wildcard is specified, leaves the regex unanchored
+// so partial title, underscore wildcard, or LookML dashboard ID/slug substring
+// searches work in a single pass).
+func compileLookerFieldMatcher(pattern string) lookerFieldMatcher {
+	if pattern == "" {
+		return lookerFieldMatcher{}
+	}
+	trimmed := strings.TrimSpace(pattern)
+	if strings.EqualFold(trimmed, "IS NULL") {
+		return lookerFieldMatcher{raw: pattern, isNull: true}
+	}
+	if strings.EqualFold(trimmed, "NOT NULL") {
+		return lookerFieldMatcher{raw: pattern, notNull: true}
+	}
+	if pattern == "%" {
+		return lookerFieldMatcher{raw: pattern}
+	}
+	patLower := strings.ToLower(pattern)
+	hasPercent := strings.Contains(patLower, "%")
+
+	var sb strings.Builder
+	if hasPercent {
+		sb.WriteString("(?s)^")
+	} else {
+		sb.WriteString("(?s)")
+	}
+	for _, ch := range patLower {
+		switch ch {
+		case '%':
+			sb.WriteString(".*")
+		case '_':
+			sb.WriteString(".")
+		default:
+			sb.WriteString(regexp.QuoteMeta(string(ch)))
+		}
+	}
+	if hasPercent {
+		sb.WriteString("$")
+	}
+	re, _ := regexp.Compile(sb.String())
+	return lookerFieldMatcher{raw: pattern, re: re}
+}
+
+func (m lookerFieldMatcher) matches(val *string) bool {
+	if m.raw == "" {
+		return true
+	}
+	if m.isNull {
+		return val == nil || *val == ""
+	}
+	if m.notNull {
+		return val != nil && *val != ""
+	}
+	if val == nil {
+		return false
+	}
+	if m.re == nil {
+		return true
+	}
+	return m.re.MatchString(strings.ToLower(*val))
+}
+
+func matchesLookmlDashboard(v v4.Dashboard, titleMatcher, descMatcher lookerFieldMatcher) bool {
+	if titleMatcher.raw != "" {
+		if titleMatcher.isNull || titleMatcher.notNull {
+			if !titleMatcher.matches(v.Title) {
+				return false
+			}
+		} else if !titleMatcher.matches(v.Title) && !titleMatcher.matches(v.Id) {
+			return false
+		}
+	}
+	if descMatcher.raw != "" {
+		if !descMatcher.matches(v.Description) {
+			return false
+		}
+	}
+	return true
+}
+
+func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	source, ok := s.(compatibleSource)
+	if !ok {
+		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
+	}
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		return nil, util.NewClientServerError("unable to get logger from ctx", http.StatusInternalServerError, err)
@@ -125,19 +244,32 @@ func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, par
 		desc_ptr = nil
 	}
 	limit := int64(paramsMap["limit"].(int))
+	if limit < 0 {
+		limit = 0
+	}
 	offset := int64(paramsMap["offset"].(int))
+	if offset < 0 {
+		offset = 0
+	}
 
 	sdk, err := source.GetLookerSDK(ctx, string(accessToken))
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
+	fields := "id,title,description,certification_metadata"
+	fetchLimit := limit
+	if limit > 0 && offset > 0 {
+		fetchLimit = offset + limit
+	}
+	zeroOffset := int64(0)
 	req := v4.RequestSearchDashboards{
 		Title:       title_ptr,
 		Description: desc_ptr,
-		Limit:       &limit,
-		Offset:      &offset,
+		Limit:       &fetchLimit,
+		Offset:      &zeroOffset,
+		Fields:      &fields,
 	}
-	logger.DebugContext(ctx, "Making request %v", req)
+	logger.DebugContext(ctx, "Making request", "request", req)
 	resp, err := sdk.SearchDashboards(req, source.LookerApiSettings())
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
@@ -145,40 +277,74 @@ func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, par
 		}
 		return nil, util.ProcessGeneralError(err)
 	}
-	logger.DebugContext(ctx, "Got response %v", resp)
+	logger.DebugContext(ctx, "Got response", "response", resp)
 	var data []any
+	seenIDs := make(map[string]bool)
 	for _, v := range resp {
-		logger.DebugContext(ctx, "Got response element of %v\n", v)
-		vMap := make(map[string]any)
+		logger.DebugContext(ctx, "Got response element", "element", v)
 		if v.Id != nil {
-			vMap["id"] = *v.Id
+			seenIDs[*v.Id] = true
 		}
-		if v.Title != nil {
-			vMap["title"] = *v.Title
-		}
-		if v.Description != nil {
-			vMap["description"] = *v.Description
-		}
-		logger.DebugContext(ctx, "Converted to %v\n", vMap)
+		vMap := dashboardToMap(v)
+		logger.DebugContext(ctx, "Converted to map", "map", vMap)
 		data = append(data, vMap)
 	}
-	logger.DebugContext(ctx, "data = ", data)
+
+	if fetchLimit <= 0 || int64(len(data)) < fetchLimit {
+		lookmlResp, lookmlErr := lookercommon.SearchLookmlDashboards(sdk, map[string]any{"fields": fields}, source.LookerApiSettings())
+		if lookmlErr != nil {
+			logger.DebugContext(ctx, "error searching lookml dashboards", "error", lookmlErr)
+		} else {
+			titleMatcher := compileLookerFieldMatcher(title)
+			descMatcher := compileLookerFieldMatcher(desc)
+			for _, v := range lookmlResp {
+				if v.Id != nil && seenIDs[*v.Id] {
+					continue
+				}
+				if !matchesLookmlDashboard(v, titleMatcher, descMatcher) {
+					continue
+				}
+				if v.Id != nil {
+					seenIDs[*v.Id] = true
+				}
+				vMap := dashboardToMap(v)
+				logger.DebugContext(ctx, "Converted LookML dashboard", "dashboard", vMap)
+				data = append(data, vMap)
+				if fetchLimit > 0 && int64(len(data)) >= fetchLimit {
+					break
+				}
+			}
+		}
+	}
+
+	if offset > 0 {
+		if int(offset) >= len(data) {
+			data = []any{}
+		} else {
+			data = data[offset:]
+		}
+	}
+	if limit > 0 && int64(len(data)) > limit {
+		data = data[:limit]
+	}
+
+	logger.DebugContext(ctx, "Final dashboard results", "data", data)
 
 	return data, nil
 }
 
-func (t Tool) RequiresClientAuthorization(primitiveMgr tools.SourceProvider) (bool, error) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return false, err
+func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return false, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
-	return source.UseClientAuthorization(), nil
+	return s.UseClientAuthorization(), nil
 }
 
-func (t Tool) GetAuthTokenHeaderName(primitiveMgr tools.SourceProvider) (string, error) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return "", err
+func (t Tool) GetAuthTokenHeaderName(source sources.Source) (string, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return "", fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
-	return source.GetAuthTokenHeaderName(), nil
+	return s.GetAuthTokenHeaderName(), nil
 }

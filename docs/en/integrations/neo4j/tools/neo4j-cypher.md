@@ -75,12 +75,14 @@ Neo4j supports vector similarity search. When using an `embeddingModel` with a `
 
 See [EmbeddingModels](../../../documentation/configuration/embedding-models/_index.md) for more information.
 
+```yaml
 kind: embeddingModel
 name: gemini-model
 type: gemini
 model: gemini-embedding-001
 apiKey: ${GOOGLE_API_KEY}
 dimension: 768
+```
 
 #### Vector Ingestion Tool
 

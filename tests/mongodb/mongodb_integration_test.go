@@ -21,35 +21,50 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"testing"
 	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	tcmongodb "github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 var (
-	MongoDbSourceType   = "mongodb"
-	MongoDbToolType     = "mongodb-find"
-	MongoDbUri          = os.Getenv("MONGODB_URI")
-	MongoDbDatabase     = os.Getenv("MONGODB_DATABASE")
-	ServiceAccountEmail = os.Getenv("SERVICE_ACCOUNT_EMAIL")
+	MongoDbSourceType = "mongodb"
+	MongoDbToolType   = "mongodb-find"
+	MongoDbDatabase   = "testdb"
 )
 
-func getMongoDBVars(t *testing.T) map[string]any {
-	switch "" {
-	case MongoDbUri:
-		t.Fatal("'MongoDbUri' not set")
-	case MongoDbDatabase:
-		t.Fatal("'MongoDbDatabase' not set")
+func setupMongoDBContainer(ctx context.Context, t *testing.T) (string, func()) {
+	t.Helper()
+
+	mongodbContainer, err := tcmongodb.Run(ctx, "mongo:6")
+	if err != nil {
+		t.Fatalf("failed to start mongodb container: %s", err)
 	}
+
+	cleanup := func() {
+		if err := mongodbContainer.Terminate(context.Background()); err != nil {
+			t.Logf("failed to terminate mongodb container: %s", err)
+		}
+	}
+
+	endpoint, err := mongodbContainer.ConnectionString(ctx)
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get mongodb connection string: %s", err)
+	}
+
+	return endpoint, cleanup
+}
+
+func getMongoDBVars(uri string) map[string]any {
 	return map[string]any{
 		"type": MongoDbSourceType,
-		"uri":  MongoDbUri,
+		"uri":  uri,
 	}
 }
 
@@ -67,13 +82,17 @@ func initMongoDbDatabase(ctx context.Context, uri, database string) (*mongo.Data
 }
 
 func TestMongoDBToolEndpoints(t *testing.T) {
-	sourceConfig := getMongoDBVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+
+	uri, cleanupContainer := setupMongoDBContainer(ctx, t)
+	defer cleanupContainer()
+
+	sourceConfig := getMongoDBVars(uri)
 
 	args := []string{"--enable-api"}
 
-	database, err := initMongoDbDatabase(ctx, MongoDbUri, MongoDbDatabase)
+	database, err := initMongoDbDatabase(ctx, uri, MongoDbDatabase)
 	if err != nil {
 		t.Fatalf("unable to create MongoDB connection: %s", err)
 	}
@@ -91,8 +110,8 @@ func TestMongoDBToolEndpoints(t *testing.T) {
 	}
 	defer cleanup()
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
 	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
@@ -134,6 +153,61 @@ func TestMongoDBToolEndpoints(t *testing.T) {
 	aggregate1Want := `[{"id":2}]`
 	aggregateManyWant := `[{"id":500},{"id":501}]`
 	runToolAggregateInvokeTest(t, aggregate1Want, aggregateManyWant)
+
+	runToolRuntimeCollectionInvokeTest(t, select1Want)
+}
+
+func runToolRuntimeCollectionInvokeTest(t *testing.T, want string) {
+	// The tool has no collection in its config, so it is supplied at runtime.
+	invokeTcs := []struct {
+		name        string
+		requestBody io.Reader
+		want        string
+	}{
+		{
+			name:        "invoke with runtime collection",
+			requestBody: bytes.NewBuffer([]byte(`{ "id": 3, "collection": "test_collection" }`)),
+			want:        want,
+		},
+		{
+			name:        "invoke without collection returns an error",
+			requestBody: bytes.NewBuffer([]byte(`{ "id": 3 }`)),
+			want:        `{"error":"parameter \"collection\" is required"}`,
+		},
+	}
+
+	api := "http://127.0.0.1:5000/api/tool/my-runtime-collection-tool/invoke"
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, api, tc.requestBody)
+			if err != nil {
+				t.Fatalf("unable to create request: %s", err)
+			}
+			req.Header.Add("Content-type", "application/json")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("unable to send request: %s", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+			}
+
+			var body map[string]interface{}
+			if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("error parsing response body")
+			}
+			got, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body")
+			}
+			if got != tc.want {
+				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func runToolDeleteInvokeTest(t *testing.T, delete1Want, deleteManyWant string) {
@@ -452,7 +526,7 @@ func setupMongoDB(t *testing.T, ctx context.Context, database *mongo.Database) f
 	}
 
 	documents := []map[string]any{
-		{"_id": 1, "id": 1, "name": "Alice", "email": ServiceAccountEmail},
+		{"_id": 1, "id": 1, "name": "Alice", "email": tests.ServiceAccountEmail},
 		{"_id": 14, "id": 2, "name": "FakeAlice", "email": "fakeAlice@gmail.com"},
 		{"_id": 2, "id": 2, "name": "Jane"},
 		{"_id": 3, "id": 3, "name": "Sid"},
@@ -528,6 +602,31 @@ func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[str
 				"database":       MongoDbDatabase,
 				"limit":          10,
 			},
+			"my-secure-tool": map[string]any{
+				"type":          toolType,
+				"source":        "my-instance",
+				"description":   "Tool to test secure parameters.",
+				"authRequired":  []string{},
+				"collection":    "test_collection",
+				"filterPayload": `{ "$or": [ { "id": 1, "name": {{json .name }} }, { "id": {{ .id }}, "name": "Sid" } ] }`,
+				"filterParams": []map[string]any{
+					{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user id",
+					},
+					{
+						"name":        "name",
+						"type":        "string",
+						"description": "user name",
+						"secure":      true,
+					},
+				},
+				"projectPayload": `{ "_id": 0, "id": 1, "name" : 1 }`,
+				"sortPayload":    `{ "id": 1 }`,
+				"database":       MongoDbDatabase,
+				"limit":          10,
+			},
 			"my-tool-by-id": map[string]any{
 				"type":          toolType,
 				"source":        "my-instance",
@@ -535,6 +634,23 @@ func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[str
 				"authRequired":  []string{},
 				"collection":    "test_collection",
 				"filterPayload": `{ "id" : {{ .id }} }`,
+				"filterParams": []map[string]any{
+					{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user id",
+					},
+				},
+				"projectPayload": `{ "_id": 1, "id": 1, "name" : 1 }`,
+				"database":       MongoDbDatabase,
+				"limit":          10,
+			},
+			"my-runtime-collection-tool": map[string]any{
+				"type":          toolType,
+				"source":        "my-instance",
+				"description":   "Tool to test runtime collection selection.",
+				"authRequired":  []string{},
+				"filterPayload": `{ "_id" : {{ .id }} }`,
 				"filterParams": []map[string]any{
 					{
 						"name":        "id",

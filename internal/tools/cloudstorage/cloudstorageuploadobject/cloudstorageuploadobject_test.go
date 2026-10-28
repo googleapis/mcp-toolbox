@@ -110,7 +110,7 @@ func TestParseFromYamlCloudStorageUploadObject(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -141,15 +141,6 @@ func (m *mockSource) UploadObject(ctx context.Context, bucket, object, source, c
 	m.gotSource = source
 	m.gotContentType = contentType
 	return map[string]any{"bucket": bucket, "object": object, "bytes": int64(0), "contentType": contentType}, nil
-}
-
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
 }
 
 func TestInvokeValidation(t *testing.T) {
@@ -189,7 +180,6 @@ func TestInvokeValidation(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			src := &mockSource{}
-			primitiveMgr := &mockSourceProvider{source: src}
 			ct := ""
 			if s, ok := tc.contentType.(string); ok {
 				ct = s
@@ -200,7 +190,7 @@ func TestInvokeValidation(t *testing.T) {
 				{Name: "source", Value: tc.src},
 				{Name: "content_type", Value: ct},
 			}
-			_, toolErr := tool.Invoke(context.Background(), primitiveMgr, params, "")
+			_, toolErr := tool.Invoke(context.Background(), src, params, "")
 			if tc.wantErr {
 				if toolErr == nil {
 					t.Fatalf("expected error, got nil")
@@ -256,7 +246,7 @@ func TestConfiguredBucketHiddenAndForwarded(t *testing.T) {
 		{Name: "source", Value: localSource},
 		{Name: "content_type", Value: "text/csv"},
 	}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotBucket != "baked-bucket" || src.gotObject != "o" || src.gotSource != localSource || src.gotContentType != "text/csv" {

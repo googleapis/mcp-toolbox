@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/googleapis/mcp-toolbox/cmd/internal"
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -31,12 +32,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// skillContent holds the tools and description for a single generated skill.
+type skillContent struct {
+	tools       map[string]tools.Tool
+	description string
+}
+
 // skillsCmd is the command for generating skills.
 type skillsCmd struct {
 	*cobra.Command
 	name            string
 	description     string
 	toolset         string
+	group           string
 	outputDir       string
 	licenseHeader   string
 	additionalNotes string
@@ -59,15 +67,15 @@ func NewCommand(opts *internal.ToolboxOptions) *cobra.Command {
 	flags := cmd.Flags()
 	internal.ConfigFileFlags(cmd.Command, flags, opts)
 	flags.StringVar(&cmd.name, "name", "", "Name of the generated skill.")
-	flags.StringVar(&cmd.description, "description", "", "Description of the generated skill")
+	flags.StringVar(&cmd.description, "description", "", "Description of the generated skill. Used as a fallback when a group does not define its own description.")
 	flags.StringVar(&cmd.toolset, "toolset", "", "Name of the toolset to convert into a skill. If not provided, all tools will be included.")
+	flags.StringVar(&cmd.group, "group", "", "Name of the group to convert into a single skill. Uses the group's description, falling back to --description.")
 	flags.StringVar(&cmd.outputDir, "output-dir", "skills", "Directory to output generated skills")
 	flags.StringVar(&cmd.licenseHeader, "license-header", "", "Optional license header to prepend to generated node scripts.")
 	flags.StringVar(&cmd.additionalNotes, "additional-notes", "", "Additional notes to add under the Usage section of the generated SKILL.md")
 	flags.StringVar(&cmd.invocationMode, "invocation-mode", "npx", "Invocation mode for the generated scripts: 'binary' or 'npx'")
 	flags.StringVar(&cmd.toolboxVersion, "toolbox-version", opts.VersionNum, "Version of @toolbox-sdk/server to use for npx approach")
-	_ = cmd.MarkFlagRequired("name")
-	_ = cmd.MarkFlagRequired("description")
+	cmd.MarkFlagsMutuallyExclusive("group", "toolset")
 	return cmd.Command
 }
 
@@ -91,6 +99,13 @@ func run(cmd *skillsCmd, opts *internal.ToolboxOptions) error {
 		return err
 	}
 
+	name, err := resolveSkillName(cmd.name, cmd.group, cmd.toolset, opts.PrebuiltConfigs)
+	if err != nil {
+		opts.Logger.ErrorContext(ctx, err.Error())
+		return err
+	}
+	cmd.name = name
+
 	if err := os.MkdirAll(cmd.outputDir, 0755); err != nil {
 		errMsg := fmt.Errorf("error creating output directory: %w", err)
 		opts.Logger.ErrorContext(ctx, errMsg.Error())
@@ -99,28 +114,29 @@ func run(cmd *skillsCmd, opts *internal.ToolboxOptions) error {
 
 	opts.Logger.InfoContext(ctx, "Generating skillagent skills...")
 
-	// Group the collected tools by toolset they belong to
-	skillsToTools, err := cmd.collectTools(ctx, opts)
+	// Collect the tools and description for each skill to generate.
+	skillsToContents, err := cmd.collectContents(ctx, opts)
 	if err != nil {
-		errMsg := fmt.Errorf("error collecting skill tools: %w", err)
+		errMsg := fmt.Errorf("error collecting skill contents: %w", err)
 		opts.Logger.ErrorContext(ctx, errMsg.Error())
 		return errMsg
 	}
 
-	if len(skillsToTools) == 0 {
+	if len(skillsToContents) == 0 {
 		opts.Logger.InfoContext(ctx, "No tools found to generate.")
 		return nil
 	}
 
 	// Iterate over keys to ensure deterministic order
 	var skillNames []string
-	for name := range skillsToTools {
+	for name := range skillsToContents {
 		skillNames = append(skillNames, name)
 	}
 	sort.Strings(skillNames)
 
 	for _, skillName := range skillNames {
-		allTools := skillsToTools[skillName]
+		content := skillsToContents[skillName]
+		allTools := content.tools
 		if len(allTools) == 0 {
 			opts.Logger.InfoContext(ctx, fmt.Sprintf("No tools found for skill '%s', skipping.", skillName))
 			continue
@@ -209,7 +225,7 @@ func run(cmd *skillsCmd, opts *internal.ToolboxOptions) error {
 		}
 
 		// Generate SKILL.md
-		skillContent, err := generateSkillMarkdown(skillName, cmd.description, cmd.additionalNotes, allTools, parser.EnvVars)
+		skillContent, err := generateSkillMarkdown(skillName, content.description, cmd.additionalNotes, allTools, parser.EnvVars)
 		if err != nil {
 			errMsg := fmt.Errorf("error generating SKILL.md content: %w", err)
 			opts.Logger.ErrorContext(ctx, errMsg.Error())
@@ -228,55 +244,101 @@ func run(cmd *skillsCmd, opts *internal.ToolboxOptions) error {
 	return nil
 }
 
-func (c *skillsCmd) collectTools(ctx context.Context, opts *internal.ToolboxOptions) (map[string]map[string]tools.Tool, error) {
-	// Initialize tools and toolsets only; skills generation does not need live
+// resolveSkillName returns the explicit --name when set. Otherwise, in the
+// single-skill modes it defaults to the --group or --toolset name, and for
+// prebuilt generation it defaults to the config name when exactly one
+// --prebuilt config is given. Any other case requires --name.
+func resolveSkillName(name, group, toolset string, prebuiltConfigs []string) (string, error) {
+	if name != "" {
+		return name, nil
+	}
+	if group != "" {
+		return group, nil
+	}
+	if toolset != "" {
+		return toolset, nil
+	}
+	if len(prebuiltConfigs) == 1 {
+		return strings.ReplaceAll(prebuiltConfigs[0], "/", "-"), nil
+	}
+	return "", fmt.Errorf("--name is required unless --group or --toolset is set, or exactly one --prebuilt config is provided")
+}
+
+func (c *skillsCmd) collectContents(ctx context.Context, opts *internal.ToolboxOptions) (map[string]skillContent, error) {
+	// Initialize tools and groups only; skills generation does not need live
 	// sources, auth services, or embedding models.
-	toolsMap, toolsetsMap, err := server.InitializeOfflineConfigs(ctx, opts.Cfg)
+	toolsMap, groupsMap, err := server.InitializeOfflineConfigs(ctx, opts.Cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize resources: %w", err)
 	}
 
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, toolsetsMap, nil, nil)
+	return c.buildSkillContents(toolsMap, groupsMap)
+}
 
-	skillsToTools := make(map[string]map[string]tools.Tool)
+// buildSkillContents maps each skill name to the tools and description it should
+// be generated with. In group mode, a group's own description takes precedence
+// over the --description flag, which acts as a fallback.
+func (c *skillsCmd) buildSkillContents(toolsMap map[string]tools.Tool, groupsMap map[string]group.Group) (map[string]skillContent, error) {
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, groupsMap)
 
-	getToolsFromToolset := func(ts tools.Toolset) map[string]tools.Tool {
-		toolsetTools := make(map[string]tools.Tool)
-		for _, t := range ts.Tools {
-			if t != nil {
-				tool := *t
-				toolsetTools[tool.GetName()] = tool
+	skillsToContents := make(map[string]skillContent)
+
+	getToolsFromGroup := func(g group.Group) map[string]tools.Tool {
+		groupTools := make(map[string]tools.Tool)
+		for _, name := range g.ToolNames {
+			if tool, ok := toolsMap[name]; ok {
+				groupTools[name] = tool
 			}
 		}
-		return toolsetTools
+		return groupTools
+	}
+
+	if c.group != "" {
+		g, ok := primitiveMgr.GetGroup(c.group)
+		if !ok {
+			return nil, fmt.Errorf("group %q not found", c.group)
+		}
+
+		skillsToContents[c.name] = skillContent{tools: getToolsFromGroup(g), description: c.descriptionFor(g)}
+		return skillsToContents, nil
 	}
 
 	if c.toolset != "" {
-		ts, ok := primitiveMgr.GetToolset(c.toolset)
+		g, ok := primitiveMgr.GetGroup(c.toolset)
 		if !ok {
 			return nil, fmt.Errorf("toolset %q not found", c.toolset)
 		}
 
-		skillsToTools[c.name] = getToolsFromToolset(ts)
-		return skillsToTools, nil
+		skillsToContents[c.name] = skillContent{tools: getToolsFromGroup(g), description: c.description}
+		return skillsToContents, nil
 	}
 
-	if len(toolsetsMap) <= 1 {
-		// Default to all tools if no toolset found
-		skillsToTools[c.name] = toolsMap
-		return skillsToTools, nil
+	if len(groupsMap) <= 1 {
+		// Default to all tools if no named group found. The default nameless
+		// group's description (if any) takes precedence over the flag.
+		skillsToContents[c.name] = skillContent{tools: toolsMap, description: c.descriptionFor(groupsMap[""])}
+		return skillsToContents, nil
 	}
 
-	// One skill per toolset
-	for tsName, ts := range toolsetsMap {
-		if tsName == "" {
+	// One skill per group
+	for gName, g := range groupsMap {
+		if gName == "" {
 			continue
 		}
-		skillName := fmt.Sprintf("%s-%s", c.name, tsName)
-		skillsToTools[skillName] = getToolsFromToolset(ts)
+		skillName := fmt.Sprintf("%s-%s", c.name, gName)
+		skillsToContents[skillName] = skillContent{tools: getToolsFromGroup(g), description: c.descriptionFor(g)}
 	}
 
-	return skillsToTools, nil
+	return skillsToContents, nil
+}
+
+// descriptionFor returns the group's own description when set, falling back to
+// the --description flag otherwise.
+func (c *skillsCmd) descriptionFor(g group.Group) string {
+	if g.Description != "" {
+		return g.Description
+	}
+	return c.description
 }
 
 func copyFile(src, dst string) error {

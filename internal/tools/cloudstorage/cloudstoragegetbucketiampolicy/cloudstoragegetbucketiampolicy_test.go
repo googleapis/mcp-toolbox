@@ -109,7 +109,7 @@ func TestParseFromYamlCloudStorageGetBucketIAMPolicy(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -134,15 +134,6 @@ func (m *mockSource) GetBucketIAMPolicy(ctx context.Context, bucket string) (map
 	m.called = true
 	m.gotBucket = bucket
 	return map[string]any{"bucket": bucket, "bindings": []any{}}, nil
-}
-
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
 }
 
 func TestInvokeValidation(t *testing.T) {
@@ -172,9 +163,8 @@ func TestInvokeValidation(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			src := &mockSource{}
-			primitiveMgr := &mockSourceProvider{source: src}
 			params := parameters.ParamValues{{Name: "bucket", Value: tc.bucket}}
-			_, toolErr := tool.Invoke(context.Background(), primitiveMgr, params, "")
+			_, toolErr := tool.Invoke(context.Background(), src, params, "")
 			if tc.wantErr {
 				if toolErr == nil {
 					t.Fatalf("expected error, got nil")
@@ -220,7 +210,7 @@ func TestConfiguredBucketHiddenAndForwarded(t *testing.T) {
 	}
 
 	src := &mockSource{}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, nil, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, nil, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotBucket != "baked-bucket" {

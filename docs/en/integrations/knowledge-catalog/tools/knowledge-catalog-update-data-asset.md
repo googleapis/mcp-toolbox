@@ -1,7 +1,7 @@
 ---
 title: "dataplex-update-data-asset"
 type: docs
-weight: 2
+weight: 1
 description: >
   A "dataplex-update-data-asset" tool updates an existing Data Asset under a Data Product in Knowledge Catalog.
 ---

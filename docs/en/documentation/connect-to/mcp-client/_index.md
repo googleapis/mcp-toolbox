@@ -20,10 +20,23 @@ The Toolbox SDKs can be combined with MCP clients in many cases.
 
 Toolbox currently supports the following versions of MCP specification:
 
+* [2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28)
 * [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
 * [2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18)
 * [2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26)
 * [2024-11-05](https://modelcontextprotocol.io/specification/2024-11-05)
+
+### Secure Parameters and MCP Clients
+
+[Secure Parameters](../../configuration/tools/_index.md#secure-parameters) are supported on MCP protocol version `2026-07-28` or newer via the `com.google.cloud/toolbox.v1` extension.
+
+* **Extension Negotiation:** MCP clients declare support for this extension in `params._meta["io.modelcontextprotocol/clientCapabilities"].extensions["com.google.cloud/toolbox.v1"]`.
+* **Manifests (`tools/list`):** When negotiated, tools define application-controlled parameters under `secureInputSchema` alongside regular model parameters in `inputSchema`.
+* **Invocations (`tools/call`):** Secure parameters are passed out-of-band in `params.secureArguments`, while model-generated arguments are passed in `params.arguments`.
+* **Fallback for Generic MCP Clients:** Tools that require secure parameters are **automatically filtered out** from `tools/list` responses for clients that have not negotiated the `com.google.cloud/toolbox.v1` extension (or clients using protocol versions prior to `2026-07-28`). Attempting to call a secure tool directly without negotiated capability returns:
+  * On protocol `2026-07-28`: `MissingRequiredClientCapabilityError` (JSON-RPC code `-32021`).
+  * On protocol versions prior to `2026-07-28`: `ToolNotFoundError` / `INVALID_PARAMS` (JSON-RPC code `-32602`, "tool does not exist"), as secure tools are completely hidden from older protocols.
+* **Injection Defense:** If a client or model attempts to pass a secure parameter inside standard `arguments`, the server rejects the parameter and returns a tool execution error (`isError: true`).
 
 ### Toolbox AuthZ/AuthN Not Supported by MCP
 

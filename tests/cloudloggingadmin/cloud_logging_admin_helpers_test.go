@@ -51,17 +51,24 @@ func waitForLogEntries(ctx context.Context, interval time.Duration, hasEntries f
 	}
 }
 
-func waitForCloudLoggingEntries(ctx context.Context, adminClient *logadmin.Client, projectID, logName string) error {
+func waitForCloudLoggingEntries(ctx context.Context, adminClient *logadmin.Client, projectID, logName string, minEntries int) error {
 	return waitForLogEntries(ctx, 5*time.Second, func(ctx context.Context) (bool, error) {
 		it := adminClient.Entries(ctx, logadmin.Filter(cloudLoggingLogFilter(projectID, logName)))
-		_, err := it.Next()
-		if err == iterator.Done {
-			return false, nil
+		count := 0
+		for {
+			_, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				return false, err
+			}
+			count++
+			if count >= minEntries {
+				return true, nil
+			}
 		}
-		if err != nil {
-			return false, err
-		}
-		return true, nil
+		return false, nil
 	})
 }
 

@@ -18,47 +18,156 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
+	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// MockSourceConfig is used to mock source config in tests
+type MockSourceConfig struct {
+	Name     string `yaml:"name"`
+	Type     string `yaml:"type"`
+	Foo      string `yaml:"foo"`
+	ReadOnly bool   `yaml:"readOnly"`
+}
+
+func (m MockSourceConfig) SourceConfigType() string {
+	if m.Type != "" {
+		return m.Type
+	}
+	return "mock-source"
+}
+
+func (m MockSourceConfig) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	return MockSource{MockSourceConfig: m}, nil
+}
+
+// MockSource is used to mock source in tests
+type MockSource struct {
+	MockSourceConfig
+}
+
+func (s MockSource) IsReadOnly() bool {
+	return s.ReadOnly
+}
+
+func (s MockSource) SourceType() string {
+	if s.Type != "" {
+		return s.Type
+	}
+	return "mock-source"
+}
+
+func (s MockSource) ToConfig() sources.SourceConfig {
+	return s.MockSourceConfig
+}
+
+// MockToolConfig is used to mock tool config in tests
+type MockToolConfig struct {
+	tools.ConfigBase `yaml:",inline"`
+	Source           string                `yaml:"source"`
+	Parameters       parameters.Parameters `yaml:"parameters"`
+	Type             string                `yaml:"type"`
+}
+
+func (m MockToolConfig) ToolConfigType() string {
+	if m.Type != "" {
+		return m.Type
+	}
+	return "mock-tool"
+}
+
+func (m MockToolConfig) Initialize(context.Context) (tools.Tool, error) {
+	return MockTool{
+		BaseTool: tools.NewBaseTool(
+			m, m.Annotations,
+			tools.Manifest{Description: m.Description, Parameters: m.Parameters.Manifest(), AuthRequired: m.AuthRequired},
+			m.Parameters,
+		),
+	}, nil
+}
+
+var _ tools.ToolConfig = MockToolConfig{}
 
 // MockTool is used to mock tools in tests
 type MockTool struct {
-	Name                       string
-	Description                string
-	Params                     []parameters.Parameter
-	manifest                   tools.Manifest
-	unauthorized               bool
+	tools.BaseTool[MockToolConfig]
 	requireClientAuthorization bool
-	authRequired               []string
 	ReturnParamsInInvoke       bool
 }
 
 var _ tools.Tool = MockTool{}
 
-// NewMockTool creates a new mock prompt for testing.
-func NewMockTool(name, desc string, params []parameters.Parameter, unauthorized, requireClientAuthorization bool) MockTool {
-	pMs := make([]parameters.ParameterManifest, 0, len(params))
-	for _, p := range params {
-		pMs = append(pMs, p.Manifest())
+// mockAuthRequired returns the authRequired list for a mock tool. Unauthorized
+// mock tools require an auth service that test requests never provide.
+func mockAuthRequired(unauthorized bool) []string {
+	if unauthorized {
+		return []string{"mock-auth-service"}
 	}
-	manifest := tools.Manifest{Description: desc, Parameters: pMs}
-	return MockTool{
-		Name:                       name,
-		Description:                desc,
-		Params:                     params,
-		manifest:                   manifest,
-		unauthorized:               unauthorized,
-		requireClientAuthorization: requireClientAuthorization,
-	}
+	return nil
 }
 
-func (t MockTool) Invoke(ctx context.Context, s tools.SourceProvider, params parameters.ParamValues, token tools.AccessToken) (any, util.ToolboxError) {
-	mock := []any{t.Name}
+// NewMockToolWithUI creates a new mock tool with UI metadata for testing.
+func NewMockToolWithUI(name, desc, source string, params []parameters.Parameter, unauthorized, reqClientAutho bool, uiResource string) MockTool {
+	mockConfig := MockToolConfig{
+		ConfigBase: tools.ConfigBase{
+			Name:         name,
+			Description:  desc,
+			AuthRequired: mockAuthRequired(unauthorized),
+			UI: &tools.ToolUIMetadata{
+				Resource: uiResource,
+			},
+		},
+		Source:     source,
+		Type:       "mock-tool",
+		Parameters: params,
+	}
+	ctx := context.Background()
+	t, _ := mockConfig.Initialize(ctx)
+	mt := t.(MockTool)
+	mt.requireClientAuthorization = reqClientAutho
+	return mt
+}
+
+// NewMockTool creates a new mock prompt for testing.
+func NewMockTool(name, desc, source string, params []parameters.Parameter, unauthorized, reqClientAutho bool) MockTool {
+	mockConfig := MockToolConfig{
+		ConfigBase: tools.ConfigBase{
+			Name:         name,
+			Description:  desc,
+			AuthRequired: mockAuthRequired(unauthorized),
+		},
+		Source:     source,
+		Type:       "mock-tool",
+		Parameters: params,
+	}
+	ctx := context.Background()
+	t, _ := mockConfig.Initialize(ctx)
+	mt := t.(MockTool)
+	mt.requireClientAuthorization = reqClientAutho
+	return mt
+}
+
+func (t MockTool) GetSourceName() string {
+	return t.Cfg.Source
+}
+
+func (t MockTool) ToConfig() tools.ToolConfig {
+	return t.Cfg
+}
+
+func (t MockTool) RequiresClientAuthorization(sources.Source) (bool, error) {
+	// defaulted to false
+	return t.requireClientAuthorization, nil
+}
+
+func (t MockTool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, token tools.AccessToken) (any, util.ToolboxError) {
+	mock := []any{t.Cfg.Name}
 	if t.ReturnParamsInInvoke && len(params) > 0 {
 		for _, p := range params {
 			mock = append(mock, p.Value)
@@ -67,63 +176,33 @@ func (t MockTool) Invoke(ctx context.Context, s tools.SourceProvider, params par
 	return mock, nil
 }
 
-func (t MockTool) ToConfig() tools.ToolConfig {
-	return nil
+func (t MockTool) ValidateSource(src sources.Source) error {
+	if src == nil || src.SourceType() == "mock-source" {
+		return nil
+	}
+	return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 }
 
 // claims is a map of user info decoded from an auth token
 func (t MockTool) ParseParams(data map[string]any, claimsMap map[string]map[string]any) (parameters.ParamValues, error) {
-	return parameters.ParseParams(t.Params, data, claimsMap)
+	return parameters.ParseParams(t.StaticParameters, data, claimsMap)
 }
 
-func (t MockTool) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel) (parameters.ParamValues, error) {
-	return parameters.EmbedParams(ctx, t.Params, paramValues, embeddingModelsMap, nil)
-}
-
-func (t MockTool) Manifest(map[string]sources.Source) (tools.Manifest, error) {
-	return t.manifest, nil
-}
-
-func (t MockTool) StaticManifest() tools.Manifest {
-	return t.manifest
-}
-
-func (t MockTool) Authorized(verifiedAuthServices []string) bool {
-	// defaulted to true
-	return !t.unauthorized
-}
-
-func (t MockTool) RequiresClientAuthorization(tools.SourceProvider) (bool, error) {
-	// defaulted to false
-	return t.requireClientAuthorization, nil
-}
-
-func (t MockTool) GetParameters(map[string]sources.Source) (parameters.Parameters, error) {
-	return t.Params, nil
-}
-
-func (t MockTool) GetName() string {
-	return t.Name
-}
-
-func (t MockTool) GetDescription() string {
-	return t.Description
-}
-
-func (t MockTool) GetAuthRequired() []string {
-	return t.authRequired
-}
-
-func (t MockTool) GetAnnotations() *tools.ToolAnnotations {
-	return nil
-}
-
-func (t MockTool) GetAuthTokenHeaderName(tools.SourceProvider) (string, error) {
+func (t MockTool) GetAuthTokenHeaderName(sources.Source) (string, error) {
 	return "Authorization", nil
 }
 
 func (t MockTool) GetScopesRequired() []string {
 	return nil
+}
+
+func (t MockTool) HasSecureParams() bool {
+	for _, p := range t.StaticParameters {
+		if p != nil && p.GetSecure() {
+			return true
+		}
+	}
+	return false
 }
 
 // MockPrompt is used to mock prompts in tests
@@ -189,5 +268,219 @@ func NewMockPrompt(name, desc string, args prompts.Arguments) MockPrompt {
 		Description: desc,
 		Args:        args,
 		manifest:    manifest,
+	}
+}
+
+// RegisterMockResource registers the mock resource type with the resources package.
+func RegisterMockResource() {
+	resources.Register("mock", func(ctx context.Context, name string, decoder *yaml.Decoder) (resources.ResourceConfig, error) {
+		var cfg MockResourceConfig
+		cfg.Name = name
+		cfg.Type = "mock"
+		if err := decoder.DecodeContext(ctx, &cfg); err != nil {
+			return nil, err
+		}
+		return &cfg, nil
+	})
+}
+
+// MockResourceConfig is a mock implementation of resources.ResourceConfig
+type MockResourceConfig struct {
+	resources.ResourceConfigBase `yaml:",inline"`
+	Size                         *int64 `yaml:"-"`
+	// Content is what Read returns. Empty means "mock resource data".
+	Content string `yaml:"-"`
+}
+
+func (m *MockResourceConfig) ResourceConfigType() string {
+	return "mock"
+}
+
+func (m *MockResourceConfig) Initialize(ctx context.Context) (resources.Resource, error) {
+	return MockResource{config: m}, nil
+}
+
+// MockResource is a mock implementation of resources.Resource
+type MockResource struct {
+	config *MockResourceConfig
+}
+
+func (m MockResource) GetTitle() string                               { return m.config.GetTitle() }
+func (m MockResource) GetDescription() string                         { return m.config.GetDescription() }
+func (m MockResource) GetMimeType() string                            { return m.config.GetMimeType() }
+func (m MockResource) GetURI() string                                 { return m.config.GetURI() }
+func (m MockResource) GetSize() *int64                                { return m.config.Size }
+func (m MockResource) GetAnnotations() *resources.ResourceAnnotations { return m.config.Annotations }
+
+func (m MockResource) Read(ctx context.Context, params map[string]any) (any, error) {
+	if m.config.Content != "" {
+		return m.config.Content, nil
+	}
+	return "mock resource data", nil
+}
+
+func (m MockResource) ToConfig() resources.ResourceConfig {
+	return m.config
+}
+
+func (m MockResource) GetName() string {
+	return m.config.Name
+}
+
+func (m MockResource) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
+func (m MockResource) IsUI() bool                 { return m.config.IsUI() }
+func (m MockResource) IsDynamic() bool            { return m.config.IsDynamic() }
+
+// MockResourceTemplateConfig is a mock implementation of resources.ResourceTemplateConfig
+type MockResourceTemplateConfig struct {
+	resources.ResourceTemplateConfigBase `yaml:",inline"`
+}
+
+func (m *MockResourceTemplateConfig) ResourceTemplateConfigType() string {
+	if m.Type != "" {
+		return m.Type
+	}
+	return "mock"
+}
+
+func (m *MockResourceTemplateConfig) Initialize(ctx context.Context) (resources.ResourceTemplate, error) {
+	return MockResourceTemplate{config: m}, nil
+}
+
+// MockResourceTemplate is a mock implementation of resources.ResourceTemplate
+type MockResourceTemplate struct {
+	config *MockResourceTemplateConfig
+}
+
+func (m MockResourceTemplate) GetTitle() string       { return m.config.GetTitle() }
+func (m MockResourceTemplate) GetDescription() string { return m.config.GetDescription() }
+func (m MockResourceTemplate) GetMimeType() string    { return m.config.GetMimeType() }
+func (m MockResourceTemplate) GetURITemplate() string { return m.config.GetURITemplate() }
+func (m MockResourceTemplate) GetAnnotations() *resources.ResourceAnnotations {
+	return m.config.Annotations
+}
+
+func (m MockResourceTemplate) Read(ctx context.Context, params map[string]any) (any, error) {
+	return "mock resource template data", nil
+}
+
+func (m MockResourceTemplate) ToConfig() resources.ResourceTemplateConfig {
+	return m.config
+}
+
+func (m MockResourceTemplate) GetName() string {
+	return m.config.Name
+}
+
+func (m MockResourceTemplate) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
+func (m MockResourceTemplate) IsUI() bool                 { return m.config.IsUI() }
+
+func NewMockResource(name, uri, title, description, mimeType string, size *int64, annotations *resources.ResourceAnnotations) MockResource {
+	cfgBase := resources.ConfigBase{
+		Name:        name,
+		Title:       title,
+		Description: description,
+		MimeType:    mimeType,
+		Annotations: annotations,
+	}
+
+	resCfg := resources.ResourceConfigBase{
+		ConfigBase: cfgBase,
+		URI:        uri,
+	}
+
+	return MockResource{
+		config: &MockResourceConfig{
+			ResourceConfigBase: resCfg,
+			Size:               size,
+		},
+	}
+}
+
+// NewMockTextResource creates a text/markdown mock resource whose Read
+// returns content.
+func NewMockTextResource(name, uri, content string) MockResource {
+	res := NewMockResource(name, uri, "", "", "text/markdown", nil, nil)
+	res.config.Content = content
+	return res
+}
+
+// NewMockDynamicTextResource creates a text/markdown mock resource whose skill
+// publishes the "dynamic" marker in place of a file list.
+func NewMockDynamicTextResource(name, uri, content string) MockResource {
+	res := NewMockTextResource(name, uri, content)
+	res.config.Dynamic = true
+	return res
+}
+
+func NewMockResourceTemplate(name, uriTemplate, title, description, mimeType string, annotations *resources.ResourceAnnotations) MockResourceTemplate {
+	cfgBase := resources.ConfigBase{
+		Name:        name,
+		Title:       title,
+		Description: description,
+		MimeType:    mimeType,
+		Annotations: annotations,
+	}
+
+	return MockResourceTemplate{
+		config: &MockResourceTemplateConfig{
+			ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{
+				ConfigBase:  cfgBase,
+				URITemplate: uriTemplate,
+			},
+		},
+	}
+}
+
+// NewMockUIResource creates a mock UI resource for testing.
+func NewMockUIResource(name, uri, title, description, mimeType string, size *int64, annotations *resources.ResourceAnnotations, csp *resources.CSPConfig, permissions *resources.PermissionsConfig, domain string, prefersBorder *bool) MockResource {
+	cfgBase := resources.ConfigBase{
+		Name:          name,
+		Title:         title,
+		Description:   description,
+		MimeType:      mimeType,
+		Annotations:   annotations,
+		UI:            true,
+		CSP:           csp,
+		Permissions:   permissions,
+		Domain:        domain,
+		PrefersBorder: prefersBorder,
+	}
+
+	resCfg := resources.ResourceConfigBase{
+		ConfigBase: cfgBase,
+		URI:        uri,
+	}
+
+	return MockResource{
+		config: &MockResourceConfig{
+			ResourceConfigBase: resCfg,
+			Size:               size,
+		},
+	}
+}
+
+// NewMockUIResourceTemplate creates a mock UI resource template for testing.
+func NewMockUIResourceTemplate(name, uriTemplate, title, description, mimeType string, annotations *resources.ResourceAnnotations, csp *resources.CSPConfig, permissions *resources.PermissionsConfig, domain string, prefersBorder *bool) MockResourceTemplate {
+	cfgBase := resources.ConfigBase{
+		Name:          name,
+		Title:         title,
+		Description:   description,
+		MimeType:      mimeType,
+		Annotations:   annotations,
+		UI:            true,
+		CSP:           csp,
+		Permissions:   permissions,
+		Domain:        domain,
+		PrefersBorder: prefersBorder,
+	}
+
+	return MockResourceTemplate{
+		config: &MockResourceTemplateConfig{
+			ResourceTemplateConfigBase: resources.ResourceTemplateConfigBase{
+				ConfigBase:  cfgBase,
+				URITemplate: uriTemplate,
+			},
+		},
 	}
 }

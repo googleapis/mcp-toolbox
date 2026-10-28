@@ -109,7 +109,7 @@ func TestParseFromYamlCloudStorageWriteObject(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -159,7 +159,7 @@ func TestConfiguredBucketHiddenAndForwarded(t *testing.T) {
 		{Name: "content", Value: "body"},
 		{Name: "content_type", Value: "text/plain"},
 	}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotBucket != "baked-bucket" || src.gotObject != "o" || src.gotContent != "body" || src.gotContentType != "text/plain" {
@@ -219,15 +219,6 @@ func (m *mockSource) WriteObject(ctx context.Context, bucket, object, content, c
 	return map[string]any{"bucket": bucket, "object": object, "bytes": len(content), "contentType": contentType}, nil
 }
 
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
-}
-
 func TestInvokeValidation(t *testing.T) {
 	cfg := cloudstoragewriteobject.Config{
 		ConfigBase: tools.ConfigBase{
@@ -262,7 +253,6 @@ func TestInvokeValidation(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			src := &mockSource{}
-			primitiveMgr := &mockSourceProvider{source: src}
 			ct, _ := tc.contentType.(string)
 			params := parameters.ParamValues{
 				{Name: "bucket", Value: tc.bucket},
@@ -270,7 +260,7 @@ func TestInvokeValidation(t *testing.T) {
 				{Name: "content", Value: tc.content},
 				{Name: "content_type", Value: ct},
 			}
-			_, toolErr := tool.Invoke(context.Background(), primitiveMgr, params, "")
+			_, toolErr := tool.Invoke(context.Background(), src, params, "")
 			if tc.wantErr {
 				if toolErr == nil {
 					t.Fatalf("expected error, got nil")

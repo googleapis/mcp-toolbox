@@ -26,12 +26,12 @@ import (
 	bigqueryapi "cloud.google.com/go/bigquery"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
-	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigqueryanalyzecontribution"
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigquerycommon"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	bigqueryrestapi "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/option"
 )
 
@@ -70,7 +70,7 @@ func TestParseFromYamlBigQueryAnalyzeContribution(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -127,9 +127,6 @@ func TestInvoke(t *testing.T) {
 		Source: "my-bq-source",
 	}
 	src := &bigquerycommon.MockSource{Client: bqClient, RunSQLResult: "mocked_analyze_contribution_result"}
-	sourcesMap := map[string]sources.Source{
-		"my-bq-source": src,
-	}
 	tool, err := cfg.Initialize(context.Background())
 	if err != nil {
 		t.Fatalf("failed to initialize tool: %v", err)
@@ -189,8 +186,6 @@ func TestInvoke(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			provider := &bigquerycommon.MockSourceProvider{Source: src}
-
 			data := map[string]any{}
 			if tc.inputData != nil {
 				data["input_data"] = tc.inputData
@@ -205,7 +200,7 @@ func TestInvoke(t *testing.T) {
 				data["dimension_id_cols"] = tc.dimensionIdCols
 			}
 
-			params, err := analyzeContributionTool.GetParameters(sourcesMap)
+			params, err := analyzeContributionTool.GetParameters(src)
 			if err != nil {
 				t.Fatalf("failed to get parameters: %v", err)
 			}
@@ -225,7 +220,7 @@ func TestInvoke(t *testing.T) {
 				t.Fatalf("failed to create context with logger: %v", err)
 			}
 
-			resp, err := tool.Invoke(ctx, provider, paramVals, "")
+			resp, err := tool.Invoke(ctx, src, paramVals, "")
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -319,9 +314,15 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 		t.Fatalf("failed to create mocked BigQuery client: %v", err)
 	}
 
+	restService, err := bigqueryrestapi.NewService(ctx, option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery REST service: %v", err)
+	}
+
 	// 3. Define mock source that returns this client and allowed datasets configuration
 	testSrc := &bigquerycommon.MockSource{
 		Client:          bqClient,
+		Service:         restService,
 		AllowedDatasets: []string{"allowed_dataset"},
 	}
 
@@ -333,8 +334,211 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 		Type:   "bigquery-analyze-contribution",
 		Source: "my-bq-source",
 	}
-	sourcesMap := map[string]sources.Source{
-		"my-bq-source": testSrc,
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	analyzeContributionTool, ok := tool.(bigqueryanalyzecontribution.Tool)
+	if !ok {
+		t.Fatalf("expected bigqueryanalyzecontribution.Tool, got %T", tool)
+	}
+
+	// 4. Set up test cases covering both explicit query and table ID formats
+	testCases := []struct {
+		name       string
+		input      string
+		wantErrSub string
+	}{
+		{
+			name:       "query referencing forbidden dataset",
+			input:      "SELECT * FROM unauthorized_dataset.some_table",
+			wantErrSub: "access to dataset 'test-project.unauthorized_dataset'",
+		},
+		{
+			name:       "table id in forbidden dataset, final SQL validated",
+			input:      "unauthorized_dataset.some_table",
+			wantErrSub: "access to dataset 'test-project.unauthorized_dataset'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := map[string]any{
+				"input_data":          tc.input,
+				"contribution_metric": "SUM(metric)",
+				"is_test_col":         "is_test",
+				"dimension_id_cols":   []any{"dim1"},
+			}
+
+			params, err := analyzeContributionTool.GetParameters(testSrc)
+			if err != nil {
+				t.Fatalf("failed to get parameters: %v", err)
+			}
+			paramVals, err := parameters.ParseParams(params, data, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing parameters: %v", err)
+			}
+
+			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
+			if err == nil {
+				t.Fatal("expected Invoke to return an error due to out-of-allowlist dataset reference, but got nil")
+			}
+
+			if !strings.Contains(err.Error(), tc.wantErrSub) {
+				t.Errorf("expected error to contain %q, got: %v", tc.wantErrSub, err)
+			}
+		})
+	}
+}
+
+func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
+	var dryRunReceivedCreateSession bool
+	var dryRunReceivedSessionID bool
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/jobs") {
+			if r.Method == http.MethodGet {
+				resp := map[string]any{
+					"kind": "bigquery#job",
+					"jobReference": map[string]string{
+						"projectId": "test-project",
+						"jobId":     "mock-job-id",
+					},
+					"status": map[string]any{
+						"state": "DONE",
+					},
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(resp)
+				return
+			}
+			if r.Method == http.MethodPost {
+				var body struct {
+					Configuration struct {
+						DryRun bool `json:"dryRun"`
+						Query  struct {
+							Query                string `json:"query"`
+							CreateSession        bool   `json:"createSession"`
+							ConnectionProperties []struct {
+								Key   string `json:"key"`
+								Value string `json:"value"`
+							} `json:"connectionProperties"`
+						} `json:"query"`
+					} `json:"configuration"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+
+				if body.Configuration.DryRun {
+					dryRunReceivedCreateSession = body.Configuration.Query.CreateSession
+					for _, cp := range body.Configuration.Query.ConnectionProperties {
+						if cp.Key == "session_id" {
+							dryRunReceivedSessionID = true
+						}
+					}
+
+					q := body.Configuration.Query.Query
+					refDataset := "allowed_dataset"
+					if strings.Contains(q, "authorized_view") {
+						refDataset = "restricted_base_dataset"
+					}
+					queryStats := map[string]any{
+						"statementType": "SELECT",
+						"referencedTables": []map[string]any{
+							{
+								"projectId": "test-project",
+								"datasetId": refDataset,
+								"tableId":   "my_table",
+							},
+						},
+					}
+					if strings.HasPrefix(q, "CREATE TEMP MODEL ") {
+						fields := strings.Fields(q)
+						modelName := fields[3]
+						queryStats["statementType"] = "CREATE_MODEL"
+						queryStats["ddlTargetTable"] = map[string]any{
+							"projectId": "test-project",
+							"datasetId": "_anon_session_dataset",
+							"tableId":   modelName,
+						}
+					}
+
+					resp := map[string]any{
+						"kind": "bigquery#job",
+						"jobReference": map[string]string{
+							"projectId": "test-project",
+							"jobId":     "mock-job-id",
+						},
+						"status": map[string]any{
+							"state": "DONE",
+						},
+						"configuration": map[string]any{
+							"query": map[string]any{
+								"query": q,
+							},
+						},
+						"statistics": map[string]any{
+							"query": queryStats,
+						},
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(resp)
+					return
+				}
+
+				// Actual query execution
+				resp := map[string]any{
+					"kind": "bigquery#job",
+					"jobReference": map[string]string{
+						"projectId": "test-project",
+						"jobId":     "mock-job-id",
+					},
+					"status": map[string]any{
+						"state": "DONE",
+					},
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(resp)
+				return
+			}
+		}
+		http.Error(w, "not implemented", http.StatusNotFound)
+	}))
+	defer mockServer.Close()
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("failed to create context with logger: %v", err)
+	}
+
+	bqClient, err := bigqueryapi.NewClient(ctx, "test-project", option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery client: %v", err)
+	}
+
+	restService, err := bigqueryrestapi.NewService(ctx, option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery REST service: %v", err)
+	}
+
+	testSrc := &bigquerycommon.MockSource{
+		Client:          bqClient,
+		Service:         restService,
+		AllowedDatasets: []string{"allowed_dataset"},
+		WriteMode:       "protected",
+		RunSQLResult:    "mocked_result",
+	}
+
+	cfg := bigqueryanalyzecontribution.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "analyze_contribution_tool",
+			Description: "Analyze Contribution",
+		},
+		Type:   "bigquery-analyze-contribution",
+		Source: "my-bq-source",
 	}
 	tool, err := cfg.Initialize(ctx)
 	if err != nil {
@@ -346,32 +550,60 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 		t.Fatalf("expected bigqueryanalyzecontribution.Tool, got %T", tool)
 	}
 
-	// 4. Set up parameters
-	data := map[string]any{
-		"input_data":          "allowed_dataset.my_table",
-		"contribution_metric": "SUM(metric)",
-		"is_test_col":         "is_test",
-		"dimension_id_cols":   []any{"dim1"},
+	inputs := []struct {
+		name      string
+		inputData string
+	}{
+		{
+			name:      "allowed table ID",
+			inputData: "allowed_dataset.my_table",
+		},
+		{
+			name:      "authorized view table ID",
+			inputData: "allowed_dataset.authorized_view",
+		},
+		{
+			name:      "query on allowed table",
+			inputData: "SELECT * FROM allowed_dataset.my_table",
+		},
+		{
+			name:      "query on authorized view",
+			inputData: "SELECT * FROM allowed_dataset.authorized_view",
+		},
 	}
 
-	params, err := analyzeContributionTool.GetParameters(sourcesMap)
-	if err != nil {
-		t.Fatalf("failed to get parameters: %v", err)
-	}
-	paramVals, err := parameters.ParseParams(params, data, nil)
-	if err != nil {
-		t.Fatalf("unexpected error parsing parameters: %v", err)
-	}
+	for _, tc := range inputs {
+		t.Run(tc.name, func(t *testing.T) {
+			dryRunReceivedCreateSession = false
+			dryRunReceivedSessionID = false
 
-	// 5. Invoke the tool and assert it fails with the dataset permission check error
-	provider := &bigquerycommon.MockSourceProvider{Source: testSrc}
-	_, err = tool.Invoke(ctx, provider, paramVals, "")
-	if err == nil {
-		t.Fatal("expected Invoke to return an error due to out-of-allowlist dataset reference, but got nil")
-	}
+			data := map[string]any{
+				"input_data":          tc.inputData,
+				"contribution_metric": "SUM(metric)",
+				"is_test_col":         "is_test",
+				"dimension_id_cols":   []any{"dim1"},
+			}
 
-	expectedErr := "query accesses dataset 'test-project.unauthorized_dataset', which is not in the allowed list"
-	if !strings.Contains(err.Error(), expectedErr) {
-		t.Errorf("expected error to contain %q, got: %v", expectedErr, err)
+			params, err := analyzeContributionTool.GetParameters(testSrc)
+			if err != nil {
+				t.Fatalf("failed to get parameters: %v", err)
+			}
+			paramVals, err := parameters.ParseParams(params, data, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing parameters: %v", err)
+			}
+
+			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
+			if err != nil {
+				t.Fatalf("unexpected error invoking tool: %v", err)
+			}
+
+			if dryRunReceivedCreateSession {
+				t.Errorf("expected dry-run query createSession to be false in protected mode, got true")
+			}
+			if !dryRunReceivedSessionID {
+				t.Errorf("expected dry-run query to include session_id connection property in protected mode")
+			}
+		})
 	}
 }

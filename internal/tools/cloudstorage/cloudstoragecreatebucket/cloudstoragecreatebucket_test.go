@@ -113,7 +113,7 @@ func TestParseFromYamlCloudStorageCreateBucket(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -148,15 +148,6 @@ func (m *mockSource) CreateBucket(ctx context.Context, bucket, project, location
 	m.gotLocation = location
 	m.gotUniformBucketLevelAccess = uniformBucketLevelAccess
 	return map[string]any{"bucket": bucket, "created": true}, nil
-}
-
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
 }
 
 func initTool(t *testing.T) tools.Tool {
@@ -199,7 +190,6 @@ func TestInvokeValidationAndForwarding(t *testing.T) {
 		t.Run(tc.desc, func(t *testing.T) {
 			tool := initTool(t)
 			src := &mockSource{}
-			primitiveMgr := &mockSourceProvider{source: src}
 			params := parameters.ParamValues{
 				{Name: "bucket", Value: tc.bucket},
 				{Name: "project", Value: tc.project},
@@ -208,7 +198,7 @@ func TestInvokeValidationAndForwarding(t *testing.T) {
 			if tc.location != nil {
 				params = append(params, parameters.ParamValue{Name: "location", Value: tc.location})
 			}
-			_, toolErr := tool.Invoke(context.Background(), primitiveMgr, params, "")
+			_, toolErr := tool.Invoke(context.Background(), src, params, "")
 			if tc.wantErr {
 				if toolErr == nil {
 					t.Fatalf("expected error, got nil")
@@ -261,7 +251,7 @@ func TestConfiguredParametersHiddenAndForwarded(t *testing.T) {
 
 	src := &mockSource{}
 	params := parameters.ParamValues{{Name: "bucket", Value: "b"}}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotProject != "baked-project" || src.gotLocation != "US" || !src.gotUniformBucketLevelAccess {
@@ -304,7 +294,7 @@ func TestEmptyConfiguredProjectHiddenAndForwarded(t *testing.T) {
 		{Name: "location", Value: ""},
 		{Name: "uniform_bucket_level_access", Value: false},
 	}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotProject != "" {

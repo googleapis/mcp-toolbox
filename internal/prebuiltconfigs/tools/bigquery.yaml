@@ -17,11 +17,14 @@ name: bigquery-source
 type: bigquery
 project: ${BIGQUERY_PROJECT}
 location: ${BIGQUERY_LOCATION:}
+readOnly: ${BIGQUERY_READONLY:}
+writeMode: ${BIGQUERY_WRITE_MODE:}
 useClientOAuth: ${BIGQUERY_USE_CLIENT_OAUTH:false}
 scopes: ${BIGQUERY_SCOPES:}
 maxQueryResultRows: ${BIGQUERY_MAX_QUERY_RESULT_ROWS:50}
 impersonateServiceAccount: ${BIGQUERY_IMPERSONATE_SERVICE_ACCOUNT:}
 maximumBytesBilled: ${BIGQUERY_MAXIMUM_BYTES_BILLED:0}
+apiEndpoint: ${BIGQUERY_ENDPOINT:}
 ---
 kind: tool
 name: analyze_contribution
@@ -80,8 +83,9 @@ type: bigquery-search-catalog
 source: bigquery-source
 description: Use this tool to find tables, views, models, routines or connections.
 ---
-kind: toolset
+kind: group
 name: data
+description: Use these skills when you need to handle large-scale data exploration and dataset management. Use when users need to find data assets or run SQL at scale. Provides metadata discovery and query execution across the data warehouse.
 tools:
 - execute_sql
 - list_dataset_ids
@@ -90,8 +94,9 @@ tools:
 - get_table_info
 - search_catalog
 ---
-kind: toolset
+kind: group
 name: analytics
+description: Use these skills when you need to handle advanced data intelligence and predictive tasks. Use when a user asks "why" data changed or needs future projections. Provides automated insight generation and time-series forecasting.
 tools:
 - analyze_contribution
 - ask_data_insights

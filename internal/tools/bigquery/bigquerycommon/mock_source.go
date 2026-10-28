@@ -34,6 +34,8 @@ type MockSource struct {
 	AllowedDatasets []string
 	RunSQLResult    any
 	RunSQLError     error
+	WriteMode       string
+	Session         *bigqueryds.Session
 }
 
 func (m *MockSource) BigQueryClient() *bigqueryapi.Client {
@@ -45,6 +47,9 @@ func (m *MockSource) UseClientAuthorization() bool {
 }
 
 func (m *MockSource) BigQueryWriteMode() string {
+	if m.WriteMode != "" {
+		return m.WriteMode
+	}
 	return "allowed"
 }
 
@@ -75,6 +80,9 @@ func (m *MockSource) BigQueryAllowedDatasets() []string {
 
 func (m *MockSource) BigQuerySession() bigqueryds.BigQuerySessionProvider {
 	return func(ctx context.Context) (*bigqueryds.Session, error) {
+		if m.Session != nil {
+			return m.Session, nil
+		}
 		return &bigqueryds.Session{ID: "mock-session-id"}, nil
 	}
 }
@@ -86,14 +94,4 @@ func (m *MockSource) RetrieveClientAndService(tools.AccessToken) (*bigqueryapi.C
 func (m *MockSource) RunSQL(ctx context.Context, client *bigqueryapi.Client, sql string, queryType string, params []bigqueryapi.QueryParameter, connProps []*bigqueryapi.ConnectionProperty, labels map[string]string) (any, error) {
 	m.CalledSQL = sql
 	return m.RunSQLResult, m.RunSQLError
-}
-
-// MockSourceProvider is a reusable mock implementation of tools.SourceProvider.
-type MockSourceProvider struct {
-	tools.SourceProvider
-	Source sources.Source
-}
-
-func (m *MockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.Source, true
 }

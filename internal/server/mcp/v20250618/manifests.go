@@ -17,14 +17,18 @@ package v20250618
 import (
 	"fmt"
 
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
+	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
 // generateToolManifest generates Tool for list tools result
-func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string) Tool {
+func generateToolManifest(name, desc string, authInvoke []string, params parameters.Parameters, annotations *tools.ToolAnnotations, urlParams map[string]string, uiMeta map[string]any) Tool {
 	inputSchema, authParams := generateParamManifest(params, urlParams)
 	var toolAnnotations *ToolAnnotations
 	if annotations != nil {
@@ -49,6 +53,9 @@ func generateToolManifest(name, desc string, authInvoke []string, params paramet
 	}
 	if len(authParams) > 0 {
 		metadata["toolbox/authParam"] = authParams
+	}
+	if uiMeta != nil {
+		metadata["ui"] = uiMeta
 	}
 	if len(metadata) > 0 {
 		mcpManifest.Metadata = metadata
@@ -98,18 +105,34 @@ func generateParamManifest(ps parameters.Parameters, urlParams map[string]string
 }
 
 // GenerateListToolsResult generates tools/list method result according to mcp schema
-func GenerateListToolsResult(srcs map[string]sources.Source, t tools.Toolset, toolsMap map[string]tools.Tool, urlParams map[string]string) (ListToolsResult, error) {
-	mcpManifest := make([]Tool, 0, len(t.ToolNames))
-	for _, toolName := range t.ToolNames {
-		tool, ok := toolsMap[toolName]
+func GenerateListToolsResult(pMgr *primitives.PrimitiveManager, g group.Group, urlParams map[string]string, supportsUI bool) (ListToolsResult, error) {
+	mcpManifest := make([]Tool, 0, len(g.ToolNames))
+	for _, toolName := range g.ToolNames {
+		tool, ok := pMgr.GetTool(toolName)
 		if !ok {
 			return ListToolsResult{}, fmt.Errorf("tool does not exist: %s", toolName)
 		}
-		params, err := tool.GetParameters(srcs)
+		// Skip a Tool that requires secure params as they are not supported in this protocol version.
+		if tool.HasSecureParams() {
+			continue
+		}
+		srcName := tool.GetSourceName()
+		var src sources.Source
+		if srcName != "" {
+			src, ok = pMgr.GetSource(srcName)
+			if !ok {
+				return ListToolsResult{}, fmt.Errorf("unable to retrieve %s source for tool %q", srcName, tool.GetName())
+			}
+		}
+		params, err := tool.GetParameters(src)
 		if err != nil {
 			return ListToolsResult{}, fmt.Errorf("error getting parameters for tool %q: %w", toolName, err)
 		}
-		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(), urlParams)
+		var uiMeta map[string]any
+		if supportsUI {
+			uiMeta = mcputil.ResolveToolUIMetadata(pMgr, tool)
+		}
+		toolManifest := generateToolManifest(toolName, tool.GetDescription(), tool.GetAuthRequired(), params, tool.GetAnnotations(src), urlParams, uiMeta)
 		mcpManifest = append(mcpManifest, toolManifest)
 	}
 	return ListToolsResult{Tools: mcpManifest}, nil
@@ -134,10 +157,10 @@ func generatePromptManifest(name, desc string, args prompts.Arguments) Prompt {
 }
 
 // GenerateListPromptsResult generates the list/prompts result
-func GenerateListPromptsResult(p prompts.Promptset, promptsMap map[string]prompts.Prompt) (ListPromptsResult, error) {
-	mcpManifest := make([]Prompt, 0, len(p.PromptNames))
-	for _, promptName := range p.PromptNames {
-		prompt, ok := promptsMap[promptName]
+func GenerateListPromptsResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListPromptsResult, error) {
+	mcpManifest := make([]Prompt, 0, len(g.PromptNames))
+	for _, promptName := range g.PromptNames {
+		prompt, ok := pMgr.GetPrompt(promptName)
 		if !ok {
 			return ListPromptsResult{}, fmt.Errorf("prompt does not exist: %s", promptName)
 		}
@@ -145,4 +168,82 @@ func GenerateListPromptsResult(p prompts.Promptset, promptsMap map[string]prompt
 		mcpManifest = append(mcpManifest, promptManifest)
 	}
 	return ListPromptsResult{Prompts: mcpManifest}, nil
+}
+
+// generateAnnotations converts internal resource annotations to versioned Annotations
+func generateAnnotations(internalAnns *resources.ResourceAnnotations) *Annotations {
+	if internalAnns == nil || (internalAnns.LastModified == "" && len(internalAnns.Audience) == 0 && internalAnns.Priority == nil) {
+		return nil
+	}
+	annotations := &Annotations{
+		LastModified: internalAnns.LastModified,
+	}
+	for _, aud := range internalAnns.Audience {
+		annotations.Audience = append(annotations.Audience, Role(aud))
+	}
+	if internalAnns.Priority != nil {
+		annotations.Priority = internalAnns.Priority
+	}
+	return annotations
+}
+
+// generateResourceManifest generates a version-specific Resource manifest for list/resources
+func generateResourceManifest(name, title, desc, uri, mimeType string, size *int64, internalAnns *resources.ResourceAnnotations) Resource {
+	annotations := generateAnnotations(internalAnns)
+	return Resource{
+		BaseMetadata: BaseMetadata{Name: name, Title: title},
+		Uri:          uri,
+		Description:  desc,
+		MimeType:     mimeType,
+		Size:         size,
+		Annotations:  annotations,
+	}
+}
+
+// GenerateListResourcesResult generates the list/resources result
+func GenerateListResourcesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourcesResult, error) {
+	mcpManifest := make([]Resource, 0, len(g.ResourceNames))
+	for _, name := range g.ResourceNames {
+		res, ok := pMgr.GetResource(name)
+		if !ok {
+			return ListResourcesResult{}, fmt.Errorf("resource does not exist: %s", name)
+		}
+		// If Resource is of type UI skip adding it to the list/resources response.
+		if res.IsUI() {
+			continue
+		}
+		// Use res.GetName(), not the config key, so a SKILL.md is listed
+		// under the skill name from its frontmatter.
+		mcpManifest = append(mcpManifest, generateResourceManifest(res.GetName(), res.GetTitle(), res.GetDescription(), res.GetURI(), res.GetMimeType(), res.GetSize(), res.GetAnnotations()))
+	}
+	return ListResourcesResult{Resources: mcpManifest}, nil
+}
+
+// generateResourceTemplateManifest generates a version-specific ResourceTemplate manifest
+func generateResourceTemplateManifest(name, title, desc, uriTemplate, mimeType string, internalAnns *resources.ResourceAnnotations) ResourceTemplate {
+	annotations := generateAnnotations(internalAnns)
+	return ResourceTemplate{
+		BaseMetadata: BaseMetadata{Name: name, Title: title},
+		UriTemplate:  uriTemplate,
+		Description:  desc,
+		MimeType:     mimeType,
+		Annotations:  annotations,
+	}
+}
+
+// GenerateListResourceTemplatesResult generates the list/resource templates result
+func GenerateListResourceTemplatesResult(pMgr *primitives.PrimitiveManager, g group.Group) (ListResourceTemplatesResult, error) {
+	mcpManifest := make([]ResourceTemplate, 0, len(g.ResourceTemplateNames))
+	for _, name := range g.ResourceTemplateNames {
+		tmpl, ok := pMgr.GetResourceTemplate(name)
+		if !ok {
+			return ListResourceTemplatesResult{}, fmt.Errorf("resource template does not exist: %s", name)
+		}
+		// If Resource Template is of type UI skip adding it to the resources/templates/list response.
+		if tmpl.IsUI() {
+			continue
+		}
+		mcpManifest = append(mcpManifest, generateResourceTemplateManifest(name, tmpl.GetTitle(), tmpl.GetDescription(), tmpl.GetURITemplate(), tmpl.GetMimeType(), tmpl.GetAnnotations()))
+	}
+	return ListResourceTemplatesResult{ResourceTemplates: mcpManifest}, nil
 }

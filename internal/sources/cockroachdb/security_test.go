@@ -15,7 +15,9 @@
 package cockroachdb
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -219,6 +221,76 @@ func TestApplyQueryLimits(t *testing.T) {
 			shouldAddLimit: false,
 		},
 		{
+			name:           "SELECT with multiline existing LIMIT",
+			sql:            "SELECT *\nFROM users\nLIMIT 50",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT *\nFROM users\nLIMIT 50",
+			shouldAddLimit: false,
+		},
+		{
+			name:           "SELECT with lowercase multiline existing LIMIT",
+			sql:            "SELECT * FROM users\nlimit 50",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT * FROM users\nlimit 50",
+			shouldAddLimit: false,
+		},
+		{
+			name:           "SELECT with tab-separated existing LIMIT",
+			sql:            "SELECT a\tLIMIT 5",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT a\tLIMIT 5",
+			shouldAddLimit: false,
+		},
+		{
+			name:           "SELECT with LIMIT in single-line comment",
+			sql:            "SELECT * FROM users -- LIMIT is not here",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT * FROM users -- LIMIT is not here\nLIMIT 100",
+			shouldAddLimit: true,
+		},
+		{
+			name:           "SELECT with LIMIT in block comment",
+			sql:            "SELECT * FROM users /* LIMIT is not here */",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT * FROM users /* LIMIT is not here */ LIMIT 100",
+			shouldAddLimit: true,
+		},
+		{
+			name:           "SELECT with LIMIT in string literal",
+			sql:            "SELECT * FROM users WHERE name = 'LIMIT'",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT * FROM users WHERE name = 'LIMIT' LIMIT 100",
+			shouldAddLimit: true,
+		},
+		{
+			name:           "SELECT with LIMIT in quoted identifier",
+			sql:            `SELECT "LIMIT" FROM users`,
+			maxRowLimit:    100,
+			expectedSQL:    `SELECT "LIMIT" FROM users LIMIT 100`,
+			shouldAddLimit: true,
+		},
+		{
+			name:           "SELECT with escaped quote before LIMIT",
+			sql:            "SELECT * FROM users WHERE name = 'it''s LIMIT'",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT * FROM users WHERE name = 'it''s LIMIT' LIMIT 100",
+			shouldAddLimit: true,
+		},
+		{
+			name:           "SELECT with backslash-escaped quote before LIMIT",
+			sql:            `SELECT * FROM users WHERE name = E'it\'s LIMIT'`,
+			maxRowLimit:    100,
+			expectedSQL:    `SELECT * FROM users WHERE name = E'it\'s LIMIT' LIMIT 100`,
+			shouldAddLimit: true,
+		},
+		{
+			name:           "SELECT with LIMIT in dollar-quoted string",
+			sql:            "SELECT $$LIMIT$$ FROM users",
+			maxRowLimit:    100,
+			expectedSQL:    "SELECT $$LIMIT$$ FROM users LIMIT 100",
+			shouldAddLimit: true,
+		},
+		{
 			name:           "SELECT without LIMIT and semicolon",
 			sql:            "SELECT * FROM users;",
 			maxRowLimit:    100,
@@ -268,6 +340,25 @@ func TestApplyQueryLimits(t *testing.T) {
 				t.Errorf("Expected SQL:\n%s\nGot:\n%s", tt.expectedSQL, modifiedSQL)
 			}
 		})
+	}
+}
+
+func TestApplyQueryLimitsLogsExistingLimit(t *testing.T) {
+	var logOutput bytes.Buffer
+	originalLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logOutput, nil)))
+	t.Cleanup(func() { slog.SetDefault(originalLogger) })
+
+	source := &Source{Config: Config{Name: "test-source", MaxRowLimit: 100}}
+	_, err := source.ApplyQueryLimits("SELECT * FROM users LIMIT 50")
+	if err != nil {
+		t.Fatalf("ApplyQueryLimits returned an error: %v", err)
+	}
+
+	logMessage := logOutput.String()
+	if !strings.Contains(logMessage, "level=WARN") ||
+		!strings.Contains(logMessage, "configured row limit skipped because query already contains a LIMIT clause") {
+		t.Errorf("Expected warning about skipped row limit, got: %s", logMessage)
 	}
 }
 

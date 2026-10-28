@@ -41,7 +41,7 @@ The tool's behavior regarding these parameters is influenced by the
 dataset specified in the `table_references` parameter.
 - **With `allowedDatasets` restriction:** Before processing the request, the
   tool verifies that every table in `table_references` belongs to a dataset in
-  the allowed list. If any table is from a dataset that is not in the list, the
+  `allowedDatasets`. If any table is from a dataset that is not listed, the
   request is denied.
 
 

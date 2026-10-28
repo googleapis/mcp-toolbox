@@ -76,14 +76,20 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	}
 	sessionTemplateClient, err := dataproc.NewSessionTemplateControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 	if err != nil {
+		batchClient.Close()
 		return nil, fmt.Errorf("failed to create dataproc session template client: %w", err)
 	}
 	opsClient, err := longrunning.NewOperationsClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 	if err != nil {
+		batchClient.Close()
+		sessionTemplateClient.Close()
 		return nil, fmt.Errorf("failed to create longrunning client: %w", err)
 	}
 	sessionClient, err := dataproc.NewSessionControllerClient(ctx, option.WithEndpoint(endpoint), option.WithUserAgent(ua))
 	if err != nil {
+		batchClient.Close()
+		sessionTemplateClient.Close()
+		opsClient.Close()
 		return nil, fmt.Errorf("failed to create dataproc session client: %w", err)
 	}
 
@@ -105,6 +111,10 @@ type Source struct {
 	SessionTemplateClient *dataproc.SessionTemplateControllerClient
 	OpsClient             *longrunning.OperationsClient
 	SessionClient         *dataproc.SessionControllerClient
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {

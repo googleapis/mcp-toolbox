@@ -29,32 +29,32 @@ Parameters allow you to safely pass values into your SQL queries using prepared 
 ### Example with Multiple Parameters
 
 ```yaml
-tools:
-  filter_expenses:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: Filter expenses by category and date range
-    statement: |
-      SELECT id, description, amount, category, expense_date
-      FROM expenses
-      WHERE user_id = $1
-        AND category = $2
-        AND expense_date >= $3
-        AND expense_date <= $4
-      ORDER BY expense_date DESC
-    parameters:
-      - name: user_id
-        type: string
-        description: The user's UUID
-      - name: category
-        type: string
-        description: Expense category (e.g., "Food", "Transport")
-      - name: start_date
-        type: string
-        description: Start date in YYYY-MM-DD format
-      - name: end_date
-        type: string
-        description: End date in YYYY-MM-DD format
+kind: tool
+name: filter_expenses
+type: cockroachdb-sql
+source: my_cockroachdb
+description: Filter expenses by category and date range
+statement: |
+  SELECT id, description, amount, category, expense_date
+  FROM expenses
+  WHERE user_id = $1
+    AND category = $2
+    AND expense_date >= $3
+    AND expense_date <= $4
+  ORDER BY expense_date DESC
+parameters:
+  - name: user_id
+    type: string
+    description: The user's UUID
+  - name: category
+    type: string
+    description: Expense category (e.g., "Food", "Transport")
+  - name: start_date
+    type: string
+    description: Start date in YYYY-MM-DD format
+  - name: end_date
+    type: string
+    description: End date in YYYY-MM-DD format
 ```
 
 ### Template Parameters
@@ -64,57 +64,57 @@ Template parameters enable dynamic query construction by replacing placeholders 
 #### Example with Template Parameters
 
 ```yaml
-tools:
-  get_column_data:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: Get data from a specific column
-    statement: |
-      SELECT {{column_name}}
-      FROM {{table_name}}
-      WHERE user_id = $1
-      LIMIT 100
-    templateParameters:
-      - name: table_name
-        type: string
-        description: The table to query
-      - name: column_name
-        type: string
-        description: The column to retrieve
-    parameters:
-      - name: user_id
-        type: string
-        description: The user's UUID
+kind: tool
+name: get_column_data
+type: cockroachdb-sql
+source: my_cockroachdb
+description: Get data from a specific column
+statement: |
+  SELECT {{column_name}}
+  FROM {{table_name}}
+  WHERE user_id = $1
+  LIMIT 100
+templateParameters:
+  - name: table_name
+    type: string
+    description: The table to query
+  - name: column_name
+    type: string
+    description: The column to retrieve
+parameters:
+  - name: user_id
+    type: string
+    description: The user's UUID
 ```
 
 ## Example
 
 ```yaml
-sources:
-  my_cockroachdb:
-    type: cockroachdb
-    host: your-cluster.cockroachlabs.cloud
-    port: "26257"
-    user: myuser
-    password: mypassword
-    database: defaultdb
-    queryParams:
-      sslmode: require
-
-tools:
-  get_user_orders:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: Get all orders for a specific user
-    statement: |
-      SELECT o.id, o.order_date, o.total_amount, o.status
-      FROM orders o
-      WHERE o.user_id = $1
-      ORDER BY o.order_date DESC
-    parameters:
-      - name: user_id
-        type: string
-        description: The UUID of the user
+kind: source
+name: my_cockroachdb
+type: cockroachdb
+host: your-cluster.cockroachlabs.cloud
+port: "26257"
+user: myuser
+password: mypassword
+database: defaultdb
+queryParams:
+  sslmode: require
+---
+kind: tool
+name: get_user_orders
+type: cockroachdb-sql
+source: my_cockroachdb
+description: Get all orders for a specific user
+statement: |
+  SELECT o.id, o.order_date, o.total_amount, o.status
+  FROM orders o
+  WHERE o.user_id = $1
+  ORDER BY o.order_date DESC
+parameters:
+  - name: user_id
+    type: string
+    description: The UUID of the user
 ```
 
 ## Reference
@@ -169,22 +169,22 @@ CockroachDB supports standard SQL JOINs. Keep joins efficient by:
 - Limiting result sets with WHERE clauses
 
 ```yaml
-tools:
-  get_user_with_orders:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: Get user details with their recent orders
-    statement: |
-      SELECT u.name, u.email, o.id as order_id, o.order_date, o.total_amount
-      FROM users u
-      LEFT JOIN orders o ON u.id = o.user_id
-      WHERE u.id = $1
-      ORDER BY o.order_date DESC
-      LIMIT 10
-    parameters:
-      - name: user_id
-        type: string
-        description: The user's UUID
+kind: tool
+name: get_user_with_orders
+type: cockroachdb-sql
+source: my_cockroachdb
+description: Get user details with their recent orders
+statement: |
+  SELECT u.name, u.email, o.id as order_id, o.order_date, o.total_amount
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  WHERE u.id = $1
+  ORDER BY o.order_date DESC
+  LIMIT 10
+parameters:
+  - name: user_id
+    type: string
+    description: The user's UUID
 ```
 
 ### Handle NULL Values
@@ -200,82 +200,82 @@ WHERE user_id = $1
 ### Aggregations
 
 ```yaml
-tools:
-  expense_summary:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: Get expense summary by category for a user
-    statement: |
-      SELECT 
-        category,
-        COUNT(*) as count,
-        SUM(amount) as total_amount,
-        AVG(amount) as avg_amount
-      FROM expenses
-      WHERE user_id = $1
-        AND expense_date >= $2
-      GROUP BY category
-      ORDER BY total_amount DESC
-    parameters:
-      - name: user_id
-        type: string
-        description: The user's UUID
-      - name: start_date
-        type: string
-        description: Start date in YYYY-MM-DD format
+kind: tool
+name: expense_summary
+type: cockroachdb-sql
+source: my_cockroachdb
+description: Get expense summary by category for a user
+statement: |
+  SELECT 
+    category,
+    COUNT(*) as count,
+    SUM(amount) as total_amount,
+    AVG(amount) as avg_amount
+  FROM expenses
+  WHERE user_id = $1
+    AND expense_date >= $2
+  GROUP BY category
+  ORDER BY total_amount DESC
+parameters:
+  - name: user_id
+    type: string
+    description: The user's UUID
+  - name: start_date
+    type: string
+    description: Start date in YYYY-MM-DD format
 ```
 
 ### Window Functions
 
 ```yaml
-tools:
-  running_total:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: Get running total of expenses
-    statement: |
-      SELECT 
-        expense_date,
-        amount,
-        SUM(amount) OVER (ORDER BY expense_date) as running_total
-      FROM expenses
-      WHERE user_id = $1
-      ORDER BY expense_date
-    parameters:
-      - name: user_id
-        type: string
-        description: The user's UUID
+kind: tool
+name: running_total
+type: cockroachdb-sql
+source: my_cockroachdb
+description: Get running total of expenses
+statement: |
+  SELECT 
+    expense_date,
+    amount,
+    SUM(amount) OVER (ORDER BY expense_date) as running_total
+  FROM expenses
+  WHERE user_id = $1
+  ORDER BY expense_date
+parameters:
+  - name: user_id
+    type: string
+    description: The user's UUID
 ```
 
 ### Common Table Expressions (CTEs)
 
 ```yaml
-tools:
-  top_spenders:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: Find top spending users
-    statement: |
-      WITH user_totals AS (
-        SELECT 
-          user_id,
-          SUM(amount) as total_spent
-        FROM expenses
-        WHERE expense_date >= $1
-        GROUP BY user_id
-      )
-      SELECT 
-        u.name,
-        u.email,
-        ut.total_spent
-      FROM user_totals ut
-      JOIN users u ON ut.user_id = u.id
-      ORDER BY ut.total_spent DESC
-      LIMIT 10
-    parameters:
-      - name: start_date
-        type: string
-        description: Start date in YYYY-MM-DD format
+kind: tool
+name: top_spenders
+type: cockroachdb-sql
+source: my_cockroachdb
+description: Find top spending users
+statement: |
+  WITH user_totals AS (
+    SELECT 
+      user_id,
+      SUM(amount) as total_spent
+    FROM expenses
+    WHERE expense_date >= $1
+    GROUP BY user_id
+  )
+  SELECT 
+    u.name,
+    u.email,
+    ut.total_spent
+  FROM user_totals ut
+  JOIN users u ON ut.user_id = u.id
+  ORDER BY ut.total_spent DESC
+  LIMIT 10
+parameters:
+  - name: start_date
+    type: string
+    description: Start date in YYYY-MM-DD format
 ```
 
 

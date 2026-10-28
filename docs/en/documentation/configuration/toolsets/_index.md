@@ -14,6 +14,10 @@ This is especially useful when you are building a system with multiple AI agents
 Try organizing your toolsets by the agent's persona or app feature (e.g., `data_analyst_set` vs `customer_support_set`). This keeps your client-side code clean and ensures an agent isn't distracted by tools it doesn't need.
 {{< /notice >}}
 
+{{< notice note >}}
+A toolset is a tools-only [Group](../groups/), and Toolbox now loads every `kind: toolset` as a group. Existing toolsets keep working, with three exceptions: a `description` written on a toolset is dropped (with a warning), unrecognized fields are rejected at startup, and reusing one name for both a `kind: toolset` and a `kind: group` is now a duplicate-name error. We recommend migrating to `kind: group` — even for tools-only collections — because a group lets you attach a `description` (surfaced via `groups/list`) and scope other MCP primitives such as **prompts** alongside your **tools**. Run `toolbox migrate` to convert automatically.
+{{< /notice >}}
+
 ## Defining Toolsets
 
 In your configuration file, define each toolset by providing a unique `name` and a list of `tools` that belong to that group..

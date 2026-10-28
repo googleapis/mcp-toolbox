@@ -16,17 +16,22 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prebuiltconfigs"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+
+	"golang.org/x/mod/semver"
 )
 
 type IOStreams struct {
@@ -49,6 +54,9 @@ type ToolboxOptions struct {
 
 // Option defines a function that modifies the ToolboxOptions struct.
 type Option func(*ToolboxOptions)
+
+// githubReleasesURL is the endpoint used to check for latest Toolbox release on startup.
+var githubReleasesURL = "https://api.github.com/repos/googleapis/mcp-toolbox/releases/latest"
 
 // NewToolboxOptions creates a new instance with defaults, then applies any
 // provided options.
@@ -104,6 +112,8 @@ func (opts *ToolboxOptions) Setup(ctx context.Context) (context.Context, func(co
 	ctx = util.WithIgnoreUnknownTools(ctx, opts.Cfg.IgnoreUnknownTools)
 
 	logger.InfoContext(ctx, fmt.Sprintf("Starting MCP Toolbox for Databases version %s", opts.Cfg.Version))
+
+	go opts.checkVersion(context.WithoutCancel(ctx))
 
 	// Set up OpenTelemetry
 	otelShutdown, err := telemetry.SetupOTel(ctx, opts.Cfg.Version, opts.Cfg.TelemetryOTLP, opts.Cfg.TelemetryGCP, opts.Cfg.TelemetryGCPProject, opts.Cfg.TelemetryServiceName)
@@ -228,10 +238,15 @@ func (opts *ToolboxOptions) LoadConfig(ctx context.Context, parser *ConfigParser
 			}
 
 			if toolsetName != "" {
-				targetToolset, exists := parsed.Toolsets[toolsetName]
+				// Legacy toolsets are folded into groups at unmarshal, so the named
+				// toolset resolves as a group.
+				targetGroup, exists := parsed.Groups[toolsetName]
 				if !exists {
 					var available []string
-					for k := range parsed.Toolsets {
+					for k := range parsed.Groups {
+						if k == "" {
+							continue
+						}
 						available = append(available, k)
 					}
 					slices.Sort(available)
@@ -240,19 +255,19 @@ func (opts *ToolboxOptions) LoadConfig(ctx context.Context, parser *ConfigParser
 					return isCustomConfigured, errMsg
 				}
 
-				// Filter tools to only include those in the target toolset
+				// Filter tools to only include those in the target group
 				filteredTools := make(server.ToolConfigs)
-				for _, tName := range targetToolset.ToolNames {
+				for _, tName := range targetGroup.ToolNames {
 					if tCfg, tExists := parsed.Tools[tName]; tExists {
 						filteredTools[tName] = tCfg
 					}
 				}
 				parsed.Tools = filteredTools
 
-				// Filter toolsets to only include the target toolset
-				filteredToolsets := make(server.ToolsetConfigs)
-				filteredToolsets[toolsetName] = targetToolset
-				parsed.Toolsets = filteredToolsets
+				// Filter groups to only include the target group
+				filteredGroups := make(server.GroupConfigs)
+				filteredGroups[toolsetName] = targetGroup
+				parsed.Groups = filteredGroups
 			}
 
 			allConfigs = append(allConfigs, parsed)
@@ -294,8 +309,64 @@ func (opts *ToolboxOptions) LoadConfig(ctx context.Context, parser *ConfigParser
 	opts.Cfg.AuthServiceConfigs = finalConfig.AuthServices
 	opts.Cfg.EmbeddingModelConfigs = finalConfig.EmbeddingModels
 	opts.Cfg.ToolConfigs = finalConfig.Tools
-	opts.Cfg.ToolsetConfigs = finalConfig.Toolsets
 	opts.Cfg.PromptConfigs = finalConfig.Prompts
+	opts.Cfg.ResourceConfigs = finalConfig.Resources
+	opts.Cfg.ResourceTemplateConfigs = finalConfig.ResourceTemplates
+	opts.Cfg.GroupConfigs = finalConfig.Groups
 
 	return isCustomConfigured, nil
+}
+
+// checkVersion checks the current version of the Toolbox against the latest release on GitHub
+// and logs a warning if a newer version is available.
+func (opts *ToolboxOptions) checkVersion(ctx context.Context) {
+
+	if opts.Cfg.DisableVersionCheck {
+		opts.Logger.DebugContext(ctx, "Skipping version check (disabled)")
+		return
+	}
+
+	if opts.VersionNum == "" {
+		opts.Logger.DebugContext(ctx, "Unable to determine current Toolbox version (skipping version check)")
+		return
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, "GET", githubReleasesURL, nil)
+	if err != nil {
+		opts.Logger.DebugContext(ctx, fmt.Sprintf("Unable to query latest Toolbox version: %v (skipping version check)", err))
+		return
+	}
+
+	req.Header.Set("User-Agent", "mcp-toolbox")
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		opts.Logger.DebugContext(ctx, fmt.Sprintf("Unable to query latest Toolbox version: %v (skipping version check)", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		opts.Logger.DebugContext(ctx, fmt.Sprintf("Unable to query latest Toolbox version: received status code %d (skipping version check)", resp.StatusCode))
+		return
+	}
+
+	var rel struct {
+		TagName string `json:"tag_name"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		opts.Logger.DebugContext(ctx, fmt.Sprintf("Unable to query latest Toolbox version: %v (skipping version check)", err))
+		return
+	}
+	latest := rel.TagName
+	current := "v" + opts.VersionNum
+
+	if semver.Compare(latest, current) > 0 {
+		opts.Logger.InfoContext(ctx, fmt.Sprintf("A newer version of MCP Toolbox is available: (%s -> %s). Visit https://github.com/googleapis/mcp-toolbox/releases to view the latest release.", current, latest))
+	}
 }

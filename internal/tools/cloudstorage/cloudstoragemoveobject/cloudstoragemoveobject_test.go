@@ -109,7 +109,7 @@ func TestParseFromYamlCloudStorageMoveObject(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -157,7 +157,7 @@ func TestConfiguredBucketHiddenAndForwarded(t *testing.T) {
 		{Name: "source_object", Value: "src"},
 		{Name: "destination_object", Value: "dst"},
 	}
-	if _, err := tool.Invoke(context.Background(), &mockSourceProvider{source: src}, params, ""); err != nil {
+	if _, err := tool.Invoke(context.Background(), src, params, ""); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if src.gotBucket != "baked-bucket" || src.gotSourceObject != "src" || src.gotDestinationObject != "dst" {
@@ -216,15 +216,6 @@ func (m *mockSource) MoveObject(ctx context.Context, bucket, sourceObject, desti
 	return map[string]any{"bucket": bucket, "sourceObject": sourceObject, "destinationObject": destinationObject}, nil
 }
 
-type mockSourceProvider struct {
-	tools.SourceProvider
-	source *mockSource
-}
-
-func (m *mockSourceProvider) GetSource(name string) (sources.Source, bool) {
-	return m.source, true
-}
-
 func TestInvokeValidation(t *testing.T) {
 	cfg := cloudstoragemoveobject.Config{
 		ConfigBase: tools.ConfigBase{
@@ -256,13 +247,12 @@ func TestInvokeValidation(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			src := &mockSource{}
-			primitiveMgr := &mockSourceProvider{source: src}
 			params := parameters.ParamValues{
 				{Name: "bucket", Value: tc.bucket},
 				{Name: "source_object", Value: tc.sourceObject},
 				{Name: "destination_object", Value: tc.destinationObject},
 			}
-			_, toolErr := tool.Invoke(context.Background(), primitiveMgr, params, "")
+			_, toolErr := tool.Invoke(context.Background(), src, params, "")
 			if tc.wantErr {
 				if toolErr == nil {
 					t.Fatalf("expected error, got nil")

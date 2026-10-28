@@ -24,8 +24,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -118,30 +120,30 @@ func WaitForString(ctx context.Context, re *regexp.Regexp, pr io.ReadCloser) (st
 	}
 }
 
-var MockTool1 = NewMockTool("no_params", "", []parameters.Parameter{}, false, false)
+var MockTool1 = NewMockTool("no_params", "", "", []parameters.Parameter{}, false, false)
 
 var MockTool2 = NewMockTool(
 	"some_params",
-	"",
+	"", "",
 	parameters.Parameters{
 		parameters.NewIntParameter("param1", "This is the first parameter."),
 		parameters.NewIntParameter("param2", "This is the second parameter."),
 	}, false, false)
 
 var MockTool3 = NewMockTool(
-	"array_param", "some description",
+	"array_param", "some description", "",
 	parameters.Parameters{
 		parameters.NewArrayParameter("my_array", "this param is an array of strings", parameters.NewStringParameter("my_string", "string item")),
 	}, false, false)
 
-var MockTool4 = NewMockTool("unauthorized_tool", "", []parameters.Parameter{}, true, false)
+var MockTool4 = NewMockTool("unauthorized_tool", "", "", []parameters.Parameter{}, true, false)
 
-var MockTool5 = NewMockTool("require_client_auth_tool", "", []parameters.Parameter{}, false, true)
+var MockTool5 = NewMockTool("require_client_auth_tool", "", "", []parameters.Parameter{}, false, true)
 
 var MockToolUrlBinding = func() MockTool {
 	t := NewMockTool(
 		"url_binding_tool",
-		"A tool for testing URL param binding",
+		"A tool for testing URL param binding", "",
 		parameters.Parameters{
 			parameters.NewStringParameter("param1", "A bound string param"),
 			parameters.NewIntParameter("param2", "A bound int param"),
@@ -161,29 +163,28 @@ var MockPrompt2 = NewMockPrompt("prompt2", "", prompts.Arguments{
 	{Parameter: parameters.NewStringParameter("arg1", "This is the first argument.")},
 })
 
-// SetUpResources setups resources to test against
-func SetUpResources(t *testing.T, mockTools []MockTool, mockPrompts []MockPrompt) (map[string]tools.Tool, map[string]tools.Toolset, map[string]prompts.Prompt, map[string]prompts.Promptset) {
+var MockResource1 = NewMockResource("mock_resource_1", "file:///mock/resource/1", "", "", "", nil, nil)
+var MockResource2 = NewMockResource("mock_resource_2", "text:///mock/resource/2", "", "", "", nil, nil)
+var MockTemplate1 = NewMockResourceTemplate("mock_template_1", "file://{path}", "", "", "", nil)
+var MockTemplate2 = NewMockResourceTemplate("mock_template_2", "file:///logs/{path}", "", "", "", nil)
+
+// SetUpPrimitives setups resources to test against. The returned groups map is the
+// source of truth used by PrimitiveManager; assert group membership via
+// groups[name].ContainsTool / ContainsPrompt.
+func SetUpPrimitives(t *testing.T, mockTools []MockTool, mockPrompts []MockPrompt, mockResources []MockResource, mockResourceTemplates []MockResourceTemplate) (map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]resources.ResourceTemplate, map[string]group.Group) {
 	toolsMap := make(map[string]tools.Tool)
 	var allTools []string
 	for _, tool := range mockTools {
-		toolsMap[tool.Name] = tool
-		allTools = append(allTools, tool.Name)
+		toolName := tool.GetName()
+		toolsMap[toolName] = tool
+		allTools = append(allTools, toolName)
 	}
 
-	toolsets := make(map[string]tools.Toolset)
+	groupToolNames := make(map[string][]string)
 	if len(allTools) > 0 {
-		for name, l := range map[string][]string{
-			"":           allTools,
-			"tool1_only": {allTools[0]},
-			"tool2_only": {allTools[1]},
-		} {
-			tc := tools.ToolsetConfig{Name: name, ToolNames: l}
-			m, err := tc.Initialize(MockVersionString, toolsMap)
-			if err != nil {
-				t.Fatalf("unable to initialize toolset %q: %s", name, err)
-			}
-			toolsets[name] = m
-		}
+		groupToolNames[""] = allTools
+		groupToolNames["tool1_only"] = []string{allTools[0]}
+		groupToolNames["tool2_only"] = []string{allTools[1]}
 	}
 
 	promptsMap := make(map[string]prompts.Prompt)
@@ -193,15 +194,48 @@ func SetUpResources(t *testing.T, mockTools []MockTool, mockPrompts []MockPrompt
 		allPrompts = append(allPrompts, prompt.Name)
 	}
 
-	promptsets := make(map[string]prompts.Promptset)
-	if len(allPrompts) > 0 {
-		psc := prompts.PromptsetConfig{Name: "", PromptNames: allPrompts}
-		ps, err := psc.Initialize(MockVersionString, promptsMap)
-		if err != nil {
-			t.Fatalf("unable to initialize default promptset: %s", err)
-		}
-		promptsets[""] = ps
+	resourcesMap := make(map[string]resources.Resource)
+	var allResources []string
+	for _, resource := range mockResources {
+		resName := resource.GetName()
+		resourcesMap[resName] = resource
+		allResources = append(allResources, resName)
 	}
 
-	return toolsMap, toolsets, promptsMap, promptsets
+	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)
+	var allResourceTemplates []string
+	for _, resourceTemplate := range mockResourceTemplates {
+		resTemplateName := resourceTemplate.GetName()
+		resourceTemplatesMap[resTemplateName] = resourceTemplate
+		allResourceTemplates = append(allResourceTemplates, resTemplateName)
+	}
+
+	// Build the authoritative groups map directly. Each named collection
+	// contributes its tool names; all prompts belong to the default (nameless)
+	// group, matching the legacy default-toolset behavior.
+	groupNames := make(map[string]struct{})
+	for name := range groupToolNames {
+		groupNames[name] = struct{}{}
+	}
+	if len(allPrompts) > 0 || len(allResources) > 0 || len(allResourceTemplates) > 0 {
+		groupNames[""] = struct{}{}
+	}
+	groups := make(map[string]group.Group)
+	for name := range groupNames {
+		gc := group.GroupConfig{Name: name, ToolNames: groupToolNames[name]}
+		if name == "" {
+			gc.PromptNames = allPrompts
+			gc.ResourceNames = allResources
+			gc.ResourceTemplateNames = allResourceTemplates
+		}
+		groups[name] = group.NewGroup(gc)
+	}
+
+	return toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groups
+}
+
+// BoolPtr returns a pointer to the given bool, for constructing optional
+// boolean config fields in tests.
+func BoolPtr(b bool) *bool {
+	return &b
 }

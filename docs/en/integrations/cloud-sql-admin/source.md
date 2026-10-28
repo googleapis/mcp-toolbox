@@ -46,3 +46,4 @@ useClientOAuth: true
 | type           |  string  |     true     | Must be "cloud-sql-admin".                                                                                                                     |
 | defaultProject |  string  |     false    | The Google Cloud project ID to use for Cloud SQL infrastructure tools.                                                                         |
 | useClientOAuth |  boolean |     false    | If true, the source will use client-side OAuth for authorization. Otherwise, it will use Application Default Credentials. Defaults to `false`. |
+| readOnly       |  boolean |     false    | When set to `true`, suppresses write-capable admin tools. Default: `false`.                                                                    |

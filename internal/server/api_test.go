@@ -29,8 +29,8 @@ import (
 
 func TestToolsetEndpoint(t *testing.T) {
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, toolsets, _, _ := testutils.SetUpResources(t, mockTools, nil)
-	r, shutdown := setUpServer(t, "api", toolsMap, toolsets, nil, nil)
+	toolsMap, _, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	r, shutdown := setUpServer(t, "api", toolsMap, nil, nil, nil, groups)
 	defer shutdown()
 	ts := runServer(r, false)
 	defer ts.Close()
@@ -54,7 +54,7 @@ func TestToolsetEndpoint(t *testing.T) {
 			want: wantResponse{
 				statusCode: http.StatusOK,
 				version:    testutils.MockVersionString,
-				tools:      []string{testutils.MockTool1.Name, testutils.MockTool2.Name},
+				tools:      []string{testutils.MockTool1.GetName(), testutils.MockTool2.GetName()},
 			},
 		},
 		{
@@ -71,7 +71,7 @@ func TestToolsetEndpoint(t *testing.T) {
 			want: wantResponse{
 				statusCode: http.StatusOK,
 				version:    testutils.MockVersionString,
-				tools:      []string{testutils.MockTool1.Name},
+				tools:      []string{testutils.MockTool1.GetName()},
 			},
 		},
 		{
@@ -80,7 +80,7 @@ func TestToolsetEndpoint(t *testing.T) {
 			want: wantResponse{
 				statusCode: http.StatusOK,
 				version:    testutils.MockVersionString,
-				tools:      []string{testutils.MockTool2.Name},
+				tools:      []string{testutils.MockTool2.GetName()},
 			},
 		},
 	}
@@ -126,8 +126,8 @@ func TestToolsetEndpoint(t *testing.T) {
 
 func TestToolGetEndpoint(t *testing.T) {
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, toolsets, _, _ := testutils.SetUpResources(t, mockTools, nil)
-	r, shutdown := setUpServer(t, "api", toolsMap, toolsets, nil, nil)
+	toolsMap, _, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	r, shutdown := setUpServer(t, "api", toolsMap, nil, nil, nil, groups)
 	defer shutdown()
 	ts := runServer(r, false)
 	defer ts.Close()
@@ -147,20 +147,20 @@ func TestToolGetEndpoint(t *testing.T) {
 	}{
 		{
 			name:     "tool1",
-			toolName: testutils.MockTool1.Name,
+			toolName: testutils.MockTool1.GetName(),
 			want: wantResponse{
 				statusCode: http.StatusOK,
 				version:    testutils.MockVersionString,
-				tools:      []string{testutils.MockTool1.Name},
+				tools:      []string{testutils.MockTool1.GetName()},
 			},
 		},
 		{
 			name:     "tool2",
-			toolName: testutils.MockTool2.Name,
+			toolName: testutils.MockTool2.GetName(),
 			want: wantResponse{
 				statusCode: http.StatusOK,
 				version:    testutils.MockVersionString,
-				tools:      []string{testutils.MockTool2.Name},
+				tools:      []string{testutils.MockTool2.GetName()},
 			},
 		},
 		{
@@ -214,8 +214,8 @@ func TestToolGetEndpoint(t *testing.T) {
 
 func TestToolInvokeEndpoint(t *testing.T) {
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2, testutils.MockTool4, testutils.MockTool5}
-	toolsMap, toolsets, _, _ := testutils.SetUpResources(t, mockTools, nil)
-	r, shutdown := setUpServer(t, "api", toolsMap, toolsets, nil, nil)
+	toolsMap, _, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	r, shutdown := setUpServer(t, "api", toolsMap, nil, nil, nil, groups)
 	defer shutdown()
 	ts := runServer(r, false)
 	defer ts.Close()
@@ -228,15 +228,15 @@ func TestToolInvokeEndpoint(t *testing.T) {
 		isErr       bool
 	}{
 		{
-			name:        "tool1",
-			toolName:    testutils.MockTool1.Name,
+			name:        "tool without param",
+			toolName:    testutils.MockTool1.GetName(),
 			requestBody: bytes.NewBuffer([]byte(`{}`)),
 			want:        "{result:[no_params]}\n",
 			isErr:       false,
 		},
 		{
-			name:        "tool2",
-			toolName:    testutils.MockTool2.Name,
+			name:        "tool with params",
+			toolName:    testutils.MockTool2.GetName(),
 			requestBody: bytes.NewBuffer([]byte(`{"param1": 1, "param2": 2}`)),
 			want:        "{result:[some_params]}\n",
 			isErr:       false,
@@ -249,15 +249,15 @@ func TestToolInvokeEndpoint(t *testing.T) {
 			isErr:       true,
 		},
 		{
-			name:        "tool4",
-			toolName:    testutils.MockTool4.Name,
+			name:        "unauthorized tools",
+			toolName:    testutils.MockTool4.GetName(),
 			requestBody: bytes.NewBuffer([]byte(`{}`)),
 			want:        "",
 			isErr:       true,
 		},
 		{
-			name:        "tool5",
-			toolName:    testutils.MockTool5.Name,
+			name:        "tool requiring client auth",
+			toolName:    testutils.MockTool5.GetName(),
 			requestBody: bytes.NewBuffer([]byte(`{}`)),
 			want:        "",
 			isErr:       true,
@@ -299,15 +299,15 @@ func TestToolInvokeEndpoint(t *testing.T) {
 
 func TestApiRequestBodyLimit(t *testing.T) {
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, toolsets, _, _ := testutils.SetUpResources(t, mockTools, nil)
-	r, shutdown := setUpServer(t, "api", toolsMap, toolsets, nil, nil)
+	toolsMap, _, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	r, shutdown := setUpServer(t, "api", toolsMap, nil, nil, nil, groups)
 	defer shutdown()
 	ts := runServer(r, false)
 	defer ts.Close()
 
 	limit := int(DefaultHTTPMaxRequestBytes)
 	tooLarge := []byte(fmt.Sprintf(`{"param":"%s"}`, strings.Repeat("x", limit)))
-	resp, body, err := runRequest(ts, http.MethodPost, fmt.Sprintf("/tool/%s/invoke", testutils.MockTool1.Name), bytes.NewReader(tooLarge), nil)
+	resp, body, err := runRequest(ts, http.MethodPost, fmt.Sprintf("/tool/%s/invoke", testutils.MockTool1.GetName()), bytes.NewReader(tooLarge), nil)
 	if err != nil {
 		t.Fatalf("unexpected error during request: %s", err)
 	}
@@ -331,15 +331,15 @@ func TestApiRequestBodyLimit(t *testing.T) {
 
 func TestApiRequestBodyLimitOverride(t *testing.T) {
 	mockTools := []testutils.MockTool{testutils.MockTool1, testutils.MockTool2}
-	toolsMap, toolsets, _, _ := testutils.SetUpResources(t, mockTools, nil)
+	toolsMap, _, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
 	customLimit := int64(1 << 20)
-	r, shutdown := setUpServer(t, "api", toolsMap, toolsets, nil, nil, withHTTPMaxRequestBytes(customLimit))
+	r, shutdown := setUpServer(t, "api", toolsMap, nil, nil, nil, groups, withHTTPMaxRequestBytes(customLimit))
 	defer shutdown()
 	ts := runServer(r, false)
 	defer ts.Close()
 
 	tooLarge := []byte(fmt.Sprintf(`{"param":"%s"}`, strings.Repeat("x", int(customLimit))))
-	resp, body, err := runRequest(ts, http.MethodPost, fmt.Sprintf("/tool/%s/invoke", testutils.MockTool1.Name), bytes.NewReader(tooLarge), nil)
+	resp, body, err := runRequest(ts, http.MethodPost, fmt.Sprintf("/tool/%s/invoke", testutils.MockTool1.GetName()), bytes.NewReader(tooLarge), nil)
 	if err != nil {
 		t.Fatalf("unexpected error during request: %s", err)
 	}

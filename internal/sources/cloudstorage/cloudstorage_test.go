@@ -16,6 +16,7 @@ package cloudstorage
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestParseFromYamlCloudStorage(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -114,7 +115,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}
@@ -227,5 +228,156 @@ func TestValidateLocalPath(t *testing.T) {
 				t.Fatalf("validateLocalPath(%q) got error: %v, wantErr: %v", tc.path, err, tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestValidateLocalPathSymlinks covers paths that sit under an allowed root by
+// name but reach a different file once symlinks are followed. Accepting those
+// lets upload_object read a file outside the root and download_object write
+// through a link to one, which is exactly what allowedLocalRoots exists to stop.
+func TestValidateLocalPathSymlinks(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolving temp dir: %v", err)
+	}
+	allowed := filepath.Join(base, "allowed")
+	outside := filepath.Join(base, "outside")
+	for _, dir := range []string{allowed, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q): %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(allowed, "real.txt"), []byte("INSIDE"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("OUTSIDE_SECRET"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	for _, l := range []struct{ target, link string }{
+		{filepath.Join(allowed, "real.txt"), filepath.Join(allowed, "link_in.txt")},
+		{filepath.Join(outside, "secret.txt"), filepath.Join(allowed, "link_out.txt")},
+		{outside, filepath.Join(allowed, "dir_out")},
+		{filepath.Join(outside, "missing.txt"), filepath.Join(allowed, "dangling.txt")},
+		{allowed, filepath.Join(base, "linked_allowed")},
+	} {
+		if err := os.Symlink(l.target, l.link); err != nil {
+			t.Fatalf("Symlink(%q -> %q): %v", l.link, l.target, err)
+		}
+	}
+
+	tcs := []struct {
+		desc         string
+		allowedRoots []string
+		path         string
+		wantErr      bool
+	}{
+		{
+			desc:         "regular file under root succeeds",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(allowed, "real.txt"),
+		},
+		{
+			desc:         "new file under root succeeds",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(allowed, "new.txt"),
+		},
+		{
+			desc:         "link resolving inside root succeeds",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(allowed, "link_in.txt"),
+		},
+		{
+			desc:         "root reached through a link succeeds",
+			allowedRoots: []string{filepath.Join(base, "linked_allowed")},
+			path:         filepath.Join(base, "linked_allowed", "real.txt"),
+		},
+		{
+			desc:         "root and path spelled through different links succeed",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(base, "linked_allowed", "real.txt"),
+			// Name-level check rejects it: the caller's spelling is not under
+			// the configured root even though it resolves there.
+			wantErr: true,
+		},
+		{
+			desc:         "link escaping root fails",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(allowed, "link_out.txt"),
+			wantErr:      true,
+		},
+		{
+			desc:         "intermediate directory link escaping root fails",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(allowed, "dir_out", "secret.txt"),
+			wantErr:      true,
+		},
+		{
+			desc:         "new file under an escaping directory link fails",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(allowed, "dir_out", "new.txt"),
+			wantErr:      true,
+		},
+		{
+			desc:         "dangling link escaping root fails",
+			allowedRoots: []string{allowed},
+			path:         filepath.Join(allowed, "dangling.txt"),
+			wantErr:      true,
+		},
+		{
+			desc:         "unset allowedLocalRoots leaves links unrestricted",
+			allowedRoots: nil,
+			path:         filepath.Join(allowed, "link_out.txt"),
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			s := &Source{
+				Config: Config{
+					Name:              "my-gcs",
+					AllowedLocalRoots: tc.allowedRoots,
+				},
+			}
+			err := s.validateLocalPath(tc.path)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateLocalPath(%q) got error: %v, wantErr: %v", tc.path, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestAllowedLocalRootSymlinkEscape is the regression test for the reported
+// bypass: a symlink planted under an allowed root was accepted because only its
+// name was checked, so reading it returned content from outside the root.
+func TestAllowedLocalRootSymlinkEscape(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolving temp dir: %v", err)
+	}
+	allowed := filepath.Join(base, "allowed")
+	outside := filepath.Join(base, "outside")
+	for _, dir := range []string{allowed, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q): %v", dir, err)
+		}
+	}
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("OUTSIDE_SECRET"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	escape := filepath.Join(allowed, "innocent.txt")
+	if err := os.Symlink(secret, escape); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	s := &Source{Config: Config{Name: "my-gcs", AllowedLocalRoots: []string{allowed}}}
+	if err := s.validateLocalPath(escape); err == nil {
+		// Demonstrate what acceptance would have cost, for whoever reads a
+		// future failure of this test.
+		content, readErr := os.ReadFile(escape)
+		if readErr != nil {
+			t.Fatalf("validateLocalPath(%q) accepted a path escaping %q", escape, allowed)
+		}
+		t.Fatalf("validateLocalPath(%q) accepted a path escaping %q; it reads %q from %q",
+			escape, allowed, content, secret)
 	}
 }

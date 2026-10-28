@@ -24,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
 	"github.com/googleapis/mcp-toolbox/internal/auth/generic"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -66,7 +67,7 @@ func toolsetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		span.End()
 	}()
 
-	toolset, ok := s.PrimitiveMgr.GetToolset(toolsetName)
+	g, ok := s.PrimitiveMgr.GetGroup(toolsetName)
 	if !ok {
 		err = fmt.Errorf("toolset %q does not exist", toolsetName)
 		s.logger.DebugContext(ctx, err.Error())
@@ -74,7 +75,7 @@ func toolsetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	manifest, err := toolset.BuildManifest(s.PrimitiveMgr.GetSourcesMap())
+	manifest, err := g.ToolsetManifest(s.version, s.PrimitiveMgr)
 	if err != nil {
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusInternalServerError))
@@ -107,7 +108,18 @@ func toolGetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
 		return
 	}
-	toolManifest, err := tool.Manifest(s.PrimitiveMgr.GetSourcesMap())
+	srcName := tool.GetSourceName()
+	var src sources.Source
+	if srcName != "" {
+		src, ok = s.PrimitiveMgr.GetSource(srcName)
+		if !ok {
+			err = fmt.Errorf("unable to retrieve source for tool %s", toolName)
+			s.logger.DebugContext(ctx, err.Error())
+			_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
+			return
+		}
+	}
+	toolManifest, err := tool.Manifest(src)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest for tool %q: %w", toolName, err)
 		s.logger.DebugContext(ctx, err.Error())
@@ -150,12 +162,31 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	srcName := tool.GetSourceName()
+	var src sources.Source
+	if srcName != "" {
+		src, ok = s.PrimitiveMgr.GetSource(srcName)
+		if !ok {
+			err = fmt.Errorf("unable to retrieve source for tool %s", toolName)
+			s.logger.DebugContext(ctx, err.Error())
+			_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
+			return
+		}
+	}
+
+	err = tool.ValidateSource(src)
+	if err != nil {
+		s.logger.DebugContext(ctx, err.Error())
+		_ = render.Render(w, r, newErrResponse(err, http.StatusNotFound))
+		return
+	}
+
 	// Extract OAuth access token from the "Authorization" header (currently for
 	// BigQuery end-user credentials usage only)
 	accessToken := tools.AccessToken(r.Header.Get("Authorization"))
 
 	// Check if this specific tool requires the standard authorization header
-	clientAuth, err := tool.RequiresClientAuthorization(s.PrimitiveMgr)
+	clientAuth, err := tool.RequiresClientAuthorization(src)
 	if err != nil {
 		errMsg := fmt.Errorf("error during invocation: %w", err)
 		s.logger.DebugContext(ctx, errMsg.Error())
@@ -174,7 +205,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	// Tool authentication
 	// claimsFromAuth maps the name of the authservice to the claims retrieved from it.
 	claimsFromAuth := make(map[string]map[string]any)
-	for _, aS := range s.PrimitiveMgr.GetAuthServiceMap() {
+	for _, aS := range s.PrimitiveMgr.AuthServices() {
 		var claims map[string]any
 		var err error
 
@@ -205,7 +236,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if any of the specified auth services is verified
-	isAuthorized := tool.Authorized(verifiedAuthServices)
+	isAuthorized := tools.IsAuthorized(tool.GetAuthRequired(), verifiedAuthServices)
 	if !isAuthorized {
 		err = fmt.Errorf("tool invocation not authorized. Please make sure you specify correct auth headers")
 		s.logger.DebugContext(ctx, err.Error())
@@ -233,7 +264,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	toolParams, err := tool.GetParameters(s.PrimitiveMgr.GetSourcesMap())
+	toolParams, err := tool.GetParameters(src)
 	if err != nil {
 		err = fmt.Errorf("error getting parameters for tool: %w", err)
 		s.logger.DebugContext(ctx, err.Error())
@@ -268,7 +299,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.DebugContext(ctx, fmt.Sprintf("invocation params: %s", params))
 
-	params, err = tool.EmbedParams(ctx, params, s.PrimitiveMgr.GetEmbeddingModelMap())
+	params, err = tool.EmbedParams(ctx, params, s.PrimitiveMgr)
 	if err != nil {
 		err = fmt.Errorf("error embedding parameters: %w", err)
 		s.logger.DebugContext(ctx, err.Error())
@@ -276,7 +307,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := tool.Invoke(ctx, s.PrimitiveMgr, params, accessToken)
+	res, err := tool.Invoke(ctx, src, params, accessToken)
 
 	// Determine what error to return to the users.
 	if err != nil {

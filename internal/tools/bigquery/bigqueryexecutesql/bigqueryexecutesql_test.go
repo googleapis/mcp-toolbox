@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	bigqueryds "github.com/googleapis/mcp-toolbox/internal/sources/bigquery"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	bqutil "github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigquerycommon"
@@ -69,7 +70,7 @@ func TestParseFromYamlBigQueryExecuteSql(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -177,9 +178,6 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 		Type:   "bigquery-execute-sql",
 		Source: "my-bq-source",
 	}
-	sourcesMap := map[string]sources.Source{
-		"my-bq-source": testSrc,
-	}
 	tool, err := cfg.Initialize(ctx)
 	if err != nil {
 		t.Fatalf("failed to initialize tool: %v", err)
@@ -210,7 +208,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			desc:    "querying forbidden dataset table",
 			sql:     "SELECT * FROM forbidden_dataset.my_table",
 			wantErr: true,
-			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+			wantSub: "access to dataset 'test-project.forbidden_dataset' is not allowed",
 		},
 		{
 			desc:    "querying allowed dataset INFORMATION_SCHEMA tables",
@@ -221,7 +219,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			desc:    "querying forbidden dataset INFORMATION_SCHEMA tables",
 			sql:     "SELECT * FROM forbidden_dataset.INFORMATION_SCHEMA.TABLES",
 			wantErr: true,
-			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+			wantSub: "access to dataset 'test-project.forbidden_dataset' is not allowed",
 		},
 		{
 			desc:    "querying regional INFORMATION_SCHEMA schemata",
@@ -239,7 +237,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			desc:    "querying mixed allowed table and forbidden INFORMATION_SCHEMA view",
 			sql:     "SELECT * FROM allowed_dataset.my_table JOIN forbidden_dataset.INFORMATION_SCHEMA.TABLES ON true",
 			wantErr: true,
-			wantSub: "query accesses dataset 'test-project.forbidden_dataset', which is not in the allowed list",
+			wantSub: "access to dataset 'test-project.forbidden_dataset' is not allowed",
 		},
 		{
 			desc:    "querying EXTERNAL_QUERY",
@@ -251,14 +249,12 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			provider := &bqutil.MockSourceProvider{Source: testSrc}
-
 			data := map[string]any{
 				"sql":     tc.sql,
 				"dry_run": true,
 			}
 
-			params, err := executeSqlTool.GetParameters(sourcesMap)
+			params, err := executeSqlTool.GetParameters(testSrc)
 			if err != nil {
 				t.Fatalf("failed to get parameters: %v", err)
 			}
@@ -267,7 +263,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 				t.Fatalf("unexpected error parsing parameters: %v", err)
 			}
 
-			_, err = tool.Invoke(ctx, provider, paramVals, "")
+			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -282,5 +278,162 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestGetAnnotations(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	boolPtr := func(b bool) *bool { return &b }
+	readOnlySrc := &bigqueryds.Source{Config: bigqueryds.Config{WriteMode: bigqueryds.WriteModeBlocked}}
+	readWriteAllowedSrc := &bigqueryds.Source{Config: bigqueryds.Config{WriteMode: bigqueryds.WriteModeAllowed}}
+	readOnlyProtectedSrc := &bigqueryds.Source{Config: bigqueryds.Config{WriteMode: bigqueryds.WriteModeProtected}}
+	mockReadOnlySrc := &testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{ReadOnly: true}}
+	mockReadWriteSrc := &testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{ReadOnly: false}}
+
+	tests := []struct {
+		desc        string
+		src         sources.Source
+		annotations *tools.ToolAnnotations
+		want        *tools.ToolAnnotations
+	}{
+		{
+			desc: "nil source returns default destructive annotations unmodified",
+			src:  nil,
+			want: tools.NewDestructiveAnnotations(),
+		},
+		{
+			desc: "read-write source (WriteModeAllowed) returns default destructive annotations unmodified",
+			src:  readWriteAllowedSrc,
+			want: tools.NewDestructiveAnnotations(),
+		},
+		{
+			desc: "read-only source (WriteModeProtected) dynamically flips default destructive annotations to read-only",
+			src:  readOnlyProtectedSrc,
+			want: tools.NewReadOnlyAnnotations(),
+		},
+		{
+			desc: "read-write mock source returns default destructive annotations unmodified",
+			src:  mockReadWriteSrc,
+			want: tools.NewDestructiveAnnotations(),
+		},
+		{
+			desc: "read-only source (WriteModeBlocked) dynamically flips default destructive annotations to read-only",
+			src:  readOnlySrc,
+			want: tools.NewReadOnlyAnnotations(),
+		},
+		{
+			desc: "read-only mock source dynamically flips default destructive annotations to read-only",
+			src:  mockReadOnlySrc,
+			want: tools.NewReadOnlyAnnotations(),
+		},
+		{
+			desc:        "read-only source with explicit read-only base remains read-only",
+			src:         readOnlySrc,
+			annotations: tools.NewReadOnlyAnnotations(),
+			want:        tools.NewReadOnlyAnnotations(),
+		},
+		{
+			desc: "read-only source preserves custom hints (idempotent, openWorld) when flipped",
+			src:  readOnlySrc,
+			annotations: &tools.ToolAnnotations{
+				DestructiveHint: boolPtr(true),
+				ReadOnlyHint:    boolPtr(false),
+				IdempotentHint:  boolPtr(true),
+				OpenWorldHint:   boolPtr(true),
+			},
+			want: &tools.ToolAnnotations{
+				ReadOnlyHint:   boolPtr(true),
+				IdempotentHint: boolPtr(true),
+				OpenWorldHint:  boolPtr(true),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := bigqueryexecutesql.Config{
+				ConfigBase: tools.ConfigBase{Name: "bigquery-execute-sql", Description: "execute sql query", Annotations: tc.annotations},
+				Type:       "bigquery-execute-sql",
+				Source:     "my-instance",
+			}
+			tool, err := cfg.Initialize(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err)
+			}
+
+			got := tool.GetAnnotations(tc.src)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("GetAnnotations() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetParameters_AllowedDatasetsDeterministicOrder(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	cfg := bigqueryexecutesql.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "execute_sql_tool",
+			Description: "Execute SQL",
+		},
+		Type:   "bigquery-execute-sql",
+		Source: "my-bq-source",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	src := &bigqueryds.Source{
+		Config: bigqueryds.Config{
+			WriteMode: bigqueryds.WriteModeBlocked,
+		},
+		AllowedDatasets: map[string]struct{}{
+			"my-project.gamma": {},
+			"my-project.alpha": {},
+			"my-project.beta":  {},
+		},
+	}
+
+	wantSuffix := "The query must only access datasets from the following list: `my-project.alpha`, `my-project.beta`, `my-project.gamma`."
+
+	for i := 0; i < 20; i++ {
+		params, err := tool.GetParameters(src)
+		if err != nil {
+			t.Fatalf("iteration %d: GetParameters() unexpected error: %v", i, err)
+		}
+		var sqlParamDesc string
+		for _, p := range params {
+			if p.GetName() == "sql" {
+				sqlParamDesc = p.GetDesc()
+				break
+			}
+		}
+		if !strings.HasSuffix(sqlParamDesc, wantSuffix) {
+			t.Fatalf("iteration %d: GetParameters() sql description = %q, want suffix %q", i, sqlParamDesc, wantSuffix)
+		}
+
+		manifest, err := tool.Manifest(src)
+		if err != nil {
+			t.Fatalf("iteration %d: Manifest() unexpected error: %v", i, err)
+		}
+		var sqlManifestDesc string
+		for _, p := range manifest.Parameters {
+			if p.Name == "sql" {
+				sqlManifestDesc = p.Description
+				break
+			}
+		}
+		if !strings.HasSuffix(sqlManifestDesc, wantSuffix) {
+			t.Fatalf("iteration %d: Manifest() sql description = %q, want suffix %q", i, sqlManifestDesc, wantSuffix)
+		}
 	}
 }

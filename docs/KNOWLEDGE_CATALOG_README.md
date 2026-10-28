@@ -1,13 +1,13 @@
 # Knowledge Catalog MCP Server
 
-The Knowledge Catalog (formerly known as Dataplex) Model Context Protocol (MCP) Server gives AI-powered development tools the ability to work with your Google Cloud Knowledge Catalog. It supports searching and looking up entries and aspect types.
+The Knowledge Catalog (formerly known as Dataplex) Model Context Protocol (MCP) Server gives AI-powered development tools the ability to work with your Google Cloud Knowledge Catalog. It supports searching and looking up entries, managing Data Products and Data Assets, and searching data quality scans.
 
 ## Features
 
 An editor configured to use the Knowledge Catalog MCP server can use its AI capabilities to help you:
 
 - **Search Catalog** - Search for entries in Knowledge Catalog
-- **Explore Metadata** - Lookup specific entries, search aspect types, and list/retrieve Data Products and Data Assets
+- **Explore Metadata** - Lookup specific entries and list/retrieve Data Products and Data Assets
 - **Data Quality** - Search for data quality scans
 
 ## Prerequisites
@@ -50,26 +50,28 @@ Once configured, the MCP server will automatically provide Knowledge Catalog cap
 *   "Update the display name of Data Product 'my-product' to 'Updated Product'."
 *   "Create a new Data Asset under 'my-product' with resource '//bigquery.googleapis.com/projects/my-project/datasets/my-dataset/tables/my-table'."
 *   "Update the labels of Data Asset 'my-asset' under Data Product 'my-product' to have 'env: prod'."
+*   "Update aspects of Data Product 'my-product' to set overview content to 'New description'."
 
 ## Server Capabilities
 
 The Knowledge Catalog MCP server provides the following tools:
 
-| Tool Name             | Description                                                                                                                  |
-|:----------------------|:-----------------------------------------------------------------------------------------------------------------------------|
-| `search_entries`      | Search for entries in Knowledge Catalog.                                                                                     |
-| `lookup_entry`        | Retrieve specific subset of metadata (for example, schema, usage, business overview, and contacts) of a specific data asset. |
-| `search_aspect_types` | Find aspect types relevant to the query.                                                                                     |
-| `lookup_context`      | Retrieve rich metadata regarding one or more data assets along with their relationships.                                     |
-| `search_dq_scans`     | Search for Data Quality scans.                                                                                               |
-| `list_data_products`  | List Data Products for the current project.                                                                                  |
-| `get_data_product`    | Retrieve a specific Data Product.                                                                                            |
-| `list_data_assets`    | List Data Assets under a Data Product.                                                                                       |
-| `get_data_asset`      | Retrieve specific metadata regarding a Data Asset.                                                                           |
-| `create_data_product` | Create a new Data Product.                                                                                                   |
-| `update_data_product` | Update an existing Data Product.                                                                                             |
-| `create_data_asset`   | Create a new Data Asset.                                                                                                     |
-| `update_data_asset`   | Update an existing Data Asset.                                                                                               |
+| Tool Name                     | Description                                                                                                                  |
+|:------------------------------|:-----------------------------------------------------------------------------------------------------------------------------|
+| `search_entries`              | Search for entries in Knowledge Catalog.                                                                                     |
+| `lookup_entry`                | Retrieve specific subset of metadata (for example, schema, usage, business overview, and contacts) of a specific data asset. |
+| `lookup_context`              | Retrieve rich metadata regarding one or more data assets along with their relationships.                                     |
+| `search_dq_scans`             | Search for Data Quality scans.                                                                                               |
+| `list_data_products`          | List Data Products for the current project.                                                                                  |
+| `get_data_product`            | Retrieve a specific Data Product.                                                                                            |
+| `list_data_assets`            | List Data Assets under a Data Product.                                                                                       |
+| `get_data_asset`              | Retrieve specific metadata regarding a Data Asset.                                                                           |
+| `create_data_product`         | Create a new Data Product.                                                                                                   |
+| `update_data_product`         | Update an existing Data Product.                                                                                             |
+| `create_data_asset`           | Create a new Data Asset.                                                                                                     |
+| `update_data_asset`           | Update an existing Data Asset.                                                                                               |
+| `update_data_product_aspects` | Update aspects (like documentation or contracts) on a Data Product Entry.                                                          |
+| `get_operation`               | Retrieve the status of a long-running operation.                                                                             |
 
 ## Custom MCP Server Configuration
 

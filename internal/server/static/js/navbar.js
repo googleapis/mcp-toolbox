@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+const NAV_COLLAPSED_STORAGE_KEY = 'toolbox-left-nav-collapsed';
+
 /**
  * Renders the navigation bar HTML content into the specified container element.
  * @param {string} containerId The ID of the DOM element to inject the navbar into.
@@ -24,38 +26,69 @@ function renderNavbar(containerId, activePath) {
         return;
     }
 
-    const navbarHTML = `
-        <nav class="left-nav">
-            <div class="nav-logo">
-                <img src="/ui/assets/mcptoolboxlogo.png" alt="App Logo">
-            </div>
-            <ul>
-                <!--<li><a href="/ui/sources">Sources</a></li>-->
-                <!--<li><a href="/ui/authservices">Auth Services</a></li>-->
-                <li><a href="/ui/tools">Tools</a></li>
-                <li><a href="/ui/toolsets">Toolsets</a></li>
-            </ul>
-        </nav>
-    `;
+    const nav = document.createElement('nav');
+    nav.className = 'left-nav';
 
-    navbarContainer.innerHTML = navbarHTML;
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'nav-toggle-btn';
 
-    const logoImage = navbarContainer.querySelector('.nav-logo img');
-    if (logoImage) {
-        logoImage.addEventListener('click', () => {
-            window.location.href = '/ui/';
-        });
+    const logoDiv = document.createElement('div');
+    logoDiv.className = 'nav-logo';
+    const logoImage = document.createElement('img');
+    logoImage.src = '/ui/assets/mcptoolboxlogo.png';
+    logoImage.alt = 'App Logo';
+    logoImage.addEventListener('click', () => {
+        window.location.href = '/ui/';
+    });
+    logoDiv.appendChild(logoImage);
+
+    const navList = document.createElement('ul');
+    const items = [
+        { href: '/ui/tools', text: 'Tools' },
+        { href: '/ui/toolsets', text: 'Toolsets' }
+    ];
+
+    items.forEach(item => {
+        const li = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = item.href;
+        link.textContent = item.text;
+        if (activePath && item.href === activePath) {
+            link.classList.add('active');
+        }
+        li.appendChild(link);
+        navList.appendChild(li);
+    });
+
+    const applyCollapsedState = (isCollapsed) => {
+        navbarContainer.classList.toggle('collapsed', isCollapsed);
+        toggleBtn.textContent = isCollapsed ? '»' : '«';
+        toggleBtn.title = isCollapsed ? 'Expand navigation panel' : 'Collapse navigation panel';
+        toggleBtn.setAttribute('aria-label', toggleBtn.title);
+        toggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
+    };
+
+    let initialCollapsed = false;
+    try {
+        initialCollapsed = localStorage.getItem(NAV_COLLAPSED_STORAGE_KEY) === 'true';
+    } catch (e) {
+        // Ignore storage access errors in restricted modes
     }
+    applyCollapsedState(initialCollapsed);
 
-    if (activePath) {
-        const navLinks = navbarContainer.querySelectorAll('.left-nav ul li a');
-        navLinks.forEach(link => {
-            const linkPath = new URL(link.href).pathname;
-            if (linkPath === activePath) {
-                link.classList.add('active');
-            } else {
-                link.classList.remove('active');
-            }
-        });
-    }
+    toggleBtn.addEventListener('click', () => {
+        const nextCollapsed = !navbarContainer.classList.contains('collapsed');
+        applyCollapsedState(nextCollapsed);
+        try {
+            localStorage.setItem(NAV_COLLAPSED_STORAGE_KEY, String(nextCollapsed));
+        } catch (e) {
+            // Ignore storage access errors in restricted modes
+        }
+    });
+
+    nav.appendChild(toggleBtn);
+    nav.appendChild(logoDiv);
+    nav.appendChild(navList);
+    navbarContainer.replaceChildren(nav);
 }

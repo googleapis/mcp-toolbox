@@ -24,20 +24,20 @@ It's compatible with the following sources:
 ## Example
 
 ```yaml
-tools:
-  get_agent_info:
-    kind: conversational-analytics-get-data-agent-info
-    source: my-conversational-analytics-source
-    location: global
-    description: |
-      Use this tool to get details about a specific data agent.
+kind: tool
+name: get_agent_info
+type: conversational-analytics-get-data-agent-info
+source: my-conversational-analytics-source
+location: global
+description: |
+  Use this tool to get details about a specific data agent.
 ```
 
 ## Reference
 
 | **field**   | **type** | **required** | **description**                                    |
 |-------------|:--------:|:------------:|----------------------------------------------------|
-| kind        |  string  |     true     | Must be "conversational-analytics-get-data-agent-info". |
+| type        |  string  |     true     | Must be "conversational-analytics-get-data-agent-info". |
 | source      |  string  |     true     | Name of the source.                                |
 | description |  string  |     true     | Description of the tool that is passed to the LLM. |
 | location    |  string  |    false     | The Google Cloud location (default: "global").     |

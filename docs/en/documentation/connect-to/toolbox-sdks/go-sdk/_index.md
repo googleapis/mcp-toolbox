@@ -16,10 +16,18 @@ The Go SDK act as clients for that service. They handle the communication needed
 * Fetch tool definitions from your running Toolbox instance.
 * Provide convenient Go structs representing those tools.
 * Invoke the tools (calling the underlying APIs/services configured in Toolbox).
-* Handle authentication and parameter binding as needed.
+* Handle authentication, parameter binding, and secure parameters as needed.
 
 By using the SDK, you can easily leverage your Toolbox-managed tools directly
 within your Go applications or AI orchestration frameworks.
+
+{{< notice note >}}
+[Secure parameters](../../../configuration/tools/_index.md#secure-parameters) are supported starting in:
+* `core` >= `v1.2.0`
+* `tbadk` >= `v1.2.0`
+* `tbgenkit` >= `v0.10.0`
+* Server requirement: MCP protocol version `2026-07-28` or newer with the `com.google.cloud/toolbox.v1` extension.
+{{< /notice >}}
 
 <a class="btn btn-primary" href="https://go.mcp-toolbox.dev" role="button"><i class="fa-brands fa-golang"></i> Go API Reference</a>
 
@@ -57,7 +65,7 @@ To get started using Toolbox tools with an application, follow these general ste
 
     Before using the SDKs, you need the MCP Toolbox server running. Follow
     the instructions here: [**Toolbox Getting Started
-    Guide**](https://github.com/googleapis/mcp-toolbox?tab=readme-ov-file#getting-started)
+    Guide**](../../../../documentation/getting-started/local_quickstart_go.md)
 
 2. **Install the Appropriate SDK:**
 

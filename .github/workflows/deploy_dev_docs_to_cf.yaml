@@ -41,7 +41,7 @@ jobs:
       group: cf-docs-update
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           submodules: recursive
@@ -54,7 +54,7 @@ jobs:
           extended: true
 
       - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22"
 
@@ -81,11 +81,27 @@ jobs:
           mv public staging/dev
           mv staging/dev/releases.releases staging/releases.releases
 
-      - name: Push to Cloudflare Branch
-        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+      - name: Checkout Cloudflare Branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./.hugo/staging
-          publish_branch: cloudflare-pages
-          keep_files: true
-          commit_message: "deploy: ${{ github.event.head_commit.message }}"
+          ref: cloudflare-pages
+          path: cf-pages-temp
+          persist-credentials: false
+
+      - name: Push to Cloudflare Branch
+        env:
+            COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          cd $GITHUB_WORKSPACE/cf-pages-temp
+          rm -rf dev
+          
+          # copy over the dev build and releases file from staging
+          cp -r ../.hugo/staging/dev ./dev
+          cp ../.hugo/staging/releases.releases ./releases.releases || true
+          
+          # Commit and push the clean build
+          git config user.name "release-please[bot]"
+          git config user.email "55107282+release-please[bot]@users.noreply.github.com"
+          git add .
+          
+          git diff-index --quiet HEAD || git commit -m "deploy dev docs: $COMMIT_MESSAGE" && git push origin cloudflare-pages

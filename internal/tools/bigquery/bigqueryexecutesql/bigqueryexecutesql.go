@@ -63,9 +63,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -101,16 +100,27 @@ type Tool struct {
 	tools.BaseTool[Config]
 }
 
+func (t Tool) GetSourceName() string {
+	return t.Cfg.Source
+}
+
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg
 }
 
-func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, err)
+func (t Tool) ValidateSource(source sources.Source) error {
+	_, ok := source.(compatibleSource)
+	if !ok {
+		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
+	return nil
+}
 
+func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	source, ok := s.(compatibleSource)
+	if !ok {
+		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
+	}
 	paramsMap := params.AsMap()
 	sql, ok := paramsMap["sql"].(string)
 	if !ok {
@@ -138,11 +148,23 @@ func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, par
 		}
 	}
 
-	dryRunJob, err := bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source.GetMaximumBytesBilled())
-	if err != nil {
-		return nil, util.ProcessGcpError(err)
+	var dryRunJob *bigqueryrestapi.Job
+	if len(source.BigQueryAllowedDatasets()) > 0 {
+		var validationErr util.ToolboxError
+		dryRunJob, validationErr = bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source, source.GetMaximumBytesBilled(), false)
+		if validationErr != nil {
+			return nil, validationErr
+		}
+	} else {
+		dryRunJob, err = bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source.GetMaximumBytesBilled(), false)
+		if err != nil {
+			return nil, util.ProcessGcpError(err)
+		}
 	}
 
+	if dryRunJob.Statistics == nil || dryRunJob.Statistics.Query == nil {
+		return nil, util.NewClientServerError("dry run failed to return query statistics", http.StatusInternalServerError, nil)
+	}
 	statementType := dryRunJob.Statistics.Query.StatementType
 
 	switch source.BigQueryWriteMode() {
@@ -155,53 +177,6 @@ func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, par
 			if dest := dryRunJob.Configuration.Query.DestinationTable; dest != nil && dest.DatasetId != session.DatasetID {
 				return nil, util.NewAgentError(fmt.Sprintf("protected write mode only supports SELECT statements, or write operations in the anonymous "+
 					"dataset of a BigQuery session, but destination was %q", dest.DatasetId), nil)
-			}
-		}
-	}
-
-	if len(source.BigQueryAllowedDatasets()) > 0 {
-		switch statementType {
-		case "CREATE_SCHEMA", "DROP_SCHEMA", "ALTER_SCHEMA":
-			return nil, util.NewAgentError(fmt.Sprintf("dataset-level operations like '%s' are not allowed when dataset restrictions are in place", statementType), nil)
-		case "CREATE_FUNCTION", "CREATE_TABLE_FUNCTION", "CREATE_PROCEDURE":
-			return nil, util.NewAgentError(fmt.Sprintf("creating stored routines ('%s') is not allowed when dataset restrictions are in place, as their contents cannot be safely analyzed", statementType), nil)
-		case "CALL":
-			return nil, util.NewAgentError(fmt.Sprintf("calling stored procedures ('%s') is not allowed when dataset restrictions are in place, as their contents cannot be safely analyzed", statementType), nil)
-		}
-
-		// Use a map to avoid duplicate table names.
-		tableIDSet := make(map[string]struct{})
-
-		// Get all tables from the dry run result. This is the most reliable method.
-		queryStats := dryRunJob.Statistics.Query
-		if queryStats != nil {
-			for _, tableRef := range queryStats.ReferencedTables {
-				tableIDSet[fmt.Sprintf("%s.%s.%s", tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)] = struct{}{}
-			}
-			if tableRef := queryStats.DdlTargetTable; tableRef != nil {
-				tableIDSet[fmt.Sprintf("%s.%s.%s", tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)] = struct{}{}
-			}
-			if tableRef := queryStats.DdlDestinationTable; tableRef != nil {
-				tableIDSet[fmt.Sprintf("%s.%s.%s", tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)] = struct{}{}
-			}
-		}
-
-		// Always run the parser to ensure we catch views/tables that the dry run might bypass
-		parsedTables, parseErr := bqutil.TableParser(sql, bqClient.Project())
-		if parseErr != nil {
-			return nil, util.NewAgentError("could not parse tables from query to validate against allowed datasets", parseErr)
-		}
-		for _, tableID := range parsedTables {
-			tableIDSet[tableID] = struct{}{}
-		}
-
-		for tableID := range tableIDSet {
-			parts := strings.Split(tableID, ".")
-			if len(parts) == 3 {
-				projectID, datasetID := parts[0], parts[1]
-				if !source.IsDatasetAllowed(projectID, datasetID) {
-					return nil, util.NewAgentError(fmt.Sprintf("query accesses dataset '%s.%s', which is not in the allowed list", projectID, datasetID), nil)
-				}
 			}
 		}
 	}
@@ -226,25 +201,25 @@ func (t Tool) Invoke(ctx context.Context, primitiveMgr tools.SourceProvider, par
 	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, sql))
 	resp, err := source.RunSQL(ctx, bqClient, sql, statementType, nil, connProps, map[string]string{"mcp-toolbox-tool": resourceType})
 	if err != nil {
-		return nil, util.NewClientServerError("error running sql", http.StatusInternalServerError, err)
+		return nil, util.ProcessGcpError(err)
 	}
 	return resp, nil
 }
 
-func (t Tool) RequiresClientAuthorization(primitiveMgr tools.SourceProvider) (bool, error) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return false, err
+func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return false, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
-	return source.UseClientAuthorization(), nil
+	return s.UseClientAuthorization(), nil
 }
 
-func (t Tool) GetAuthTokenHeaderName(primitiveMgr tools.SourceProvider) (string, error) {
-	source, err := tools.GetCompatibleSource[compatibleSource](primitiveMgr, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return "", err
+func (t Tool) GetAuthTokenHeaderName(source sources.Source) (string, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return "", fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
-	return source.GetAuthTokenHeaderName(), nil
+	return s.GetAuthTokenHeaderName(), nil
 }
 
 // buildParams builds the tool's parameters from the source's write mode and allowed-dataset
@@ -290,24 +265,42 @@ func buildParams(writeMode string, allowedDatasets []string) (parameters.Paramet
 }
 
 // resolveParams builds the tool's parameters using the source's allowed-dataset configuration.
-func (t Tool) resolveParams(srcs map[string]sources.Source) (parameters.Parameters, error) {
-	s, err := tools.GetCompatibleSourceFromMap[compatibleSource](srcs, t.Cfg.Source, t.Cfg.Name, t.Cfg.Type)
-	if err != nil {
-		return nil, err
+func (t Tool) resolveParams(source sources.Source) (parameters.Parameters, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return nil, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
 	return buildParams(s.BigQueryWriteMode(), s.BigQueryAllowedDatasets())
 }
 
 // GetParameters returns the tool's parameters, resolved against the source.
-func (t Tool) GetParameters(srcs map[string]sources.Source) (parameters.Parameters, error) {
-	return t.resolveParams(srcs)
+func (t Tool) GetParameters(source sources.Source) (parameters.Parameters, error) {
+	return t.resolveParams(source)
 }
 
 // Manifest returns the tool's manifest, resolved against the source.
-func (t Tool) Manifest(srcs map[string]sources.Source) (tools.Manifest, error) {
-	params, err := t.resolveParams(srcs)
+func (t Tool) Manifest(source sources.Source) (tools.Manifest, error) {
+	params, err := t.resolveParams(source)
 	if err != nil {
 		return tools.Manifest{}, err
 	}
 	return tools.Manifest{Description: t.Cfg.Description, Parameters: params.Manifest(), AuthRequired: t.Cfg.AuthRequired}, nil
+}
+
+// GetAnnotations dynamically returns readOnlyHint: true and destructiveHint: false
+// when the connected database source is in read-only mode.
+func (t Tool) GetAnnotations(src sources.Source) *tools.ToolAnnotations {
+	base := t.BaseTool.GetAnnotations(src)
+	if src == nil || !src.IsReadOnly() {
+		return base
+	}
+
+	res := tools.NewReadOnlyAnnotations()
+	if base != nil {
+		copied := *base
+		copied.ReadOnlyHint = res.ReadOnlyHint
+		copied.DestructiveHint = res.DestructiveHint
+		return &copied
+	}
+	return res
 }

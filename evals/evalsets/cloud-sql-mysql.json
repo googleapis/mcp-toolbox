@@ -1,0 +1,25 @@
+{
+  "scenarios": [
+    {
+      "id": "cloudsqlmysql-data-01",
+      "starting_prompt": "Give me an inventory of the ${CLOUD_SQL_MYSQL_DATABASE} database: which user tables exist, and how large is each one.",
+      "conversation_plan": "The user wants a table inventory with sizes. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables",
+        "toolbox__list_table_stats"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "cloudsqlmysql-data-02",
+      "starting_prompt": "What MySQL version is this server actually running? Run a SQL query to find out rather than guessing from the instance metadata.",
+      "conversation_plan": "The user wants the version read from the server itself. Accept the answer and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    }
+  ]
+}

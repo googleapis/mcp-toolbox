@@ -60,10 +60,19 @@ type ToolsetManifest struct {
 
 // BuildManifest resolves the manifest for every tool in the toolset against the
 // provided sources, returning an error if any tool's manifest cannot be built.
-func (t Toolset) BuildManifest(srcs map[string]sources.Source) (ToolsetManifest, error) {
+func (t Toolset) BuildManifest(pMgr PrimitiveManagerI) (ToolsetManifest, error) {
 	toolsManifest := make(map[string]Manifest, len(t.Tools))
 	for _, tool := range t.Tools {
-		m, err := (*tool).Manifest(srcs)
+		srcName := (*tool).GetSourceName()
+		var src sources.Source
+		var ok bool
+		if srcName != "" {
+			src, ok = pMgr.GetSource(srcName)
+			if !ok {
+				return ToolsetManifest{}, fmt.Errorf("unable to retrieve %s source for tool %q", srcName, (*tool).GetName())
+			}
+		}
+		m, err := (*tool).Manifest(src)
 		if err != nil {
 			return ToolsetManifest{}, fmt.Errorf("error generating manifest for tool %q: %w", (*tool).GetName(), err)
 		}

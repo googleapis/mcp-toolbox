@@ -152,8 +152,9 @@ type: cloud-sql-wait-for-operation
 source: cloud-sql-admin-source
 multiplier: 4
 ---
-kind: toolset
+kind: group
 name: admin
+description: Use these skills when you need to provision new Cloud SQL for SQL Server instances, create databases and users, and monitor the progress of long-running operations.
 tools:
 - create_instance
 - get_instance
@@ -163,19 +164,22 @@ tools:
 - create_user
 - wait_for_operation
 ---
-kind: toolset
+kind: group
 name: data
+description: Use these skills when you need to explore the database schema and execute SQL queries to interact with your data.
 tools:
 - execute_sql
 - list_tables
 ---
-kind: toolset
+kind: group
 name: monitor
+description: Use these skills when you need to troubleshoot slow queries and analyze system-level PromQL metrics.
 tools:
 - get_system_metrics
 ---
-kind: toolset
+kind: group
 name: lifecycle
+description: Use these skills when you need to manage the lifecycle and durability of your data, including creating backups, restoring from existing backups, and cloning instances for testing or migration.
 tools:
 - create_backup
 - restore_backup

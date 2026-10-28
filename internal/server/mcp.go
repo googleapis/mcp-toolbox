@@ -33,13 +33,12 @@ import (
 	"github.com/go-chi/render"
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/auth"
-	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	v20241105 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20241105"
 	v20250326 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20250326"
-	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -276,7 +275,7 @@ func (s *stdioSession) readInputStream(ctx context.Context) error {
 
 			var v string
 			var res any
-			v, res, err = processMcpMessage(msgCtx, []byte(line), s.server, protocol, "", "", nil, "")
+			v, res, err = processMcpMessage(msgCtx, []byte(line), s.server, protocol, "", nil, "")
 			if err != nil {
 				// errors during the processing of message will generate a valid MCP Error response.
 				// server can continue to run.
@@ -394,10 +393,10 @@ func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(ctx)
 
 	sessionId := uuid.New().String()
-	toolsetName := chi.URLParam(r, "toolsetName")
-	s.logger.DebugContext(ctx, fmt.Sprintf("toolset name: %s", toolsetName))
+	groupName := chi.URLParam(r, "toolsetName")
+	s.logger.DebugContext(ctx, fmt.Sprintf("toolset name: %s", groupName))
 	span.SetAttributes(attribute.String("mcp.session.id", sessionId))
-	span.SetAttributes(attribute.String("toolset.name", toolsetName))
+	span.SetAttributes(attribute.String("toolset.name", groupName))
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -410,7 +409,7 @@ func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		attribute.String("network.protocol.name", "http"),
 		attribute.String("network.protocol.version", networkProtocolVersion),
 		attribute.String("mcp.protocol.version", "2024-11-05"),
-		attribute.String("toolset.name", toolsetName),
+		attribute.String("toolset.name", groupName),
 	}
 
 	// Increment active sessions counter
@@ -438,6 +437,7 @@ func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		err = fmt.Errorf("unable to retrieve flusher for sse")
 		s.logger.DebugContext(ctx, err.Error())
 		_ = render.Render(w, r, newErrResponse(err, http.StatusInternalServerError))
+		return
 	}
 	session := &sseSession{
 		writer:     w,
@@ -460,8 +460,8 @@ func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	// send initial endpoint event
 	toolsetURL := ""
-	if toolsetName != "" {
-		toolsetURL = fmt.Sprintf("/%s", toolsetName)
+	if groupName != "" {
+		toolsetURL = fmt.Sprintf("/%s", groupName)
 	}
 	// attach url query params to message endpoint
 	q := r.URL.Query()
@@ -579,10 +579,9 @@ func httpHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		protocolVersion = headerProtocolVersion
 	}
 
-	toolsetName := chi.URLParam(r, "toolsetName")
-	promptsetName := chi.URLParam(r, "promptsetName")
-	s.logger.DebugContext(ctx, fmt.Sprintf("toolset name: %s", toolsetName))
-	span.SetAttributes(attribute.String("toolset.name", toolsetName))
+	groupName := chi.URLParam(r, "toolsetName")
+	s.logger.DebugContext(ctx, fmt.Sprintf("toolset name: %s", groupName))
+	span.SetAttributes(attribute.String("toolset.name", groupName))
 
 	defer func() {
 		if err != nil {
@@ -593,7 +592,7 @@ func httpHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	networkProtocolVersion := fmt.Sprintf("%d.%d", r.ProtoMajor, r.ProtoMinor)
 
-	v, res, err := processMcpMessage(ctx, body, s, protocolVersion, toolsetName, promptsetName, r.Header, networkProtocolVersion)
+	v, res, err := processMcpMessage(ctx, body, s, protocolVersion, groupName, r.Header, networkProtocolVersion)
 	if err != nil {
 		s.logger.DebugContext(ctx, fmt.Errorf("error processing message: %w", err).Error())
 	}
@@ -639,14 +638,14 @@ func httpHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 			if errors.As(err, &mcpErr) {
 				switch mcpErr.Code {
 				case http.StatusForbidden:
-					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="insufficient_scope", scope="%s", resource_metadata="%s", error_description="%s"`, strings.Join(mcpErr.ScopesRequired, " "), s.toolboxUrl+"/.well-known/oauth-protected-resource", mcpErr.Message))
+					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="insufficient_scope", scope="%s", resource_metadata="%s", error_description="%s"`, strings.Join(mcpErr.ScopesRequired, " "), s.getPRMURL(), mcpErr.Message))
 					render.Status(r, http.StatusForbidden)
 				case http.StatusUnauthorized:
 					scopesArg := ""
 					if len(mcpErr.ScopesRequired) > 0 {
 						scopesArg = fmt.Sprintf(`, scope="%s"`, strings.Join(mcpErr.ScopesRequired, " "))
 					}
-					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s"%s`, s.toolboxUrl+"/.well-known/oauth-protected-resource", scopesArg))
+					w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s"%s`, s.getPRMURL(), scopesArg))
 					render.Status(r, http.StatusUnauthorized)
 				}
 			}
@@ -666,7 +665,7 @@ func httpHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 }
 
 // processMcpMessage process the messages received from clients
-func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVersion string, toolsetName string, promptsetName string, header http.Header, networkProtocolVersion string) (string, any, error) {
+func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVersion string, groupName string, header http.Header, networkProtocolVersion string) (string, any, error) {
 	operationStart := time.Now()
 
 	logger, err := util.LoggerFromContext(ctx)
@@ -734,7 +733,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 			attribute.String("mcp.method.name", baseMessage.Method),
 			attribute.String("network.transport", networkTransport),
 			attribute.String("network.protocol.name", networkProtocolName),
-			attribute.String("toolset.name", toolsetName),
+			attribute.String("toolset.name", groupName),
 		}
 		if protocolVersion != "" {
 			durationAttrs = append(durationAttrs, attribute.String("mcp.protocol.version", protocolVersion))
@@ -751,6 +750,9 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 		}
 		if genAIAttrs.PromptName != "" {
 			durationAttrs = append(durationAttrs, attribute.String("gen_ai.prompt.name", genAIAttrs.PromptName))
+		}
+		if genAIAttrs.GroupName != "" {
+			durationAttrs = append(durationAttrs, attribute.String("gen_ai.group.name", genAIAttrs.GroupName))
 		}
 		if metricErrorType != "" {
 			durationAttrs = append(durationAttrs, attribute.String("error.type", metricErrorType))
@@ -805,7 +807,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 	}
 
 	// Set toolset name
-	span.SetAttributes(attribute.String("toolset.name", toolsetName))
+	span.SetAttributes(attribute.String("toolset.name", groupName))
 
 	// Check if message is a notification
 	if baseMessage.Id == nil {
@@ -820,6 +822,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 	ctx = util.WithInstrumentation(ctx, s.instrumentation)
 	ctx = util.WithToolboxVersionKey(ctx, s.version)
 	ctx = util.WithEnableDraftSpecs(ctx, s.enableDraftSpecs)
+	ctx = util.WithDisableExtensionCheck(ctx, s.disableExtensionCheck)
 	// Process the method
 	switch baseMessage.Method {
 	// This is only used for <v2026
@@ -842,7 +845,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 			version = mcputil.GetLatestSupportedVersion(s.enableDraftSpecs)
 		}
 
-		result, err := mcp.ProcessMethod(ctx, version, baseMessage.Id, baseMessage.Method, tools.Toolset{}, prompts.Promptset{}, nil, body, nil)
+		result, err := mcp.ProcessMethod(ctx, version, baseMessage.Id, baseMessage.Method, group.Group{}, nil, body, nil)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			if rpcErr, ok := result.(jsonrpc.JSONRPCError); ok {
@@ -854,7 +857,9 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 		span.SetAttributes(attribute.String("mcp.protocol.version", version))
 		return version, result, err
 	default:
-		toolset, ok := s.PrimitiveMgr.GetToolset(toolsetName)
+		// The URL segment names a group; its derived toolset and promptset views
+		// share that name, so prompts scope to the connected group.
+		g, ok := s.PrimitiveMgr.GetGroup(groupName)
 		if !ok {
 			err := fmt.Errorf("toolset does not exist")
 			rpcErr := jsonrpc.NewError(baseMessage.Id, jsonrpc.INVALID_REQUEST, err.Error(), nil)
@@ -863,16 +868,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 			span.SetAttributes(attribute.String("error.type", metricErrorType))
 			return "", rpcErr, err
 		}
-		promptset, ok := s.PrimitiveMgr.GetPromptset(promptsetName)
-		if !ok {
-			err := fmt.Errorf("promptset does not exist")
-			rpcErr := jsonrpc.NewError(baseMessage.Id, jsonrpc.INVALID_REQUEST, err.Error(), nil)
-			metricErrorType = rpcErr.Error.String()
-			span.SetStatus(codes.Error, err.Error())
-			span.SetAttributes(attribute.String("error.type", metricErrorType))
-			return "", rpcErr, err
-		}
-		result, err := mcp.ProcessMethod(ctx, protocolVersion, baseMessage.Id, baseMessage.Method, toolset, promptset, s.PrimitiveMgr, body, header)
+		result, err := mcp.ProcessMethod(ctx, protocolVersion, baseMessage.Id, baseMessage.Method, g, s.PrimitiveMgr, body, header)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			// Set error.type based on JSON-RPC error code
@@ -897,7 +893,7 @@ type prmResponse struct {
 func prmHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	var server string
 	scopes := []string{}
-	for _, authSvc := range s.PrimitiveMgr.GetAuthServiceMap() {
+	for _, authSvc := range s.PrimitiveMgr.AuthServices() {
 		if mSvc, ok := authSvc.(auth.MCPAuthService); ok && mSvc.IsMCPEnabled() {
 			server = mSvc.GetAuthorizationServer()
 			scopes = mSvc.GetScopesRequired()

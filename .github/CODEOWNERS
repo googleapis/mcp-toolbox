@@ -9,9 +9,26 @@
 **/bigquery/ @googleapis/toolbox-bigquery-team @googleapis/senseai-eco-team
 **/bigtable/ @googleapis/toolbox-bigtable-team @googleapis/senseai-eco-team
 **/cloudsqlmssql/ @googleapis/toolbox-cloud-sql-mssql-team @googleapis/senseai-eco-team
+**/cloud-sql-mssql/ @googleapis/toolbox-cloud-sql-mssql-team @googleapis/senseai-eco-team
 **/cloudsqlmysql/ @googleapis/toolbox-cloud-sql-mysql-team @googleapis/senseai-eco-team
+**/cloud-sql-mysql/ @googleapis/toolbox-cloud-sql-mysql-team @googleapis/senseai-eco-team
 **/cloudsqlpg/ @googleapis/toolbox-cloud-sql-postgres-team @googleapis/senseai-eco-team
+**/cloud-sql-pg/ @googleapis/toolbox-cloud-sql-postgres-team @googleapis/senseai-eco-team
+**/cloudsqladmin/ @googleapis/toolbox-cloud-sql-postgres-team @googleapis/toolbox-cloud-sql-mysql-team @googleapis/toolbox-cloud-sql-mssql-team @googleapis/senseai-eco-team
 **/dataplex/ @googleapis/toolbox-dataplex-team @googleapis/senseai-eco-team
-**/firestore/ @googleapis/toolbox-firestore-team @googleapis/senseai-eco-team
+**/firestore*/ @googleapis/toolbox-firestore-team @googleapis/senseai-eco-team
 **/looker/ @googleapis/toolbox-looker-team @googleapis/senseai-eco-team
 **/spanner/ @googleapis/toolbox-spanner-team @googleapis/senseai-eco-team
+**/cloudhealthcare/ @googleapis/toolbox-cloud-healthcare-team @googleapis/senseai-eco-team
+**/cloud-healthcare/ @googleapis/toolbox-cloud-healthcare-team @googleapis/senseai-eco-team
+**/cloudstorage/ @googleapis/toolbox-cloud-storage-team @googleapis/senseai-eco-team
+**/cloud-storage/ @googleapis/toolbox-cloud-storage-team @googleapis/senseai-eco-team
+**/databaseinsights/ @googleapis/toolbox-database-insights-team @googleapis/senseai-eco-team
+**/database-insights/ @googleapis/toolbox-database-insights-team @googleapis/senseai-eco-team
+**/datalineage/ @googleapis/toolbox-data-lineage-team @googleapis/senseai-eco-team
+**/data-lineage/ @googleapis/toolbox-data-lineage-team @googleapis/senseai-eco-team
+**/dataproc/ @googleapis/toolbox-dataproc-team @googleapis/senseai-eco-team
+**/valkey/ @googleapis/toolbox-memorystore-team @googleapis/senseai-eco-team
+**/redis/ @googleapis/toolbox-memorystore-team @googleapis/senseai-eco-team
+**/oracle/ @googleapis/toolbox-oracle-team @googleapis/senseai-eco-team
+**/serverless*spark*/ @googleapis/toolbox-serverless-spark-team @googleapis/senseai-eco-team

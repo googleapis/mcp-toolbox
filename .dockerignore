@@ -1,0 +1,9 @@
+# Cloud Build generated secrets and auth files
+.airlock_token
+.netrc
+.npmrc
+.cache/
+
+# Git metadata
+.git/
+.gitignore

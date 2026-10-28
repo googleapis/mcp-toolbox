@@ -344,6 +344,37 @@ enabled:
 - [Cloud Trace API](https://console.cloud.google.com/apis/enableflow?apiid=cloudtrace.googleapis.com)
 {{< /notice >}}
 
+Metrics and traces are exported as two independent signals, and they are
+authorized separately. The identity that Toolbox runs as — the attached service
+account on Cloud Run, GCE, or GKE, or your own credentials when running
+locally — needs **both** of these roles on the telemetry project:
+
+| **signal** | **role**                        | **key permission**             |
+|------------|---------------------------------|--------------------------------|
+| Metrics    | `roles/monitoring.metricWriter` | `monitoring.timeSeries.create` |
+| Traces     | `roles/cloudtrace.agent`        | `cloudtrace.traces.patch`      |
+
+```bash
+gcloud projects add-iam-policy-binding PROJECT_ID \
+    --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" \
+    --role="roles/monitoring.metricWriter"
+
+gcloud projects add-iam-policy-binding PROJECT_ID \
+    --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" \
+    --role="roles/cloudtrace.agent"
+```
+
+{{< notice tip >}}
+Because the two signals are authorized independently, granting only one
+produces a partial failure rather than an obvious one. With
+`roles/monitoring.metricWriter` but not `roles/cloudtrace.agent`, metrics
+export normally while every trace export attempt fails with a
+`PermissionDenied` on `cloudtrace.traces.patch`. If you see repeated
+trace-export errors while your dashboards look healthy, the missing role is
+`roles/cloudtrace.agent` — this is the state a least-privilege deployment
+typically lands in first.
+{{< /notice >}}
+
 #### OTLP Exporter
 
 This implementation uses the default OTLP Exporter over HTTP for
@@ -396,6 +427,9 @@ To explicitly set the telemetry project:
 ```
 
 If `--telemetry-gcp-project` is not set, Toolbox uses `GOOGLE_CLOUD_PROJECT` when available.
+
+See [Google Cloud Exporter](#google-cloud-exporter) for the APIs and IAM roles
+`--telemetry-gcp` requires.
 
 To enable OTLP Exporter, provide Collector endpoint:
 

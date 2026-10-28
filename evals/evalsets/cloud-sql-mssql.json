@@ -1,0 +1,24 @@
+{
+  "scenarios": [
+    {
+      "id": "cloudsqlmssql-data-01",
+      "starting_prompt": "Give me an inventory of the ${CLOUD_SQL_MSSQL_DATABASE} database: which user tables exist.",
+      "conversation_plan": "The user wants a table inventory. Accept a short summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "cloudsqlmssql-data-02",
+      "starting_prompt": "What SQL Server version is this server actually running? Run a SQL query to find out rather than guessing from the instance metadata.",
+      "conversation_plan": "The user wants the version read from the server itself. Accept the answer and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    }
+  ]
+}

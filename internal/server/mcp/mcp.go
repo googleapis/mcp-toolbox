@@ -20,18 +20,27 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	mcputil "github.com/googleapis/mcp-toolbox/internal/server/mcp/util"
 	v20241105 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20241105"
 	v20250326 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20250326"
 	v20250618 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20250618"
 	v20251125 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20251125"
-	vdraft "github.com/googleapis/mcp-toolbox/internal/server/mcp/vdraft"
+	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
-	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
+
+// ProtocolOptions contains configuration passed during server initialization to protocol handlers.
+type ProtocolOptions struct {
+	DisableExt []string
+}
+
+// InitializeProtocols performs version-specific protocol setup across all supported MCP versions.
+func InitializeProtocols(opts ProtocolOptions) {
+	v20260728.Initialize(opts.DisableExt)
+}
 
 // NotificationHandler process notifications request. It MUST NOT send a response.
 // Currently Toolbox does not process any notifications.
@@ -47,26 +56,23 @@ func NotificationHandler(ctx context.Context, body []byte) error {
 
 // ProcessMethod returns a response for the request.
 // This is the Operation phase of the lifecycle for MCP client-server connections.
-func ProcessMethod(ctx context.Context, mcpVersion string, id jsonrpc.RequestId, method string, toolset tools.Toolset, promptset prompts.Promptset, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
+func ProcessMethod(ctx context.Context, mcpVersion string, id jsonrpc.RequestId, method string, g group.Group, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
 	enableDraft, ok := util.EnableDraftSpecsFromContext(ctx)
 	if !ok {
 		err := fmt.Errorf("unable to retrieve enableDraftSpecs from context")
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
 	switch mcpVersion {
-	case mcputil.VERSION_DRAFT:
-		if enableDraft {
-			return vdraft.ProcessMethod(ctx, id, method, toolset, promptset, primitiveMgr, body, header)
-		}
-		return jsonrpc.NewUnsupportedProtocolVersionError(id, mcpVersion, enableDraft)
+	case mcputil.VERSION_20260728:
+		return v20260728.ProcessMethod(ctx, id, method, g, primitiveMgr, body, header)
 	case mcputil.VERSION_20251125:
-		return v20251125.ProcessMethod(ctx, id, method, toolset, promptset, primitiveMgr, body, header)
+		return v20251125.ProcessMethod(ctx, id, method, g, primitiveMgr, body, header)
 	case mcputil.VERSION_20250618:
-		return v20250618.ProcessMethod(ctx, id, method, toolset, promptset, primitiveMgr, body, header)
+		return v20250618.ProcessMethod(ctx, id, method, g, primitiveMgr, body, header)
 	case mcputil.VERSION_20250326:
-		return v20250326.ProcessMethod(ctx, id, method, toolset, promptset, primitiveMgr, body, header)
+		return v20250326.ProcessMethod(ctx, id, method, g, primitiveMgr, body, header)
 	case "", mcputil.VERSION_20241105:
-		return v20241105.ProcessMethod(ctx, id, method, toolset, promptset, primitiveMgr, body, header)
+		return v20241105.ProcessMethod(ctx, id, method, g, primitiveMgr, body, header)
 	default:
 		return jsonrpc.NewUnsupportedProtocolVersionError(id, mcpVersion, enableDraft)
 	}

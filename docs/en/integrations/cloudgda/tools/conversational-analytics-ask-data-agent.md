@@ -40,24 +40,24 @@ It's compatible with the following sources:
 ## Example
 
 ```yaml
-tools:
-  ask_data_agent:
-    kind: conversational-analytics-ask-data-agent
-    source: my-conversational-analytics-source
-    location: global
-    maxResults: 50
-    description: |
-      Perform natural language data analysis and get insights by interacting 
-      with a specific BigQuery Data Agent. This tool allows for conversational 
-      queries and provides detailed responses based on the agent's configured 
-      data sources.
+kind: tool
+name: ask_data_agent
+type: conversational-analytics-ask-data-agent
+source: my-conversational-analytics-source
+location: global
+maxResults: 50
+description: |
+  Perform natural language data analysis and get insights by interacting 
+  with a specific BigQuery Data Agent. This tool allows for conversational 
+  queries and provides detailed responses based on the agent's configured 
+  data sources.
 ```
 
 ## Reference
 
 | **field**   | **type** | **required** | **description**                                    |
 |-------------|:--------:|:------------:|----------------------------------------------------|
-| kind        |  string  |     true     | Must be "conversational-analytics-ask-data-agent". |
+| type        |  string  |     true     | Must be "conversational-analytics-ask-data-agent". |
 | source      |  string  |     true     | Name of the source for chat.                       |
 | description |  string  |     true     | Description of the tool that is passed to the LLM. |
 | location    |  string  |    false     | The Google Cloud location (default: "global").     |

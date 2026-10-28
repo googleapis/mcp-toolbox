@@ -13,7 +13,7 @@
 # limitations under the License.
 
 steps:
-  - name: 'golang:1.25.7'
+  - name: 'golang:1.25.8'
     id: 'go-quickstart-test'
     entrypoint: 'bash'
     args:

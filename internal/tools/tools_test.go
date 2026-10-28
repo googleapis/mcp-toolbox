@@ -16,43 +16,41 @@ package tools_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/google/go-cmp/cmp"
-	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
-	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
-// stubConfig and stubTool exercise the path of embedding BaseTool with only
-// the extra methods (Invoke, ToConfig) needed to satisfy the Tool interface.
-// Real tools embed ConfigBase in their Config; the stub does too so it
-// satisfies ToolMeta if/when wired into BaseTool.
-type stubConfig struct {
-	tools.ConfigBase
-}
-
-func (stubConfig) ToolConfigType() string { return "stub" }
-func (stubConfig) Initialize(context.Context) (tools.Tool, error) {
-	return nil, nil
-}
-
-type stubTool struct {
-	tools.BaseTool[stubConfig]
-}
-
-func (stubTool) Invoke(_ context.Context, _ tools.SourceProvider, _ parameters.ParamValues, _ tools.AccessToken) (any, util.ToolboxError) {
-	return nil, nil
-}
-
-func (stubTool) ToConfig() tools.ToolConfig { return stubConfig{} }
-
-// Compile-time check: embedding BaseTool plus Invoke + ToConfig satisfies Tool.
-var _ tools.Tool = stubTool{}
-
 // Compile-time check: ConfigBase satisfies ToolMeta on its own.
 var _ tools.ToolMeta = tools.ConfigBase{}
+
+func TestConfigBaseAnnotationsYAML(t *testing.T) {
+	data := []byte(`name: my-tool
+annotations:
+  readOnlyHint: true
+  destructiveHint: false
+`)
+	var cfg struct {
+		tools.ConfigBase `yaml:",inline"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+
+	want := &tools.ToolAnnotations{
+		ReadOnlyHint:    testutils.BoolPtr(true),
+		DestructiveHint: testutils.BoolPtr(false),
+	}
+	if diff := cmp.Diff(want, cfg.Annotations); diff != "" {
+		t.Errorf("ConfigBase.Annotations mismatch (-want +got):\n%s", diff)
+	}
+}
 
 func newBaseTool() (tools.BaseTool[tools.ConfigBase], tools.Manifest) {
 	cfg := tools.ConfigBase{
@@ -86,9 +84,8 @@ func TestBaseToolGetters(t *testing.T) {
 	if diff := cmp.Diff([]string{"google"}, b.GetAuthRequired()); diff != "" {
 		t.Errorf("GetAuthRequired() mismatch (-want +got):\n%s", diff)
 	}
-	got := b.GetAnnotations()
-	if got == nil || got.ReadOnlyHint == nil || !*got.ReadOnlyHint {
-		t.Errorf("GetAnnotations() = %+v, want ReadOnlyHint=true", got)
+	if diff := cmp.Diff(tools.NewReadOnlyAnnotations(), b.GetAnnotations(nil)); diff != "" {
+		t.Errorf("GetAnnotations() mismatch (-want +got):\n%s", diff)
 	}
 	gotManifest, err := b.Manifest(nil)
 	if err != nil {
@@ -109,7 +106,7 @@ func TestBaseToolGetters(t *testing.T) {
 	}
 }
 
-func TestBaseToolAuthorized(t *testing.T) {
+func TestIsAuthorized(t *testing.T) {
 	tcs := []struct {
 		desc         string
 		authRequired []string
@@ -125,8 +122,8 @@ func TestBaseToolAuthorized(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			b := tools.NewBaseTool(tools.ConfigBase{AuthRequired: tc.authRequired}, nil, tools.Manifest{}, nil)
-			if got := b.Authorized(tc.verified); got != tc.want {
-				t.Errorf("Authorized(%v) = %v, want %v", tc.verified, got, tc.want)
+			if got := tools.IsAuthorized(b.GetAuthRequired(), tc.verified); got != tc.want {
+				t.Errorf("IsAuthorized(%v, %v) = %v, want %v", tc.authRequired, tc.verified, got, tc.want)
 			}
 		})
 	}
@@ -162,11 +159,139 @@ func TestBaseToolEmbedParamsPassthrough(t *testing.T) {
 		parameters.Parameters{parameters.NewStringParameter("p1", "first")},
 	)
 	values := parameters.ParamValues{{Name: "p1", Value: "hello"}}
-	got, err := b.EmbedParams(context.Background(), values, map[string]embeddingmodels.EmbeddingModel{})
+	got, err := b.EmbedParams(context.Background(), values, nil)
 	if err != nil {
 		t.Fatalf("EmbedParams() error = %v", err)
 	}
 	if diff := cmp.Diff(values, got); diff != "" {
 		t.Errorf("EmbedParams() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestShouldSuppress(t *testing.T) {
+	roSource := testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{ReadOnly: true}}
+	rwSource := testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{ReadOnly: false}}
+
+	tests := []struct {
+		desc        string
+		src         sources.Source
+		annotations *tools.ToolAnnotations
+		want        bool
+	}{
+		{
+			desc:        "nil source -> not suppressed",
+			src:         nil,
+			annotations: tools.NewWriteAnnotations(),
+			want:        false,
+		},
+		{
+			desc:        "read-write source with write tool -> not suppressed",
+			src:         rwSource,
+			annotations: tools.NewWriteAnnotations(),
+			want:        false,
+		},
+		{
+			desc:        "read-only source with write tool (readOnlyHint: false) -> suppressed",
+			src:         roSource,
+			annotations: tools.NewWriteAnnotations(),
+			want:        true,
+		},
+		{
+			desc:        "read-only source with destructive write tool (readOnlyHint: false, destructiveHint: true) -> suppressed",
+			src:         roSource,
+			annotations: tools.NewDestructiveAnnotations(),
+			want:        true,
+		},
+		{
+			desc:        "read-only source with read tool (readOnlyHint: true) -> not suppressed",
+			src:         roSource,
+			annotations: tools.NewReadOnlyAnnotations(),
+			want:        false,
+		},
+		{
+			desc:        "read-only source with nil annotations -> not suppressed",
+			src:         roSource,
+			annotations: nil,
+			want:        false,
+		},
+		{
+			desc: "read-only source with custom tool explicitly setting readOnlyHint: false -> suppressed",
+			src:  roSource,
+			annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: func(b bool) *bool { return &b }(false),
+			},
+			want: true,
+		},
+		{
+			desc: "read-only source with custom tool explicitly setting readOnlyHint: true -> not suppressed",
+			src:  roSource,
+			annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: func(b bool) *bool { return &b }(true),
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			cfg := testutils.MockToolConfig{
+				ConfigBase: tools.ConfigBase{Name: "my-tool", Annotations: tt.annotations},
+			}
+			tool, err := cfg.Initialize(context.Background())
+			if err != nil {
+				t.Fatalf("unexpected error initializing mock tool: %v", err)
+			}
+			if got := tools.ShouldSuppress(context.Background(), tool, tt.src); got != tt.want {
+				t.Errorf("ShouldSuppress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigBase_GetToolUIMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   tools.ConfigBase
+		expected *tools.ToolUIMetadata
+	}{
+		{
+			name:     "no ui config",
+			config:   tools.ConfigBase{},
+			expected: nil,
+		},
+		{
+			name: "ui config with resource",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource: "my-resource",
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityModel, tools.VisibilityApp},
+			},
+		},
+		{
+			name: "ui config with visibility",
+			config: tools.ConfigBase{
+				UI: &tools.ToolUIMetadata{
+					Resource:   "my-resource",
+					Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+				},
+			},
+			expected: &tools.ToolUIMetadata{
+				Resource:   "my-resource",
+				Visibility: []tools.ToolVisibility{tools.VisibilityApp},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.config.GetToolUIMetadata()
+			if !reflect.DeepEqual(got, tc.expected) {
+				t.Errorf("GetToolUIMetadata() mismatch: expected %v, got %v", tc.expected, got)
+			}
+		})
 	}
 }

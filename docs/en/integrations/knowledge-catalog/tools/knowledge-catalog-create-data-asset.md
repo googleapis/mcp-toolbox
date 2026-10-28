@@ -1,7 +1,7 @@
 ---
 title: "dataplex-create-data-asset"
 type: docs
-weight: 2
+weight: 1
 description: >
   A "dataplex-create-data-asset" tool creates a new Data Asset under an existing Data Product in Knowledge Catalog.
 ---

@@ -15,13 +15,15 @@
 import { loadTools } from "./loadTools.js";
 
 /**
- * These functions runs after the browser finishes loading and parsing HTML structure.
- * This ensures that elements can be safely accessed.
+ * Initializes and loads the tools for the tools view.
+ *
+ * The caller is responsible for invoking this only after the main content area
+ * (which owns `#tool-display-area`) has been rendered.
  */
-document.addEventListener('DOMContentLoaded', () => {
+export function initTools() {
     const toolDisplayArea = document.getElementById('tool-display-area');
     const secondaryPanelContent = document.getElementById('secondary-panel-content');
-    const DEFAULT_TOOLSET = ""; // will return all toolsets
+    const DEFAULT_TOOLSET = ""; // will return all tools
 
     if (!secondaryPanelContent || !toolDisplayArea) {
         console.error('Required DOM elements not found.');
@@ -29,4 +31,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     loadTools(secondaryPanelContent, toolDisplayArea, DEFAULT_TOOLSET);
-});
+}

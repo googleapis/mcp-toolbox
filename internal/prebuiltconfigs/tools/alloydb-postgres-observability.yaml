@@ -122,3 +122,209 @@ name: alloydb_postgres_cloud_monitoring_tools
 tools:
 - get_system_metrics
 - get_query_metrics
+---
+kind: source
+name: database-insights-source
+type: databaseinsights
+---
+kind: tool
+name: get_advanced_aggregated_query_stats
+type: databaseinsights-get-advanced-aggregated-query-stats
+source: database-insights-source
+description: |
+  Fetches aggregated query execution statistics for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, as well as pagination. Returns statistics including query ID, database name, total execution time (sum(execution_time)), average execution time (avg(execution_time)), total execution count (sum(count)), total wait time (sum(wait_time)), and normalized query text. Requires advanced query insights to be enabled.
+  **IMPORTANT:**
+    Use these parameters to narrow down the results as requested by the user.
+    - If the user asks for a specific number of results (e.g., "Top 10", "First 5", "List 50"), map that number directly to page_size.
+    - If they ask for a specific user or database, use the corresponding arguments.
+    - When fetching results for a time range (e.g., "last 24 hours"), you MUST calculate and provide EXPLICIT 'start_time' AND 'end_time' in RFC3339 format. This pins the data window so that 'page_token' remains valid for subsequent requests. If 'page_token' is present, 'start_time' and 'end_time' MUST match the initial request.
+  Use Cases:
+    - Identify top queries: "I want execution details about top queries executed on database <database_name> on instance <instance_id> in the last 6 hours."
+    - Monitor specific user activity: "What were the top queries run by user <user_name> in the last hour?"
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Provide the full resource name ONLY in the following format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching stats in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching stats in RFC3339 format (Defaults to 'now').
+    - 'database': Filter results to a specific database name.
+    - 'username': Filter results to a specific database user.
+    - 'query_id': Fetch aggregated statistics for a single, specific query hash.
+    - 'page_size': Maximum number of query stats to return (Default: 20).
+    - 'page_token': Token for fetching the next set of results.
+  Response:
+    Returns a ranked list of queries with metrics: sum(execution_time), sum(count), avg(execution_time), sum(wait_time), and normalized_query_text.
+    **UNIT AND FORMATTING RULES:**
+      1. **Execution and Wait times**: Metrics like 'sum(execution_time)', 'avg(execution_time)', and 'sum(wait_time)' are in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+---
+kind: tool
+name: get_advanced_aggregated_wait_event_stats
+type: databaseinsights-get-advanced-aggregated-wait-event-stats
+source: database-insights-source
+description: |
+  Fetches aggregated wait event statistics to identify performance bottlenecks for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, selecting the aggregation level (by wait class or granular wait event), as well as pagination. Returns statistics including wait class or event name, total time spent (sum(time_spent)), average time spent (avg(time_spent)), and total wait count (sum(count)). Requires advanced query insights to be enabled.
+  **IMPORTANT:**
+    Use these parameters to narrow down the results as requested by the user.
+    - If the user asks for a specific number of results (e.g., "Top 10", "First 5", "List 50"), map that number directly to page_size.
+    - If they ask for a specific user or database, use the corresponding arguments.
+    - When fetching results for a time range (e.g., "last 24 hours"), you MUST calculate and provide EXPLICIT 'start_time' AND 'end_time' in RFC3339 format. This pins the data window so that 'page_token' remains valid for subsequent requests. If 'page_token' is present, 'start_time' and 'end_time' MUST match the initial request.
+  Intent Interpretation Rules
+    - If the user asks for "trend", "overview", "pattern", or "high-level analysis": Use view = WAIT_CLASS (default), EVEN if they say "wait events".
+    - Only use view = WAIT_EVENT when the user explicitly asks for:
+      - "detailed wait events"
+      - "specific wait event names"
+      - "granular breakdown"
+      - or mentions specific wait events (e.g., "ClientWrite", "DataFileRead")
+    - If a query_id is provided WITHOUT explicit request for granularity default to WAIT_CLASS
+    - Phrase "wait events trend" should be interpreted as high-level category trend (WAIT_CLASS), NOT individual event types
+    - When in doubt: Prefer WAIT_CLASS (more readable and useful for analysis)
+  Use Cases:
+    - Diagnose bottlenecks: "What are the top wait events on my instance <instance_id> over the last 2 hours?"
+    - Query deep-dive: "Why is query hash <query_id> so slow? Show me its wait events."
+    - Investigate contention: "What wait events is the user <user_name> experiencing in the database <database_name>?"
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Provide the full resource name ONLY in the following format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching stats in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching stats in RFC3339 format (Defaults to 'now').
+    - 'database': Filter stats to a specific database.
+    - 'username': Filter stats to a specific database user.
+    - 'query_id': Breakdown wait events for a specific query hash.
+    - 'page_size': Maximum number of results to return (Default: 20).
+    - 'page_token': Token for fetching the next set of results.
+    - 'view': Aggregation level. Use 'WAIT_CLASS' for high-level categories (e.g., Lock, IO) or 'WAIT_EVENT' for granular details (e.g., ClientWrite, DataFileRead). Defaults to 'WAIT_CLASS'.
+  Response:
+    A dataset showing wait types and the total time spent ("sum(time_spent)") in each state.
+    **UNIT AND FORMATTING RULES:**
+      1. **Wait times**: The metric 'sum(time_spent)' is in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: 1112.3 microseconds should be reported as 1.11 ms.
+---
+kind: tool
+name: get_advanced_time_series_query_stats
+type: databaseinsights-get-advanced-time-series-query-stats
+source: database-insights-source
+description: |
+  Fetches time-series history of query execution statistics to analyze trends and spikes for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID. Returns time-series data including rates of execution time (rate(execution_time)) and wait time (rate(wait_time)). Requires advanced query insights to be enabled.
+  Use Cases:
+    - Investigate Latency Spikes: "Show me the performance trends for query hash -4318400215895414374 over the last 3 hours."
+    - Database-Wide Performance: "How has the execution time for my database 'app_db' changed since yesterday?"
+    - User-Specific Consumption: "Get the query history for user 'reporting_svc' over the last 30 minutes."
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching history in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching history in RFC3339 format (Defaults to 'now').
+    - 'database': Filter results to a specific database name.
+    - 'username': Filter results to a specific database user.
+    - 'query_id': Fetch history for a single, specific query hash.
+  Response:
+    Returns a list of time-series data points with metrics like rate(execution_time) and rate(count).
+    **UNIT AND FORMATTING RULES:**
+      1. **Execution times**: The metric 'rate(execution_time)' is in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: 1112.3 microseconds should be reported as 1.11 ms.
+---
+kind: tool
+name: get_advanced_time_series_wait_event_stats
+type: databaseinsights-get-advanced-time-series-wait-event-stats
+source: database-insights-source
+description: |
+  Fetches time-series history of wait event statistics to analyze contention trends for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, as well as selecting the aggregation level (by wait class or granular wait event). Returns time-series data including rate of time spent (rate(time_spent)) grouped by wait class or event. Requires advanced query insights to be enabled.
+  Intent Interpretation Rules
+    - If the user asks for "trend", "overview", "pattern", or "high-level analysis": Use view = WAIT_CLASS (default), EVEN if they say "wait events".
+    - Only use view = WAIT_EVENT when the user explicitly asks for:
+      - "detailed wait events"
+      - "specific wait event names"
+      - "granular breakdown"
+      - or mentions specific wait events (e.g., "ClientWrite", "DataFileRead")
+    - If a query_id is provided WITHOUT explicit request for granularity default to WAIT_CLASS
+    - Phrase "wait events trend" should be interpreted as high-level category trend (WAIT_CLASS), NOT individual event types
+    - When in doubt: Prefer WAIT_CLASS (more readable and useful for analysis)
+  Use Cases:
+    - Analyze Periodic Contention: "Show me the wait event history for the last 4 hours on instance 'primary-1'. Is there a spike in IO or Locks every hour?"
+    - Query-Level Bottleneck Evolution: "For query hash -4318400215895414374, show me the trend of its wait events over the last day."
+    - Correlate Traffic with Lock Contention: "Get the wait event history for user 'app_backend' in 'prod_db' between 9 AM and 11 AM today."
+  **REQUIRED PARAMETERS (Mandatory):**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location}
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id}
+  **OPTIONAL PARAMETERS (Additional Filters):**
+    - 'start_time': Beginning of the interval for fetching history in RFC3339 format (Defaults to 1 hour ago).
+    - 'end_time': End of the interval for fetching history in RFC3339 format (Defaults to 'now').
+    - 'database': Filter history to a specific database.
+    - 'username': Filter history to a specific database user.
+    - 'query_id': Breakdown wait events over time for a specific query hash.
+    - 'view': Aggregation level. Use 'WAIT_CLASS' for high-level categories (e.g., Lock, IO) or 'WAIT_EVENT' for granular details (e.g., ClientWrite, DataFileRead). Defaults to 'WAIT_CLASS'.
+  Response:
+    A dataset of time-series points showing the rate of time spent in various wait states.
+    **UNIT AND FORMATTING RULES:**
+      1. **Wait times**: The rate of time spent is in microseconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: 1112.3 microseconds should be reported as 1.11 ms.
+---
+kind: tool
+name: get_index_recommendations
+type: databaseinsights-get-index-recommendations
+source: database-insights-source
+description: |
+  Fetches index advisor suggestions to optimize performance for a requested AlloyDB instance. Supports requesting recommendations for specific databases and a list of query IDs. Returns index recommendations including SQL commands (CREATE INDEX), target schema, relation, and columns, estimated storage size, and predicted query performance improvements (current vs estimated execution duration). Requires advanced query insights to be enabled.
+  Supported Engines:
+    AlloyDB only.
+  Use Cases:
+    - Targeted Optimization: "I found a slow query with ID <query_id> in my 'sales' database. What index should I add to fix it?"
+    - Multi-Database Tuning: "Analyze performance recommendations for query <id_1> in the 'orders' database and query <id_2> in the 'shipping' database."
+    - ROI Validation: "How much faster will my query become if I apply the suggested index, and how much storage will it consume?"
+  **PARAMETERS:**
+    1. 'parent': Project and location. Format: projects/{project_id}/locations/{location} (Required)
+    2. 'full_resource_name': The full identifier for the AlloyDB instance. Provide the full resource name ONLY in the following format: //alloydb.googleapis.com/projects/{project_id}/locations/{location}/clusters/{cluster_id}/instances/{instance_id} (Required)
+    3. 'database_query_ids': Optional. A list of objects used to target specific queries. Example schema: [{'database': 'dbname', 'query_ids': [12345]}]. If omitted or empty, provides aggregated instance-level recommendations.
+  Response Fields:
+    The response is structured under 'database_index_recommendations', which includes:
+    1. **index_recommendations (List of Objects)**:
+       - 'sql_command': The exact DDL statement to execute to create the index.
+       - 'schema': The schema name for the recommended index.
+       - 'relation': The table name for the recommended index.
+       - 'columns': A list of column names the index targets.
+       - 'estimated_storage_size_bytes': Predicted disk space consumption.
+       - 'impacted_query_ids': List of query IDs that benefit from THIS specific index.
+       - 'impacted_queries_count': Total number of queries that would be improved by this index.
+       - 'index_recommendation_id': Unique ID for mapping back to query improvements.
+    2. **query_improvements (Map of Query ID to Improvement Object)**:
+       - 'query_id': The specific query hash being analyzed.
+       - 'index_recommendation_ids': A list of IDs matching 'index_recommendation_id' above that contribute to this query's gain.
+       - 'current_total_execution_duration': Baseline performance metric.
+       - 'estimated_new_total_execution_duration': Predicted performance after index application.
+    **UNIT AND FORMATTING RULES:**
+      1. **Execution Durations**: The 'current_total_execution_duration' and 'estimated_new_total_execution_duration' are in seconds.
+         ALWAYS report these values, rounded to two decimal places, in **milliseconds** (ms) if less than 1 second, or in **seconds** (s) if 1 second or more.
+         Example: A duration of 0.00111s should be reported as 1.11 ms.
+      2. **Storage Size**: The 'estimated_storage_size_bytes' is in bytes.
+         Use the 1024-based binary conversion for byte units (e.g., KiB, MiB, GiB).
+         Example: A size of 26124288 bytes should be reported as 24.91 MB.
+    **Important**:
+    - Recommendations may only be available for a subset of the requested IDs or no IDs at all.
+    - Always cross-reference the 'query_improvements' map and 'impacted_query_ids' to verify which requested IDs are actually valid for optimization.
+    - If 'query_ids' was empty in the request, the response provides aggregated instance-level recommendations.
+---
+kind: toolset
+name: alloydb_postgres_database_insights_tools
+tools:
+- get_advanced_aggregated_query_stats
+- get_advanced_aggregated_wait_event_stats
+- get_advanced_time_series_query_stats
+- get_advanced_time_series_wait_event_stats
+- get_index_recommendations
+---
+kind: toolset
+name: alloydb_postgres_observability_tools
+tools:
+- get_system_metrics
+- get_query_metrics
+- get_advanced_aggregated_query_stats
+- get_advanced_aggregated_wait_event_stats
+- get_advanced_time_series_query_stats
+- get_advanced_time_series_wait_event_stats
+- get_index_recommendations

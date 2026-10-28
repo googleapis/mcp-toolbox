@@ -38,8 +38,9 @@ name: get_job
 type: dataproc-get-job
 source: dataproc-source
 ---
-kind: toolset
+kind: group
 name: dataproc_tools
+description: Skills to interact with your Dataproc clusters and jobs.
 tools:
 - list_clusters
 - get_cluster

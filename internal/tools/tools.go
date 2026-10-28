@@ -124,26 +124,30 @@ func (token AccessToken) ParseBearerToken() (string, error) {
 
 type Tool interface {
 	GetName() string
+	GetSourceName() string
 	GetDescription() string
 	GetAuthRequired() []string
-	GetAnnotations() *ToolAnnotations
-	Invoke(context.Context, SourceProvider, parameters.ParamValues, AccessToken) (any, util.ToolboxError)
-	EmbedParams(context.Context, parameters.ParamValues, map[string]embeddingmodels.EmbeddingModel) (parameters.ParamValues, error)
-	Manifest(map[string]sources.Source) (Manifest, error)
+	GetAnnotations(sources.Source) *ToolAnnotations
+	GetToolUIMetadata() *ToolUIMetadata
+	Invoke(context.Context, sources.Source, parameters.ParamValues, AccessToken) (any, util.ToolboxError)
+	EmbedParams(context.Context, parameters.ParamValues, PrimitiveManagerI) (parameters.ParamValues, error)
+	Manifest(sources.Source) (Manifest, error)
 	StaticManifest() Manifest
-	Authorized([]string) bool
-	RequiresClientAuthorization(SourceProvider) (bool, error)
+	RequiresClientAuthorization(sources.Source) (bool, error)
 	ToConfig() ToolConfig
-	GetAuthTokenHeaderName(SourceProvider) (string, error)
-	GetParameters(map[string]sources.Source) (parameters.Parameters, error)
+	GetAuthTokenHeaderName(sources.Source) (string, error)
+	GetParameters(sources.Source) (parameters.Parameters, error)
 	GetScopesRequired() []string
+	ValidateSource(sources.Source) error
+	HasSecureParams() bool
 }
 
-// SourceProvider defines the minimal view of the primitives.PrimitiveManager
+// PrimitiveManagerI defines the minimal view of the primitives.PrimitiveManager
 // that the Tool package needs.
 // This is implemented to prevent import cycles.
-type SourceProvider interface {
-	GetSource(sourceName string) (sources.Source, bool)
+type PrimitiveManagerI interface {
+	GetSource(string) (sources.Source, bool)
+	GetEmbeddingModel(string) (embeddingmodels.EmbeddingModel, bool)
 }
 
 // Manifest is the representation of tools sent to Client SDKs.
@@ -167,36 +171,6 @@ func IsAuthorized(authRequiredSources []string, verifiedAuthServices []string) b
 	return false
 }
 
-func GetCompatibleSource[T any](primitiveMgr SourceProvider, sourceName, toolName, toolType string) (T, error) {
-	var zero T
-	s, ok := primitiveMgr.GetSource(sourceName)
-	if !ok {
-		return zero, fmt.Errorf("unable to retrieve source %q for tool %q", sourceName, toolName)
-	}
-	source, ok := s.(T)
-	if !ok {
-		return zero, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", toolType, sourceName)
-	}
-	return source, nil
-}
-
-// GetCompatibleSourceFromMap looks up a source by name from a sources map and
-// asserts it to the requested type. It mirrors GetCompatibleSource for callers
-// that hold the sources map directly (Manifest/GetParameters) rather than a
-// SourceProvider.
-func GetCompatibleSourceFromMap[T any](srcs map[string]sources.Source, sourceName, toolName, toolType string) (T, error) {
-	var zero T
-	s, ok := srcs[sourceName]
-	if !ok {
-		return zero, fmt.Errorf("unable to retrieve source %q for tool %q", sourceName, toolName)
-	}
-	source, ok := s.(T)
-	if !ok {
-		return zero, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", toolType, sourceName)
-	}
-	return source, nil
-}
-
 // ToolMeta is the read-only view BaseTool needs of any tool's Config. Tools
 // satisfy it for free by embedding ConfigBase.
 type ToolMeta interface {
@@ -204,6 +178,21 @@ type ToolMeta interface {
 	GetDescription() string
 	GetAuthRequired() []string
 	GetScopesRequired() []string
+	GetToolUIMetadata() *ToolUIMetadata
+}
+
+// ToolVisibility defines the visibility of a tool in the UI.
+type ToolVisibility string
+
+const (
+	VisibilityModel ToolVisibility = "model"
+	VisibilityApp   ToolVisibility = "app"
+)
+
+// ToolUIMetadata defines the UI-specific metadata for a tool with UI Resource.
+type ToolUIMetadata struct {
+	Resource   string           `yaml:"resource" validate:"required"`
+	Visibility []ToolVisibility `yaml:"visibility,omitempty" validate:"omitempty,dive,oneof=model app"`
 }
 
 // ConfigBase owns the YAML fields that every tool's Config shares and that
@@ -212,16 +201,29 @@ type ToolMeta interface {
 // configs omit description: and rely on a canned per-tool string), so
 // post-Initialize ConfigBase.Description holds the resolved value.
 type ConfigBase struct {
-	Name           string   `yaml:"name"           validate:"required"`
-	Description    string   `yaml:"description"`
-	AuthRequired   []string `yaml:"authRequired"`
-	ScopesRequired []string `yaml:"scopesRequired"`
+	Name           string           `yaml:"name"           validate:"required"`
+	Description    string           `yaml:"description"`
+	AuthRequired   []string         `yaml:"authRequired"`
+	ScopesRequired []string         `yaml:"scopesRequired"`
+	Annotations    *ToolAnnotations `yaml:"annotations,omitempty"`
+	UI             *ToolUIMetadata  `yaml:"ui,omitempty"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
 func (c ConfigBase) GetDescription() string      { return c.Description }
 func (c ConfigBase) GetAuthRequired() []string   { return c.AuthRequired }
 func (c ConfigBase) GetScopesRequired() []string { return c.ScopesRequired }
+func (c ConfigBase) GetToolUIMetadata() *ToolUIMetadata {
+	if c.UI == nil {
+		return nil
+	}
+	if len(c.UI.Visibility) == 0 {
+		ui := *c.UI
+		ui.Visibility = []ToolVisibility{VisibilityModel, VisibilityApp}
+		return &ui
+	}
+	return c.UI
+}
 
 // BaseTool provides default implementations of various methods on the Tool
 // interface. Tools embed BaseTool to drop their boilerplate and override
@@ -231,30 +233,40 @@ type BaseTool[T ToolMeta] struct {
 	annotations      *ToolAnnotations
 	metadata         Manifest
 	StaticParameters parameters.Parameters
+	hasSecureParams  bool
 }
 
 // NewBaseTool constructs a BaseTool from a resolved Config (typically the
 // per-tool Config after Initialize has filled in defaults), the resolved
 // annotations, the precomputed Manifest, and the tool's static parameters.
 func NewBaseTool[T ToolMeta](cfg T, annotations *ToolAnnotations, metadata Manifest, staticParameters parameters.Parameters) BaseTool[T] {
+	var hasSecureParams bool
+	for _, p := range staticParameters {
+		if p != nil && p.GetSecure() {
+			hasSecureParams = true
+			break
+		}
+	}
 	return BaseTool[T]{
 		Cfg:              cfg,
 		annotations:      annotations,
 		metadata:         metadata,
 		StaticParameters: staticParameters,
+		hasSecureParams:  hasSecureParams,
 	}
 }
 
-func (b BaseTool[T]) GetName() string                  { return b.Cfg.GetName() }
-func (b BaseTool[T]) GetDescription() string           { return b.Cfg.GetDescription() }
-func (b BaseTool[T]) GetAuthRequired() []string        { return b.Cfg.GetAuthRequired() }
-func (b BaseTool[T]) GetScopesRequired() []string      { return b.Cfg.GetScopesRequired() }
-func (b BaseTool[T]) GetAnnotations() *ToolAnnotations { return b.annotations }
+func (b BaseTool[T]) GetName() string                                  { return b.Cfg.GetName() }
+func (b BaseTool[T]) GetDescription() string                           { return b.Cfg.GetDescription() }
+func (b BaseTool[T]) GetAuthRequired() []string                        { return b.Cfg.GetAuthRequired() }
+func (b BaseTool[T]) HasSecureParams() bool                            { return b.hasSecureParams }
+func (b BaseTool[T]) GetScopesRequired() []string                      { return b.Cfg.GetScopesRequired() }
+func (b BaseTool[T]) GetAnnotations(_ sources.Source) *ToolAnnotations { return b.annotations }
 
 // Manifest returns the precomputed metadata. It and GetParameters stay trivial
 // and never call each other: embedded methods have no virtual dispatch, so a
 // BaseTool method calling another would miss a concrete tool's override.
-func (b BaseTool[T]) Manifest(_ map[string]sources.Source) (Manifest, error) {
+func (b BaseTool[T]) Manifest(_ sources.Source) (Manifest, error) {
 	return b.metadata, nil
 }
 
@@ -266,22 +278,53 @@ func (b BaseTool[T]) StaticManifest() Manifest {
 	return b.metadata
 }
 
-func (b BaseTool[T]) GetParameters(_ map[string]sources.Source) (parameters.Parameters, error) {
+func (b BaseTool[T]) GetParameters(_ sources.Source) (parameters.Parameters, error) {
 	return b.StaticParameters, nil
 }
 
-func (b BaseTool[T]) Authorized(verifiedAuthServices []string) bool {
-	return IsAuthorized(b.Cfg.GetAuthRequired(), verifiedAuthServices)
-}
-
-func (b BaseTool[T]) RequiresClientAuthorization(_ SourceProvider) (bool, error) {
+func (b BaseTool[T]) RequiresClientAuthorization(_ sources.Source) (bool, error) {
 	return false, nil
 }
 
-func (b BaseTool[T]) GetAuthTokenHeaderName(_ SourceProvider) (string, error) {
+func (b BaseTool[T]) GetAuthTokenHeaderName(_ sources.Source) (string, error) {
 	return "Authorization", nil
 }
 
-func (b BaseTool[T]) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel) (parameters.ParamValues, error) {
-	return parameters.EmbedParams(ctx, b.StaticParameters, paramValues, embeddingModelsMap, nil)
+func (b BaseTool[T]) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, pMgr PrimitiveManagerI) (parameters.ParamValues, error) {
+	return parameters.EmbedParams(ctx, b.StaticParameters, paramValues, pMgr, nil)
+}
+
+// ShouldSuppress returns true if the tool should be suppressed from registration
+// when its data source is in read-only mode, and logs relevant warnings or info messages.
+// By default, if the source is read-only and the tool's ReadOnlyHint is explicitly false,
+// the tool is suppressed. Unannotated tools (ReadOnlyHint == nil) or read-only tools
+// (ReadOnlyHint == true) are not suppressed.
+func ShouldSuppress(ctx context.Context, t Tool, src sources.Source) bool {
+	if t == nil || src == nil || !src.IsReadOnly() {
+		return false
+	}
+
+	toolName := t.GetName()
+	l, _ := util.LoggerFromContext(ctx)
+
+	ann := t.GetAnnotations(src)
+	if ann != nil && ann.ReadOnlyHint != nil {
+		if !*ann.ReadOnlyHint {
+			if l != nil {
+				l.InfoContext(ctx, fmt.Sprintf("Suppressing write-capable tool %q bound to read-only source", toolName))
+			}
+			return true
+		}
+		return false
+	}
+
+	if l != nil {
+		l.WarnContext(ctx, fmt.Sprintf("Tool %q lacks ReadOnlyHint annotation; executing this tool may fail if it attempts write operations. If this tool is meant to be read-only, please add 'readOnlyHint: true' to its annotations. Otherwise, add 'readOnlyHint: false' to suppress it in read-only mode and save agent context window.", toolName))
+	}
+
+	return false
+}
+
+func (b BaseTool[T]) GetToolUIMetadata() *ToolUIMetadata {
+	return b.Cfg.GetToolUIMetadata()
 }

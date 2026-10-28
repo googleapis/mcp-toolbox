@@ -16,6 +16,7 @@ kind: source
 name: alloydb-admin-source
 type: alloydb-admin
 defaultProject: ${ALLOYDB_POSTGRES_PROJECT:}
+readOnly: ${ALLOYDB_POSTGRES_READONLY:false}
 ---
 kind: tool
 name: create_cluster
