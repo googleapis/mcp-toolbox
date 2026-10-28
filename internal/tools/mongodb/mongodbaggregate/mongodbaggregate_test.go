@@ -20,6 +20,7 @@ import (
 
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbaggregate"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
 	"github.com/google/go-cmp/cmp"
@@ -224,7 +225,7 @@ func TestRuntimeCollection(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to initialize tool: %s", err)
 			}
-			params, err := tool.GetParameters(nil)
+			params, err := tool.GetParameters(&mongodbcommon.MockSource{})
 			if err != nil {
 				t.Fatalf("unable to get parameters: %s", err)
 			}

@@ -84,7 +84,7 @@ parameters:
 | description    |     string     |     true     | Natural language description of the parameter to describe it to the agent.                                                                                                                                                             |
 | default        | parameter type |    false     | Default value of the parameter. If provided, `required` will be `false`.                                                                                                                                                               |
 | required       |      bool      |    false     | Indicate if the parameter is required. Default to `true`.                                                                                                                                                                              |
-| allowedValues  |    []string    |    false     | Input value will be checked against this field. Regex is also supported.                                                                                                                                                               |
+| allowedValues  |    []string    |    false     | Input value will be checked against this field. Regex is also supported. When every entry is a literal string, the list is also advertised to MCP clients as the parameter's JSON Schema `enum`.                                                                                                                                                               |
 | excludedValues |    []string    |    false     | Input value will be checked against this field. Regex is also supported.                                                                                                                                                               |
 | escape         |     string     |    false     | Only available for type `string`. Indicate the escaping delimiters used for the parameter. This field is intended to be used with templateParameters. Must be one of "single-quotes", "double-quotes", "backticks", "square-brackets". |
 | minValue       |  int or float  |    false     | Only available for type `integer` and `float`. Indicate the minimum value allowed.                                                                                                                                                     |
@@ -496,7 +496,7 @@ templateParameters:
 | description    |      string      |      true       | Natural language description of the template parameter to describe it to the agent. |
 | default        |  parameter type  |      false      | Default value of the parameter. If provided, `required` will be `false`.            |
 | required       |       bool       |      false      | Indicate if the parameter is required. Default to `true`.                           |
-| allowedValues  |     []string     |      false      | Input value will be checked against this field. Regex is also supported.            |
+| allowedValues  |     []string     |      false      | Input value will be checked against this field. Regex is also supported. When every entry is a literal string, the list is also advertised to MCP clients as the parameter's JSON Schema `enum`.            |
 | excludedValues |     []string     |      false      | Input value will be checked against this field. Regex is also supported.            |
 | items          | parameter object | true (if array) | Specify a Parameter object for the type of the values in the array (string only).   |
 
