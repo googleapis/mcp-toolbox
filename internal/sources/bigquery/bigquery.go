@@ -786,12 +786,20 @@ func initBigQueryConnection(
 	}
 
 	if impersonateServiceAccount != "" {
+		baseCred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+			Name:                  name,
+			Scopes:                []string{CloudPlatformScope},
+			SkipQuotaProjectGuard: true,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to prepare base credentials to impersonate %q: %w", impersonateServiceAccount, err)
+		}
 		// Create impersonated credentials token source
 		// This broader scope is needed for tools like conversational analytics
 		cloudPlatformTokenSource, err := impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
 			TargetPrincipal: impersonateServiceAccount,
 			Scopes:          credScopes,
-		})
+		}, option.WithCredentials(baseCred))
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to create impersonated credentials for %q: %w", impersonateServiceAccount, err)
 		}
@@ -802,9 +810,13 @@ func initBigQueryConnection(
 		}
 	} else {
 		// Use default credentials
-		cred, err := google.FindDefaultCredentials(ctx, credScopes...)
+		cred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+			Name:            name,
+			Scopes:          credScopes,
+			QuotaProjectPin: quotaProject,
+		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to find default Google Cloud credentials with scopes %v: %w", credScopes, err)
+			return nil, nil, nil, fmt.Errorf("failed to prepare default credentials for BigQuery source %q: %w", name, err)
 		}
 		tokenSource = cred.TokenSource
 		opts = []option.ClientOption{
@@ -942,11 +954,19 @@ func initDataplexConnection(
 		}
 
 		if impersonateServiceAccount != "" {
+			baseCred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+				Name:                  name,
+				Scopes:                []string{CloudPlatformScope},
+				SkipQuotaProjectGuard: true,
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to prepare base credentials to impersonate %q: %w", impersonateServiceAccount, err)
+			}
 			// Create impersonated credentials token source
 			ts, err := impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
 				TargetPrincipal: impersonateServiceAccount,
 				Scopes:          credScopes,
-			})
+			}, option.WithCredentials(baseCred))
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to create impersonated credentials for %q: %w", impersonateServiceAccount, err)
 			}
@@ -956,9 +976,12 @@ func initDataplexConnection(
 			}
 		} else {
 			// Use default credentials
-			cred, err := google.FindDefaultCredentials(ctx, credScopes...)
+			cred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+				Name:   name,
+				Scopes: credScopes,
+			})
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to find default Google Cloud credentials: %w", err)
+				return nil, nil, fmt.Errorf("failed to prepare default credentials for the Dataplex client of source %q: %w", name, err)
 			}
 			opts = []option.ClientOption{
 				option.WithUserAgent(userAgent),
