@@ -178,7 +178,17 @@ func (tr cloudGDATransport) startServer(t *testing.T, ctx context.Context, tools
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	t.Cleanup(cleanup)
-	t.Cleanup(cmd.Close)
+	// Close only signals the server to stop. Wait for it to exit so it releases
+	// port 5000 before the next test starts its own server, then drop the
+	// client's keep-alive connections to it: the next request would otherwise
+	// reuse one the old server closed and fail with "connection reset by peer".
+	t.Cleanup(func() {
+		cmd.Close()
+		exitCtx, exitCancel := context.WithTimeout(context.WithoutCancel(ctx), cloudGDACleanupTimeout)
+		defer exitCancel()
+		_ = cmd.Wait(exitCtx)
+		http.DefaultClient.CloseIdleConnections()
+	})
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer waitCancel()

@@ -25,19 +25,10 @@ import (
 	"github.com/googleapis/mcp-toolbox/tests"
 )
 
-func TestCloudGdaMCPCallTool(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	startCloudGdaMockServer(t)
-	tr := cloudGDATransport{isMCP: true}
-	tr.startServer(t, ctx, getCloudGdaToolsConfig())
-
-	toolName := "cloud-gda-query"
-
-	tests.RunMCPToolsListMethod(t, []tests.MCPToolManifest{
+func getCloudGdaMCPManifests() []tests.MCPToolManifest {
+	return []tests.MCPToolManifest{
 		{
-			Name:        toolName,
+			Name:        "cloud-gda-query",
 			Description: "Test GDA Tool\n\n" + cloudgda.Guidance,
 			InputSchema: map[string]any{
 				"type": "object",
@@ -50,8 +41,28 @@ func TestCloudGdaMCPCallTool(t *testing.T) {
 				"required": []any{"query"},
 			},
 		},
-	})
+	}
+}
 
+func TestCloudGdaMCPListTools(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	startCloudGdaMockServer(t)
+	cloudGDATransport{isMCP: true}.startServer(t, ctx, getCloudGdaToolsConfig())
+
+	tests.RunMCPToolsListMethod(t, getCloudGdaMCPManifests())
+}
+
+func TestCloudGdaMCPCallTool(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	startCloudGdaMockServer(t)
+	tr := cloudGDATransport{isMCP: true}
+	tr.startServer(t, ctx, getCloudGdaToolsConfig())
+
+	toolName := "cloud-gda-query"
 	res := tr.mustInvoke(t, ctx, toolName, map[string]any{"query": "test question"}, nil)
 	if res.status != http.StatusOK || res.toolErr {
 		t.Fatalf("unexpected result (status %d, toolErr %t): %s", res.status, res.toolErr, res.result)
