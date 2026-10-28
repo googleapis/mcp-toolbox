@@ -1178,6 +1178,10 @@ func runClickHouseListTablesToolTest(t *testing.T, tr clickHouseTransport) {
 		if res.status != http.StatusOK {
 			t.Errorf("Expected 200 OK for missing database parameter, but got %d", res.status)
 		}
+		// Over MCP a tool error is returned with HTTP 200, so check for it too.
+		if res.toolErr {
+			t.Errorf("unexpected error result for missing database parameter: %s", res.result)
+		}
 	})
 
 	t.Logf("✅ clickhouse-list-tables tool tests completed successfully")
