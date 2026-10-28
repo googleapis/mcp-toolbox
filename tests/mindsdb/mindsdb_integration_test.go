@@ -402,14 +402,17 @@ func (tr mindsDBTransport) invoke(t *testing.T, ctx context.Context, toolName st
 }
 
 // expectResult invokes toolName in a subtest and checks for a successful
-// response whose result contains want. Like the shared REST helpers it replaces,
-// it doesn't fail on a tool error when want is empty.
+// response whose result contains want. Over MCP a tool error is returned with
+// HTTP 200, so it also fails on an error result, including when want is empty.
 func (tr mindsDBTransport) expectResult(t *testing.T, ctx context.Context, toolName string, args map[string]any, want string) {
 	t.Helper()
 	t.Run(fmt.Sprintf("invoke %s", toolName), func(t *testing.T) {
 		res := tr.invoke(t, ctx, toolName, args, nil)
 		if res.status != http.StatusOK {
 			t.Fatalf("response status code is not 200, got %d: %s", res.status, res.result)
+		}
+		if res.toolErr {
+			t.Fatalf("unexpected error result: %s", res.result)
 		}
 		if !strings.Contains(res.result, want) {
 			t.Fatalf("unexpected value: got %q, want %q", res.result, want)
