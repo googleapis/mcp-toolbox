@@ -3084,6 +3084,12 @@ func RunMySQLListTablesTest(t *testing.T, databaseName, tableNameParam, tableNam
 			want:           []objectDetails{authTableWant, paramTableWant},
 		},
 		{
+			name:           "invoke list_tables with multiple table names and surrounding whitespace",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_names": "  %s , %s  "}`, tableNameParam, tableNameAuth)),
+			wantStatusCode: http.StatusOK,
+			want:           []objectDetails{authTableWant, paramTableWant},
+		},
+		{
 			name:           "invoke list_tables with one existing and one non-existent table",
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_names": "%s,non_existent_table"}`, tableNameAuth)),
 			wantStatusCode: http.StatusOK,

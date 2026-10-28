@@ -176,7 +176,7 @@ const listTablesStatement = `
     CROSS JOIN (SELECT @table_names := ?, @output_format := ?) AS variables
     WHERE
         T.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
-        AND (NULLIF(TRIM(@table_names), '') IS NULL OR FIND_IN_SET(T.TABLE_NAME, @table_names))
+        AND (NULLIF(TRIM(@table_names), '') IS NULL OR FIND_IN_SET(T.TABLE_NAME, TRIM(REGEXP_REPLACE(@table_names, '[[:space:]]*,[[:space:]]*', ','))))
         AND T.TABLE_TYPE = 'BASE TABLE'
     ORDER BY
         T.TABLE_SCHEMA, T.TABLE_NAME;
