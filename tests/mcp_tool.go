@@ -150,6 +150,12 @@ func getMCPResultText(t *testing.T, resp *MCPCallToolResponse) []any {
 		var item any
 		if err := json.Unmarshal([]byte(content.Text), &item); err != nil {
 			res = append(res, content.Text)
+		} else if item == nil {
+			// The server emits a single "null" block when a tool returns a nil
+			// result, which the REST API reports as no rows. Skip it so an empty
+			// result is [] over MCP too, rather than [null]. See the null vs. []
+			// discussion on #4217.
+			continue
 		} else {
 			if slice, ok := item.([]any); ok {
 				res = append(res, slice...)
