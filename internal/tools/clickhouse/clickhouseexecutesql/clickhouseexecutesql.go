@@ -119,7 +119,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	queryParams, err := toQueryParameters(paramsMap["params"])
 	if err != nil {
-		return nil, util.NewAgentError(err.Error(), nil)
+		return nil, util.NewAgentError("failed to parse query parameters", err)
 	}
 	if len(queryParams) > 0 {
 		// Sent as param_<name>: the server parses each value as its declared
