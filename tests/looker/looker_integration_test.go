@@ -173,6 +173,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"render_dashboard": map[string]any{
+				"type":        "looker-render-dashboard",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"make_dashboard": map[string]any{
 				"type":        "looker-make-dashboard",
 				"source":      "my-instance",
@@ -1457,6 +1462,32 @@ func TestLooker(t *testing.T) {
 						"name":         "dashboard_id",
 						"required":     true,
 						"type":         "string",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "render_dashboard",
+		map[string]any{
+			"render_dashboard": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The unique identifier (or slug) of the dashboard to retrieve and render.",
+						"name":         "dashboard_id",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"additionalProperties": true,
+						"authServices":         []any{},
+						"description":          "Optional dashboard filter overrides as key-value pairs (e.g. {\"State\": \"California\"}).",
+						"name":                 "filters",
+						"required":             false,
+						"default":              map[string]any{},
+						"type":                 "object",
 					},
 				},
 			},
@@ -3282,6 +3313,25 @@ func testRunDashboard(t *testing.T, dashboardId string) {
 			}
 		}
 	})
+	tests.RunToolInvokeParametersTest(t, "render_dashboard", []byte(fmt.Sprintf(`{"dashboard_id": "%s", "filters": {"TestDashboardFilter": "2024"}}`, dashboardId)), `"dashboardData":`)
+
+	mcpHeaders := map[string]string{
+		"Content-Type":          "application/json",
+		"Accept":                "application/json, text/event-stream",
+		"Mcp-Protocol-Version":  "2025-11-25",
+		"X-Mcp-Capabilities-Ui": "true",
+	}
+	readReq := []byte(`{"jsonrpc":"2.0","id":"read-dash-res","method":"resources/read","params":{"uri":"ui://looker/render_dashboard.html"}}`)
+	resp, bodyBytes := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/mcp", bytes.NewBuffer(readReq), mcpHeaders)
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusInternalServerError:
+		if !strings.Contains(string(bodyBytes), "disabled by administrator") {
+			t.Fatalf("unexpected 500 response from resources/read for render_dashboard: %s", string(bodyBytes))
+		}
+	default:
+		t.Fatalf("unexpected status code from resources/read for render_dashboard: got %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
 }
 
 func testMakeDashboard(t *testing.T, randstr string) (string, func()) {

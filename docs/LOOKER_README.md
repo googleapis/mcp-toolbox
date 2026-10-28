@@ -58,6 +58,7 @@ The Looker MCP server provides a wide range of tools. Here are some of the key c
 | `render_visualization`  | Renders an interactive Looker visualization via MCP Apps. |
 | `run_look`              | Runs a saved look.                                        |
 | `run_dashboard`         | Runs all tiles in a dashboard.                            |
+| `render_dashboard`      | Renders an interactive Looker dashboard via MCP Apps.     |
 | `make_dashboard`        | Creates a new dashboard.                                  |
 | `import_dashboard_from_lookml` | Imports a dashboard from a LookML YAML definition. |
 | `add_dashboard_element` | Adds a tile to a dashboard.                               |

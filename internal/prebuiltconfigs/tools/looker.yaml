@@ -763,6 +763,8 @@ source: looker-source
 description: |
   This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard, including its id, title, description, and certification_metadata (when certified or revoked).
 
+  IMPORTANT: After locating a dashboard with `get_dashboards`, if the user asked to view, open, show, or display the dashboard—even if they also asked a question about its metrics—always call `render_dashboard` so the interactive dashboard UI renders for the user.
+
   Search Parameters:
   - title (optional): Filter by dashboard title (supports wildcards).
   - folder_id (optional): Filter by the ID of the folder where the dashboard is saved.
@@ -788,6 +790,8 @@ source: looker-source
 description: |
   This tool executes the queries associated with each tile in a specified dashboard
   and returns the aggregated data in a JSON structure.
+
+  IMPORTANT: If the user asks to view, open, show, or display a dashboard (including when they ask to open a dashboard AND answer a question about its metrics), you MUST also call `render_dashboard` so the interactive dashboard UI is rendered for the user.
 
   Parameters:
   - dashboard_id (required): The unique identifier of the dashboard to run,
@@ -1022,6 +1026,26 @@ description: |
   - tz (optional): Timezone for the query.
   - vis_config (optional): Optional JSON string specifying the visualization configuration (e.g. chart type, legend, colors). Note: use `"type": "looker_column"` for vertical column/bar charts and `"type": "looker_bar"` for horizontal bar charts.
 ---
+kind: tool
+name: render_dashboard
+type: looker-render-dashboard
+source: looker-source
+ui:
+  resource: looker_render_dashboard_ui
+  visibility:
+  - model
+  - app
+description: |
+  This tool retrieves a Looker dashboard definition by ID and returns an interactive dashboard UI response adhering to the MCP Apps specification, allowing dashboard tiles to load and execute queries asynchronously.
+
+  IMPORTANT:
+  - Whenever the user asks to view, open, show, or display a dashboard—even if they also ask a specific question about its metrics or tiles in the same prompt—always call `render_dashboard` so the interactive dashboard UI renders for the user (you may also call `run_dashboard` if you need tile data to answer their specific question).
+  - Because the interactive UI already displays the dashboard tiles and visualizations, do NOT output duplicate markdown tables or raw data dumps in your text response. Provide only a concise summary or answer to the user's question.
+
+  Parameters:
+  - dashboard_id (required): The unique identifier of the dashboard to render.
+  - filters (optional): Optional dashboard filter overrides as key-value pairs.
+---
 kind: group
 name: looker_tools
 description: These skills are designed for data discovery and business intelligence.
@@ -1038,6 +1062,7 @@ tools:
 - query_sql
 - query_url
 - render_visualization
+- render_dashboard
 - get_looks
 - run_look
 - make_look

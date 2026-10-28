@@ -38,6 +38,7 @@ description: "Details of the Looker prebuilt configuration."
     *   `make_look`: Creates a new look.
     *   `get_dashboards`: Searches for saved dashboards.
     *   `run_dashboard`: Runs the queries associated with a dashboard.
+    *   `render_dashboard`: Retrieves a dashboard and renders an interactive dashboard UI via MCP Apps.
     *   `make_dashboard`: Creates a new dashboard.
     *   `import_dashboard_from_lookml`: Imports a dashboard from a LookML YAML definition.
     *   `add_dashboard_element`: Adds a tile to a dashboard.

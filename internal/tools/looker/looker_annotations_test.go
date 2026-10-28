@@ -71,6 +71,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquery"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquerysql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerqueryurl"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrenderdashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrendervisualization"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrundashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrunlook"
@@ -331,6 +332,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 		},
 		{
 			resourceType:    "looker-query-url",
+			wantReadOnly:    true,
+			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-render-dashboard",
 			wantReadOnly:    true,
 			wantDestructive: false,
 		},
