@@ -385,8 +385,10 @@ func resolveWatcherInputs(toolsFile string, toolsFiles []string, toolsFolder str
 		relevantFiles = toolsFiles
 	} else if toolsFolder != "" {
 		watchDirs[filepath.Clean(toolsFolder)] = true
-	} else {
+	} else if toolsFile != "" {
 		relevantFiles = []string{toolsFile}
+	} else {
+		relevantFiles = []string{"tools.yaml"}
 	}
 
 	// extract parent dir for relevant files and dedup
