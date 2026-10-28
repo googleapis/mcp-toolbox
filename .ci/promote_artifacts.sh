@@ -128,16 +128,20 @@ upsert_tag() {
 }
 
 tag_with_children() {
-  local prefix="$1" repo="$2" digest="$3" suffix="$4" children child
+  local prefix="$1" repo="$2" digest="$3" suffix="$4" require_children="${5:-true}" children child
   local encoded_package="${PACKAGE_NAME//\//%2F}"
   upsert_tag "${prefix}-${suffix}" "${repo}" "${digest}"
   children=$(curl -fsSL --retry 3 \
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${repo}/dockerImages/${encoded_package}@${digest}" \
-    | jq -r '.imageManifests[]?.digest // empty | select(startswith("sha256:"))')
+    | jq -r '.imageManifests[]?.digest // empty | select(startswith("sha256:"))') || true
   if [[ -z "${children}" ]]; then
-    echo "ERROR: No child manifests found for ${repo}/${PACKAGE_NAME}@${digest}" >&2
-    exit 1
+    if [[ "${require_children}" == "true" ]]; then
+      echo "ERROR: No child manifests found for ${repo}/${PACKAGE_NAME}@${digest}" >&2
+      exit 1
+    fi
+    echo "WARNING: No child manifests found for ${repo}/${PACKAGE_NAME}@${digest}; skipping child tags." >&2
+    return 0
   fi
   for child in ${children}; do
     local child_sha="${child#sha256:}"
@@ -243,13 +247,13 @@ if [[ "${PROD_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
 fi
 
 echo "Tagging ${PROD_IMAGE_URI}@${IMAGE_DIGEST} (and platform manifests) as public-image..."
-tag_with_children "public-image" "${PROD_REPO}" "${IMAGE_DIGEST}" "${VERSION#v}"
+tag_with_children "public-image" "${PROD_REPO}" "${IMAGE_DIGEST}" "${VERSION#v}" "true"
 
 if [[ "${PUSH_LATEST:-false}" == "true" ]]; then
   upsert_tag "latest" "${PROD_REPO}" "${IMAGE_DIGEST}"
   if [[ -n "${EXISTING_LATEST_DIGEST}" && "${EXISTING_LATEST_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
     echo "Marking previous latest image (${EXISTING_LATEST_DIGEST}) as deprecated..."
     SHORT_LATEST="${EXISTING_LATEST_DIGEST#sha256:}"
-    tag_with_children "deprecated-public-image" "${PROD_REPO}" "${EXISTING_LATEST_DIGEST}" "${SHORT_LATEST:0:12}"
+    tag_with_children "deprecated-public-image" "${PROD_REPO}" "${EXISTING_LATEST_DIGEST}" "${SHORT_LATEST:0:12}" "false"
   fi
 fi
