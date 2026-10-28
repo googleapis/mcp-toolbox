@@ -14,7 +14,7 @@
 
 steps:
   - id: "detect-changes"
-    name: "gcr.io/cloud-builders/git"
+    name: "gcr.io/cloud-builders/git@sha256:02963a6a33ab89a75cdd36dc71e6138d3353f2b418d5285c8e7f21e3ce163655"
     waitFor: ["-"]
     entrypoint: "bash"
     args:
@@ -34,19 +34,38 @@ steps:
         cat /workspace/changed_files.txt
 
 
-  - id: "install-dependencies"
-    name: golang:1
+  - id: "setup-airlock-auth"
+    name: "gcr.io/cloud-builders/gcloud@sha256:7e44bc6001a2834a52d10b078514d1843adc3edfb8e9e2118365f6e3077a3f05"
     waitFor: ["-"]
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      TOKEN=$(gcloud auth print-access-token)
+      
+      # Write auth files to the persistent /workspace directory
+      echo "machine us-go.pkg.dev login oauth2accesstoken password $TOKEN" > /workspace/.netrc
+      cat > /workspace/.npmrc <<EOL
+      registry=https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:always-auth=true
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:_authToken=$TOKEN
+      EOL
+      
+
+      echo "$TOKEN" > /workspace/.airlock_token
+
+  - id: "install-dependencies"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    waitFor: ["setup-airlock-auth"]
     env:
       - "GOPATH=/gopath"
     volumes:
       - name: "go"
         path: "/gopath"
     script: |
-      go get -d ./...
+      go mod download
 
   - id: "compile-test-binary"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["install-dependencies"]
     env:
       - "GOPATH=/gopath"
@@ -60,7 +79,7 @@ steps:
       chmod +x .ci/test_with_coverage.sh
 
   - id: "compile-prompt-test-binary"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["install-dependencies"]
     env:
       - "GOPATH=/gopath"
@@ -83,7 +102,7 @@ steps:
       chmod +x .ci/test_prompts_with_coverage.sh
 
   - id: "prompts-custom"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-prompt-test-binary"]
     entrypoint: /bin/bash
     env:
@@ -97,7 +116,7 @@ steps:
         .ci/test_prompts_with_coverage.sh "custom"
 
   - id: "cloud-sql-pg"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -135,7 +154,7 @@ steps:
         fi
 
   - id: "alloydb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -165,7 +184,7 @@ steps:
         fi
 
   - id: "alloydb-pg"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -204,7 +223,7 @@ steps:
         fi
 
   - id: "alloydb-ai-nl"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -236,7 +255,7 @@ steps:
         fi
 
   - id: "alloydb-omni"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -261,7 +280,7 @@ steps:
         fi
 
   - id: "bigtable"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -298,7 +317,7 @@ steps:
         fi
 
   - id: "bigquery"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -326,7 +345,7 @@ steps:
         fi
 
   - id: "cloud-gda"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -354,7 +373,7 @@ steps:
         fi
 
   - id: "dataplex"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -382,7 +401,7 @@ steps:
         fi
 
   - id: "datalineage"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -409,9 +428,30 @@ steps:
           exit 0
         fi
 
+
+  - id: "install-dataform-cli"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/node@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5"
+    waitFor: ["setup-airlock-auth"]
+    env:
+      - "NPM_CONFIG_USERCONFIG=/workspace/.npmrc"
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      mkdir -p /workspace/dataform_cli/bin
+      npm install -g @dataform/cli --prefix /workspace/dataform_cli
+      cp $(which node) /workspace/dataform_cli/bin/node
+      
+      # Copy npm as well because @dataform/cli spawns it
+      NPM_REALPATH=$(readlink -f $(which npm))
+      NPM_LIB_DIR=$(dirname $(dirname $NPM_REALPATH))
+      mkdir -p /workspace/dataform_cli/lib/node_modules
+      cp -r $NPM_LIB_DIR /workspace/dataform_cli/lib/node_modules/
+      ln -sf ../lib/node_modules/npm/bin/npm-cli.js /workspace/dataform_cli/bin/npm
+      ln -sf ../lib/node_modules/npm/bin/npx-cli.js /workspace/dataform_cli/bin/npx
+
   - id: "dataform"
-    name: golang:1
-    waitFor: ["compile-test-binary", "detect-changes"]
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    waitFor: ["compile-test-binary", "detect-changes", "install-dataform-cli"]
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
@@ -426,8 +466,7 @@ steps:
 
         if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
           echo "Changes detected. Running Dataform tests..."
-          apt-get update && apt-get install -y npm && \
-          npm install -g @dataform/cli && \
+          export PATH=/workspace/dataform_cli/bin:$$PATH
           .ci/test_with_coverage.sh \
             "Dataform" \
             dataform \
@@ -438,7 +477,7 @@ steps:
         fi
 
   - id: "cloud-healthcare"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -468,7 +507,7 @@ steps:
         fi
 
   - id: "cloud-logging-admin"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -495,7 +534,7 @@ steps:
         fi
 
   - id: "cloud-storage"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -523,7 +562,7 @@ steps:
         fi
 
   - id: "postgres"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -554,7 +593,7 @@ steps:
         fi
 
   - id: "cockroachdb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -584,7 +623,7 @@ steps:
         fi
 
   - id: "spanner"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -614,7 +653,7 @@ steps:
         fi
 
   - id: "spanner-omni"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["install-dependencies", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -648,7 +687,7 @@ steps:
         fi
 
   - id: "neo4j"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -676,7 +715,7 @@ steps:
         fi
 
   - id: "falkordb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -702,7 +741,7 @@ steps:
         fi
 
   - id: "cloud-sql-mssql"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -734,7 +773,7 @@ steps:
         fi
 
   - id: "cloud-sql-mysql"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -765,7 +804,7 @@ steps:
         fi
 
   - id: "mysql"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -795,7 +834,7 @@ steps:
         fi
 
   - id: "mssql"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -825,7 +864,7 @@ steps:
         fi
 
   # - id: "dgraph"
-  #   name: golang:1
+  #   name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
   #   waitFor: ["compile-test-binary", "detect-changes"]
   #   entrypoint: /bin/bash
   #   env:
@@ -843,7 +882,7 @@ steps:
   #         dgraph
 
   - id: "http"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -869,7 +908,7 @@ steps:
         fi
 
   - id: "sqlite"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -896,7 +935,7 @@ steps:
         fi
 
   - id: "couchbase"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -923,7 +962,7 @@ steps:
         fi
 
   - id: "redis"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -950,7 +989,7 @@ steps:
         fi
 
   - id: "valkey"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -978,7 +1017,7 @@ steps:
         fi
 
   - id: "oceanbase"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1008,7 +1047,7 @@ steps:
         fi
 
   - id: "firestore"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1036,7 +1075,7 @@ steps:
         fi
 
   - id: "firestore-mongodb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1065,7 +1104,7 @@ steps:
         fi
 
   - id: "mongodb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1092,7 +1131,7 @@ steps:
         fi
 
   - id: "looker"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1129,7 +1168,7 @@ steps:
         fi
 
   - id: "mindsdb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1158,7 +1197,7 @@ steps:
         fi
 
   - id: "cloud-sql"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1184,7 +1223,7 @@ steps:
         fi
 
   - id: "tidb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1214,7 +1253,7 @@ steps:
         fi
 
   - id: "firebird"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1244,7 +1283,7 @@ steps:
         fi
 
   - id: "clickhouse"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1274,7 +1313,7 @@ steps:
         fi
 
   - id: "trino"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1305,7 +1344,7 @@ steps:
         fi
 
   - id: "yugabytedb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1333,7 +1372,7 @@ steps:
         fi
 
   - id: "elasticsearch"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1360,7 +1399,7 @@ steps:
         fi
 
   - id: "snowflake"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1390,7 +1429,7 @@ steps:
         fi
 
   - id: "cassandra"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1418,7 +1457,7 @@ steps:
         fi
 
   - id: "scylladb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1446,7 +1485,7 @@ steps:
         fi
 
   - id: "oracle"
-    name: ghcr.io/oracle/oraclelinux9-instantclient:23
+    name: "ghcr.io/oracle/oraclelinux9-instantclient@sha256:2b7d408923f9df5f33dd7e61ec4e9c0a8d677095b602e5b75f3a9a421e0794b8"
     waitFor: ["install-dependencies", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1490,7 +1529,7 @@ steps:
         fi
 
   - id: "serverless-spark"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1519,7 +1558,7 @@ steps:
         fi
 
   - id: "dataproc"
-    name: "golang:1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1547,7 +1586,7 @@ steps:
         fi
 
   - id: "singlestore"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1579,7 +1618,7 @@ steps:
         fi
 
   - id: "arcadedb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1606,7 +1645,7 @@ steps:
         fi
 
   - id: "mariadb"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1633,7 +1672,7 @@ steps:
         fi
 
   - id: "auth"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1657,7 +1696,7 @@ steps:
         fi
 
   - id: "databaseinsights"
-    name: golang:1
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
     waitFor: ["compile-test-binary", "detect-changes"]
     entrypoint: /bin/bash
     env:
@@ -1809,6 +1848,9 @@ availableSecrets:
       env: MARIADB_HOST
 
 options:
+  env:
+    - "GOPROXY=https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-trusted,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/golang-3p-l1,https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/ah-3p-staging-golang"
+    - "NETRC=/workspace/.netrc"
   logging: CLOUD_LOGGING_ONLY
   automapSubstitutions: true
   substitutionOption: "ALLOW_LOOSE"
@@ -1817,6 +1859,7 @@ options:
     name: projects/$PROJECT_ID/locations/us-central1/workerPools/integration-testing # Necessary for VPC network connection
 
 substitutions:
+  _AIRLOCK_AR_PROJECT: "artifact-foundry-prod"
   _RUN_EXPENSIVE_TESTS: "false"
   _DATABASE_NAME: test_database
   _FIREBIRD_DATABASE_NAME: /firebird/test_database.fdb
