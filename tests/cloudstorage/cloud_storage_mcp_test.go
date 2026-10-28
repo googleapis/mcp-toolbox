@@ -501,6 +501,19 @@ func getCloudStorageMCPManifests() []tests.MCPToolManifest {
 	}
 }
 
+func TestCloudStorageMCPListTools(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// tools/list never touches the bucket, so no test bucket is created.
+	toolsFile := getCloudStorageToolsConfig(getCloudStorageVars(t), "toolbox-it-unused", t.TempDir())
+	cloudStorageTransport{isMCP: true}.startServer(t, ctx, toolsFile)
+
+	t.Run("verify tools/list registry returns complete manifest", func(t *testing.T) {
+		tests.RunMCPToolsListMethod(t, getCloudStorageMCPManifests())
+	})
+}
+
 func TestCloudStorageMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -509,8 +522,6 @@ func TestCloudStorageMCPCallTool(t *testing.T) {
 
 	tr := cloudStorageTransport{isMCP: true}
 	tr.startServer(t, ctx, env.toolsFile)
-
-	tests.RunMCPToolsListMethod(t, getCloudStorageMCPManifests())
 
 	runCloudStorageTests(ctx, t, tr, env)
 }
