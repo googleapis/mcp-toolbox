@@ -186,7 +186,7 @@ EOF
 )
 
   RESP=$(curl -sSL -X POST \
-    -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     "${PROMOTE_URL}" \
     -d "${PAYLOAD}")
@@ -208,7 +208,7 @@ EOF
   OP_COMPLETED=false
   while (( SECONDS - OP_START < 300 )); do
     OP_STATUS=$(curl -fsSL --retry 3 \
-      -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+      -H "Authorization: Bearer ${ACCESS_TOKEN}" \
       -H "Content-Type: application/json" \
       "https://artifactregistry.googleapis.com/v1/${OP_NAME}")
 
@@ -234,7 +234,7 @@ fi
 
 echo "Verifying prod tag ${PROD_REPO}/${PACKAGE_NAME}:${VERSION#v} -> ${IMAGE_DIGEST}..."
 PROD_DIGEST=$(curl -fsSL --retry 3 \
-  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${PROD_REPO}/packages/${PACKAGE_NAME}/tags/${VERSION#v}" \
   | jq -r '.version // empty' | awk -F'/' '{print $NF}')
 if [[ "${PROD_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
