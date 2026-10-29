@@ -146,9 +146,16 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	var connProps []*bigqueryapi.ConnectionProperty
 	var session *bigqueryds.Session
 	if source.BigQueryWriteMode() == bigqueryds.WriteModeProtected {
-		session, err = source.BigQuerySession()(ctx)
+		sessionProvider := source.BigQuerySession()
+		if sessionProvider == nil {
+			return nil, util.NewClientServerError("failed to get BigQuery session for protected mode", http.StatusInternalServerError, fmt.Errorf("session provider is nil"))
+		}
+		session, err = sessionProvider(ctx)
 		if err != nil {
 			return nil, util.NewClientServerError("failed to get BigQuery session for protected mode", http.StatusInternalServerError, err)
+		}
+		if session == nil || session.ID == "" || session.DatasetID == "" {
+			return nil, util.NewClientServerError("failed to get BigQuery session for protected mode: incomplete session metadata", http.StatusInternalServerError, nil)
 		}
 		connProps = []*bigqueryapi.ConnectionProperty{
 			{Key: "session_id", Value: session.ID},
@@ -180,11 +187,8 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 			return nil, util.NewAgentError("write mode is 'blocked', only SELECT statements are allowed", nil)
 		}
 	case bigqueryds.WriteModeProtected:
-		if dryRunJob.Configuration != nil && dryRunJob.Configuration.Query != nil {
-			if dest := dryRunJob.Configuration.Query.DestinationTable; dest != nil && dest.DatasetId != session.DatasetID {
-				return nil, util.NewAgentError(fmt.Sprintf("protected write mode only supports SELECT statements, or write operations in the anonymous "+
-					"dataset of a BigQuery session, but destination was %q", dest.DatasetId), nil)
-			}
+		if validationErr := validateProtectedWriteMode(bqClient.Project(), session, dryRunJob); validationErr != nil {
+			return nil, validationErr
 		}
 	}
 
@@ -205,6 +209,74 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGcpError(err)
 	}
 	return resp, nil
+}
+
+const protectedModeErrPrefix = "protected write mode only supports SELECT statements, or write operations in the anonymous dataset of a BigQuery session"
+
+func validateProtectedWriteMode(defaultProjectID string, session *bigqueryds.Session, dryRunJob *bigqueryrestapi.Job) util.ToolboxError {
+	if session == nil || session.DatasetID == "" {
+		return util.NewClientServerError("failed to get BigQuery session for protected mode: incomplete session metadata", http.StatusInternalServerError, nil)
+	}
+	if dryRunJob == nil || dryRunJob.Statistics == nil || dryRunJob.Statistics.Query == nil {
+		return util.NewClientServerError("dry run failed to return query statistics", http.StatusInternalServerError, nil)
+	}
+
+	queryStats := dryRunJob.Statistics.Query
+	statementType := queryStats.StatementType
+
+	var configDest *bigqueryrestapi.TableReference
+	if dryRunJob.Configuration != nil && dryRunJob.Configuration.Query != nil {
+		configDest = dryRunJob.Configuration.Query.DestinationTable
+	}
+
+	expectedProjectID := session.ProjectID
+	if expectedProjectID == "" {
+		expectedProjectID = defaultProjectID
+	}
+
+	matchesSessionDataset := func(projectID, datasetID string) bool {
+		if datasetID == "" || datasetID != session.DatasetID {
+			return false
+		}
+		if projectID != "" && expectedProjectID != "" && !strings.EqualFold(projectID, expectedProjectID) {
+			return false
+		}
+		return true
+	}
+
+	formatDest := func(projectID, datasetID string) string {
+		if datasetID != session.DatasetID && datasetID != "" {
+			return datasetID
+		}
+		return fmt.Sprintf("%s.%s", projectID, datasetID)
+	}
+
+	for _, ref := range []*bigqueryrestapi.TableReference{configDest, queryStats.DdlTargetTable, queryStats.DdlDestinationTable} {
+		if ref != nil && !matchesSessionDataset(ref.ProjectId, ref.DatasetId) {
+			return util.NewAgentError(fmt.Sprintf("%s, but destination was %q", protectedModeErrPrefix, formatDest(ref.ProjectId, ref.DatasetId)), nil)
+		}
+	}
+	if ds := queryStats.DdlTargetDataset; ds != nil && !matchesSessionDataset(ds.ProjectId, ds.DatasetId) {
+		return util.NewAgentError(fmt.Sprintf("%s, but destination was %q", protectedModeErrPrefix, formatDest(ds.ProjectId, ds.DatasetId)), nil)
+	}
+	if routine := queryStats.DdlTargetRoutine; routine != nil && !matchesSessionDataset(routine.ProjectId, routine.DatasetId) {
+		return util.NewAgentError(fmt.Sprintf("%s, but destination was %q", protectedModeErrPrefix, formatDest(routine.ProjectId, routine.DatasetId)), nil)
+	}
+	if rap := queryStats.DdlTargetRowAccessPolicy; rap != nil && !matchesSessionDataset(rap.ProjectId, rap.DatasetId) {
+		return util.NewAgentError(fmt.Sprintf("%s, but destination was %q", protectedModeErrPrefix, formatDest(rap.ProjectId, rap.DatasetId)), nil)
+	}
+
+	if statementType == "SELECT" {
+		return nil
+	}
+
+	hasSessionTarget := (configDest != nil && matchesSessionDataset(configDest.ProjectId, configDest.DatasetId)) ||
+		(queryStats.DdlTargetTable != nil && matchesSessionDataset(queryStats.DdlTargetTable.ProjectId, queryStats.DdlTargetTable.DatasetId))
+	if !hasSessionTarget {
+		return util.NewAgentError(fmt.Sprintf("%s, but statement type was %q", protectedModeErrPrefix, statementType), nil)
+	}
+
+	return nil
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {

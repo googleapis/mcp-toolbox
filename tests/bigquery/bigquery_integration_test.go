@@ -544,6 +544,11 @@ func TestBigQueryWriteModeProtected(t *testing.T) {
 			t.Logf("failed to cleanup dataset %s: %v", permanentDatasetName, err)
 		}
 	}()
+	if err := dataset.Table("perm_table").Create(ctx, &bigqueryapi.TableMetadata{
+		Schema: bigqueryapi.Schema{{Name: "x", Type: bigqueryapi.IntegerFieldType}},
+	}); err != nil {
+		t.Fatalf("Failed to create perm_table in %q: %v", permanentDatasetName, err)
+	}
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{"my-instance": sourceConfig},
@@ -1454,6 +1459,76 @@ func runBigQueryWriteModeProtectedTest(t *testing.T, permanentDatasetName string
 			wantStatusCode: http.StatusOK,
 			wantInError:    "",
 			wantResult:     `"relative_difference"`,
+		},
+		{
+			name:           "INSERT into permanent table should fail",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "INSERT INTO %s.perm_table (x) VALUES (1)"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
+		},
+		{
+			name:           "UPDATE permanent table should fail",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "UPDATE %s.perm_table SET x = 2 WHERE true"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
+		},
+		{
+			name:           "DELETE from permanent table should fail",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "DELETE FROM %s.perm_table WHERE true"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
+		},
+		{
+			name:           "MERGE into permanent table should fail",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "MERGE INTO %s.perm_table T USING (SELECT 1 AS x) S ON T.x = S.x WHEN NOT MATCHED THEN INSERT (x) VALUES (S.x)"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
+		},
+		{
+			name:           "DROP permanent table should fail",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "DROP TABLE %s.perm_table"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
+		},
+		{
+			name:           "SCRIPT deleting from permanent table should fail",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "BEGIN DELETE FROM %s.perm_table WHERE true; END"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     "protected write mode only supports SELECT statements, or write operations in the anonymous dataset",
+		},
+		{
+			name:           "SELECT from permanent table should succeed",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "SELECT * FROM %s.perm_table"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     `"The query returned 0 rows."`,
+		},
+		{
+			name:           "INSERT SELECT from permanent table into TEMP TABLE should succeed",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    fmt.Sprintf(`{"sql": "INSERT INTO my_shared_temp_table (x) SELECT x FROM %s.perm_table"}`, permanentDatasetName),
+			wantStatusCode: http.StatusOK,
+			wantResult:     `"Query executed successfully and returned no content."`,
+		},
+		{
+			name:           "UPDATE TEMP TABLE should succeed",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    `{"sql": "UPDATE my_shared_temp_table SET x = 99 WHERE x = 42"}`,
+			wantStatusCode: http.StatusOK,
+			wantResult:     `"Query executed successfully and returned no content."`,
+		},
+		{
+			name:           "DELETE FROM _SESSION TEMP TABLE should succeed",
+			toolName:       "my-exec-sql-tool",
+			requestBody:    `{"sql": "DELETE FROM _SESSION.my_shared_temp_table WHERE true"}`,
+			wantStatusCode: http.StatusOK,
+			wantResult:     `"Query executed successfully and returned no content."`,
 		},
 	}
 	for _, tc := range testCases {
