@@ -72,7 +72,7 @@ const listTableStats = `
           WHEN $4::text = 'seq_scan' THEN seq_scan
           WHEN $4::text = 'idx_scan' THEN idx_scan
           ELSE seq_scan
-        END DESC
+        END DESC NULLS LAST
       LIMIT COALESCE($5::int, 50);
 `
 

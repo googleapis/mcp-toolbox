@@ -5330,6 +5330,34 @@ func RunPostgresListTableStatsTest(t *testing.T, ctx context.Context, pool *pgxp
 			}
 		})
 	}
+	t.Run("list table stats sorted by idx_scan puts NULL idx_scan last", func(t *testing.T) {
+		const api = "http://127.0.0.1:5000/api/tool/list_table_stats/invoke"
+		resp, respBody := RunRequest(t, http.MethodPost, api, bytes.NewBufferString(`{"sort_by": "idx_scan", "limit": 1}`), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, http.StatusOK, string(respBody))
+		}
+		var bodyWrapper struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
+			t.Fatalf("error decoding response wrapper: %v", err)
+		}
+		var resultString string
+		if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
+			resultString = string(bodyWrapper.Result)
+		}
+		var got []tableStatsDetails
+		if err := json.Unmarshal([]byte(resultString), &got); err != nil {
+			t.Fatalf("failed to unmarshal result: %v, result string: %s", err, resultString)
+		}
+		if len(got) != 1 {
+			t.Fatalf("expected exactly 1 row, got %d", len(got))
+		}
+		// The test table has a primary key, so at least one table has a non-NULL idx_scan.
+		if got[0].IdxScan == nil {
+			t.Errorf("table %s.%s with NULL idx_scan was ranked first; want tables without indexes sorted last", got[0].SchemaName, got[0].TableName)
+		}
+	})
 }
 
 // cleanupOldSchemas cleans up schemas that were created more than 1 hour ago
