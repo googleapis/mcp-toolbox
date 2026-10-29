@@ -16,11 +16,15 @@ package clickhouse
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -310,6 +314,44 @@ func TestInitClickHouseConnectionPoolDSNGeneration(t *testing.T) {
 
 			if pool != nil {
 				pool.Close()
+			}
+		})
+	}
+}
+
+func TestUint8ArraysToNumbers(t *testing.T) {
+	id := uuid.MustParse("6f9619ff-8b86-d011-b42d-00c04fc964ff")
+	small := uint8(7)
+	tcs := []struct {
+		desc string
+		in   any
+		want string // JSON encoding of the converted value
+	}{
+		{desc: "array of uint8", in: []uint8{1, 2, 3}, want: `[1,2,3]`},
+		{desc: "empty array of uint8", in: []uint8{}, want: `[]`},
+		{desc: "nested arrays", in: [][]uint8{{1, 2}, {3}}, want: `[[1,2],[3]]`},
+		{desc: "map of arrays", in: map[string][]uint8{"a": {1, 2}}, want: `{"a":[1,2]}`},
+		{desc: "map with numeric keys", in: map[uint8][]uint8{1: {2}}, want: `{"1":[2]}`},
+		{desc: "tuple", in: []any{uint8(7), []uint8{8, 9}}, want: `[7,[8,9]]`},
+		{desc: "named tuple", in: map[string]any{"n": uint8(7), "a": []uint8{8, 9}, "z": nil}, want: `{"a":[8,9],"n":7,"z":null}`},
+		{desc: "nullable elements", in: []*uint8{&small, nil}, want: `[7,null]`},
+		{desc: "uuid is unchanged", in: []any{id, []uint8{1}}, want: `["6f9619ff-8b86-d011-b42d-00c04fc964ff",[1]]`},
+		{desc: "ip address is unchanged", in: []any{net.ParseIP("::1"), []uint8{1}}, want: `["::1",[1]]`},
+		{desc: "time is unchanged", in: time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC), want: `"2024-01-02T03:04:05Z"`},
+		{desc: "string is unchanged", in: "abc", want: `"abc"`},
+		{desc: "nil is unchanged", in: nil, want: `null`},
+		{desc: "nil array of uint8 is unchanged", in: []uint8(nil), want: `null`},
+		{desc: "nil slice is unchanged", in: [][]uint8(nil), want: `null`},
+		{desc: "nil map is unchanged", in: map[string][]uint8(nil), want: `null`},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got, err := json.Marshal(uint8ArraysToNumbers(tc.in))
+			if err != nil {
+				t.Fatalf("unable to marshal result: %s", err)
+			}
+			if string(got) != tc.want {
+				t.Errorf("incorrect result: got %s, want %s", got, tc.want)
 			}
 		})
 	}

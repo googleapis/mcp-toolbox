@@ -17,13 +17,18 @@ package clickhouse
 import (
 	"context"
 	"database/sql"
+	"encoding"
+	"encoding/json"
 	"fmt"
 	"net/url"
+	"reflect"
+	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -133,13 +138,21 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 		return nil, fmt.Errorf("unable to get column types: %w", err)
 	}
 
+	// The driver returns Array(UInt8) values, also inside arrays, maps and
+	// tuples, as []uint8, which encoding/json would write as base64.
+	hasUInt8Array := make([]bool, len(colTypes))
+	for i, colType := range colTypes {
+		hasUInt8Array[i] = strings.Contains(colType.DatabaseTypeName(), "Array(UInt8)")
+	}
+
 	out := []any{}
 	for results.Next() {
 		err := results.Scan(values...)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse row: %w", err)
 		}
-		vMap := make(map[string]any)
+		// An ordered row keeps the columns in the order of the query.
+		row := orderedmap.Row{}
 		for i, name := range cols {
 			// ClickHouse driver may return specific types that need handling
 			switch colTypes[i].DatabaseTypeName() {
@@ -147,18 +160,22 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 				if rawValues[i] != nil {
 					// Handle potential []byte to string conversion if needed
 					if b, ok := rawValues[i].([]byte); ok {
-						vMap[name] = string(b)
+						row.Add(name, string(b))
 					} else {
-						vMap[name] = rawValues[i]
+						row.Add(name, rawValues[i])
 					}
 				} else {
-					vMap[name] = nil
+					row.Add(name, nil)
 				}
 			default:
-				vMap[name] = rawValues[i]
+				if hasUInt8Array[i] {
+					row.Add(name, uint8ArraysToNumbers(rawValues[i]))
+				} else {
+					row.Add(name, rawValues[i])
+				}
 			}
 		}
-		out = append(out, vMap)
+		out = append(out, row)
 	}
 
 	if err := results.Err(); err != nil {
@@ -166,6 +183,55 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 	}
 
 	return out, nil
+}
+
+// uint8ArraysToNumbers returns v with every []uint8 in it, at any depth of
+// slices and maps, replaced by a list of numbers. Values that encode
+// themselves to JSON (such as UUID, IPv6 or time.Time) are left unchanged, and
+// a nil slice or map stays nil so that it still encodes to null.
+func uint8ArraysToNumbers(v any) any {
+	switch val := v.(type) {
+	case nil, json.Marshaler, encoding.TextMarshaler:
+		return v
+	case []uint8:
+		if val == nil {
+			return v
+		}
+		nums := make([]int, len(val))
+		for i, n := range val {
+			nums[i] = int(n)
+		}
+		return nums
+	}
+
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		if rv.Kind() == reflect.Slice && rv.IsNil() {
+			return v
+		}
+		elems := make([]any, rv.Len())
+		for i := range elems {
+			elems[i] = uint8ArraysToNumbers(rv.Index(i).Interface())
+		}
+		return elems
+	case reflect.Map:
+		if rv.IsNil() {
+			return v
+		}
+		anyType := reflect.TypeFor[any]()
+		m := reflect.MakeMapWithSize(reflect.MapOf(rv.Type().Key(), anyType), rv.Len())
+		iter := rv.MapRange()
+		for iter.Next() {
+			elem := reflect.Zero(anyType)
+			if converted := uint8ArraysToNumbers(iter.Value().Interface()); converted != nil {
+				elem = reflect.ValueOf(converted)
+			}
+			m.SetMapIndex(iter.Key(), elem)
+		}
+		return m.Interface()
+	}
+	return v
 }
 
 func validateConfig(protocol string) error {
