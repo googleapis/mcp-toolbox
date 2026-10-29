@@ -357,50 +357,30 @@ func fetchMapApiKey(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSet
 	return apiKey
 }
 
-// FetchMcpAppState concurrently fetches the authenticated user's profile,
-// locale, and evaluated abilities alongside the Looker instance's active color
-// collections and Google Maps API key (each cached per instance for 10 minutes).
-// Errors are logged at debug level and omitted so older Looker instances
-// degrade gracefully.
+// FetchMcpAppState fetches the authenticated user's profile, locale, and
+// evaluated abilities alongside the Looker instance's active color collections
+// and Google Maps API key (each cached per instance for 10 minutes).
+// Requests execute sequentially because the Looker Go SDK's AuthSession is not
+// safe for concurrent token initialization or refresh. Errors are logged at
+// debug level and omitted so older Looker instances degrade gracefully.
 func FetchMcpAppState(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSettings) map[string]any {
 	if sdk == nil || sdk.AuthSession == nil {
 		return nil
 	}
 
-	var (
-		wg        sync.WaitGroup
-		userMap   map[string]any
-		colorsMap map[string]any
-		mapApiKey string
-	)
-
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		var u map[string]any
-		reqParams := map[string]any{"fields": mcpUserFields}
-		if err := sdk.AuthSession.Do(&u, "GET", "/4.0", "/user", reqParams, nil, settings); err != nil {
-			if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-				logger.DebugContext(ctx, "failed to fetch user abilities for MCP app_state", "error", err)
-			}
-			return
+	var userMap map[string]any
+	var u map[string]any
+	reqParams := map[string]any{"fields": mcpUserFields}
+	if err := sdk.AuthSession.Do(&u, "GET", "/4.0", "/user", reqParams, nil, settings); err != nil {
+		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
+			logger.DebugContext(ctx, "failed to fetch user abilities for MCP app_state", "error", err)
 		}
-		if len(u) > 0 {
-			userMap = u
-		}
-	}()
+	} else if len(u) > 0 {
+		userMap = u
+	}
 
-	go func() {
-		defer wg.Done()
-		colorsMap = fetchActiveColorCollections(ctx, sdk, settings)
-	}()
-
-	go func() {
-		defer wg.Done()
-		mapApiKey = fetchMapApiKey(ctx, sdk, settings)
-	}()
-
-	wg.Wait()
+	colorsMap := fetchActiveColorCollections(ctx, sdk, settings)
+	mapApiKey := fetchMapApiKey(ctx, sdk, settings)
 
 	if len(userMap) == 0 && len(colorsMap) == 0 && mapApiKey == "" {
 		return nil
@@ -809,7 +789,7 @@ func parsePublicHTTPSOrigin(rawURL string) string {
 		return ""
 	}
 	parsed, err := url.Parse(trimmed)
-	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil {
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil {
 		return ""
 	}
 	if isLoopbackHostname(parsed.Hostname()) {
@@ -1004,9 +984,9 @@ func (m *LookerUIResourceManager) FetchRemoteUI(ctx context.Context) (string, er
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	if !ResolveVerifySSL(ctx, apiSettings, m.uiLabel+" UI") {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		client.Transport = tr
 	}
 
 	resp, err := client.Do(req)

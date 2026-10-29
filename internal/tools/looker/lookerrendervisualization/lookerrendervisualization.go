@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
@@ -359,16 +358,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
 
-	var (
-		appState   map[string]any
-		appStateWg sync.WaitGroup
-	)
-	appStateWg.Add(1)
-	go func() {
-		defer appStateWg.Done()
-		appState = lookercommon.FetchMcpAppState(ctx, sdk, source.LookerApiSettings())
-	}()
-
 	var visConfigObj any
 	if visConfigVal != nil && visConfigVal != "" {
 		if str, ok := visConfigVal.(string); ok {
@@ -658,7 +647,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 			queryResult["errors"] = errs
 		}
 
-		appStateWg.Wait()
+		appState := lookercommon.FetchMcpAppState(ctx, sdk, source.LookerApiSettings())
 
 		visualizationData := map[string]any{
 			"queryResult": queryResult,
@@ -795,7 +784,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		queryResult["errors"] = errorsObj
 	}
 
-	appStateWg.Wait()
+	appState := lookercommon.FetchMcpAppState(ctx, sdk, source.LookerApiSettings())
 
 	inlineQueryMeta := map[string]any{
 		"id":                 queryId,
