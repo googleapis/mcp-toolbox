@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -610,6 +611,62 @@ func MatchStringOrRegex(input, target any) bool {
 	return re.MatchString(inputS)
 }
 
+// valuesEqual reports whether a and b are deeply equal, comparing numbers by
+// value rather than by Go type. YAML decodes numeric entries as uint64, int64
+// or float64, while tool arguments arrive as json.Number.
+func valuesEqual(a, b any) bool {
+	if x, y := numberValue(a), numberValue(b); x != nil || y != nil {
+		return x != nil && y != nil && x.Cmp(y) == 0
+	}
+	switch av := a.(type) {
+	case []any:
+		bv, ok := b.([]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for i := range av {
+			if !valuesEqual(av[i], bv[i]) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		bv, ok := b.(map[string]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for k, v := range av {
+			w, ok := bv[k]
+			if !ok || !valuesEqual(v, w) {
+				return false
+			}
+		}
+		return true
+	}
+	return reflect.DeepEqual(a, b)
+}
+
+// numberValue returns v as an exact rational, or nil if v is not a number.
+func numberValue(v any) *big.Rat {
+	if n, ok := v.(json.Number); ok {
+		r, ok := new(big.Rat).SetString(string(n))
+		if !ok {
+			return nil
+		}
+		return r
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return new(big.Rat).SetInt64(rv.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return new(big.Rat).SetUint64(rv.Uint())
+	case reflect.Float32, reflect.Float64:
+		return new(big.Rat).SetFloat64(rv.Float())
+	}
+	return nil
+}
+
 // McpManifest returns the MCP manifest for the Parameter.
 func (p *CommonParameter) McpManifest() (ParameterMcpManifest, []string) {
 	authServiceNames := getAuthServiceNames(p.AuthServices)
@@ -1128,7 +1185,7 @@ func (p *ArrayParameter) IsAllowedValues(v []any) bool {
 		return true
 	}
 	for _, av := range a {
-		if reflect.DeepEqual(v, av) {
+		if valuesEqual(v, av) {
 			return true
 		}
 	}
@@ -1141,7 +1198,7 @@ func (p *ArrayParameter) IsExcludedValues(v []any) bool {
 		return false
 	}
 	for _, av := range a {
-		if reflect.DeepEqual(v, av) {
+		if valuesEqual(v, av) {
 			return true
 		}
 	}
@@ -1307,7 +1364,7 @@ func (p *MapParameter) IsAllowedValues(v map[string]any) bool {
 		return true
 	}
 	for _, av := range a {
-		if reflect.DeepEqual(v, av) {
+		if valuesEqual(v, av) {
 			return true
 		}
 	}
@@ -1320,7 +1377,7 @@ func (p *MapParameter) IsExcludedValues(v map[string]any) bool {
 		return false
 	}
 	for _, av := range a {
-		if reflect.DeepEqual(v, av) {
+		if valuesEqual(v, av) {
 			return true
 		}
 	}
