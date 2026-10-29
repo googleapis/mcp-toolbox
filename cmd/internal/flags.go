@@ -80,4 +80,5 @@ func ServeFlags(flags *pflag.FlagSet, opts *ToolboxOptions) {
 	flags.StringSliceVar(&opts.Cfg.DisableExt, "disable-ext", []string{}, "Specifies MCP extension URIs disabled on this server.")
 	flags.BoolVar(&opts.Cfg.DisableExtensionCheck, "disable-extension-check", false, "Disable client extension capability checks in older MCP protocol versions.")
 	flags.StringVar(&opts.Cfg.OpenAIAppsChallengeFile, "openai-apps-challenge-file", "", "Path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.")
+	flags.StringVar(&opts.Cfg.OAuthProxyCACertFile, "oauth-proxy-ca-cert-file", "", "Path to a PEM-encoded CA certificate bundle to trust when the toolbox proxies OAuth token requests on behalf of a source with client-side OAuth enabled (e.g. a Looker source with use_client_oauth). Use this if that source's authorization server presents a certificate signed by a private CA. TLS verification is never disabled; if unset, standard system CA verification is used.")
 }
