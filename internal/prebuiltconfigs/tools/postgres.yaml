@@ -75,6 +75,8 @@ name: list_autovacuum_configurations
 type: postgres-sql
 source: postgresql-source
 description: List PostgreSQL autovacuum-related configurations (name and current setting) from pg_settings.
+annotations:
+  readOnlyHint: true
 statement: |
   SELECT name,
       setting
@@ -86,6 +88,8 @@ name: list_memory_configurations
 type: postgres-sql
 source: postgresql-source
 description: List PostgreSQL memory-related configurations (name and current setting) from pg_settings.
+annotations:
+  readOnlyHint: true
 statement: |
   (
       SELECT
@@ -110,6 +114,8 @@ type: postgres-sql
 source: postgresql-source
 description: |
   List the top tables by dead-tuple (approximate bloat signal), returning schema, table, live/dead tuples, percentage, and last vacuum/analyze times.
+annotations:
+  readOnlyHint: true
 statement: |
   SELECT
       schemaname AS schema_name,
@@ -135,6 +141,8 @@ name: list_replication_slots
 type: postgres-sql
 source: postgresql-source
 description: List key details for all PostgreSQL replication slots (e.g., type, database, active status) and calculates the size of the outstanding WAL that is being prevented from removal by the slot.
+annotations:
+  readOnlyHint: true
 statement: |
   SELECT
   slot_name,
@@ -155,6 +163,8 @@ name: list_invalid_indexes
 type: postgres-sql
 source: postgresql-source
 description: Lists all invalid PostgreSQL indexes which are taking up disk space but are unusable by the query planner. Typically created by failed CREATE INDEX CONCURRENTLY operations.
+annotations:
+  readOnlyHint: true
 statement: |
   SELECT
       nspname AS schema_name,
