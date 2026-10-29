@@ -289,8 +289,9 @@ func EscapeFiltersForUnquotedParameters(wq *v4.WriteQuery, unquotedNames map[str
 // resolveUnquotedParameterNames fetches the parameter metadata for the explore
 // targeted by wq and returns the set of fully-qualified parameter names whose
 // LookML type is `unquoted`. When wq.Filters contains keys without a dot (`.`),
-// it also requests dimension/measure/filter names to resolve underscored keys
-// rewritten by Vertex OpenAPI tool calling.
+// it also requests dimension/measure/filter names as a temporary workaround to
+// resolve underscored keys until the upstream issue causing dot replacement in
+// filter names (e.g., in Vertex OpenAPI tool calling) is fixed.
 func resolveUnquotedParameterNames(ctx context.Context, sdk *v4.LookerSDK, wq *v4.WriteQuery, opts *rtl.ApiSettings) (map[string]bool, error) {
 	if wq == nil || wq.Filters == nil || len(*wq.Filters) == 0 || wq.Model == "" || wq.View == "" {
 		return map[string]bool{}, nil
@@ -384,10 +385,11 @@ func stripWrappingQuotesAndBrackets(s string, stripBrackets bool) string {
 }
 
 // NormalizeFilterKeys strips wrapping quotes/brackets from filter keys and
-// string values, and rewrites dotless underscored filter keys (e.g.,
+// string values, and temporarily works around upstream MCP client tool-calling
+// layers (such as Vertex OpenAPI) that replace dots with underscores in map
+// keys by rewriting dotless underscored filter keys (e.g.,
 // "order_items_created_date" -> "order_items.created_date" or
-// "users_state" -> "users.state") produced when Vertex OpenAPI tool calling
-// replaces dots with underscores in map keys.
+// "users_state" -> "users.state") until that dot-replacement issue is fixed.
 func NormalizeFilterKeys(filters map[string]any, fields []string, hints ...string) map[string]any {
 	if filters == nil {
 		return nil

@@ -623,3 +623,54 @@ func TestFetchRemoteUIPerUserLocaleResolutionAndIsolation(t *testing.T) {
 		t.Errorf("expected enHTML to contain %q, got %q", want, enHTML)
 	}
 }
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestFetchRemoteUIInsecureSSLWithWrappedDefaultTransport(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	origDefaultTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = origDefaultTransport
+	})
+	http.DefaultTransport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return origDefaultTransport.RoundTrip(r)
+	})
+
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><div>TLS UI OK</div></body></html>`))
+	}))
+	defer tlsSrv.Close()
+
+	t.Setenv("LOOKER_UI_URL", "")
+	t.Setenv("LOOKER_VERIFY_SSL", "false")
+
+	settings := rtl.ApiSettings{
+		BaseUrl:    tlsSrv.URL,
+		VerifySsl:  false,
+		ApiVersion: "4.0",
+	}
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_tls_fallback_test",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	mgr.SetSource(perUserLocaleMockSource{settings: &settings})
+
+	html, err := mgr.FetchRemoteUI(context.Background())
+	if err != nil {
+		t.Fatalf("FetchRemoteUI with wrapped http.DefaultTransport failed: %v", err)
+	}
+	if !strings.Contains(html, "TLS UI OK") {
+		t.Errorf("expected response HTML to contain 'TLS UI OK', got %q", html)
+	}
+}

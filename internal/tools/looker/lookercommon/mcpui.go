@@ -901,7 +901,12 @@ func (m *LookerUIResourceManager) FetchRemoteUI(ctx context.Context) (string, er
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	if !ResolveVerifySSL(ctx, apiSettings, m.uiLabel+" UI") {
-		tr := http.DefaultTransport.(*http.Transport).Clone()
+		var tr *http.Transport
+		if defaultTr, ok := http.DefaultTransport.(*http.Transport); ok {
+			tr = defaultTr.Clone()
+		} else {
+			tr = &http.Transport{}
+		}
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		client.Transport = tr
 	}
