@@ -17,8 +17,10 @@ package mssql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -29,6 +31,9 @@ import (
 )
 
 const SourceType string = "mssql"
+
+// errQueryTimeout is the cause of a query context that hit queryTimeout.
+var errQueryTimeout = errors.New("queryTimeout exceeded")
 
 // validate interface
 var _ sources.SourceConfig = Config{}
@@ -49,14 +54,15 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (sources
 
 type Config struct {
 	// Cloud SQL MSSQL configs
-	Name     string `yaml:"name" validate:"required"`
-	Type     string `yaml:"type" validate:"required"`
-	Host     string `yaml:"host" validate:"required"`
-	Port     string `yaml:"port" validate:"required"`
-	User     string `yaml:"user" validate:"required"`
-	Password string `yaml:"password" validate:"required"`
-	Database string `yaml:"database" validate:"required"`
-	Encrypt  string `yaml:"encrypt"`
+	Name         string `yaml:"name" validate:"required"`
+	Type         string `yaml:"type" validate:"required"`
+	Host         string `yaml:"host" validate:"required"`
+	Port         string `yaml:"port" validate:"required"`
+	User         string `yaml:"user" validate:"required"`
+	Password     string `yaml:"password" validate:"required"`
+	Database     string `yaml:"database" validate:"required"`
+	Encrypt      string `yaml:"encrypt"`
+	QueryTimeout string `yaml:"queryTimeout"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -65,6 +71,18 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
+	var queryTimeout time.Duration
+	if r.QueryTimeout != "" {
+		var err error
+		queryTimeout, err = time.ParseDuration(r.QueryTimeout)
+		if err != nil {
+			return nil, fmt.Errorf("invalid queryTimeout %q: %w", r.QueryTimeout, err)
+		}
+		if queryTimeout <= 0 {
+			return nil, fmt.Errorf("invalid queryTimeout %q: must be positive", r.QueryTimeout)
+		}
+	}
+
 	// Initializes a MSSQL source
 	db, err := initMssqlConnection(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.Encrypt)
 	if err != nil {
@@ -79,8 +97,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	}
 
 	s := &Source{
-		Config: r,
-		Db:     db,
+		Config:       r,
+		Db:           db,
+		queryTimeout: queryTimeout,
 	}
 	return s, nil
 }
@@ -89,7 +108,8 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Db *sql.DB
+	Db           *sql.DB
+	queryTimeout time.Duration
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -110,7 +130,19 @@ func (s *Source) MSSQLDB() *sql.DB {
 	return s.Db
 }
 
-func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
+func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (_ any, err error) {
+	if s.queryTimeout > 0 {
+		// go-mssqldb cancels the query on the server when the deadline passes.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeoutCause(ctx, s.queryTimeout, errQueryTimeout)
+		defer cancel()
+		defer func() {
+			if err != nil && errors.Is(context.Cause(ctx), errQueryTimeout) {
+				err = fmt.Errorf("query exceeded the source's queryTimeout of %s: %w", s.queryTimeout, err)
+			}
+		}()
+	}
+
 	results, err := s.MSSQLDB().QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)

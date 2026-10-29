@@ -16,6 +16,7 @@ package mssql_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -23,6 +24,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/mssql"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestParseFromYamlMssql(t *testing.T) {
@@ -78,6 +80,32 @@ func TestParseFromYamlMssql(t *testing.T) {
 					User:     "my_user",
 					Password: "my_pass",
 					Encrypt:  "strict",
+				},
+			},
+		},
+		{
+			desc: "with queryTimeout field",
+			in: `
+			kind: source
+			name: my-mssql-instance
+			type: mssql
+			host: 0.0.0.0
+			port: my-port
+			database: my_db
+			user: my_user
+			password: my_pass
+			queryTimeout: 30s
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-mssql-instance": mssql.Config{
+					Name:         "my-mssql-instance",
+					Type:         mssql.SourceType,
+					Host:         "0.0.0.0",
+					Port:         "my-port",
+					Database:     "my_db",
+					User:         "my_user",
+					Password:     "my_pass",
+					QueryTimeout: "30s",
 				},
 			},
 		},
@@ -139,6 +167,46 @@ func TestFailParseFromYaml(t *testing.T) {
 			errStr := err.Error()
 			if errStr != tc.err {
 				t.Fatalf("unexpected error: got %q, want %q", errStr, tc.err)
+			}
+		})
+	}
+}
+
+func TestFailInitialization(t *testing.T) {
+	tcs := []struct {
+		desc         string
+		queryTimeout string
+		err          string
+	}{
+		{
+			desc:         "invalid duration",
+			queryTimeout: "abc",
+			err:          `invalid queryTimeout "abc"`,
+		},
+		{
+			desc:         "zero duration",
+			queryTimeout: "0s",
+			err:          `invalid queryTimeout "0s": must be positive`,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := mssql.Config{
+				Name:         "instance",
+				Type:         mssql.SourceType,
+				Host:         "localhost",
+				Port:         "1433",
+				Database:     "db",
+				User:         "user",
+				Password:     "pass",
+				QueryTimeout: tc.queryTimeout,
+			}
+			_, err := cfg.Initialize(context.Background(), noop.NewTracerProvider().Tracer("test"))
+			if err == nil {
+				t.Fatalf("expected error for queryTimeout %q, got nil", tc.queryTimeout)
+			}
+			if !strings.Contains(err.Error(), tc.err) {
+				t.Fatalf("unexpected error: got %q, want it to contain %q", err, tc.err)
 			}
 		})
 	}
