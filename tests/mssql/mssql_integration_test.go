@@ -149,3 +149,39 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	// Run specific MSSQL tool tests
 	tests.RunMSSQLListTablesTest(t, tableNameParam, tableNameAuth)
 }
+
+// TestMSSQLValueTypes needs only a database (no auth service), so it also runs
+// against a local SQL Server.
+func TestMSSQLValueTypes(t *testing.T) {
+	sourceConfig := getMsSQLVars(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	toolsFile := map[string]any{
+		"sources": map[string]any{
+			"my-instance": sourceConfig,
+		},
+		"tools": map[string]any{
+			"my-exec-sql-tool": map[string]any{
+				"type":        "mssql-execute-sql",
+				"source":      "my-instance",
+				"description": "Tool to execute sql",
+			},
+		},
+	}
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	tests.RunMSSQLValueTypesTest(t, "my-exec-sql-tool")
+}

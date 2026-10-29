@@ -169,6 +169,7 @@ func TestCloudSQLMSSQLToolEndpoints(t *testing.T) {
 
 	// Run specific MSSQL tool tests
 	tests.RunMSSQLListTablesTest(t, tableNameParam, tableNameAuth)
+	tests.RunMSSQLValueTypesTest(t, "my-exec-sql-tool")
 }
 
 // Test connection with different IP type

@@ -4586,6 +4586,37 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string) 
 	}
 }
 
+// RunMSSQLValueTypesTest checks that a mssql-execute-sql tool returns DECIMAL,
+// NUMERIC, MONEY, SMALLMONEY and UNIQUEIDENTIFIER values as text instead of
+// base64, and keeps binary values base64-encoded.
+func RunMSSQLValueTypesTest(t *testing.T, toolName string) {
+	t.Run("value types", func(t *testing.T) {
+		statement := "SELECT CAST(4400592.8004 AS MONEY) AS m, CAST(-12.3456 AS SMALLMONEY) AS sm, " +
+			"CAST(12345678901234567890.0123456789 AS DECIMAL(38, 10)) AS d, CAST(1.5 AS NUMERIC(5, 1)) AS n, " +
+			"CAST(NULL AS DECIMAL(5, 2)) AS dnull, " +
+			"CAST('6F9619FF-8B86-D011-B42D-00C04FC964FF' AS UNIQUEIDENTIFIER) AS g, CAST(0x0102FF AS VARBINARY(3)) AS vb"
+		want := `{"m":"4400592.8004","sm":"-12.3456","d":"12345678901234567890.0123456789","n":"1.5",` +
+			`"dnull":null,"g":"6F9619FF-8B86-D011-B42D-00C04FC964FF","vb":"AQL/"}`
+
+		statusCode, mcpResp, err := InvokeMCPTool(t, toolName, map[string]any{"sql": statement}, nil)
+		if err != nil {
+			t.Fatalf("native error executing %s: %s", toolName, err)
+		}
+		if statusCode != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", statusCode)
+		}
+		if mcpResp.Result.IsError {
+			t.Fatalf("%s returned error result: %v", toolName, mcpResp.Result)
+		}
+		if len(mcpResp.Result.Content) != 1 {
+			t.Fatalf("expected 1 content item, got %d", len(mcpResp.Result.Content))
+		}
+		if got := mcpResp.Result.Content[0].Text; got != want {
+			t.Errorf("unexpected result: got %s, want %s", got, want)
+		}
+	})
+}
+
 func CreateAndLockPostgresTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tableName string) func() {
 	_, err := pool.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", pgx.Identifier{tableName}.Sanitize()))
 	if err != nil {

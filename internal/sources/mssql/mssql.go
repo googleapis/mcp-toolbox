@@ -22,6 +22,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	_ "github.com/microsoft/go-mssqldb"
@@ -130,6 +131,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 			values[i] = &rawValues[i]
 		}
 
+		colTypes, typesErr := results.ColumnTypes()
+		if typesErr != nil {
+			return nil, fmt.Errorf("unable to get column types: %w", typesErr)
+		}
+
 		for results.Next() {
 			scanErr := results.Scan(values...)
 			if scanErr != nil {
@@ -137,7 +143,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 			}
 			row := orderedmap.Row{}
 			for i, name := range cols {
-				row.Add(name, rawValues[i])
+				row.Add(name, mssqlcommon.ConvertToType(colTypes[i].DatabaseTypeName(), rawValues[i]))
 			}
 			out = append(out, row)
 		}
