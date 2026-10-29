@@ -2770,10 +2770,7 @@ func TestLooker(t *testing.T) {
 	wantResult = "[]"
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_schedule_failures"}`), wantResult)
 
-	// Newer Looker (Google Cloud core) instances no longer throw an "Unsupported" API error for
-	// legacy features, but instead return an empty list.
-	wantResult = "[]"
-	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_legacy_features"}`), wantResult)
+	testHealthPulseLegacyFeatures(t)
 
 	wantResult = "\"Project\":\"the_look\""
 	tests.RunToolInvokeParametersTest(t, "health_analyze", []byte(`{"action": "projects"}`), wantResult)
@@ -2783,6 +2780,52 @@ func TestLooker(t *testing.T) {
 
 	wantResult = "\"Model\":\"the_look\""
 	tests.RunToolInvokeParametersTest(t, "health_vacuum", []byte(`{"action": "models"}`), wantResult)
+}
+
+// testHealthPulseLegacyFeatures asserts that health_pulse check_legacy_features
+// returns a valid JSON array of enabled legacy features without an SDK error.
+// Looker upgrades on the live test instance can introduce new default-enabled
+// legacy features over time, so the exact list cannot be pinned to "[]".
+func testHealthPulseLegacyFeatures(t *testing.T) {
+	t.Helper()
+	t.Run("invoke health_pulse/check_legacy_features", func(t *testing.T) {
+		t.Helper()
+		url := "http://127.0.0.1:5000/api/tool/health_pulse/invoke"
+		params := []byte(`{"action": "check_legacy_features"}`)
+		resp, bodyBytes := tests.RunRequest(t, http.MethodPost, url, bytes.NewBuffer(params), nil)
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+		}
+
+		var respBody map[string]any
+		if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
+			t.Fatalf("error parsing response body: %v", err)
+		}
+
+		result, ok := respBody["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body: %s", string(bodyBytes))
+		}
+
+		var features []map[string]string
+		if err := json.Unmarshal([]byte(result), &features); err != nil {
+			t.Fatalf("error parsing result body: %v", err)
+		}
+		if features == nil {
+			t.Fatalf("expected JSON array for legacy features, got: %s", result)
+		}
+
+		for _, f := range features {
+			name := f["Feature"]
+			if name == "" {
+				t.Errorf("expected non-empty Feature name in entry: %v", f)
+			}
+			if name == "Unable to pull legacy features due to SDK error" {
+				t.Errorf("unexpected SDK error checking legacy features: %s", result)
+			}
+		}
+	})
 }
 
 // testFieldValueSuggestions asserts that get_field_value_suggestions returns at
