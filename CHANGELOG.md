@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.16.0](https://github.com/googleapis/mcp-toolbox/compare/v1.15.0...v1.16.0) (2026-10-29)
+
+
+### Features
+
+* Add skills over MCP extension ([#4104](https://github.com/googleapis/mcp-toolbox/issues/4104)) ([cb998b0](https://github.com/googleapis/mcp-toolbox/commit/cb998b096505bf8f35346dea80ed64c28cdd127d))
+* **prebuilt/dataplex:** Remove search_aspect_types tool from prebuilt config ([08a42a2](https://github.com/googleapis/mcp-toolbox/commit/08a42a25d77fbeddda427a38e326060a282fe61b))
+* **server, resources:** Support dynamic UI resources, ResourceProvider, and StructuredToolResult ([#4315](https://github.com/googleapis/mcp-toolbox/issues/4315)) ([772847c](https://github.com/googleapis/mcp-toolbox/commit/772847cb6d35e0dc6979f6ba13298adcc71b52d4))
+* **tool/bigquery:** Add debug logging across BigQuery tools ([#4346](https://github.com/googleapis/mcp-toolbox/issues/4346)) ([1e4dea5](https://github.com/googleapis/mcp-toolbox/commit/1e4dea552354fdd78bb9c427e475fc494fd9eca8))
+* **tool/looker-import-dashboard-from-lookml:** Add Looker import_dashboard_from_lookml ([#4156](https://github.com/googleapis/mcp-toolbox/issues/4156)) ([af22702](https://github.com/googleapis/mcp-toolbox/commit/af22702d5d3900c20984b8068fa7b2dbc1ffeb41))
+* **tool/looker:** Support text, markdown, and rich-text dashboard elements ([#4180](https://github.com/googleapis/mcp-toolbox/issues/4180)) ([0c8a71d](https://github.com/googleapis/mcp-toolbox/commit/0c8a71df94ea34382c66c63c658f07165f0650fb))
+
+
+### Bug Fixes
+
+* **looker:** Bind all dashboard_filters in add_dashboard_element and update_dashboard_element ([#4326](https://github.com/googleapis/mcp-toolbox/issues/4326)) ([6f47f4e](https://github.com/googleapis/mcp-toolbox/commit/6f47f4e88518744177ed2e504407194d72806061))
+* **source/bigquery:** Recover default-ADC clients after on-disk re-auth ([#4329](https://github.com/googleapis/mcp-toolbox/issues/4329)) ([fae6849](https://github.com/googleapis/mcp-toolbox/commit/fae68495b28a2174563c952ae349a17bffccbaff))
+* **source/bigquery:** Set UseLegacySql to false when creating session ([#4358](https://github.com/googleapis/mcp-toolbox/issues/4358)) ([494092a](https://github.com/googleapis/mcp-toolbox/commit/494092a9bd98ff225513975e0be3459cbd7f8b79))
+* **tool/bigquery-execute-sql:** Make writeMode protected fail-closed for non-SELECT statements ([#4359](https://github.com/googleapis/mcp-toolbox/issues/4359)) ([426fb4e](https://github.com/googleapis/mcp-toolbox/commit/426fb4e8074b873dc53b74bd259540d01684fa17))
+* **tool/bigquery-get-table-info:** Compact zero-valued schema fields ([#4328](https://github.com/googleapis/mcp-toolbox/issues/4328)) ([4d74bf9](https://github.com/googleapis/mcp-toolbox/commit/4d74bf90e03d5a4f3738b452e95257962c9895c3))
+
 ## [1.15.0](https://github.com/googleapis/mcp-toolbox/compare/v1.14.0...v1.15.0) (2026-10-22)
 
 
