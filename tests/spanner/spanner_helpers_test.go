@@ -293,161 +293,187 @@ func addTemplateParamConfig(t *testing.T, config map[string]any) map[string]any 
 	return config
 }
 
-func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWant, tableNameParam string) {
+func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWant, tableNameParam string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
 	}
 
+	sqlArgs := func(sql string) map[string]any { return map[string]any{"sql": sql} }
+
 	// Test tool invoke endpoint
 	invokeTcs := []struct {
 		name          string
-		api           string
+		toolName      string
 		requestHeader map[string]string
-		requestBody   io.Reader
+		args          map[string]any
 		want          string
 		isErr         bool
 	}{
 		{
 			name:          "invoke my-exec-sql-tool-read-only",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			toolName:      "my-exec-sql-tool-read-only",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          sqlArgs("SELECT 1"),
 			want:          select1Want,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-exec-sql-tool-read-only with data present in table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			toolName:      "my-exec-sql-tool-read-only",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"SELECT * FROM %s WHERE id = 3 OR name = 'Alice'\"}", tableNameParam))),
+			args:          sqlArgs(fmt.Sprintf("SELECT * FROM %s WHERE id = 3 OR name = 'Alice'", tableNameParam)),
 			want:          invokeParamWant,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-exec-sql-tool-read-only create table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			toolName:      "my-exec-sql-tool-read-only",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"}`)),
+			args:          sqlArgs("CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"),
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool-read-only drop table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			toolName:      "my-exec-sql-tool-read-only",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"DROP TABLE t"}`)),
+			args:          sqlArgs("DROP TABLE t"),
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool-read-only insert entry",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			toolName:      "my-exec-sql-tool-read-only",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"INSERT INTO %s (id, name) VALUES (4, 'test_name')\"}", tableNameParam))),
+			args:          sqlArgs(fmt.Sprintf("INSERT INTO %s (id, name) VALUES (4, 'test_name')", tableNameParam)),
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
+			args:          map[string]any{},
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          sqlArgs("SELECT 1"),
 			want:          select1Want,
 			isErr:         false,
 		},
 		{
 			name:          "invoke my-exec-sql-tool create table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"}`)),
+			args:          sqlArgs("CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"),
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool drop table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"DROP TABLE t"}`)),
+			args:          sqlArgs("DROP TABLE t"),
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool insert entry",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"INSERT INTO %s (id, name) VALUES (5, 'test_name')\"}", tableNameParam))),
+			args:          sqlArgs(fmt.Sprintf("INSERT INTO %s (id, name) VALUES (5, 'test_name')", tableNameParam)),
 			want:          "[]",
 			isErr:         false,
 		},
 		{
-			name:          "invoke my-exec-sql-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
-		},
-		{
 			name:          "Invoke my-auth-exec-sql-tool with auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			toolName:      "my-auth-exec-sql-tool",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          sqlArgs("SELECT 1"),
 			isErr:         false,
 			want:          select1Want,
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with invalid auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			toolName:      "my-auth-exec-sql-tool",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          sqlArgs("SELECT 1"),
 			isErr:         true,
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			toolName:      "my-auth-exec-sql-tool",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			args:          sqlArgs("SELECT 1"),
 			isErr:         true,
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
+			var got string
 
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
+			if config.IsMCP() {
+				statusCode, mcpResp, err := tests.InvokeMCPTool(t, tc.toolName, tc.args, tc.requestHeader)
+				if statusCode != http.StatusOK || err != nil || mcpResp == nil {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("response status code is not 200, got %d: %v", statusCode, err)
 				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
+				// A tool or auth failure is a 200 with isError set, so it has
+				// to be inspected rather than inferred from the status code.
+				if mcpResp.Error != nil || mcpResp.Result.IsError {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("%s returned an error result: %+v", tc.toolName, mcpResp.Result.Content)
+				}
+				got = tests.GetMCPResultJSON(t, mcpResp)
+			} else {
+				api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("unable to marshal args: %s", err)
+				}
+				// Send Tool invocation request
+				req, err := http.NewRequest(http.MethodPost, api, bytes.NewBuffer(reqBytes))
+				if err != nil {
+					t.Fatalf("unable to create request: %s", err)
+				}
+				req.Header.Add("Content-type", "application/json")
+				for k, v := range tc.requestHeader {
+					req.Header.Add(k, v)
+				}
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatalf("unable to send request: %s", err)
+				}
+				defer resp.Body.Close()
 
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
+				if resp.StatusCode != http.StatusOK {
+					if tc.isErr {
+						return
+					}
+					bodyBytes, _ := io.ReadAll(resp.Body)
+					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+				}
 
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
+				// Check response body
+				var body map[string]interface{}
+				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+					t.Fatalf("error parsing response body")
+				}
+
+				result, ok := body["result"].(string)
+				if !ok {
+					t.Fatalf("unable to find result in response body")
+				}
+				got = result
 			}
 
 			// Database errors are returned with a 200 status and an error in
@@ -519,53 +545,72 @@ func verifyTableListResult(t *testing.T, body map[string]interface{}, expectedTa
 }
 
 // runSpannerListTablesTest tests the spanner-list-tables tool
-func runSpannerListTablesTest(t *testing.T, tableNameParam, tableNameAuth, tableNameTemplateParam string) {
+func runSpannerListTablesTest(t *testing.T, tableNameParam, tableNameAuth, tableNameTemplateParam string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
 		name            string
-		requestBody     io.Reader
+		args            map[string]any
 		expectedTables  []string // empty means don't check specific tables
 		useSimpleFormat bool
 	}{
 		{
 			name:           "list all tables with detailed format",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			args:           map[string]any{},
 			expectedTables: []string{tableNameParam, tableNameAuth, tableNameTemplateParam},
 		},
 		{
 			name:            "list tables with simple format",
-			requestBody:     bytes.NewBuffer([]byte(`{"output_format": "simple"}`)),
+			args:            map[string]any{"output_format": "simple"},
 			expectedTables:  []string{tableNameParam, tableNameAuth, tableNameTemplateParam},
 			useSimpleFormat: true,
 		},
 		{
 			name:           "list specific tables",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"table_names": "%s,%s"}`, tableNameParam, tableNameAuth))),
+			args:           map[string]any{"table_names": fmt.Sprintf("%s,%s", tableNameParam, tableNameAuth)},
 			expectedTables: []string{tableNameParam, tableNameAuth},
 		},
 		{
 			name:           "list non-existent table",
-			requestBody:    bytes.NewBuffer([]byte(`{"table_names": "non_existent_table_xyz"}`)),
+			args:           map[string]any{"table_names": "non_existent_table_xyz"},
 			expectedTables: []string{},
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			// Use RunRequest helper function from tests package
-			url := "http://127.0.0.1:5000/api/tool/list-tables-tool/invoke"
-			headers := map[string]string{}
-
-			resp, respBody := tests.RunRequest(t, http.MethodPost, url, tc.requestBody, headers)
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
-			}
-
-			// Check response body
 			var body map[string]interface{}
-			err := json.Unmarshal(respBody, &body)
-			if err != nil {
-				t.Fatalf("error parsing response body: %s", err)
+
+			if config.IsMCP() {
+				statusCode, mcpResp, err := tests.InvokeMCPTool(t, "list-tables-tool", tc.args, nil)
+				if statusCode != http.StatusOK || err != nil || mcpResp == nil {
+					t.Fatalf("response status code is not 200, got %d: %v", statusCode, err)
+				}
+				if mcpResp.Error != nil || mcpResp.Result.IsError {
+					t.Fatalf("list-tables-tool returned an error result: %+v", mcpResp.Result.Content)
+				}
+				// The verifier reads body["result"] as the JSON array string
+				// that /api returns, so hand it the same shape.
+				body = map[string]interface{}{"result": tests.GetMCPResultJSON(t, mcpResp)}
+			} else {
+				url := "http://127.0.0.1:5000/api/tool/list-tables-tool/invoke"
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("unable to marshal args: %s", err)
+				}
+				resp, respBody := tests.RunRequest(t, http.MethodPost, url, bytes.NewBuffer(reqBytes), map[string]string{})
+
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+				}
+
+				// Check response body
+				if err := json.Unmarshal(respBody, &body); err != nil {
+					t.Fatalf("error parsing response body: %s", err)
+				}
 			}
 
 			verifyTableListResult(t, body, tc.expectedTables, tc.useSimpleFormat)
@@ -625,53 +670,72 @@ func verifyGraphListResult(t *testing.T, body map[string]interface{}, expectedGr
 }
 
 // runSpannerListGraphsTest tests the spanner-list-graphs tool
-func runSpannerListGraphsTest(t *testing.T, graphName string) {
+func runSpannerListGraphsTest(t *testing.T, graphName string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
 		name            string
-		requestBody     io.Reader
+		args            map[string]any
 		expectedGraphs  []string // empty means don't check specific graphs
 		useSimpleFormat bool
 	}{
 		{
 			name:           "list all graphs with detailed format",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			args:           map[string]any{},
 			expectedGraphs: []string{graphName},
 		},
 		{
 			name:            "list graphs with simple format",
-			requestBody:     bytes.NewBuffer([]byte(`{"output_format": "simple"}`)),
+			args:            map[string]any{"output_format": "simple"},
 			expectedGraphs:  []string{graphName},
 			useSimpleFormat: true,
 		},
 		{
 			name:           "list specific graphs",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"graph_names": "%s"}`, graphName))),
+			args:           map[string]any{"graph_names": graphName},
 			expectedGraphs: []string{graphName},
 		},
 		{
 			name:           "list non-existent graph",
-			requestBody:    bytes.NewBuffer([]byte(`{"graph_names": "non_existent_graph_xyz"}`)),
+			args:           map[string]any{"graph_names": "non_existent_graph_xyz"},
 			expectedGraphs: []string{},
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			// Use RunRequest helper function from tests package
-			url := "http://127.0.0.1:5000/api/tool/list-graphs-tool/invoke"
-			headers := map[string]string{}
-
-			resp, respBody := tests.RunRequest(t, http.MethodPost, url, tc.requestBody, headers)
-
-			if resp.StatusCode != http.StatusOK {
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
-			}
-
-			// Check response body
 			var body map[string]interface{}
-			err := json.Unmarshal(respBody, &body)
-			if err != nil {
-				t.Fatalf("error parsing response body: %s", err)
+
+			if config.IsMCP() {
+				statusCode, mcpResp, err := tests.InvokeMCPTool(t, "list-graphs-tool", tc.args, nil)
+				if statusCode != http.StatusOK || err != nil || mcpResp == nil {
+					t.Fatalf("response status code is not 200, got %d: %v", statusCode, err)
+				}
+				if mcpResp.Error != nil || mcpResp.Result.IsError {
+					t.Fatalf("list-graphs-tool returned an error result: %+v", mcpResp.Result.Content)
+				}
+				// The verifier reads body["result"] as the JSON array string
+				// that /api returns, so hand it the same shape.
+				body = map[string]interface{}{"result": tests.GetMCPResultJSON(t, mcpResp)}
+			} else {
+				url := "http://127.0.0.1:5000/api/tool/list-graphs-tool/invoke"
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("unable to marshal args: %s", err)
+				}
+				resp, respBody := tests.RunRequest(t, http.MethodPost, url, bytes.NewBuffer(reqBytes), map[string]string{})
+
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+				}
+
+				// Check response body
+				if err := json.Unmarshal(respBody, &body); err != nil {
+					t.Fatalf("error parsing response body: %s", err)
+				}
 			}
 
 			verifyGraphListResult(t, body, tc.expectedGraphs, tc.useSimpleFormat)
@@ -723,66 +787,95 @@ func getSpannerVectorSearchStmts(vectorTableName string) (string, string) {
 	return insertStmt, searchStmt
 }
 
-func runSpannerSchemaToolInvokeTest(t *testing.T, accessSchemaWant string) {
+func runSpannerSchemaToolInvokeTest(t *testing.T, accessSchemaWant string, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
 		name          string
-		api           string
+		toolName      string
 		requestHeader map[string]string
-		requestBody   io.Reader
+		args          map[string]any
 		want          string
 		isErr         bool
 	}{
 		{
 			name:          "invoke list-tables-read-only",
-			api:           "http://127.0.0.1:5000/api/tool/access-schema-read-only/invoke",
+			toolName:      "access-schema-read-only",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
+			args:          map[string]any{},
 			want:          accessSchemaWant,
 			isErr:         false,
 		},
 		{
 			name:          "invoke list-tables",
-			api:           "http://127.0.0.1:5000/api/tool/access-schema/invoke",
+			toolName:      "access-schema",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
+			args:          map[string]any{},
 			isErr:         true,
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
+			var got string
 
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
+			if config.IsMCP() {
+				statusCode, mcpResp, err := tests.InvokeMCPTool(t, tc.toolName, tc.args, tc.requestHeader)
+				if statusCode != http.StatusOK || err != nil || mcpResp == nil {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("response status code is not 200, got %d: %v", statusCode, err)
 				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
+				if mcpResp.Error != nil || mcpResp.Result.IsError {
+					if tc.isErr {
+						return
+					}
+					t.Fatalf("%s returned an error result: %+v", tc.toolName, mcpResp.Result.Content)
+				}
+				got = tests.GetMCPResultJSON(t, mcpResp)
+			} else {
+				api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
+				reqBytes, err := json.Marshal(tc.args)
+				if err != nil {
+					t.Fatalf("unable to marshal args: %s", err)
+				}
+				// Send Tool invocation request
+				req, err := http.NewRequest(http.MethodPost, api, bytes.NewBuffer(reqBytes))
+				if err != nil {
+					t.Fatalf("unable to create request: %s", err)
+				}
+				req.Header.Add("Content-type", "application/json")
+				for k, v := range tc.requestHeader {
+					req.Header.Add(k, v)
+				}
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatalf("unable to send request: %s", err)
+				}
+				defer resp.Body.Close()
 
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
+				if resp.StatusCode != http.StatusOK {
+					if tc.isErr {
+						return
+					}
+					bodyBytes, _ := io.ReadAll(resp.Body)
+					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+				}
 
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
+				// Check response body
+				var body map[string]interface{}
+				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+					t.Fatalf("error parsing response body")
+				}
+
+				result, ok := body["result"].(string)
+				if !ok {
+					t.Fatalf("unable to find result in response body")
+				}
+				got = result
 			}
 
 			// Database errors are returned with a 200 status and an error in
