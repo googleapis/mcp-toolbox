@@ -30,7 +30,7 @@ require (
 	github.com/MicahParks/jwkset v0.11.0
 	github.com/MicahParks/keyfunc/v3 v3.8.0
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
-	github.com/cenkalti/backoff/v6 v6.0.1
+	github.com/cenkalti/backoff/v7 v7.0.1
 	github.com/cockroachdb/cockroach-go/v2 v2.4.3
 	github.com/couchbase/gocb/v2 v2.12.4
 	github.com/couchbase/tools-common/http v1.0.12
@@ -45,7 +45,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/goccy/go-yaml v1.19.2
-	github.com/gocql/gocql v1.17.3
+	github.com/gocql/gocql/v2 v2.1.2
 	github.com/godror/godror v0.50.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
@@ -58,7 +58,7 @@ require (
 	github.com/nakagami/firebirdsql v0.9.19
 	github.com/neo4j/neo4j-go-driver/v6 v6.1.0
 	github.com/redis/go-redis/v9 v9.20.1
-	github.com/sijms/go-ora/v2 v2.9.0
+	github.com/sijms/go-ora/v3 v3.0.1
 	github.com/snowflakedb/gosnowflake/v2 v2.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -68,7 +68,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/scylladb v0.43.0
 	github.com/thlib/go-timezone-local v0.0.7
-	github.com/trinodb/trino-go-client v0.333.0
+	github.com/trinodb/trino-go-client v1.4.1
 	github.com/valkey-io/valkey-go v1.0.76
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-5
