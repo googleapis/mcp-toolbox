@@ -43,7 +43,7 @@ description: |
   This tool executes a query against a LookML model or fetches a saved query by ID/slug and returns an interactive UI visualization response adhering to the MCP Apps specification.
 
   Parameters:
-  - query_id (optional): Looker query ID (integer) or slug string to fetch and render a saved query visualization directly. If provided, model and explore are not required.
+  - query_id (optional): Looker query ID (integer) or slug string to fetch and render a saved query visualization directly. If provided, model, explore, and fields are not required.
   - model (optional): The name of the LookML model (required if query_id is not provided).
   - explore (optional): The name of the explore (required if query_id is not provided).
   - fields (optional): A list of field names (dimensions, measures, filters, or parameters) to include in the query.
@@ -54,7 +54,7 @@ description: |
   - sorts (optional): A list of fields to sort by (e.g. `["users.created_date desc"]`).
   - limit (optional): Maximum number of rows to return (default: 500).
   - tz (optional): Timezone for the query.
-  - vis_config (optional): Optional JSON string or object specifying the visualization configuration (e.g. chart type, legend, colors).
+  - vis_config (optional): Optional JSON string specifying the visualization configuration (e.g. chart type, legend, colors).
 ```
 
 ## Reference

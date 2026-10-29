@@ -17,8 +17,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 
@@ -597,9 +599,14 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 	}
 
 	var tz string
-	if paramsMap["tz"] != nil {
-		tz = paramsMap["tz"].(string)
-	} else {
+	if val, ok := paramsMap["tz"]; ok && val != nil {
+		tzStr, ok := val.(string)
+		if !ok {
+			return nil, fmt.Errorf("'tz' must be a string, got %T", val)
+		}
+		tz = strings.TrimSpace(tzStr)
+	}
+	if tz == "" {
 		tzname, err := tzlocal.RuntimeTZ()
 		if err != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("Error getting local timezone: %s", err))
@@ -610,10 +617,12 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 
 	var filterExpressionPtr *string
 	if val, ok := paramsMap["filter_expression"]; ok && val != nil {
-		if strVal, ok := val.(string); ok {
-			filterExpressionPtr = &strVal
-		} else {
+		strVal, ok := val.(string)
+		if !ok {
 			return nil, fmt.Errorf("'filter_expression' must be a string, got %T", val)
+		}
+		if strings.TrimSpace(strVal) != "" {
+			filterExpressionPtr = &strVal
 		}
 	}
 
@@ -642,6 +651,55 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 		DynamicFields:    dynamicFieldsPtr,
 	}
 	return &wq, nil
+}
+
+// WriteQueryFromQuery converts a Looker v4.Query into a v4.WriteQuery,
+// cloning mutable map/slice fields and omitting FilterConfig and ClientId so
+// Looker does not allow explore UI filter_config to override Filters.
+func WriteQueryFromQuery(baseQuery v4.Query) v4.WriteQuery {
+	var filtersPtr *map[string]any
+	if baseQuery.Filters != nil {
+		cloned := maps.Clone(*baseQuery.Filters)
+		filtersPtr = &cloned
+	}
+	var visConfigPtr *map[string]any
+	if baseQuery.VisConfig != nil {
+		cloned := maps.Clone(*baseQuery.VisConfig)
+		visConfigPtr = &cloned
+	}
+	var fieldsPtr *[]string
+	if baseQuery.Fields != nil {
+		cloned := slices.Clone(*baseQuery.Fields)
+		fieldsPtr = &cloned
+	}
+	var pivotsPtr *[]string
+	if baseQuery.Pivots != nil {
+		cloned := slices.Clone(*baseQuery.Pivots)
+		pivotsPtr = &cloned
+	}
+	var sortsPtr *[]string
+	if baseQuery.Sorts != nil {
+		cloned := slices.Clone(*baseQuery.Sorts)
+		sortsPtr = &cloned
+	}
+	return v4.WriteQuery{
+		Model:            baseQuery.Model,
+		View:             baseQuery.View,
+		Fields:           fieldsPtr,
+		Pivots:           pivotsPtr,
+		FillFields:       baseQuery.FillFields,
+		Filters:          filtersPtr,
+		FilterExpression: baseQuery.FilterExpression,
+		Sorts:            sortsPtr,
+		Limit:            baseQuery.Limit,
+		ColumnLimit:      baseQuery.ColumnLimit,
+		Total:            baseQuery.Total,
+		RowTotal:         baseQuery.RowTotal,
+		Subtotals:        baseQuery.Subtotals,
+		VisConfig:        visConfigPtr,
+		DynamicFields:    baseQuery.DynamicFields,
+		QueryTimezone:    baseQuery.QueryTimezone,
+	}
 }
 
 func optionalStringPtr(paramsMap map[string]any, key string) *string {
@@ -961,26 +1019,6 @@ func SearchLookmlDashboards(l *v4.LookerSDK, params map[string]any, options *rtl
 	return result, nil
 }
 
-func GetQuery(ctx context.Context, l *v4.LookerSDK, queryId string, options *rtl.ApiSettings) (*v4.Query, error) {
-	var result v4.Query
-	path := fmt.Sprintf("/queries/%s", url.PathEscape(queryId))
-	err := l.AuthSession.Do(&result, "GET", "/4.0", path, nil, nil, options)
-	if err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-func GetQueryBySlug(ctx context.Context, l *v4.LookerSDK, slug string, options *rtl.ApiSettings) (*v4.Query, error) {
-	var result v4.Query
-	path := fmt.Sprintf("/queries/slug/%s", url.PathEscape(slug))
-	err := l.AuthSession.Do(&result, "GET", "/4.0", path, nil, nil, options)
-	if err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 func RunSavedQuery(ctx context.Context, l *v4.LookerSDK, queryId string, format string, generateDrillLinks *bool, options *rtl.ApiSettings) (string, error) {
 	var result string
 	path := fmt.Sprintf("/queries/%s/run/%s", url.PathEscape(queryId), url.PathEscape(format))
@@ -1168,6 +1206,16 @@ func ExtractLookerErrorMessage(err error) error {
 	}
 
 	return fmt.Errorf("%s", msg)
+}
+
+// ProcessLookerAPIError maps a Looker SDK HTTP error to a ToolboxError,
+// returning an HTTP 401 ClientServerError on unauthorized responses and
+// extracting human-readable Looker JSON error messages otherwise.
+func ProcessLookerAPIError(err error) util.ToolboxError {
+	if strings.Contains(err.Error(), "status=401") {
+		return util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
+	}
+	return util.ProcessGeneralError(ExtractLookerErrorMessage(err))
 }
 
 // MaxMCPPayloadBytes is the maximum serialized JSON byte size for an MCP App

@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -41,24 +42,57 @@ const (
 	ColorCollectionsCacheTTL  = 10 * time.Minute
 	MapApiKeyCacheTTL         = 10 * time.Minute
 	uiHTMLCacheTTL            = 5 * time.Minute
+	clientUserLocaleCacheTTL  = 5 * time.Minute
+	staticUserLocaleCacheTTL  = 10 * time.Second
 	mcpUserFields             = "id,email,display_name,locale,abilities,can"
 	maxMapApiKeyResponseBytes = 64 * 1024        // 64 KiB
 	maxUIHTMLResponseBytes    = 10 * 1024 * 1024 // 10 MiB
 )
 
-type cachedColorCollections struct {
-	data      map[string]any
-	fetchedAt time.Time
+type ttlEntry[V any] struct {
+	value     V
+	expiresAt time.Time
 }
 
-type cachedMapApiKey struct {
-	apiKey    string
-	fetchedAt time.Time
+type ttlCache[V any] struct {
+	mu      sync.RWMutex
+	entries map[string]ttlEntry[V]
 }
 
-type cachedUserLocale struct {
-	locale    string
-	fetchedAt time.Time
+func newTTLCache[V any]() *ttlCache[V] {
+	return &ttlCache[V]{entries: make(map[string]ttlEntry[V])}
+}
+
+func (c *ttlCache[V]) get(key string) (V, bool) {
+	c.mu.RLock()
+	entry, ok := c.entries[key]
+	c.mu.RUnlock()
+	if !ok || time.Now().After(entry.expiresAt) {
+		var zero V
+		return zero, false
+	}
+	return entry.value, true
+}
+
+func (c *ttlCache[V]) set(key string, value V, ttl time.Duration) {
+	now := time.Now()
+	c.mu.Lock()
+	for k, v := range c.entries {
+		if now.After(v.expiresAt) {
+			delete(c.entries, k)
+		}
+	}
+	c.entries[key] = ttlEntry[V]{
+		value:     value,
+		expiresAt: now.Add(ttl),
+	}
+	c.mu.Unlock()
+}
+
+func (c *ttlCache[V]) clear() {
+	c.mu.Lock()
+	clear(c.entries)
+	c.mu.Unlock()
 }
 
 type cachedUIHTML struct {
@@ -66,16 +100,10 @@ type cachedUIHTML struct {
 	fetchedAt time.Time
 }
 
-const (
-	clientUserLocaleCacheTTL = 5 * time.Minute
-	staticUserLocaleCacheTTL = 10 * time.Second
-)
-
 var (
-	mcpAppStateCacheMu    sync.RWMutex
-	colorCollectionsCache = make(map[string]cachedColorCollections)
-	mapApiKeyCache        = make(map[string]cachedMapApiKey)
-	userLocaleCache       = make(map[string]cachedUserLocale)
+	colorCollectionsCache = newTTLCache[map[string]any]()
+	mapApiKeyCache        = newTTLCache[string]()
+	userLocaleCache       = newTTLCache[string]()
 	strictLookerLocaleRe  = regexp.MustCompile(`^[a-zA-Z]{2,3}(?:[-_][a-zA-Z]{2,4})?$`)
 )
 
@@ -99,6 +127,28 @@ func isSameOrLoopbackHost(hostA, hostB string) bool {
 		return true
 	}
 	return isLoopbackHostname(hostA) && isLoopbackHostname(hostB)
+}
+
+func parseURLWithDefaultScheme(rawURL string) (*url.URL, bool) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil, false
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		return nil, false
+	}
+	return parsed, true
+}
+
+func extractURLOrigin(rawURL string) string {
+	if parsed, ok := parseURLWithDefaultScheme(rawURL); ok {
+		return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
+	}
+	return ""
 }
 
 func resolveMapApiKeyEndpoint(settings *rtl.ApiSettings) string {
@@ -138,11 +188,9 @@ func resolveMapApiKeyEndpoint(settings *rtl.ApiSettings) string {
 // ClearMcpAppStateCacheForTesting clears the in-memory color collections,
 // map API key, and user locale caches. Intended for unit tests.
 func ClearMcpAppStateCacheForTesting() {
-	mcpAppStateCacheMu.Lock()
-	defer mcpAppStateCacheMu.Unlock()
-	colorCollectionsCache = make(map[string]cachedColorCollections)
-	mapApiKeyCache = make(map[string]cachedMapApiKey)
-	userLocaleCache = make(map[string]cachedUserLocale)
+	colorCollectionsCache.clear()
+	mapApiKeyCache.clear()
+	userLocaleCache.clear()
 }
 
 func hashUserLocaleCacheKey(instanceKey, credentialIdentity string) string {
@@ -190,13 +238,9 @@ func resolveUIUserLocale(ctx context.Context, src LookerUISource, settings *rtl.
 		ttl = staticUserLocaleCacheTTL
 	}
 
-	mcpAppStateCacheMu.RLock()
-	if entry, ok := userLocaleCache[cacheKey]; ok && time.Since(entry.fetchedAt) < ttl {
-		loc := entry.locale
-		mcpAppStateCacheMu.RUnlock()
+	if loc, ok := userLocaleCache.get(cacheKey); ok {
 		return loc
 	}
-	mcpAppStateCacheMu.RUnlock()
 
 	sdk, err := src.GetLookerSDK(ctx, accessToken)
 	if err != nil || sdk == nil || sdk.AuthSession == nil {
@@ -214,32 +258,15 @@ func resolveUIUserLocale(ctx context.Context, src LookerUISource, settings *rtl.
 
 	rawLocale, _ := u["locale"].(string)
 	validatedLocale := sanitizeLookerLocaleParam(rawLocale)
-
-	now := time.Now()
-	mcpAppStateCacheMu.Lock()
-	for k, v := range userLocaleCache {
-		if now.Sub(v.fetchedAt) >= clientUserLocaleCacheTTL {
-			delete(userLocaleCache, k)
-		}
-	}
-	userLocaleCache[cacheKey] = cachedUserLocale{
-		locale:    validatedLocale,
-		fetchedAt: now,
-	}
-	mcpAppStateCacheMu.Unlock()
-
+	userLocaleCache.set(cacheKey, validatedLocale, ttl)
 	return validatedLocale
 }
 
 func fetchActiveColorCollections(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSettings) map[string]any {
 	cacheKey := resolveInstanceCacheKey(settings)
-	mcpAppStateCacheMu.RLock()
-	if entry, ok := colorCollectionsCache[cacheKey]; ok && len(entry.data) > 0 && time.Since(entry.fetchedAt) < ColorCollectionsCacheTTL {
-		data := entry.data
-		mcpAppStateCacheMu.RUnlock()
+	if data, ok := colorCollectionsCache.get(cacheKey); ok && len(data) > 0 {
 		return data
 	}
-	mcpAppStateCacheMu.RUnlock()
 
 	var ccMap map[string]any
 	if err := sdk.AuthSession.Do(&ccMap, "GET", "/4.0", "/color_collections/active", nil, nil, settings); err != nil {
@@ -252,18 +279,7 @@ func fetchActiveColorCollections(ctx context.Context, sdk *v4.LookerSDK, setting
 		return nil
 	}
 
-	now := time.Now()
-	mcpAppStateCacheMu.Lock()
-	for k, v := range colorCollectionsCache {
-		if now.Sub(v.fetchedAt) >= ColorCollectionsCacheTTL {
-			delete(colorCollectionsCache, k)
-		}
-	}
-	colorCollectionsCache[cacheKey] = cachedColorCollections{
-		data:      ccMap,
-		fetchedAt: now,
-	}
-	mcpAppStateCacheMu.Unlock()
+	colorCollectionsCache.set(cacheKey, ccMap, ColorCollectionsCacheTTL)
 	return ccMap
 }
 
@@ -272,15 +288,10 @@ func fetchMapApiKey(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSet
 	if endpoint == "" {
 		return ""
 	}
-	cacheKey := endpoint
 
-	mcpAppStateCacheMu.RLock()
-	if entry, ok := mapApiKeyCache[cacheKey]; ok && entry.apiKey != "" && time.Since(entry.fetchedAt) < MapApiKeyCacheTTL {
-		apiKey := entry.apiKey
-		mcpAppStateCacheMu.RUnlock()
+	if apiKey, ok := mapApiKeyCache.get(endpoint); ok && apiKey != "" {
 		return apiKey
 	}
-	mcpAppStateCacheMu.RUnlock()
 
 	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -303,11 +314,9 @@ func fetchMapApiKey(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSet
 	if !ok || authSess == nil {
 		return ""
 	}
-	if authSess.Config.Headers != nil {
-		for k, v := range authSess.Config.Headers {
-			if req.Header.Get(k) == "" {
-				req.Header.Set(k, v)
-			}
+	for k, v := range authSess.Config.Headers {
+		if req.Header.Get(k) == "" {
+			req.Header.Set(k, v)
 		}
 	}
 
@@ -342,18 +351,7 @@ func fetchMapApiKey(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSet
 		return ""
 	}
 
-	now := time.Now()
-	mcpAppStateCacheMu.Lock()
-	for k, v := range mapApiKeyCache {
-		if now.Sub(v.fetchedAt) >= MapApiKeyCacheTTL {
-			delete(mapApiKeyCache, k)
-		}
-	}
-	mapApiKeyCache[cacheKey] = cachedMapApiKey{
-		apiKey:    apiKey,
-		fetchedAt: now,
-	}
-	mcpAppStateCacheMu.Unlock()
+	mapApiKeyCache.set(endpoint, apiKey, MapApiKeyCacheTTL)
 	return apiKey
 }
 
@@ -529,25 +527,9 @@ var GoogleMapsConnectDomains = []string{
 // DefaultMCPUICSPConfig returns a new CSPConfig initialized with the default
 // Looker CDN and Google Maps resource and connect domains.
 func DefaultMCPUICSPConfig() *resources.CSPConfig {
-	resourceDomains := []string{
-		"https://*.lookercdn.com",
-		"https://lookercdn.com",
-		"https://*.cdn.looker.app",
-		"https://cdn.looker.app",
-	}
-	resourceDomains = append(resourceDomains, GoogleMapsResourceDomains...)
-
-	connectDomains := []string{
-		"https://*.lookercdn.com",
-		"https://lookercdn.com",
-		"https://*.cdn.looker.app",
-		"https://cdn.looker.app",
-	}
-	connectDomains = append(connectDomains, GoogleMapsConnectDomains...)
-
 	return &resources.CSPConfig{
-		ResourceDomains: resourceDomains,
-		ConnectDomains:  connectDomains,
+		ResourceDomains: slices.Concat(DefaultAllowedLookerCDNOrigins, GoogleMapsResourceDomains),
+		ConnectDomains:  slices.Concat(DefaultAllowedLookerCDNOrigins, GoogleMapsConnectDomains),
 	}
 }
 
@@ -624,64 +606,17 @@ func BuildLookerUICSP() *resources.CSPConfig {
 	lookerBaseURL := os.Getenv("LOOKER_BASE_URL")
 	lookerUIURL := os.Getenv("LOOKER_UI_URL")
 
-	ensureDomain := func(list *[]string, domain string) {
-		if domain == "" {
-			return
-		}
-		domain = strings.TrimSuffix(domain, "/")
-		for _, d := range *list {
-			if strings.TrimSuffix(d, "/") == domain {
-				return
-			}
-		}
-		*list = append(*list, domain)
-	}
+	AddCSPOrigin(csp, extractURLOrigin(lookerBaseURL))
+	AddCSPOrigin(csp, extractURLOrigin(lookerUIURL))
 
-	getOrigin := func(rawURL string) string {
-		if rawURL == "" {
-			return ""
-		}
-		rawURL = strings.TrimSpace(rawURL)
-		if !strings.Contains(rawURL, "://") {
-			rawURL = "http://" + rawURL
-		}
-		if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
-			return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
-		}
-		return strings.TrimSuffix(rawURL, "/")
-	}
-
-	addOrigin := func(rawURL string) {
-		origin := getOrigin(rawURL)
-		if origin == "" {
-			return
-		}
-		ensureDomain(&csp.ResourceDomains, origin)
-		ensureDomain(&csp.ConnectDomains, origin)
-
-		// If origin is HTTP, also ensure corresponding WebSocket origin for local dev hot reloading
-		if strings.HasPrefix(origin, "http://") {
-			wsOrigin := "ws://" + strings.TrimPrefix(origin, "http://")
-			ensureDomain(&csp.ConnectDomains, wsOrigin)
-		} else if strings.HasPrefix(origin, "https://") {
-			wssOrigin := "wss://" + strings.TrimPrefix(origin, "https://")
-			ensureDomain(&csp.ConnectDomains, wssOrigin)
-		}
-	}
-
-	addOrigin(lookerBaseURL)
-	addOrigin(lookerUIURL)
-
-	// In local development environments, permit all local dev ports for both resources and connect
+	// In local development environments, permit all local dev ports for both resources and connect.
 	if isLocalDevURL(lookerBaseURL) || isLocalDevURL(lookerUIURL) {
 		for _, host := range []string{"localhost", "127.0.0.1", "0.0.0.0"} {
 			for _, port := range []string{"9998", "9999", "19999", "3035"} {
-				ensureDomain(&csp.ResourceDomains, fmt.Sprintf("http://%s:%s", host, port))
-				ensureDomain(&csp.ConnectDomains, fmt.Sprintf("http://%s:%s", host, port))
-				ensureDomain(&csp.ConnectDomains, fmt.Sprintf("ws://%s:%s", host, port))
+				AddCSPOrigin(csp, fmt.Sprintf("http://%s:%s", host, port))
 			}
-			ensureDomain(&csp.ConnectDomains, fmt.Sprintf("ws://%s:*", host))
-			ensureDomain(&csp.ConnectDomains, fmt.Sprintf("wss://%s:*", host))
+			appendUnique(&csp.ConnectDomains, fmt.Sprintf("ws://%s:*", host))
+			appendUnique(&csp.ConnectDomains, fmt.Sprintf("wss://%s:*", host))
 		}
 	}
 
@@ -689,18 +624,8 @@ func BuildLookerUICSP() *resources.CSPConfig {
 }
 
 func isLocalDevURL(rawURL string) bool {
-	trimmed := strings.TrimSpace(rawURL)
-	if trimmed == "" {
-		return false
-	}
-	if !strings.Contains(trimmed, "://") {
-		trimmed = "http://" + trimmed
-	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.Host == "" {
-		return false
-	}
-	return isLoopbackHostname(parsed.Hostname())
+	parsed, ok := parseURLWithDefaultScheme(rawURL)
+	return ok && isLoopbackHostname(parsed.Hostname())
 }
 
 // LookerUISource represents a Looker source capable of providing API settings
@@ -717,13 +642,21 @@ var (
 	nonceAttrRe = regexp.MustCompile(`(?i)\s+nonce\s*=\s*(?:"[^"]*"|'[^']*')`)
 )
 
+// LookerUIResourceConfig configures a LookerUIResourceManager for an MCP Apps UI scene.
+type LookerUIResourceConfig struct {
+	ResourceName string
+	ResourceURI  string
+	Description  string
+	SceneName    string
+	UILabel      string
+}
+
 // LookerUIResourceManager manages dynamic MCP Apps UI HTML fetching, caching,
 // asset origin rewriting, and CSP origin registration for a Looker UI scene.
 type LookerUIResourceManager struct {
 	mu                 sync.RWMutex
 	src                LookerUISource
 	sceneName          string
-	otherSceneName     string
 	uiLabel            string
 	csp                *resources.CSPConfig
 	uiResource         resources.Resource
@@ -732,20 +665,19 @@ type LookerUIResourceManager struct {
 
 // NewLookerUIResourceManager constructs a LookerUIResourceManager with a
 // DynamicUIResource backed by FetchRemoteUI.
-func NewLookerUIResourceManager(resourceName, resourceURI, description, sceneName, otherSceneName, uiLabel string) *LookerUIResourceManager {
+func NewLookerUIResourceManager(cfg LookerUIResourceConfig) *LookerUIResourceManager {
 	csp := BuildLookerUICSP()
 	m := &LookerUIResourceManager{
-		sceneName:          sceneName,
-		otherSceneName:     otherSceneName,
-		uiLabel:            uiLabel,
+		sceneName:          cfg.SceneName,
+		uiLabel:            cfg.UILabel,
 		csp:                csp,
 		cachedHTMLByLocale: make(map[string]cachedUIHTML),
 	}
 	prefersBorder := true
 	m.uiResource = resources.NewDynamicUIResource(
-		resourceName,
-		resourceURI,
-		description,
+		cfg.ResourceName,
+		cfg.ResourceURI,
+		cfg.Description,
 		csp,
 		&prefersBorder,
 		func(ctx context.Context) (string, error) {
@@ -826,10 +758,7 @@ func (m *LookerUIResourceManager) resolveAllowedPublicOrigins(apiSettings *rtl.A
 		return nil
 	}
 
-	allowed := make([]string, 0, len(configuredHTTPSOrigins)+len(DefaultAllowedLookerCDNOrigins))
-	allowed = append(allowed, configuredHTTPSOrigins...)
-	allowed = append(allowed, DefaultAllowedLookerCDNOrigins...)
-	return allowed
+	return slices.Concat(configuredHTTPSOrigins, DefaultAllowedLookerCDNOrigins)
 }
 
 // resolveAuthoritativePublicOrigin returns the browser-facing HTTPS origin for
@@ -864,33 +793,19 @@ func (m *LookerUIResourceManager) resolveAuthoritativePublicOrigin(apiSettings *
 // against LOOKER_UI_URL, then the source BaseUrl, then LOOKER_BASE_URL.
 func (m *LookerUIResourceManager) RenderHTML(rawHTML, publicOrigin string) string {
 	assetBaseURL := publicOrigin
-	if lookerUIURL := os.Getenv("LOOKER_UI_URL"); assetBaseURL == "" && lookerUIURL != "" {
-		lookerUIURL = strings.TrimSpace(lookerUIURL)
-		if !strings.Contains(lookerUIURL, "://") {
-			lookerUIURL = "http://" + lookerUIURL
-		}
-		if parsed, err := url.Parse(lookerUIURL); err == nil && parsed.Host != "" {
-			assetBaseURL = fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
-		}
+	if assetBaseURL == "" {
+		assetBaseURL = extractURLOrigin(os.Getenv("LOOKER_UI_URL"))
 	}
 	if assetBaseURL == "" && m != nil {
 		m.mu.RLock()
 		src := m.src
 		m.mu.RUnlock()
-		if src != nil && src.LookerApiSettings() != nil && src.LookerApiSettings().BaseUrl != "" {
-			assetBaseURL = strings.TrimSuffix(src.LookerApiSettings().BaseUrl, "/")
+		if src != nil && src.LookerApiSettings() != nil {
+			assetBaseURL = extractURLOrigin(src.LookerApiSettings().BaseUrl)
 		}
 	}
 	if assetBaseURL == "" {
-		if lookerBaseURL := os.Getenv("LOOKER_BASE_URL"); lookerBaseURL != "" {
-			lookerBaseURL = strings.TrimSpace(lookerBaseURL)
-			if !strings.Contains(lookerBaseURL, "://") {
-				lookerBaseURL = "http://" + lookerBaseURL
-			}
-			if parsed, err := url.Parse(lookerBaseURL); err == nil && parsed.Host != "" {
-				assetBaseURL = fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
-			}
-		}
+		assetBaseURL = extractURLOrigin(os.Getenv("LOOKER_BASE_URL"))
 	}
 
 	res := strings.ReplaceAll(rawHTML, "__MCP_ASSET_BASE_URL__", assetBaseURL)
@@ -903,11 +818,36 @@ func (m *LookerUIResourceManager) RenderHTML(rawHTML, publicOrigin string) strin
 		res = strings.ReplaceAll(res, `url("/fonts/`, fmt.Sprintf(`url("%s/fonts/`, assetBaseURL))
 		res = strings.ReplaceAll(res, `url(/fonts/`, fmt.Sprintf(`url(%s/fonts/`, assetBaseURL))
 	}
-	// Strip any <base ...> tag to prevent CSP base-uri 'self' violation in sandboxed iframes
+	// Strip any <base ...> tag to prevent CSP base-uri 'self' violation in sandboxed iframes.
 	res = baseTagRe.ReplaceAllString(res, "")
-	// Strip any server-generated nonce attributes to prevent CSP nonce mismatch in sandboxed iframes
+	// Strip any server-generated nonce attributes to prevent CSP nonce mismatch in sandboxed iframes.
 	res = nonceAttrRe.ReplaceAllString(res, "")
 	return res
+}
+
+func (m *LookerUIResourceManager) resolveRemoteUIURL(apiSettings *rtl.ApiSettings) string {
+	targetSuffix := fmt.Sprintf("/%s/assets", m.sceneName)
+	if lookerUIURL := strings.TrimSpace(os.Getenv("LOOKER_UI_URL")); lookerUIURL != "" {
+		if !strings.Contains(lookerUIURL, "://") {
+			lookerUIURL = "http://" + lookerUIURL
+		}
+		lookerUIURL = strings.TrimSuffix(lookerUIURL, "/")
+		if strings.HasSuffix(lookerUIURL, targetSuffix) {
+			return lookerUIURL
+		}
+		if idx := strings.Index(lookerUIURL, "/public/mcp/ui/"); idx != -1 {
+			return fmt.Sprintf("%s/public/mcp/ui/%s/assets", lookerUIURL[:idx], m.sceneName)
+		}
+		if strings.HasSuffix(lookerUIURL, "/assets") {
+			return lookerUIURL
+		}
+		return fmt.Sprintf("%s/public/mcp/ui/%s/assets", lookerUIURL, m.sceneName)
+	}
+	if apiSettings != nil && strings.TrimSpace(apiSettings.BaseUrl) != "" {
+		baseURL := strings.TrimSuffix(strings.TrimSpace(apiSettings.BaseUrl), "/")
+		return fmt.Sprintf("%s/public/mcp/ui/%s/assets", baseURL, m.sceneName)
+	}
+	return ""
 }
 
 // FetchRemoteUI fetches and caches the scene's HTML shell from the Looker instance.
@@ -930,7 +870,6 @@ func (m *LookerUIResourceManager) FetchRemoteUI(ctx context.Context) (string, er
 		localeCacheKey = "default"
 	}
 
-	// 1. Check in-memory HTML cache scoped by validated locale key (5-minute TTL)
 	m.mu.RLock()
 	if entry, ok := m.cachedHTMLByLocale[localeCacheKey]; ok && entry.html != "" && time.Since(entry.fetchedAt) < uiHTMLCacheTTL {
 		html := entry.html
@@ -939,29 +878,7 @@ func (m *LookerUIResourceManager) FetchRemoteUI(ctx context.Context) (string, er
 	}
 	m.mu.RUnlock()
 
-	var remoteURL string
-	targetSuffix := fmt.Sprintf("/%s/assets", m.sceneName)
-	otherSuffix := fmt.Sprintf("/%s/assets", m.otherSceneName)
-	if lookerUIURL := os.Getenv("LOOKER_UI_URL"); lookerUIURL != "" {
-		lookerUIURL = strings.TrimSpace(lookerUIURL)
-		if !strings.Contains(lookerUIURL, "://") {
-			lookerUIURL = "http://" + lookerUIURL
-		}
-		lookerUIURL = strings.TrimSuffix(lookerUIURL, "/")
-		if strings.HasSuffix(lookerUIURL, targetSuffix) {
-			remoteURL = lookerUIURL
-		} else if m.otherSceneName != "" && strings.Contains(lookerUIURL, otherSuffix) {
-			remoteURL = strings.ReplaceAll(lookerUIURL, otherSuffix, targetSuffix)
-		} else if !strings.HasSuffix(lookerUIURL, "/assets") {
-			remoteURL = fmt.Sprintf("%s/public/mcp/ui/%s/assets", lookerUIURL, m.sceneName)
-		} else {
-			remoteURL = lookerUIURL
-		}
-	} else if apiSettings != nil && apiSettings.BaseUrl != "" {
-		baseURL := strings.TrimSuffix(apiSettings.BaseUrl, "/")
-		remoteURL = fmt.Sprintf("%s/public/mcp/ui/%s/assets", baseURL, m.sceneName)
-	}
-
+	remoteURL := m.resolveRemoteUIURL(apiSettings)
 	if remoteURL == "" {
 		return "", fmt.Errorf("no Looker instance URL configured to fetch %s UI", m.uiLabel)
 	}
@@ -1050,10 +967,7 @@ func (m *LookerUIResourceManager) allowUIOrigin(remoteURL, publicOrigin, discove
 		addedAny = true
 	}
 	if !addedAny {
-		if parsed, err := url.Parse(remoteURL); err == nil && parsed.Host != "" {
-			origin := fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
-			AddCSPOrigin(nextCSP, origin)
-		}
+		AddCSPOrigin(nextCSP, extractURLOrigin(remoteURL))
 	}
 	m.csp = nextCSP
 	if dynRes, ok := m.uiResource.(*resources.DynamicUIResource); ok {

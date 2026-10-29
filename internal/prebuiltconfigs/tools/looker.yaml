@@ -1020,7 +1020,7 @@ description: |
   - sorts (optional): A list of fields to sort by (e.g. `["users.created_date desc"]`).
   - limit (optional): Maximum number of rows to return (default: 500).
   - tz (optional): Timezone for the query.
-  - vis_config (optional): Optional JSON string or object specifying the visualization configuration (e.g. chart type, legend, colors). Note: use `"type": "looker_column"` for vertical column/bar charts and `"type": "looker_bar"` for horizontal bar charts.
+  - vis_config (optional): Optional JSON string specifying the visualization configuration (e.g. chart type, legend, colors). Note: use `"type": "looker_column"` for vertical column/bar charts and `"type": "looker_bar"` for horizontal bar charts.
 ---
 kind: group
 name: looker_tools

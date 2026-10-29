@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -197,7 +198,7 @@ func TestInitializeAndResourceProvider(t *testing.T) {
 		"https://fonts.googleapis.com",
 		"https://fonts.gstatic.com",
 	} {
-		if !containsStr(dynRes.CSP.ResourceDomains, want) {
+		if !slices.Contains(dynRes.CSP.ResourceDomains, want) {
 			t.Errorf("expected ResourceDomains to contain %q, got %v", want, dynRes.CSP.ResourceDomains)
 		}
 	}
@@ -206,10 +207,10 @@ func TestInitializeAndResourceProvider(t *testing.T) {
 		"https://*.googleapis.com",
 		"https://*.googleusercontent.com",
 	} {
-		if containsStr(dynRes.CSP.ResourceDomains, forbidden) {
+		if slices.Contains(dynRes.CSP.ResourceDomains, forbidden) {
 			t.Errorf("expected ResourceDomains NOT to contain wildcard %q, got %v", forbidden, dynRes.CSP.ResourceDomains)
 		}
-		if containsStr(dynRes.CSP.ConnectDomains, forbidden) {
+		if slices.Contains(dynRes.CSP.ConnectDomains, forbidden) {
 			t.Errorf("expected ConnectDomains NOT to contain wildcard %q, got %v", forbidden, dynRes.CSP.ConnectDomains)
 		}
 	}
@@ -224,7 +225,7 @@ func TestInitializeAndResourceProvider(t *testing.T) {
 		"https://fonts.googleapis.com",
 		"https://fonts.gstatic.com",
 	} {
-		if !containsStr(dynRes.CSP.ConnectDomains, want) {
+		if !slices.Contains(dynRes.CSP.ConnectDomains, want) {
 			t.Errorf("expected ConnectDomains to contain %q, got %v", want, dynRes.CSP.ConnectDomains)
 		}
 	}
@@ -264,15 +265,6 @@ func TestInitializeAndResourceProvider(t *testing.T) {
 	if !foundFieldsParam {
 		t.Errorf("expected fields parameter in render_visualization manifest")
 	}
-}
-
-func containsStr(list []string, value string) bool {
-	for _, v := range list {
-		if v == value {
-			return true
-		}
-	}
-	return false
 }
 
 func TestRemoteUIFetching(t *testing.T) {
@@ -612,11 +604,11 @@ func TestInvokeStripsTableCalculationsAndRestoresHiddenFields(t *testing.T) {
 	if tbErr != nil {
 		t.Fatalf("Invoke failed when switching chart type with hidden_fields + dynamic_fields: %v", tbErr)
 	}
-	if containsStr(capturedFields, "pct_of_total") {
+	if slices.Contains(capturedFields, "pct_of_total") {
 		t.Errorf("expected table calculation pct_of_total to be stripped from fields, got %v", capturedFields)
 	}
 	for _, want := range []string{"orders.status", "custom_avg", "orders.total_sale_price", "orders.count"} {
-		if !containsStr(capturedFields, want) {
+		if !slices.Contains(capturedFields, want) {
 			t.Errorf("expected field %q to be preserved/restored in WriteQuery.Fields, got %v", want, capturedFields)
 		}
 	}
@@ -628,5 +620,110 @@ func TestInvokeStripsTableCalculationsAndRestoresHiddenFields(t *testing.T) {
 	queryMeta, _ := visData["query"].(map[string]any)
 	if dynSlice, ok := queryMeta["dynamic_fields"].([]any); !ok || len(dynSlice) != 2 {
 		t.Errorf("expected queryMeta.dynamic_fields to preserve 2 parsed dynamic field entries, got %#v", queryMeta["dynamic_fields"])
+	}
+}
+
+func TestInvokeRejectsInvalidVisConfigJSON(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "render_visualization",
+			Description: "Render visualization tool",
+		},
+		Type:   "looker-render-visualization",
+		Source: "my-instance",
+	}
+	toolInstance, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	for _, badVisConfig := range []string{`{invalid-json`, `["not","an","object"]`, `"looker_bar"`} {
+		_, tbErr := toolInstance.Invoke(ctx, mockVisLookerSource{}, parameters.ParamValues{
+			{Name: "query_id", Value: "42"},
+			{Name: "vis_config", Value: badVisConfig},
+		}, "")
+		if tbErr == nil || !strings.Contains(tbErr.Error(), "invalid vis_config") {
+			t.Errorf("expected invalid vis_config error for %q, got %v", badVisConfig, tbErr)
+		}
+	}
+}
+
+func TestInvokeSavedQueryPreservesTotalsAndLimitViaParseParams(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var capturedBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/4.0/queries/88":
+			_, _ = w.Write([]byte(`{"id":"88","client_id":"slug88","model":"thelook","view":"orders","fields":["orders.status","orders.count"],"limit":"25","column_limit":"10","total":true,"row_total":"right","subtotals":["orders.status"],"fill_fields":["orders.status"],"vis_config":{"type":"looker_grid"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/4.0/queries/run/json_detail":
+			bodyBytes, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(bodyBytes, &capturedBody)
+			_, _ = w.Write([]byte(`{"data":[{"orders.status":{"value":"complete"},"orders.count":{"value":10}}],"totals_data":{"orders.count":{"value":10}},"fields":{"dimensions":[{"name":"orders.status"}],"measures":[{"name":"orders.count"}]}}`))
+		case r.URL.Path == "/api/4.0/user":
+			_, _ = w.Write([]byte(`{"id":"1","locale":"en"}`))
+		case r.URL.Path == "/api/4.0/color_collections/active":
+			_, _ = w.Write([]byte(`{}`))
+		case r.URL.Path == "/public/mcp/ui/map_api_key":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	settings := &rtl.ApiSettings{BaseUrl: server.URL}
+	session := rtl.NewAuthSession(*settings)
+	session.Client = *server.Client()
+	sdk := v4.NewLookerSDK(session)
+
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "render_visualization",
+			Description: "Render visualization tool",
+		},
+		Type:   "looker-render-visualization",
+		Source: "my-instance",
+	}
+	toolInstance, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	toolParams, err := toolInstance.GetParameters(mockVisLookerSource{})
+	if err != nil {
+		t.Fatalf("GetParameters failed: %v", err)
+	}
+	parsedParams, err := parameters.ParseParams(toolParams, map[string]any{
+		"query_id": "88",
+	}, nil)
+	if err != nil {
+		t.Fatalf("ParseParams failed: %v", err)
+	}
+
+	if _, tbErr := toolInstance.Invoke(ctx, mockVisLookerSource{settings: settings, sdk: sdk}, parsedParams, ""); tbErr != nil {
+		t.Fatalf("Invoke failed: %v", tbErr)
+	}
+
+	if capturedBody["limit"] != "25" {
+		t.Errorf("expected saved query limit=25 to be preserved when limit param is omitted, got %v", capturedBody["limit"])
+	}
+	if capturedBody["column_limit"] != "10" {
+		t.Errorf("expected saved query column_limit=10 to be preserved, got %v", capturedBody["column_limit"])
+	}
+	if capturedBody["total"] != true {
+		t.Errorf("expected saved query total=true to be preserved, got %v", capturedBody["total"])
+	}
+	if capturedBody["row_total"] != "right" {
+		t.Errorf("expected saved query row_total=right to be preserved, got %v", capturedBody["row_total"])
 	}
 }

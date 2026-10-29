@@ -17,11 +17,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -53,12 +55,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 	return actual, nil
 }
 
-type compatibleSource interface {
-	UseClientAuthorization() bool
-	GetAuthTokenHeaderName() string
-	LookerApiSettings() *rtl.ApiSettings
-	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
-}
+type compatibleSource = lookercommon.LookerUISource
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
@@ -75,74 +72,56 @@ func (cfg Config) ToolConfigType() string {
 }
 
 func getVisualizationParameters() parameters.Parameters {
-	queryIdParameter := parameters.NewStringParameter(
+	baseParams := lookercommon.GetQueryParameters()
+	allParams := make(parameters.Parameters, 0, len(baseParams)+2)
+	allParams = append(allParams, parameters.NewStringParameter(
 		"query_id",
 		"Optional Looker query ID (or slug) to fetch and render the saved visualization directly. If provided, model, explore, and fields are not required.",
 		parameters.WithStringRequired(false),
-	)
-	modelParameter := parameters.NewStringParameter(
-		"model",
-		"The model containing the explore (from get_models). Required if query_id is not provided.",
-		parameters.WithStringRequired(false),
-	)
-	exploreParameter := parameters.NewStringParameter(
-		"explore",
-		"The explore to be queried (from get_explores). Required if query_id is not provided.",
-		parameters.WithStringRequired(false),
-	)
-	fieldsParameter := parameters.NewArrayParameter(
-		"fields",
-		"The fields to be retrieved (from get_dimensions, get_measures, get_filters, or get_parameters). Required if query_id is not provided. For charts comparing a metric across categories or time (such as bar, column, line, area, pie, or scatter charts), `fields` MUST include BOTH the grouping dimension(s) AND the measure(s) in a single call (for example, [\"products.department\", \"order_items.count\"]). Passing only a single field to a bar/column/line chart will fail with 'Not Enough Fields'.",
-		parameters.NewStringParameter("field", "A field to be returned in the query"),
-		parameters.WithArrayRequired(false),
-	)
-	filtersParameter := parameters.NewMapParameter(
-		"filters",
-		"The filters for the query.",
-		"",
-		parameters.WithMapDefault(map[string]any{}),
-	)
-	pivotsParameter := parameters.NewArrayParameter(
-		"pivots",
-		"The query pivots. Any pivot field omitted from `fields` is automatically appended to `fields`.",
-		parameters.NewStringParameter("pivot_field", "A field to be used as a pivot in the query"),
-		parameters.WithArrayDefault([]any{}),
-	)
-	sortsParameter := parameters.NewArrayParameter(
-		"sorts",
-		"The sorts like \"field.id desc 0\".",
-		parameters.NewStringParameter("sort_field", "A field to be used as a sort in the query"),
-		parameters.WithArrayDefault([]any{}),
-	)
-	limitParameter := parameters.NewIntParameter("limit", "The row limit.", parameters.WithIntRequired(false))
-	tzParameter := parameters.NewStringParameter("tz", "The query timezone.", parameters.WithStringDefault(""))
-	filterExpressionParameter := parameters.NewStringParameter("filter_expression", "An optional filter expression string.", parameters.WithStringDefault(""))
-	dynamicFieldsParameter := parameters.NewArrayParameter(
-		"dynamic_fields",
-		"An optional array of dynamic fields (table calculations, custom measures, custom dimensions).",
-		parameters.NewMapParameter("dynamic_field", "A dynamic field definition", ""),
-		parameters.WithArrayDefault([]any{}),
-	)
-	visConfigParameter := parameters.NewStringParameter(
+	))
+
+	for _, p := range baseParams {
+		switch p.GetName() {
+		case "model":
+			allParams = append(allParams, parameters.NewStringParameter(
+				"model",
+				"The model containing the explore (from get_models). Required if query_id is not provided.",
+				parameters.WithStringRequired(false),
+			))
+		case "explore":
+			allParams = append(allParams, parameters.NewStringParameter(
+				"explore",
+				"The explore to be queried (from get_explores). Required if query_id is not provided.",
+				parameters.WithStringRequired(false),
+			))
+		case "fields":
+			allParams = append(allParams, parameters.NewArrayParameter(
+				"fields",
+				"The fields to be retrieved (from get_dimensions, get_measures, get_filters, or get_parameters). Required if query_id is not provided. For charts comparing a metric across categories or time (such as bar, column, line, area, pie, or scatter charts), `fields` MUST include BOTH the grouping dimension(s) AND the measure(s) in a single call (for example, [\"products.department\", \"order_items.count\"]). Passing only a single field to a bar/column/line chart will fail with 'Not Enough Fields'.",
+				parameters.NewStringParameter("field", "A field to be returned in the query"),
+				parameters.WithArrayRequired(false),
+			))
+		case "pivots":
+			allParams = append(allParams, parameters.NewArrayParameter(
+				"pivots",
+				"The query pivots. Any pivot field omitted from `fields` is automatically appended to `fields`.",
+				parameters.NewStringParameter("pivot_field", "A field to be used as a pivot in the query"),
+				parameters.WithArrayDefault([]any{}),
+			))
+		case "limit":
+			// Omit WithIntDefault(500) so saved query_id calls preserve the saved query's own limit unless explicitly overridden.
+			allParams = append(allParams, parameters.NewIntParameter("limit", "The row limit.", parameters.WithIntRequired(false)))
+		default:
+			allParams = append(allParams, p)
+		}
+	}
+
+	allParams = append(allParams, parameters.NewStringParameter(
 		"vis_config",
 		"Optional JSON string specifying the visualization configuration (e.g. chart type, options). Use \"looker_column\" for vertical column charts and \"looker_bar\" for horizontal bar charts.",
-		parameters.WithStringDefault(""),
-	)
-
-	return parameters.Parameters{
-		queryIdParameter,
-		modelParameter,
-		exploreParameter,
-		fieldsParameter,
-		filtersParameter,
-		pivotsParameter,
-		sortsParameter,
-		limitParameter,
-		tzParameter,
-		filterExpressionParameter,
-		dynamicFieldsParameter,
-		visConfigParameter,
-	}
+		parameters.WithStringRequired(false),
+	))
+	return allParams
 }
 
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
@@ -153,14 +132,13 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	lookercommon.EnsureDefaultToolUIMetadata(&cfg.UI, defaultResourceName)
 
 	allParameters := getVisualizationParameters()
-	uiMgr := lookercommon.NewLookerUIResourceManager(
-		cfg.UI.Resource,
-		defaultResourceURI,
-		"Looker visualization rendering interface",
-		"render_visualization",
-		"render_dashboard",
-		"visualization",
-	)
+	uiMgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: cfg.UI.Resource,
+		ResourceURI:  defaultResourceURI,
+		Description:  "Looker visualization rendering interface",
+		SceneName:    "render_visualization",
+		UILabel:      "visualization",
+	})
 
 	toolInstance := Tool{
 		BaseTool: tools.NewBaseTool(
@@ -191,9 +169,6 @@ type Tool struct {
 }
 
 func (t Tool) GetResources() []resources.Resource {
-	if t.uiMgr == nil {
-		return nil
-	}
 	return t.uiMgr.GetResources()
 }
 
@@ -210,9 +185,7 @@ func (t Tool) ValidateSource(source sources.Source) error {
 	if !ok {
 		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
-	if t.uiMgr != nil {
-		t.uiMgr.SetSource(cs)
-	}
+	t.uiMgr.SetSource(cs)
 	return nil
 }
 
@@ -227,6 +200,28 @@ func parseDynamicFieldsForMeta(raw *string) []any {
 		return parsed
 	}
 	return nil
+}
+
+func parseVisConfig(raw any) (map[string]any, util.ToolboxError) {
+	if raw == nil {
+		return nil, nil
+	}
+	switch v := raw.(type) {
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil, nil
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+			return nil, util.NewAgentError("invalid vis_config JSON: must be a valid JSON object string", err)
+		}
+		return parsed, nil
+	case map[string]any:
+		return maps.Clone(v), nil
+	default:
+		return nil, util.NewAgentError(fmt.Sprintf("invalid vis_config: expected JSON object string, got %T", raw), nil)
+	}
 }
 
 func extractHiddenFieldNames(rawVisConfig any, out *[]string) {
@@ -259,7 +254,7 @@ func extractHiddenFieldNames(rawVisConfig any, out *[]string) {
 // fields) while ensuring any underlying LookML or custom SQL fields referenced
 // by wq.DynamicFields expressions (${view.field}) or hidden in visConfig.hidden_fields
 // remain present in wq.Fields.
-func sanitizeWriteQueryFields(wq *v4.WriteQuery, queryDef *v4.Query, visConfigObj any) {
+func sanitizeWriteQueryFields(wq *v4.WriteQuery, queryDef *v4.Query, visConfig map[string]any) {
 	if wq == nil || wq.Fields == nil {
 		return
 	}
@@ -299,7 +294,7 @@ func sanitizeWriteQueryFields(wq *v4.WriteQuery, queryDef *v4.Query, visConfigOb
 		}
 	}
 
-	extractHiddenFieldNames(visConfigObj, &requiredFields)
+	extractHiddenFieldNames(visConfig, &requiredFields)
 	if queryDef != nil && queryDef.VisConfig != nil {
 		extractHiddenFieldNames(*queryDef.VisConfig, &requiredFields)
 	}
@@ -334,21 +329,22 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("unable to get logger from ctx", http.StatusInternalServerError, err)
 	}
 	paramMap := params.AsMap()
-	queryIdVal, _ := paramMap["query_id"].(string)
-	queryIdVal = strings.TrimSpace(queryIdVal)
-	visConfigVal := paramMap["vis_config"]
+	queryID, _ := paramMap["query_id"].(string)
+	queryID = strings.TrimSpace(queryID)
 
-	if queryIdVal == "" {
-		modelVal, _ := paramMap["model"].(string)
-		if strings.TrimSpace(modelVal) == "" {
+	visConfig, tbErr := parseVisConfig(paramMap["vis_config"])
+	if tbErr != nil {
+		return nil, tbErr
+	}
+
+	if queryID == "" {
+		if modelVal, _ := paramMap["model"].(string); strings.TrimSpace(modelVal) == "" {
 			return nil, util.NewAgentError("model is required when query_id is not provided; use get_models to discover available models and retry", nil)
 		}
-		exploreVal, _ := paramMap["explore"].(string)
-		if strings.TrimSpace(exploreVal) == "" {
+		if exploreVal, _ := paramMap["explore"].(string); strings.TrimSpace(exploreVal) == "" {
 			return nil, util.NewAgentError("explore is required when query_id is not provided; use get_explores to discover available explores and retry", nil)
 		}
-		fieldsSlice, _ := paramMap["fields"].([]any)
-		if len(fieldsSlice) == 0 {
+		if fieldsSlice, _ := paramMap["fields"].([]any); len(fieldsSlice) == 0 {
 			return nil, util.NewAgentError("fields is required when query_id is not provided; use get_dimensions and get_measures to discover available fields and retry", nil)
 		}
 	}
@@ -357,370 +353,447 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
+	opts := source.LookerApiSettings()
 
-	var visConfigObj any
-	if visConfigVal != nil && visConfigVal != "" {
-		if str, ok := visConfigVal.(string); ok {
-			var parsed any
-			if json.Unmarshal([]byte(str), &parsed) == nil {
-				visConfigObj = parsed
-			} else {
-				visConfigObj = str
-			}
-		} else {
-			visConfigObj = visConfigVal
-		}
+	if queryID != "" {
+		return t.invokeSavedQuery(ctx, logger, sdk, opts, queryID, paramMap, visConfig)
+	}
+	return t.invokeInlineQuery(ctx, logger, sdk, opts, params, visConfig)
+}
+
+func fetchQueryByIDOrSlug(sdk *v4.LookerSDK, queryID string, opts *rtl.ApiSettings) (*v4.Query, error) {
+	q, err := sdk.Query(queryID, "", opts)
+	if err == nil {
+		return &q, nil
+	}
+	q, err = sdk.QueryForSlug(queryID, "", opts)
+	if err == nil {
+		return &q, nil
+	}
+	return nil, err
+}
+
+func applySavedQueryOverrides(
+	queryDef *v4.Query,
+	paramMap map[string]any,
+	visConfig map[string]any,
+) (*v4.WriteQuery, map[string]any, bool, util.ToolboxError) {
+	if queryDef == nil || queryDef.Model == "" || queryDef.View == "" {
+		return nil, visConfig, false, nil
 	}
 
-	// 1. If query_id is provided, fetch query by ID/slug and run it (merging parameter overrides if provided)
-	if queryIdVal != "" {
-		queryDef, qErr := lookercommon.GetQuery(ctx, sdk, queryIdVal, source.LookerApiSettings())
-		if qErr != nil {
-			queryDef, qErr = lookercommon.GetQueryBySlug(ctx, sdk, queryIdVal, source.LookerApiSettings())
-			if qErr != nil {
-				logger.WarnContext(ctx, "could not fetch query definition by id or slug", "error", qErr)
-			}
+	baseWQ := lookercommon.WriteQueryFromQuery(*queryDef)
+	wq := &baseWQ
+	hasOverrides := false
+
+	if limitVal, ok := paramMap["limit"].(int); ok && limitVal > 0 {
+		limitStr := fmt.Sprintf("%d", limitVal)
+		wq.Limit = &limitStr
+		hasOverrides = true
+	}
+	if sortsSlice, ok := paramMap["sorts"].([]any); ok && len(sortsSlice) > 0 {
+		s, err := parameters.ConvertAnySliceToTyped(sortsSlice, "string")
+		if err != nil {
+			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid sorts parameter: %v", err), err)
 		}
-
-		var wq *v4.WriteQuery
-		hasOverrides := false
-
-		if queryDef != nil && queryDef.Model != "" && queryDef.View != "" {
-			wq = &v4.WriteQuery{
-				Model:            queryDef.Model,
-				View:             queryDef.View,
-				Fields:           queryDef.Fields,
-				Filters:          queryDef.Filters,
-				Pivots:           queryDef.Pivots,
-				Sorts:            queryDef.Sorts,
-				Limit:            queryDef.Limit,
-				FilterExpression: queryDef.FilterExpression,
-				DynamicFields:    queryDef.DynamicFields,
-				QueryTimezone:    queryDef.QueryTimezone,
-			}
-
-			// Apply parameter overrides if provided by caller
-			if limitVal, ok := paramMap["limit"].(int); ok && limitVal > 0 {
-				limitStr := fmt.Sprintf("%d", limitVal)
-				wq.Limit = &limitStr
-				hasOverrides = true
-			}
-			if sortsSlice, ok := paramMap["sorts"].([]any); ok && len(sortsSlice) > 0 {
-				if s, sErr := parameters.ConvertAnySliceToTyped(sortsSlice, "string"); sErr == nil {
-					sorts := s.([]string)
-					wq.Sorts = &sorts
-					hasOverrides = true
-				}
-			}
-			if fieldsSlice, ok := paramMap["fields"].([]any); ok && len(fieldsSlice) > 0 {
-				if f, fErr := parameters.ConvertAnySliceToTyped(fieldsSlice, "string"); fErr == nil {
-					fields := f.([]string)
-					wq.Fields = &fields
-					hasOverrides = true
-				}
-			}
-			if pivotsSlice, ok := paramMap["pivots"].([]any); ok && len(pivotsSlice) > 0 {
-				if p, pErr := parameters.ConvertAnySliceToTyped(pivotsSlice, "string"); pErr == nil {
-					pivots := p.([]string)
-					var currentFields []string
-					if wq.Fields != nil {
-						currentFields = *wq.Fields
-					}
-					updatedFields, pivErr := lookercommon.EnsurePivotsInFields(currentFields, pivots)
-					if pivErr != nil {
-						return nil, util.NewAgentError(pivErr.Error(), pivErr)
-					}
-					wq.Fields = &updatedFields
-					wq.Pivots = &pivots
-					hasOverrides = true
-				}
-			}
-			if modelVal, _ := paramMap["model"].(string); modelVal != "" {
-				wq.Model = modelVal
-				hasOverrides = true
-			}
-			if exploreVal, _ := paramMap["explore"].(string); exploreVal != "" {
-				wq.View = exploreVal
-				hasOverrides = true
-			}
-			if filtersMap, ok := paramMap["filters"].(map[string]any); ok && len(filtersMap) > 0 {
-				var knownFields []string
-				if wq.Fields != nil {
-					knownFields = *wq.Fields
-				}
-				normalizedOverrides := lookercommon.NormalizeFilterKeys(filtersMap, knownFields, wq.View)
-				mergedFilters := make(map[string]any)
-				if queryDef.Filters != nil {
-					for k, v := range *queryDef.Filters {
-						mergedFilters[k] = v
-					}
-				}
-				for k, v := range normalizedOverrides {
-					mergedFilters[k] = v
-				}
-				wq.Filters = &mergedFilters
-				hasOverrides = true
-			}
-			if tzVal, _ := paramMap["tz"].(string); tzVal != "" {
-				wq.QueryTimezone = &tzVal
-				hasOverrides = true
-			}
-			if feVal, _ := paramMap["filter_expression"].(string); feVal != "" {
-				wq.FilterExpression = &feVal
-				hasOverrides = true
-			}
-			if dfSlice, ok := paramMap["dynamic_fields"].([]any); ok && len(dfSlice) > 0 {
-				if jsonBytes, mErr := json.Marshal(dfSlice); mErr == nil {
-					jsonStr := string(jsonBytes)
-					wq.DynamicFields = &jsonStr
-					hasOverrides = true
-				}
-			}
+		sorts := s.([]string)
+		wq.Sorts = &sorts
+		hasOverrides = true
+	}
+	if fieldsSlice, ok := paramMap["fields"].([]any); ok && len(fieldsSlice) > 0 {
+		f, err := parameters.ConvertAnySliceToTyped(fieldsSlice, "string")
+		if err != nil {
+			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid fields parameter: %v", err), err)
 		}
-
-		var resp string
-		var rErr error
-
-		if wq != nil {
-			if visConfigObj != nil {
-				if m, ok := visConfigObj.(map[string]any); ok {
-					mergedVisConfig := make(map[string]any)
-					if queryDef != nil && queryDef.VisConfig != nil {
-						for k, v := range *queryDef.VisConfig {
-							mergedVisConfig[k] = v
-						}
-					}
-					for k, v := range m {
-						mergedVisConfig[k] = v
-					}
-					wq.VisConfig = &mergedVisConfig
-					visConfigObj = mergedVisConfig
-					hasOverrides = true
-				}
-			}
-
-			sanitizeWriteQueryFields(wq, queryDef, visConfigObj)
-
-			if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, source.LookerApiSettings()); escErr != nil {
-				logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
-			}
-
-			// Execute the modified query inline without calling sdk.CreateQuery so
-			// read-only overrides do not persist new rows in Looker's database.
-			generateDrillLinks := false
-			resp, rErr = lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json_detail", &generateDrillLinks, source.LookerApiSettings())
-			if rErr != nil && !hasOverrides {
-				logger.WarnContext(ctx, "error running inline query from query definition, falling back to saved query", "error", rErr)
-				resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, queryIdVal, "json_detail", &generateDrillLinks, source.LookerApiSettings())
-			}
-		} else {
-			generateDrillLinks := false
-			resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, queryIdVal, "json_detail", &generateDrillLinks, source.LookerApiSettings())
+		fields := f.([]string)
+		wq.Fields = &fields
+		hasOverrides = true
+	}
+	if pivotsSlice, ok := paramMap["pivots"].([]any); ok && len(pivotsSlice) > 0 {
+		p, err := parameters.ConvertAnySliceToTyped(pivotsSlice, "string")
+		if err != nil {
+			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid pivots parameter: %v", err), err)
 		}
-		if rErr != nil {
-			if strings.Contains(rErr.Error(), "status=401") {
-				return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, rErr)
-			}
-			return nil, util.ProcessGeneralError(lookercommon.ExtractLookerErrorMessage(rErr))
+		pivots := p.([]string)
+		var currentFields []string
+		if wq.Fields != nil {
+			currentFields = *wq.Fields
 		}
+		updatedFields, pivErr := lookercommon.EnsurePivotsInFields(currentFields, pivots)
+		if pivErr != nil {
+			return nil, nil, false, util.NewAgentError(pivErr.Error(), pivErr)
+		}
+		wq.Fields = &updatedFields
+		wq.Pivots = &pivots
+		hasOverrides = true
+	}
+	if modelVal, _ := paramMap["model"].(string); strings.TrimSpace(modelVal) != "" {
+		wq.Model = strings.TrimSpace(modelVal)
+		hasOverrides = true
+	}
+	if exploreVal, _ := paramMap["explore"].(string); strings.TrimSpace(exploreVal) != "" {
+		wq.View = strings.TrimSpace(exploreVal)
+		hasOverrides = true
+	}
+	if filtersMap, ok := paramMap["filters"].(map[string]any); ok && len(filtersMap) > 0 {
+		var knownFields []string
+		if wq.Fields != nil {
+			knownFields = *wq.Fields
+		}
+		hints := []string{wq.View}
+		if wq.Pivots != nil {
+			hints = append(hints, *wq.Pivots...)
+		}
+		if wq.Sorts != nil {
+			hints = append(hints, *wq.Sorts...)
+		}
+		normalizedOverrides := lookercommon.NormalizeFilterKeys(filtersMap, knownFields, hints...)
+		mergedFilters := make(map[string]any)
+		if wq.Filters != nil {
+			maps.Copy(mergedFilters, *wq.Filters)
+		}
+		maps.Copy(mergedFilters, normalizedOverrides)
+		wq.Filters = &mergedFilters
+		hasOverrides = true
+	}
+	if tzVal, _ := paramMap["tz"].(string); strings.TrimSpace(tzVal) != "" {
+		trimmedTZ := strings.TrimSpace(tzVal)
+		wq.QueryTimezone = &trimmedTZ
+		hasOverrides = true
+	}
+	if feVal, _ := paramMap["filter_expression"].(string); strings.TrimSpace(feVal) != "" {
+		wq.FilterExpression = &feVal
+		hasOverrides = true
+	}
+	if dfSlice, ok := paramMap["dynamic_fields"].([]any); ok && len(dfSlice) > 0 {
+		jsonBytes, err := json.Marshal(dfSlice)
+		if err != nil {
+			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid dynamic_fields parameter: %v", err), err)
+		}
+		jsonStr := string(jsonBytes)
+		wq.DynamicFields = &jsonStr
+		hasOverrides = true
+	}
+	if visConfig != nil {
+		mergedVisConfig := make(map[string]any)
+		if wq.VisConfig != nil {
+			maps.Copy(mergedVisConfig, *wq.VisConfig)
+		}
+		maps.Copy(mergedVisConfig, visConfig)
+		wq.VisConfig = &mergedVisConfig
+		visConfig = mergedVisConfig
+		hasOverrides = true
+	}
 
-		var detailResp map[string]any
-		if err := json.Unmarshal([]byte(resp), &detailResp); err != nil {
-			return nil, util.NewClientServerError("error unmarshaling json_detail response", http.StatusInternalServerError, err)
-		}
-		if wq != nil && wq.Pivots != nil && len(*wq.Pivots) > 0 {
-			if pivErr := lookercommon.ValidatePivotsInDetailResponse(*wq.Pivots, detailResp); pivErr != nil {
+	return wq, visConfig, hasOverrides, nil
+}
+
+func resolveEffectiveVisConfig(visConfig map[string]any, queryDef *v4.Query) map[string]any {
+	if len(visConfig) > 0 {
+		return visConfig
+	}
+	if queryDef != nil && queryDef.VisConfig != nil && len(*queryDef.VisConfig) > 0 {
+		return maps.Clone(*queryDef.VisConfig)
+	}
+	return map[string]any{"type": "table", "show_row_numbers": true}
+}
+
+func parseVisualizationQueryResult(rawResp string, requestedPivots *[]string) (map[string]any, util.ToolboxError) {
+	var rawParsed any
+	if err := json.Unmarshal([]byte(rawResp), &rawParsed); err != nil {
+		return nil, util.NewClientServerError("error unmarshaling query response", http.StatusInternalServerError, err)
+	}
+
+	var (
+		dataVal   any
+		fieldsObj any
+		pivotsObj any
+		totalsObj any
+		errorsObj any
+	)
+
+	switch parsed := rawParsed.(type) {
+	case map[string]any:
+		if requestedPivots != nil && len(*requestedPivots) > 0 {
+			if pivErr := lookercommon.ValidatePivotsInDetailResponse(*requestedPivots, parsed); pivErr != nil {
 				return nil, util.NewAgentError(pivErr.Error(), pivErr)
 			}
 		}
-		lookercommon.StripDrillLinks(detailResp)
-
-		if (visConfigObj == nil || visConfigObj == "") && queryDef != nil && queryDef.VisConfig != nil {
-			visConfigObj = queryDef.VisConfig
-		}
-		if visConfigObj == nil || visConfigObj == "" {
-			visConfigObj = map[string]any{"type": "table", "show_row_numbers": true}
-		}
-
-		modelVal, _ := paramMap["model"].(string)
-		exploreVal, _ := paramMap["explore"].(string)
-
-		title := "Looker Visualization"
-		if wq != nil && wq.View != "" {
-			title = wq.View
-		} else if queryDef != nil && queryDef.View != "" {
-			title = queryDef.View
-		} else if exploreVal != "" {
-			title = exploreVal
-		}
-
-		queryMeta := map[string]any{
-			"id": queryIdVal,
-		}
-		if modelVal != "" {
-			queryMeta["model"] = modelVal
-		}
-		if exploreVal != "" {
-			queryMeta["view"] = exploreVal
-		}
-		if wq != nil {
-			if wq.Model != "" {
-				queryMeta["model"] = wq.Model
-			}
-			if wq.View != "" {
-				queryMeta["view"] = wq.View
-			}
-			if wq.Fields != nil {
-				queryMeta["fields"] = *wq.Fields
-			}
-			if wq.Filters != nil && len(*wq.Filters) > 0 {
-				queryMeta["filters"] = *wq.Filters
-			}
-			if wq.Pivots != nil && len(*wq.Pivots) > 0 {
-				queryMeta["pivots"] = *wq.Pivots
-			}
-			if wq.Limit != nil && *wq.Limit != "" {
-				queryMeta["limit"] = *wq.Limit
-			}
-			if wq.Sorts != nil && len(*wq.Sorts) > 0 {
-				queryMeta["sorts"] = *wq.Sorts
-			}
-			if wq.FilterExpression != nil && *wq.FilterExpression != "" {
-				queryMeta["filter_expression"] = *wq.FilterExpression
-			}
-			if wq.QueryTimezone != nil && *wq.QueryTimezone != "" {
-				queryMeta["query_timezone"] = *wq.QueryTimezone
-			}
-			if parsedDyn := parseDynamicFieldsForMeta(wq.DynamicFields); len(parsedDyn) > 0 {
-				queryMeta["dynamic_fields"] = parsedDyn
-			}
-		}
-		if queryDef != nil {
-			if queryMeta["model"] == nil && queryDef.Model != "" {
-				queryMeta["model"] = queryDef.Model
-			}
-			if queryMeta["view"] == nil && queryDef.View != "" {
-				queryMeta["view"] = queryDef.View
-			}
-			if queryMeta["fields"] == nil && queryDef.Fields != nil {
-				queryMeta["fields"] = *queryDef.Fields
-			}
-			if queryMeta["filter_expression"] == nil && queryDef.FilterExpression != nil && *queryDef.FilterExpression != "" {
-				queryMeta["filter_expression"] = *queryDef.FilterExpression
-			}
-			if queryMeta["query_timezone"] == nil && queryDef.QueryTimezone != nil && *queryDef.QueryTimezone != "" {
-				queryMeta["query_timezone"] = *queryDef.QueryTimezone
-			}
-			if queryMeta["dynamic_fields"] == nil {
-				if parsedDyn := parseDynamicFieldsForMeta(queryDef.DynamicFields); len(parsedDyn) > 0 {
-					queryMeta["dynamic_fields"] = parsedDyn
-				}
-			}
-			if queryDef.Slug != nil && *queryDef.Slug != "" {
-				queryMeta["slug"] = *queryDef.Slug
-			}
-			if queryDef.ClientId != nil && *queryDef.ClientId != "" {
-				queryMeta["client_id"] = *queryDef.ClientId
-				queryMeta["qid"] = *queryDef.ClientId
-			}
-			if queryDef.ShareUrl != nil && *queryDef.ShareUrl != "" {
-				queryMeta["share_url"] = *queryDef.ShareUrl
-			}
-			if queryDef.ExpandedShareUrl != nil && *queryDef.ExpandedShareUrl != "" {
-				queryMeta["expanded_share_url"] = *queryDef.ExpandedShareUrl
-			}
-			if queryDef.Url != nil && *queryDef.Url != "" {
-				queryMeta["url"] = *queryDef.Url
-			}
-			if queryDef.Can != nil && len(*queryDef.Can) > 0 {
-				queryMeta["can"] = *queryDef.Can
-			}
-		}
-
-		queryResult := map[string]any{
-			"data":        detailResp["data"],
-			"fields":      detailResp["fields"],
-			"pivots":      detailResp["pivots"],
-			"totals_data": detailResp["totals_data"],
-		}
-		if errs, ok := detailResp["errors"]; ok && errs != nil {
-			queryResult["errors"] = errs
-		}
-
-		appState := lookercommon.FetchMcpAppState(ctx, sdk, source.LookerApiSettings())
-
-		visualizationData := map[string]any{
-			"queryResult": queryResult,
-			"visConfig":   visConfigObj,
-			"title":       title,
-			"query":       queryMeta,
-		}
-
-		resultPayload := map[string]any{
-			"visualizationData":  visualizationData,
-			"vis_config":         visConfigObj,
-			"query_id":           queryIdVal,
-			"slug":               queryMeta["slug"],
-			"client_id":          queryMeta["client_id"],
-			"share_url":          queryMeta["share_url"],
-			"expanded_share_url": queryMeta["expanded_share_url"],
-		}
-		if canVal, ok := queryMeta["can"]; ok && canVal != nil {
-			resultPayload["can"] = canVal
-		}
-		if qModel, ok := queryMeta["model"].(string); ok && qModel != "" {
-			resultPayload["model"] = qModel
-		}
-		if qView, ok := queryMeta["view"].(string); ok && qView != "" {
-			resultPayload["explore"] = qView
-		}
-		if appState != nil {
-			resultPayload["app_state"] = appState
-		}
-		return applyVisualizationPayloadLimit(resultPayload, visualizationData), nil
+		lookercommon.StripDrillLinks(parsed)
+		dataVal = parsed["data"]
+		fieldsObj = parsed["fields"]
+		pivotsObj = parsed["pivots"]
+		totalsObj = parsed["totals_data"]
+		errorsObj = parsed["errors"]
+	case []any:
+		dataVal = parsed
+	default:
+		return nil, util.NewClientServerError("unexpected query response format", http.StatusInternalServerError, nil)
 	}
 
-	// 2. Inline query path with json_detail
+	queryResult := map[string]any{
+		"data":        dataVal,
+		"fields":      fieldsObj,
+		"pivots":      pivotsObj,
+		"totals_data": totalsObj,
+	}
+	if errorsObj != nil {
+		queryResult["errors"] = errorsObj
+	}
+	return queryResult, nil
+}
+
+func populateQueryMetaFromWriteQuery(meta map[string]any, wq *v4.WriteQuery) {
+	if wq == nil {
+		return
+	}
+	if wq.Model != "" {
+		meta["model"] = wq.Model
+	}
+	if wq.View != "" {
+		meta["view"] = wq.View
+	}
+	if wq.Fields != nil {
+		meta["fields"] = *wq.Fields
+	}
+	if wq.Filters != nil && len(*wq.Filters) > 0 {
+		meta["filters"] = *wq.Filters
+	}
+	if wq.Pivots != nil && len(*wq.Pivots) > 0 {
+		meta["pivots"] = *wq.Pivots
+	}
+	if wq.Sorts != nil && len(*wq.Sorts) > 0 {
+		meta["sorts"] = *wq.Sorts
+	}
+	if wq.Limit != nil && *wq.Limit != "" {
+		meta["limit"] = *wq.Limit
+	}
+	if wq.FilterExpression != nil && *wq.FilterExpression != "" {
+		meta["filter_expression"] = *wq.FilterExpression
+	}
+	if wq.QueryTimezone != nil && *wq.QueryTimezone != "" {
+		meta["query_timezone"] = *wq.QueryTimezone
+	}
+	if parsedDyn := parseDynamicFieldsForMeta(wq.DynamicFields); len(parsedDyn) > 0 {
+		meta["dynamic_fields"] = parsedDyn
+	}
+}
+
+func populateQueryMetaFromQueryDef(meta map[string]any, queryDef *v4.Query) {
+	if queryDef == nil {
+		return
+	}
+	if meta["model"] == nil && queryDef.Model != "" {
+		meta["model"] = queryDef.Model
+	}
+	if meta["view"] == nil && queryDef.View != "" {
+		meta["view"] = queryDef.View
+	}
+	if meta["fields"] == nil && queryDef.Fields != nil {
+		meta["fields"] = *queryDef.Fields
+	}
+	if meta["filter_expression"] == nil && queryDef.FilterExpression != nil && *queryDef.FilterExpression != "" {
+		meta["filter_expression"] = *queryDef.FilterExpression
+	}
+	if meta["query_timezone"] == nil && queryDef.QueryTimezone != nil && *queryDef.QueryTimezone != "" {
+		meta["query_timezone"] = *queryDef.QueryTimezone
+	}
+	if meta["dynamic_fields"] == nil {
+		if parsedDyn := parseDynamicFieldsForMeta(queryDef.DynamicFields); len(parsedDyn) > 0 {
+			meta["dynamic_fields"] = parsedDyn
+		}
+	}
+	if queryDef.Slug != nil && *queryDef.Slug != "" {
+		meta["slug"] = *queryDef.Slug
+	}
+	if queryDef.ClientId != nil && *queryDef.ClientId != "" {
+		meta["client_id"] = *queryDef.ClientId
+		meta["qid"] = *queryDef.ClientId
+	}
+	if queryDef.ShareUrl != nil && *queryDef.ShareUrl != "" {
+		meta["share_url"] = *queryDef.ShareUrl
+	}
+	if queryDef.ExpandedShareUrl != nil && *queryDef.ExpandedShareUrl != "" {
+		meta["expanded_share_url"] = *queryDef.ExpandedShareUrl
+	}
+	if queryDef.Url != nil && *queryDef.Url != "" {
+		meta["url"] = *queryDef.Url
+	}
+	if queryDef.Can != nil && len(*queryDef.Can) > 0 {
+		meta["can"] = *queryDef.Can
+	}
+}
+
+func buildVisualizationResult(
+	ctx context.Context,
+	sdk *v4.LookerSDK,
+	opts *rtl.ApiSettings,
+	title string,
+	queryID string,
+	visConfig map[string]any,
+	queryResult map[string]any,
+	queryMeta map[string]any,
+) tools.StructuredToolResult {
+	appState := lookercommon.FetchMcpAppState(ctx, sdk, opts)
+
+	visualizationData := map[string]any{
+		"queryResult": queryResult,
+		"visConfig":   visConfig,
+		"title":       title,
+		"query":       queryMeta,
+	}
+
+	resultPayload := map[string]any{
+		"visualizationData":  visualizationData,
+		"vis_config":         visConfig,
+		"query_id":           queryID,
+		"slug":               queryMeta["slug"],
+		"client_id":          queryMeta["client_id"],
+		"share_url":          queryMeta["share_url"],
+		"expanded_share_url": queryMeta["expanded_share_url"],
+	}
+	if canVal, ok := queryMeta["can"]; ok && canVal != nil {
+		resultPayload["can"] = canVal
+	}
+	if qModel, ok := queryMeta["model"].(string); ok && qModel != "" {
+		resultPayload["model"] = qModel
+	}
+	if qView, ok := queryMeta["view"].(string); ok && qView != "" {
+		resultPayload["explore"] = qView
+	}
+	if appState != nil {
+		resultPayload["app_state"] = appState
+	}
+	return applyVisualizationPayloadLimit(resultPayload, visualizationData)
+}
+
+func (t Tool) invokeSavedQuery(
+	ctx context.Context,
+	logger log.Logger,
+	sdk *v4.LookerSDK,
+	opts *rtl.ApiSettings,
+	queryID string,
+	paramMap map[string]any,
+	visConfig map[string]any,
+) (any, util.ToolboxError) {
+	queryDef, qErr := fetchQueryByIDOrSlug(sdk, queryID, opts)
+	if qErr != nil {
+		logger.WarnContext(ctx, "could not fetch query definition by id or slug", "error", qErr)
+	}
+
+	wq, mergedVisConfig, hasOverrides, tbErr := applySavedQueryOverrides(queryDef, paramMap, visConfig)
+	if tbErr != nil {
+		return nil, tbErr
+	}
+
+	var (
+		resp               string
+		rErr               error
+		generateDrillLinks = false
+		requestedPivots    *[]string
+	)
+
+	if wq != nil {
+		sanitizeWriteQueryFields(wq, queryDef, mergedVisConfig)
+		if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, opts); escErr != nil {
+			logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
+		}
+		requestedPivots = wq.Pivots
+		// Execute the modified query inline without calling sdk.CreateQuery so
+		// read-only overrides do not persist new rows in Looker's database.
+		resp, rErr = lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json_detail", &generateDrillLinks, opts)
+		if rErr != nil && !hasOverrides {
+			logger.WarnContext(ctx, "error running inline query from query definition, falling back to saved query", "error", rErr)
+			resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, queryID, "json_detail", &generateDrillLinks, opts)
+		}
+	} else {
+		resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, queryID, "json_detail", &generateDrillLinks, opts)
+	}
+	if rErr != nil {
+		return nil, lookercommon.ProcessLookerAPIError(rErr)
+	}
+
+	queryResult, tbErr := parseVisualizationQueryResult(resp, requestedPivots)
+	if tbErr != nil {
+		return nil, tbErr
+	}
+
+	effectiveVisConfig := resolveEffectiveVisConfig(mergedVisConfig, queryDef)
+
+	modelVal, _ := paramMap["model"].(string)
+	exploreVal, _ := paramMap["explore"].(string)
+
+	title := "Looker Visualization"
+	switch {
+	case wq != nil && wq.View != "":
+		title = wq.View
+	case queryDef != nil && queryDef.View != "":
+		title = queryDef.View
+	case strings.TrimSpace(exploreVal) != "":
+		title = strings.TrimSpace(exploreVal)
+	}
+
+	queryMeta := map[string]any{"id": queryID}
+	if strings.TrimSpace(modelVal) != "" {
+		queryMeta["model"] = strings.TrimSpace(modelVal)
+	}
+	if strings.TrimSpace(exploreVal) != "" {
+		queryMeta["view"] = strings.TrimSpace(exploreVal)
+	}
+	populateQueryMetaFromWriteQuery(queryMeta, wq)
+	populateQueryMetaFromQueryDef(queryMeta, queryDef)
+
+	return buildVisualizationResult(ctx, sdk, opts, title, queryID, effectiveVisConfig, queryResult, queryMeta), nil
+}
+
+func (t Tool) invokeInlineQuery(
+	ctx context.Context,
+	logger log.Logger,
+	sdk *v4.LookerSDK,
+	opts *rtl.ApiSettings,
+	params parameters.ParamValues,
+	visConfig map[string]any,
+) (any, util.ToolboxError) {
 	wq, err := lookercommon.ProcessQueryArgs(ctx, params)
 	if err != nil {
 		return nil, util.NewAgentError("error building WriteQuery request", err)
 	}
-	if visConfigObj != nil {
-		if m, ok := visConfigObj.(map[string]any); ok {
-			wq.VisConfig = &m
-		}
+	if visConfig != nil {
+		wq.VisConfig = &visConfig
 	}
-	sanitizeWriteQueryFields(wq, nil, visConfigObj)
-	if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, source.LookerApiSettings()); escErr != nil {
+	sanitizeWriteQueryFields(wq, nil, visConfig)
+	if escErr := lookercommon.EscapeUnquotedParameterFilters(ctx, sdk, wq, opts); escErr != nil {
 		logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
 	}
 
-	createdQuery, cErr := sdk.CreateQuery(*wq, "id,slug,client_id,share_url,expanded_share_url,url,can", source.LookerApiSettings())
-	var queryId string
-	var slug string
-	var shareUrl string
-	var expandedShareUrl string
-	var url string
-	var queryCan map[string]bool
-	if cErr == nil {
+	var (
+		queryID          string
+		slug             string
+		shareURL         string
+		expandedShareURL string
+		queryURL         string
+		queryCan         map[string]bool
+	)
+	if createdQuery, cErr := sdk.CreateQuery(*wq, "id,slug,client_id,share_url,expanded_share_url,url,can", opts); cErr == nil {
 		// In Looker, Explore URLs require the 22-character client slug GUID (client_id) for ?qid= (stored in `slugs` table).
-		if createdQuery.ClientId != nil && *createdQuery.ClientId != "" {
+		switch {
+		case createdQuery.ClientId != nil && *createdQuery.ClientId != "":
 			slug = *createdQuery.ClientId
-			queryId = *createdQuery.ClientId
-		} else if createdQuery.Slug != nil && *createdQuery.Slug != "" {
+			queryID = *createdQuery.ClientId
+		case createdQuery.Slug != nil && *createdQuery.Slug != "":
 			slug = *createdQuery.Slug
-			queryId = *createdQuery.Slug
-		} else if createdQuery.Id != nil {
-			queryId = *createdQuery.Id
+			queryID = *createdQuery.Slug
+		case createdQuery.Id != nil:
+			queryID = *createdQuery.Id
 		}
 		if createdQuery.ShareUrl != nil {
-			shareUrl = *createdQuery.ShareUrl
+			shareURL = *createdQuery.ShareUrl
 		}
 		if createdQuery.ExpandedShareUrl != nil {
-			expandedShareUrl = *createdQuery.ExpandedShareUrl
+			expandedShareURL = *createdQuery.ExpandedShareUrl
 		}
 		if createdQuery.Url != nil {
-			url = *createdQuery.Url
+			queryURL = *createdQuery.Url
 		}
 		if createdQuery.Can != nil && len(*createdQuery.Can) > 0 {
 			queryCan = *createdQuery.Can
@@ -730,116 +803,36 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 
 	generateDrillLinks := false
-	resp, err := lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json_detail", &generateDrillLinks, source.LookerApiSettings())
+	resp, err := lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json_detail", &generateDrillLinks, opts)
 	if err != nil {
-		resp, err = lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json", &generateDrillLinks, source.LookerApiSettings())
+		resp, err = lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json", &generateDrillLinks, opts)
 	}
 	if err != nil {
-		if strings.Contains(err.Error(), "status=401") {
-			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
-		}
-		return nil, util.ProcessGeneralError(lookercommon.ExtractLookerErrorMessage(err))
+		return nil, lookercommon.ProcessLookerAPIError(err)
 	}
 
-	var rawParsed any
-	if err := json.Unmarshal([]byte(resp), &rawParsed); err != nil {
-		return nil, util.NewClientServerError("error unmarshaling query response", http.StatusInternalServerError, err)
+	queryResult, tbErr := parseVisualizationQueryResult(resp, wq.Pivots)
+	if tbErr != nil {
+		return nil, tbErr
 	}
 
-	var dataList []any
-	var fieldsObj any
-	var pivotsList any
-	var totalsObj any
-	var errorsObj any
+	effectiveVisConfig := resolveEffectiveVisConfig(visConfig, nil)
 
-	if detailMap, ok := rawParsed.(map[string]any); ok {
-		if wq.Pivots != nil && len(*wq.Pivots) > 0 {
-			if pivErr := lookercommon.ValidatePivotsInDetailResponse(*wq.Pivots, detailMap); pivErr != nil {
-				return nil, util.NewAgentError(pivErr.Error(), pivErr)
-			}
-		}
-		lookercommon.StripDrillLinks(detailMap)
-		if d, ok := detailMap["data"].([]any); ok {
-			dataList = d
-		}
-		fieldsObj = detailMap["fields"]
-		pivotsList = detailMap["pivots"]
-		totalsObj = detailMap["totals_data"]
-		errorsObj = detailMap["errors"]
-	} else if arr, ok := rawParsed.([]any); ok {
-		dataList = arr
-	}
-
-	if visConfigObj == nil {
-		visConfigObj = map[string]any{"type": "table", "show_row_numbers": true}
-	}
-
-	queryResult := map[string]any{
-		"data":        dataList,
-		"fields":      fieldsObj,
-		"pivots":      pivotsList,
-		"totals_data": totalsObj,
-	}
-	if errorsObj != nil {
-		queryResult["errors"] = errorsObj
-	}
-
-	appState := lookercommon.FetchMcpAppState(ctx, sdk, source.LookerApiSettings())
-
-	inlineQueryMeta := map[string]any{
-		"id":                 queryId,
+	queryMeta := map[string]any{
+		"id":                 queryID,
 		"slug":               slug,
 		"client_id":          slug,
 		"qid":                slug,
-		"share_url":          shareUrl,
-		"expanded_share_url": expandedShareUrl,
-		"url":                url,
-		"model":              wq.Model,
-		"view":               wq.View,
-		"fields":             wq.Fields,
-		"filters":            wq.Filters,
-		"pivots":             wq.Pivots,
-		"sorts":              wq.Sorts,
-		"limit":              wq.Limit,
+		"share_url":          shareURL,
+		"expanded_share_url": expandedShareURL,
+		"url":                queryURL,
 	}
-	if wq.FilterExpression != nil && *wq.FilterExpression != "" {
-		inlineQueryMeta["filter_expression"] = *wq.FilterExpression
-	}
-	if wq.QueryTimezone != nil && *wq.QueryTimezone != "" {
-		inlineQueryMeta["query_timezone"] = *wq.QueryTimezone
-	}
-	if parsedDyn := parseDynamicFieldsForMeta(wq.DynamicFields); len(parsedDyn) > 0 {
-		inlineQueryMeta["dynamic_fields"] = parsedDyn
-	}
+	populateQueryMetaFromWriteQuery(queryMeta, wq)
 	if len(queryCan) > 0 {
-		inlineQueryMeta["can"] = queryCan
+		queryMeta["can"] = queryCan
 	}
 
-	visualizationData := map[string]any{
-		"queryResult": queryResult,
-		"visConfig":   visConfigObj,
-		"title":       wq.View,
-		"query":       inlineQueryMeta,
-	}
-
-	resultPayload := map[string]any{
-		"visualizationData":  visualizationData,
-		"model":              wq.Model,
-		"explore":            wq.View,
-		"vis_config":         visConfigObj,
-		"query_id":           queryId,
-		"slug":               slug,
-		"client_id":          slug,
-		"share_url":          shareUrl,
-		"expanded_share_url": expandedShareUrl,
-	}
-	if len(queryCan) > 0 {
-		resultPayload["can"] = queryCan
-	}
-	if appState != nil {
-		resultPayload["app_state"] = appState
-	}
-	return applyVisualizationPayloadLimit(resultPayload, visualizationData), nil
+	return buildVisualizationResult(ctx, sdk, opts, wq.View, queryID, effectiveVisConfig, queryResult, queryMeta), nil
 }
 
 func applyVisualizationPayloadLimit(resultPayload, visualizationData map[string]any) tools.StructuredToolResult {

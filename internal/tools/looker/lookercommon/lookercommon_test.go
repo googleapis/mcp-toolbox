@@ -16,11 +16,14 @@ package lookercommon_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -472,6 +475,12 @@ func TestProcessQueryArgsWithFilterExpression(t *testing.T) {
 			wantErr:          false,
 		},
 		{
+			desc:             "filter expression is empty string",
+			filterExpression: "   ",
+			wantVal:          nil,
+			wantErr:          false,
+		},
+		{
 			desc:             "filter expression is valid string",
 			filterExpression: "matches_filter(${order.order_month}, `24 months`)",
 			wantVal:          func() *string { s := "matches_filter(${order.order_month}, `24 months`)"; return &s }(),
@@ -861,5 +870,117 @@ func TestEnsurePivotsInFieldsAndValidateDetailResponse(t *testing.T) {
 	}
 	if err := lookercommon.ValidatePivotsInDetailResponse([]string{"order_items.status"}, droppedDetail); err == nil {
 		t.Errorf("expected error when Looker drops invalid pivot and returns empty fields.pivots")
+	}
+}
+
+func TestProcessQueryArgsEmptyAndInvalidTimezone(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wq, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "tz", Value: "  "},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error for empty tz: %v", err)
+	}
+	if wq.QueryTimezone == nil || strings.TrimSpace(*wq.QueryTimezone) == "" {
+		t.Errorf("expected fallback runtime timezone for empty tz, got %v", wq.QueryTimezone)
+	}
+
+	_, err = lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "tz", Value: 123},
+	})
+	if err == nil || !strings.Contains(err.Error(), "'tz' must be a string") {
+		t.Errorf("expected error for non-string tz, got %v", err)
+	}
+}
+
+func TestWriteQueryFromQueryPreservesAndClonesFields(t *testing.T) {
+	fields := []string{"orders.status", "orders.count"}
+	pivots := []string{"orders.created_year"}
+	fillFields := []string{"orders.created_year"}
+	filters := map[string]any{"orders.status": "complete"}
+	sorts := []string{"orders.count desc 0"}
+	limit := "100"
+	colLimit := "50"
+	total := true
+	rowTotal := "right"
+	subtotals := []string{"orders.status"}
+	visConfig := map[string]any{"type": "looker_column"}
+	clientID := "cid123"
+	filterConfig := map[string]any{"orders.status": []any{}}
+
+	q := v4.Query{
+		Model:        "thelook",
+		View:         "orders",
+		Fields:       &fields,
+		Pivots:       &pivots,
+		FillFields:   &fillFields,
+		Filters:      &filters,
+		FilterConfig: &filterConfig,
+		ClientId:     &clientID,
+		Sorts:        &sorts,
+		Limit:        &limit,
+		ColumnLimit:  &colLimit,
+		Total:        &total,
+		RowTotal:     &rowTotal,
+		Subtotals:    &subtotals,
+		VisConfig:    &visConfig,
+	}
+
+	wq := lookercommon.WriteQueryFromQuery(q)
+	if wq.Total == nil || !*wq.Total {
+		t.Errorf("expected Total=true to be preserved, got %v", wq.Total)
+	}
+	if wq.RowTotal == nil || *wq.RowTotal != "right" {
+		t.Errorf("expected RowTotal=right to be preserved, got %v", wq.RowTotal)
+	}
+	if wq.ColumnLimit == nil || *wq.ColumnLimit != "50" {
+		t.Errorf("expected ColumnLimit=50 to be preserved, got %v", wq.ColumnLimit)
+	}
+	if wq.Subtotals == nil || len(*wq.Subtotals) != 1 || (*wq.Subtotals)[0] != "orders.status" {
+		t.Errorf("expected Subtotals to be preserved, got %v", wq.Subtotals)
+	}
+	if wq.FillFields == nil || len(*wq.FillFields) != 1 || (*wq.FillFields)[0] != "orders.created_year" {
+		t.Errorf("expected FillFields to be preserved, got %v", wq.FillFields)
+	}
+	if wq.FilterConfig != nil || wq.ClientId != nil {
+		t.Errorf("expected FilterConfig and ClientId to be nil on WriteQuery")
+	}
+
+	// Mutating cloned maps/slices on wq must not mutate q.
+	(*wq.Filters)["orders.status"] = "cancelled"
+	(*wq.VisConfig)["type"] = "looker_bar"
+	(*wq.Fields)[0] = "orders.id"
+	if (*q.Filters)["orders.status"] != "complete" {
+		t.Errorf("expected q.Filters not to be mutated")
+	}
+	if (*q.VisConfig)["type"] != "looker_column" {
+		t.Errorf("expected q.VisConfig not to be mutated")
+	}
+	if (*q.Fields)[0] != "orders.status" {
+		t.Errorf("expected q.Fields not to be mutated")
+	}
+}
+
+func TestProcessLookerAPIError(t *testing.T) {
+	unauthErr := lookercommon.ProcessLookerAPIError(lookerTestError("response error. status=401 Unauthorized"))
+	var csErr *util.ClientServerError
+	if cs, ok := unauthErr.(*util.ClientServerError); !ok || cs.Code != http.StatusUnauthorized {
+		csErr = cs
+		t.Errorf("expected 401 ClientServerError, got %T (%v)", unauthErr, csErr)
+	}
+
+	badReqErr := lookercommon.ProcessLookerAPIError(lookerTestError(`response error. status=400 Bad Request. error={"message":"Unknown field orders.bad"}`))
+	if badReqErr == nil || !strings.Contains(badReqErr.Error(), "Unknown field orders.bad") {
+		t.Errorf("expected extracted Looker error message, got %v", badReqErr)
 	}
 }

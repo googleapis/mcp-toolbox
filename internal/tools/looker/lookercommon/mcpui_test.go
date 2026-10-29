@@ -19,6 +19,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -152,42 +154,33 @@ func TestGoogleMapsCSPDomains(t *testing.T) {
 		"https://fonts.gstatic.com",
 	}
 
-	containsDomain := func(list []string, target string) bool {
-		for _, item := range list {
-			if item == target {
-				return true
-			}
-		}
-		return false
-	}
-
 	for _, domain := range requiredGoogleMapsResourceDomains {
-		if !containsDomain(lookercommon.GoogleMapsResourceDomains, domain) {
+		if !slices.Contains(lookercommon.GoogleMapsResourceDomains, domain) {
 			t.Errorf("expected GoogleMapsResourceDomains to contain %q", domain)
 		}
-		if !containsDomain(csp.ResourceDomains, domain) {
+		if !slices.Contains(csp.ResourceDomains, domain) {
 			t.Errorf("expected DefaultMCPUICSPConfig().ResourceDomains to contain %q", domain)
 		}
 	}
 
 	for _, domain := range requiredGoogleMapsConnectDomains {
-		if !containsDomain(lookercommon.GoogleMapsConnectDomains, domain) {
+		if !slices.Contains(lookercommon.GoogleMapsConnectDomains, domain) {
 			t.Errorf("expected GoogleMapsConnectDomains to contain %q", domain)
 		}
-		if !containsDomain(csp.ConnectDomains, domain) {
+		if !slices.Contains(csp.ConnectDomains, domain) {
 			t.Errorf("expected DefaultMCPUICSPConfig().ConnectDomains to contain %q", domain)
 		}
 	}
 
 	for _, disallowed := range []string{"https://*.googleapis.com", "https://*.googleusercontent.com"} {
-		if containsDomain(lookercommon.GoogleMapsResourceDomains, disallowed) || containsDomain(csp.ResourceDomains, disallowed) {
+		if slices.Contains(lookercommon.GoogleMapsResourceDomains, disallowed) || slices.Contains(csp.ResourceDomains, disallowed) {
 			t.Errorf("did not expect ResourceDomains to contain wildcard %q", disallowed)
 		}
-		if containsDomain(lookercommon.GoogleMapsConnectDomains, disallowed) || containsDomain(csp.ConnectDomains, disallowed) {
+		if slices.Contains(lookercommon.GoogleMapsConnectDomains, disallowed) || slices.Contains(csp.ConnectDomains, disallowed) {
 			t.Errorf("did not expect ConnectDomains to contain wildcard %q", disallowed)
 		}
 	}
-	if containsDomain(lookercommon.GoogleMapsConnectDomains, "https://*.gstatic.com") || containsDomain(csp.ConnectDomains, "https://*.gstatic.com") {
+	if slices.Contains(lookercommon.GoogleMapsConnectDomains, "https://*.gstatic.com") || slices.Contains(csp.ConnectDomains, "https://*.gstatic.com") {
 		t.Errorf("did not expect ConnectDomains to contain wildcard https://*.gstatic.com")
 	}
 }
@@ -333,15 +326,15 @@ func TestFetchMcpAppStateCachesColorCollectionsPerInstanceOnly(t *testing.T) {
 	}
 
 	// Verify FetchRemoteUI does not leak User 2's locale into shared resources/read asset fetches
-	t.Setenv("LOOKER_UI_URL", ts.URL)
-	mgr := lookercommon.NewLookerUIResourceManager(
-		"looker_vis",
-		"ui://looker/render_visualization.html",
-		"desc",
-		"render_visualization",
-		"render_dashboard",
-		"Looker Visualization",
-	)
+	// and rewrites any /public/mcp/ui/<other_scene>/assets URL to the manager's sceneName.
+	t.Setenv("LOOKER_UI_URL", ts.URL+"/public/mcp/ui/other_scene/assets")
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
 	if _, err := mgr.FetchRemoteUI(context.Background()); err != nil {
 		t.Fatalf("FetchRemoteUI() failed: %v", err)
 	}
@@ -377,14 +370,13 @@ func TestCacheConstantsAndResolveVerifySSL(t *testing.T) {
 }
 
 func TestRenderHTMLStripsSingleAndDoubleQuotedNonces(t *testing.T) {
-	mgr := lookercommon.NewLookerUIResourceManager(
-		"looker_vis",
-		"ui://looker/render_visualization.html",
-		"desc",
-		"render_visualization",
-		"render_dashboard",
-		"Looker Visualization",
-	)
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
 	rawHTML := `<!DOCTYPE html><html><head><base href="https://evil.example.com/"><script nonce='single-nonce-123'>window.__LOOKER_BASE_URL__="https://looker.example.com";</script></head><body><script type="text/javascript" nonce="double-nonce-456" src="/webpack/en/mcp-render-visualization.webpack.js"></script></body></html>`
 	rendered := mgr.RenderHTML(rawHTML, "https://looker.example.com")
 
@@ -480,14 +472,13 @@ func TestFetchRemoteUIOriginValidationAndConcurrentCSPSafety(t *testing.T) {
 	t.Setenv("LOOKER_BASE_URL", ts.URL)
 	t.Setenv("LOOKER_UI_URL", ts.URL)
 
-	mgr := lookercommon.NewLookerUIResourceManager(
-		"looker_vis_test",
-		"ui://looker/render_visualization.html",
-		"desc",
-		"render_visualization",
-		"render_dashboard",
-		"Looker Visualization",
-	)
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_test",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
 	resList := mgr.GetResources()
 	if len(resList) != 1 {
 		t.Fatalf("expected 1 UI resource, got %d", len(resList))
@@ -589,14 +580,13 @@ func TestFetchRemoteUIPerUserLocaleResolutionAndIsolation(t *testing.T) {
 	jaSettings := rtl.ApiSettings{BaseUrl: ts.URL, ApiVersion: "4.0", ClientId: "ja-session", ClientSecret: "s"}
 	enSettings := rtl.ApiSettings{BaseUrl: ts.URL, ApiVersion: "4.0", ClientId: "en-session", ClientSecret: "s"}
 
-	mgr := lookercommon.NewLookerUIResourceManager(
-		"looker_vis_locale_test",
-		"ui://looker/render_visualization.html",
-		"desc",
-		"render_visualization",
-		"render_dashboard",
-		"Looker Visualization",
-	)
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_locale_test",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
 	mgr.SetSource(perUserLocaleMockSource{
 		settings: &jaSettings,
 		sdkByAuth: map[string]*v4.LookerSDK{
@@ -612,7 +602,7 @@ func TestFetchRemoteUIPerUserLocaleResolutionAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchRemoteUI(jaCtx) failed: %v", err)
 	}
-	if want := `/webpack/ja_JP/mcp-render-visualization.webpack.js`; !cmp.Equal(true, json.Valid([]byte(`"ok"`)) && len(jaHTML) > 0 && containsSubstr(jaHTML, want)) {
+	if want := `/webpack/ja_JP/mcp-render-visualization.webpack.js`; !strings.Contains(jaHTML, want) {
 		t.Errorf("expected jaHTML to contain %q, got %q", want, jaHTML)
 	}
 
@@ -629,16 +619,7 @@ func TestFetchRemoteUIPerUserLocaleResolutionAndIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchRemoteUI(enCtx) failed: %v", err)
 	}
-	if want := `/webpack/en/mcp-render-visualization.webpack.js`; !containsSubstr(enHTML, want) {
+	if want := `/webpack/en/mcp-render-visualization.webpack.js`; !strings.Contains(enHTML, want) {
 		t.Errorf("expected enHTML to contain %q, got %q", want, enHTML)
 	}
-}
-
-func containsSubstr(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
