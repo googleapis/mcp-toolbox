@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -897,4 +898,140 @@ func getMongoDBToolsConfig(sourceConfig map[string]any, toolType string) map[str
 
 	return toolsFile
 
+}
+
+// allowedCollectionsToolsConfig builds a config whose source is scoped to a single collection.
+func allowedCollectionsToolsConfig(sourceConfig map[string]any, collection string) map[string]any {
+	tool := map[string]any{
+		"type":          "mongodb-find",
+		"source":        "my-instance",
+		"description":   "Tool to test collection scoping.",
+		"filterPayload": `{ "_id" : {{ .id }} }`,
+		"filterParams": []map[string]any{
+			{"name": "id", "type": "integer", "description": "user id"},
+		},
+		"projectPayload": `{ "_id": 1, "id": 1, "name" : 1 }`,
+		"database":       MongoDbDatabase,
+		"limit":          10,
+	}
+	if collection != "" {
+		tool["collection"] = collection
+	}
+	return map[string]any{
+		"sources": map[string]any{"my-instance": sourceConfig},
+		"tools":   map[string]any{"my-scoped-tool": tool},
+	}
+}
+
+func TestMongoDBAllowedCollections(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	uri, cleanupContainer := setupMongoDBContainer(ctx, t)
+	defer cleanupContainer()
+
+	database, err := initMongoDbDatabase(ctx, uri, MongoDbDatabase)
+	if err != nil {
+		t.Fatalf("unable to create MongoDB connection: %s", err)
+	}
+	teardownDB := setupMongoDB(t, ctx, database)
+	defer teardownDB(t)
+
+	// A second collection that the source must keep out of reach.
+	if _, err := database.Collection("secret_collection").InsertOne(ctx, map[string]any{"_id": 1, "id": 1, "name": "Secret"}); err != nil {
+		t.Fatalf("unable to insert test data: %s", err)
+	}
+	defer func() {
+		if err := database.Collection("secret_collection").Drop(ctx); err != nil {
+			t.Errorf("teardown failed: %s", err)
+		}
+	}()
+
+	sourceConfig := getMongoDBVars(uri)
+	sourceConfig["allowedCollections"] = []string{MongoDbDatabase + ".test_collection"}
+
+	t.Run("fixed collection outside the allow-list fails at startup", func(t *testing.T) {
+		cmd, cleanup, err := tests.StartCmd(ctx, allowedCollectionsToolsConfig(sourceConfig, "secret_collection"), "--enable-api", "--port", "5002")
+		if err != nil {
+			t.Fatalf("command initialization returned an error: %s", err)
+		}
+		defer cleanup()
+
+		waitCtx, waitCancel := context.WithTimeout(ctx, 15*time.Second)
+		defer waitCancel()
+		if _, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`is not in the allowedCollections`), cmd.Out); err != nil {
+			t.Fatalf("expected the server to reject a collection outside the allow-list: %s", err)
+		}
+	})
+
+	cmd, cleanup, err := tests.StartCmd(ctx, allowedCollectionsToolsConfig(sourceConfig, ""), "--enable-api", "--port", "5001")
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	invokeTcs := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "allowed collection is accepted",
+			body: `{ "id": 3, "collection": "test_collection" }`,
+			want: `[{"_id":3,"id":3,"name":"Sid"}]`,
+		},
+		{
+			name: "collection outside the allow-list is rejected",
+			body: `{ "id": 1, "collection": "secret_collection" }`,
+			want: `secret_collection is not an allowed value`,
+		},
+	}
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := http.Post("http://127.0.0.1:5001/api/tool/my-scoped-tool/invoke", "application/json", bytes.NewBufferString(tc.body))
+			if err != nil {
+				t.Fatalf("unable to send request: %s", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(body))
+			}
+			var body map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("error parsing response body: %s", err)
+			}
+			got, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body: %v", body)
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("unexpected value: got %q, want it to contain %q", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("mcp schema advertises the allowed collections as an enum", func(t *testing.T) {
+		req := `{"jsonrpc":"2.0","id":"list","method":"tools/list"}`
+		resp, err := http.Post("http://127.0.0.1:5001/mcp", "application/json", bytes.NewBufferString(req))
+		if err != nil {
+			t.Fatalf("unable to send request: %s", err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("unable to read response body: %s", err)
+		}
+		if !strings.Contains(string(body), `"enum":["test_collection"]`) {
+			t.Fatalf("expected the collection enum in the tools/list schema, got: %s", body)
+		}
+	})
 }

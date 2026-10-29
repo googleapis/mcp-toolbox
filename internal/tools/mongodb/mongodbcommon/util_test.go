@@ -15,7 +15,11 @@
 package mongodbcommon_test
 
 import (
+	"sort"
+	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -101,5 +105,159 @@ func TestResolveCollection(t *testing.T) {
 	// Errors when neither is available.
 	if _, err := mongodbcommon.ResolveCollection("", map[string]any{}); err == nil {
 		t.Fatal("expected an error when collection is missing, got nil")
+	}
+}
+
+type fakeSource struct {
+	allowed map[string]map[string]struct{}
+}
+
+func (f fakeSource) IsCollectionAllowed(database, collection string) bool {
+	if len(f.allowed) == 0 {
+		return true
+	}
+	_, ok := f.allowed[database][collection]
+	return ok
+}
+
+func (f fakeSource) MongoDBAllowedCollections(database string) []string {
+	if len(f.allowed) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(f.allowed[database]))
+	for c := range f.allowed[database] {
+		names = append(names, c)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TestEffectiveCollections(t *testing.T) {
+	tcs := []struct {
+		desc          string
+		sourceAllowed []string
+		toolAllowed   []string
+		want          []string
+	}{
+		{"both unset", nil, nil, nil},
+		{"tool only", nil, []string{"a", "b"}, []string{"a", "b"}},
+		{"source only", []string{"a", "b", "c"}, nil, []string{"a", "b", "c"}},
+		{"tool narrows source", []string{"a", "b", "c"}, []string{"a", "b"}, []string{"a", "b"}},
+		{"disjoint", []string{"a", "b"}, []string{"c"}, []string{}},
+		{"source allows nothing in this database", []string{}, []string{"a"}, []string{}},
+		{"tool regex narrows source", []string{"customers", "order_1", "order_2"}, []string{"^order_.*$"}, []string{"order_1", "order_2"}},
+		{"literal does not admit a longer name", []string{"orders", "orders_confidential"}, []string{"orders"}, []string{"orders"}},
+		{"literal does not admit a name that contains it", []string{"orders", "old_orders"}, []string{"orders"}, []string{"orders"}},
+		{"unanchored regex matches the whole name", []string{"order_1", "order_1_confidential"}, []string{"order_[0-9]"}, []string{"order_1"}},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			if diff := cmp.Diff(tc.want, mongodbcommon.EffectiveCollections(tc.sourceAllowed, tc.toolAllowed)); diff != "" {
+				t.Fatalf("unexpected collections (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateCollectionScope(t *testing.T) {
+	unrestricted := fakeSource{}
+	scoped := fakeSource{allowed: map[string]map[string]struct{}{
+		"crm": {"a": {}, "b": {}, "c": {}},
+	}}
+
+	tcs := []struct {
+		desc        string
+		src         mongodbcommon.CollectionScopedSource
+		database    string
+		collection  string
+		toolAllowed []string
+		wantErr     bool
+	}{
+		{"unset source, fixed collection", unrestricted, "crm", "anything", nil, false},
+		{"unset source, runtime collection", unrestricted, "crm", "", nil, false},
+		{"unset source, runtime collection with tool values", unrestricted, "crm", "", []string{"a", "b"}, false},
+		{"scoped source, fixed collection in list", scoped, "crm", "a", nil, false},
+		{"scoped source, fixed collection outside list", scoped, "crm", "z", nil, true},
+		{"scoped source, runtime collection", scoped, "crm", "", nil, false},
+		{"scoped source, tool narrows to a subset", scoped, "crm", "", []string{"a", "b"}, false},
+		{"scoped source, tool escapes the source scope", scoped, "crm", "", []string{"z"}, true},
+		{"scoped source, database has no allowed collections", scoped, "other", "", nil, true},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := mongodbcommon.ValidateCollectionScope(tc.src, tc.database, tc.collection, tc.toolAllowed)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got: %s", err)
+			}
+		})
+	}
+}
+
+func TestCheckCollectionAllowed(t *testing.T) {
+	unrestricted := fakeSource{}
+	scoped := fakeSource{allowed: map[string]map[string]struct{}{
+		"shop": {"orders": {}, "orders_confidential": {}, "customers": {}},
+	}}
+
+	tcs := []struct {
+		desc        string
+		src         mongodbcommon.CollectionScopedSource
+		collection  string
+		toolAllowed []string
+		wantErr     bool
+		wantInMsg   string
+	}{
+		{"unrestricted source", unrestricted, "anything", nil, false, ""},
+		{"collection allowed by the source", scoped, "customers", nil, false, ""},
+		{"collection outside the source", scoped, "payment_cards", nil, true, "[customers orders orders_confidential]"},
+		{"collection inside the tool narrowing", scoped, "orders", []string{"orders"}, false, ""},
+		{"source collection outside the tool narrowing", scoped, "orders_confidential", []string{"orders"}, true, "are [orders]"},
+		{"error lists the effective set, not the source set", scoped, "customers", []string{"orders"}, true, "are [orders]"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := mongodbcommon.CheckCollectionAllowed(tc.src, "shop", tc.collection, tc.toolAllowed)
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("expected no error, got: %s", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.wantInMsg) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tc.wantInMsg)
+			}
+		})
+	}
+}
+
+func TestScopeCollectionParam(t *testing.T) {
+	base := mongodbcommon.WithRuntimeCollectionParam("", nil, parameters.Parameters{
+		parameters.NewStringParameter("city", "a filter param"),
+	})
+
+	// An empty allow-list leaves the parameters untouched.
+	if got := mongodbcommon.ScopeCollectionParam(base, nil); len(got[1].(*parameters.StringParameter).AllowedValues) != 0 {
+		t.Error("expected no allowed values when the effective set is empty")
+	}
+
+	scoped := mongodbcommon.ScopeCollectionParam(base, []string{"orders", "customers"})
+	sp, ok := scoped[1].(*parameters.StringParameter)
+	if !ok || sp.GetName() != mongodbcommon.CollectionKey {
+		t.Fatal("expected the collection parameter to be present")
+	}
+	if diff := cmp.Diff([]any{"orders", "customers"}, sp.AllowedValues); diff != "" {
+		t.Fatalf("unexpected allowed values (-want +got):\n%s", diff)
+	}
+	if got := base[1].(*parameters.StringParameter).AllowedValues; len(got) != 0 {
+		t.Error("expected the original parameters to be left unmodified")
+	}
+	if scoped[0] != base[0] {
+		t.Error("expected non-collection parameters to be shared, not cloned")
 	}
 }
