@@ -136,6 +136,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("failed to retrieve BigQuery client", http.StatusInternalServerError, err)
 	}
 
+	// Log the query executed for debugging.
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, sql))
+
 	var connProps []*bigqueryapi.ConnectionProperty
 	var session *bigqueryds.Session
 	if source.BigQueryWriteMode() == bigqueryds.WriteModeProtected {
@@ -193,12 +200,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return "Dry run was requested, but no job information was returned.", nil
 	}
 
-	// Log the query executed for debugging.
-	logger, err := util.LoggerFromContext(ctx)
-	if err != nil {
-		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
-	}
-	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, sql))
 	resp, err := source.RunSQL(ctx, bqClient, sql, statementType, nil, connProps, map[string]string{"mcp-toolbox-tool": resourceType})
 	if err != nil {
 		return nil, util.ProcessGcpError(err)

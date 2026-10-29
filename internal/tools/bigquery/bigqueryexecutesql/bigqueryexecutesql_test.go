@@ -15,6 +15,8 @@
 package bigqueryexecutesql_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +25,7 @@ import (
 
 	bigqueryapi "cloud.google.com/go/bigquery"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	bigqueryds "github.com/googleapis/mcp-toolbox/internal/sources/bigquery"
@@ -30,6 +33,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	bqutil "github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigquerycommon"
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigqueryexecutesql"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	bigqueryrestapi "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/option"
@@ -149,10 +153,12 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	ctx, err := testutils.ContextWithNewLogger()
+	var outBuf, errBuf bytes.Buffer
+	logger, err := log.NewStdLogger(&outBuf, &errBuf, "debug")
 	if err != nil {
-		t.Fatalf("failed to create context with logger: %v", err)
+		t.Fatalf("failed to create debug logger: %v", err)
 	}
+	ctx := util.WithLogger(context.Background(), logger)
 
 	bqClient, err := bigqueryapi.NewClient(ctx, "test-project", option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
 	if err != nil {
@@ -249,6 +255,7 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
+			outBuf.Reset()
 			data := map[string]any{
 				"sql":     tc.sql,
 				"dry_run": true,
@@ -264,6 +271,10 @@ func TestInvokeDatasetRestrictions(t *testing.T) {
 			}
 
 			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
+			wantLog := "executing `bigquery-execute-sql` tool query: " + tc.sql
+			if !strings.Contains(outBuf.String(), wantLog) {
+				t.Errorf("expected debug log to contain %q, got %q", wantLog, outBuf.String())
+			}
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
