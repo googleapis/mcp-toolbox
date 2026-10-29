@@ -209,6 +209,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		inputDataSource = fmt.Sprintf("SELECT * FROM `%s`", inputData)
 	}
 
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+
 	session, err := source.BigQuerySession()(ctx)
 	if err != nil {
 		return nil, util.NewClientServerError("failed to get BigQuery session", http.StatusInternalServerError, err)
@@ -225,6 +230,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		// that it is a SELECT statement and provide clear error messages before embedding it
 		// in the CREATE TEMP MODEL statement (which is also validated via dry run below).
 		if len(source.BigQueryAllowedDatasets()) > 0 {
+			logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, inputData))
 			dryRunJob, validationErr := bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, inputData, nil, connProps, source, source.GetMaximumBytesBilled(), false)
 			if validationErr != nil {
 				return nil, validationErr
@@ -243,6 +249,8 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		strings.Join(options, ", "),
 		inputDataSource,
 	)
+
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, createModelSQL))
 
 	createModelQuery := bqClient.Query(createModelSQL)
 	createModelQuery.Labels = map[string]string{"mcp-toolbox-tool": resourceType}
@@ -299,6 +307,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 
 	getInsightsSQL := fmt.Sprintf("SELECT * FROM ML.GET_INSIGHTS(MODEL %s)", modelID)
 	insightsConnProps := []*bigqueryapi.ConnectionProperty{{Key: "session_id", Value: sessionID}}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, getInsightsSQL))
 
 	resp, err := source.RunSQL(ctx, bqClient, getInsightsSQL, "SELECT", nil, insightsConnProps, map[string]string{"mcp-toolbox-tool": resourceType})
 	if err != nil {
