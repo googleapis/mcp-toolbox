@@ -863,4 +863,3 @@ func TestEnsurePivotsInFieldsAndValidateDetailResponse(t *testing.T) {
 		t.Errorf("expected error when Looker drops invalid pivot and returns empty fields.pivots")
 	}
 }
-

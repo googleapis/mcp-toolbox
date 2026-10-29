@@ -1080,4 +1080,3 @@ func (m *LookerUIResourceManager) allowUIOrigin(remoteURL, publicOrigin, discove
 		dynRes.SetCSP(nextCSP)
 	}
 }
-

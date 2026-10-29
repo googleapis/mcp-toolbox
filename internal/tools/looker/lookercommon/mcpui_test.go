@@ -218,7 +218,6 @@ func TestBuildLookerUICSPHostnameCheck(t *testing.T) {
 	}
 }
 
-
 func TestFetchMcpAppStateCachesColorCollectionsPerInstanceOnly(t *testing.T) {
 	lookercommon.ClearMcpAppStateCacheForTesting()
 	defer lookercommon.ClearMcpAppStateCacheForTesting()
@@ -643,8 +642,3 @@ func containsSubstr(s, sub string) bool {
 	}
 	return false
 }
-
-
-
-
-

@@ -126,7 +126,7 @@ func TestInitializeAndResourceProvider(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("<html><body>Looker Visualization</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Looker Visualization</body></html>"))
 	}))
 	defer ts.Close()
 
@@ -630,6 +630,3 @@ func TestInvokeStripsTableCalculationsAndRestoresHiddenFields(t *testing.T) {
 		t.Errorf("expected queryMeta.dynamic_fields to preserve 2 parsed dynamic field entries, got %#v", queryMeta["dynamic_fields"])
 	}
 }
-
-
-

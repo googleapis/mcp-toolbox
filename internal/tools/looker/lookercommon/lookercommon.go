@@ -1127,6 +1127,7 @@ func StripDrillLinks(detailResp map[string]any) {
 		}
 	}
 }
+
 // ExtractLookerErrorMessage extracts a human-readable error message from a
 // Looker Go SDK HTTP error containing an embedded JSON error object
 // (e.g., `response error. status=400 Bad Request. error={"message":"..."}`).
