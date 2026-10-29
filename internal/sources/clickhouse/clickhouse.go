@@ -57,14 +57,30 @@ type Config struct {
 	Password string `yaml:"password"`
 	Protocol string `yaml:"protocol"`
 	Secure   bool   `yaml:"secure"`
+	// MaxOpenConns, MaxIdleConns and ConnMaxLifetime optionally override the
+	// connection pool defaults. When unset, the defaults below are used.
+	MaxOpenConns    *int   `yaml:"maxOpenConns" validate:"omitempty,gte=1"`
+	MaxIdleConns    *int   `yaml:"maxIdleConns" validate:"omitempty,gte=0"`
+	ConnMaxLifetime string `yaml:"connMaxLifetime"`
 }
+
+const (
+	defaultMaxOpenConns    = 25
+	defaultMaxIdleConns    = 5
+	defaultConnMaxLifetime = 5 * time.Minute
+)
 
 func (r Config) SourceConfigType() string {
 	return SourceType
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initClickHouseConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.Protocol, r.Secure)
+	poolCfg, err := r.poolSettings()
+	if err != nil {
+		return nil, err
+	}
+
+	pool, err := initClickHouseConnectionPool(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.Protocol, r.Secure, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
@@ -168,6 +184,46 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params parameters
 	return out, nil
 }
 
+// poolSettings holds the resolved connection pool limits for a source.
+type poolSettings struct {
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
+}
+
+// poolSettings resolves the pool limits from the config, falling back to the
+// defaults for any field that is not set.
+func (r Config) poolSettings() (poolSettings, error) {
+	p := poolSettings{
+		maxOpenConns:    defaultMaxOpenConns,
+		maxIdleConns:    defaultMaxIdleConns,
+		connMaxLifetime: defaultConnMaxLifetime,
+	}
+	if r.MaxOpenConns != nil {
+		p.maxOpenConns = *r.MaxOpenConns
+	}
+	if r.MaxIdleConns != nil {
+		p.maxIdleConns = *r.MaxIdleConns
+		if p.maxIdleConns > p.maxOpenConns {
+			return poolSettings{}, fmt.Errorf("maxIdleConns (%d) must not be greater than maxOpenConns (%d)", p.maxIdleConns, p.maxOpenConns)
+		}
+	} else if p.maxIdleConns > p.maxOpenConns {
+		// keep the default idle count within a lower maxOpenConns
+		p.maxIdleConns = p.maxOpenConns
+	}
+	if r.ConnMaxLifetime != "" {
+		d, err := time.ParseDuration(r.ConnMaxLifetime)
+		if err != nil {
+			return poolSettings{}, fmt.Errorf("invalid connMaxLifetime %q: %w", r.ConnMaxLifetime, err)
+		}
+		if d <= 0 {
+			return poolSettings{}, fmt.Errorf("invalid connMaxLifetime %q: must be positive", r.ConnMaxLifetime)
+		}
+		p.connMaxLifetime = d
+	}
+	return p, nil
+}
+
 func validateConfig(protocol string) error {
 	validProtocols := map[string]bool{"http": true, "https": true}
 
@@ -177,7 +233,7 @@ func validateConfig(protocol string) error {
 	return nil
 }
 
-func initClickHouseConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname, protocol string, secure bool) (*sql.DB, error) {
+func initClickHouseConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname, protocol string, secure bool, poolCfg poolSettings) (*sql.DB, error) {
 	//nolint:all // Reassigned ctx
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
 	defer span.End()
@@ -208,9 +264,9 @@ func initClickHouseConnectionPool(ctx context.Context, tracer trace.Tracer, name
 		return nil, fmt.Errorf("sql.Open: %w", err)
 	}
 
-	pool.SetMaxOpenConns(25)
-	pool.SetMaxIdleConns(5)
-	pool.SetConnMaxLifetime(5 * time.Minute)
+	pool.SetMaxOpenConns(poolCfg.maxOpenConns)
+	pool.SetMaxIdleConns(poolCfg.maxIdleConns)
+	pool.SetConnMaxLifetime(poolCfg.connMaxLifetime)
 
 	return pool, nil
 }
