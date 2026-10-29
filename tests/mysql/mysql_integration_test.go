@@ -94,6 +94,7 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameDataType := "datatype_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMySQLParamToolInfo(tableNameParam)
@@ -105,6 +106,11 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	teardownTable2 := tests.SetupMySQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 	defer teardownTable2(t)
 
+	// set up data for data type tools
+	dataTypeInfo := tests.GetMySQLDataTypeToolInfo(tableNameDataType)
+	teardownTable3 := tests.SetupMySQLTable(t, ctx, pool, dataTypeInfo.CreateStatement, dataTypeInfo.InsertStatement, tableNameDataType, nil)
+	defer teardownTable3(t)
+
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, MySQLToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
 	toolsFile = tests.AddMySqlExecuteSqlConfig(t, toolsFile)
@@ -112,6 +118,7 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, MySQLToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
 	toolsFile = tests.AddMySQLPrebuiltToolConfig(t, toolsFile)
+	toolsFile = tests.AddDataTypeToolConfig(t, toolsFile, MySQLToolType, dataTypeInfo.ToolStatements)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
@@ -136,6 +143,7 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	tests.RunDataTypeInvokeTest(t, dataTypeInfo.Wants)
 
 	// Run specific MySQL tool tests
 	const expectedOwner = ""

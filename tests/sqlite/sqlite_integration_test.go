@@ -127,6 +127,7 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameDataType := "datatype_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSQLiteParamToolInfo(tableNameParam)
@@ -136,10 +137,15 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getSQLiteAuthToolInfo(tableNameAuth)
 	setupSQLiteTestDB(t, ctx, db, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 
+	// set up data for data type tools
+	dataTypeInfo := tests.GetSQLiteDataTypeToolInfo(tableNameDataType)
+	setupSQLiteTestDB(t, ctx, db, dataTypeInfo.CreateStatement, dataTypeInfo.InsertStatement, tableNameDataType, nil)
+
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, SQLiteToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
 	tmplSelectCombined, tmplSelectFilterCombined := getSQLiteTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, SQLiteToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
+	toolsFile = tests.AddDataTypeToolConfig(t, toolsFile, SQLiteToolType, dataTypeInfo.ToolStatements)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
@@ -165,6 +171,7 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	tests.RunDataTypeInvokeTest(t, dataTypeInfo.Wants)
 }
 
 func TestSQLiteExecuteSqlTool(t *testing.T) {

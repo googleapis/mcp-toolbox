@@ -228,6 +228,72 @@ func RunToolInvokeParametersTest(t *testing.T, name string, params []byte, simpl
 	}
 }
 
+// RunDataTypeInvokeTest invokes each tool over the HTTP API and MCP and checks
+// that the returned rows exactly match wants, so values that come back
+// base64-encoded or double-encoded fail the test.
+func RunDataTypeInvokeTest(t *testing.T, wants map[string][]any) {
+	decode := func(t *testing.T, s string) any {
+		t.Helper()
+		dec := json.NewDecoder(strings.NewReader(s))
+		dec.UseNumber()
+		var v any
+		if err := dec.Decode(&v); err != nil {
+			t.Fatalf("unable to decode result %q: %s", s, err)
+		}
+		return v
+	}
+
+	for toolName, want := range wants {
+		t.Run(fmt.Sprintf("invoke %s", toolName), func(t *testing.T) {
+			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+			resp, respBody := RunRequest(t, http.MethodPost, api, bytes.NewBufferString("{}"), nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+			}
+			var body map[string]any
+			if err := json.Unmarshal(respBody, &body); err != nil {
+				t.Fatalf("error parsing response body: %s", err)
+			}
+			result, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body: %s", string(respBody))
+			}
+			got, ok := decode(t, result).([]any)
+			if !ok {
+				t.Fatalf("result is not a list of rows: %s", result)
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("unexpected result (-want +got):\n%s", diff)
+			}
+		})
+
+		t.Run(fmt.Sprintf("mcp call %s", toolName), func(t *testing.T) {
+			statusCode, mcpResp, err := InvokeMCPTool(t, toolName, map[string]any{}, nil)
+			if err != nil {
+				t.Fatalf("native error executing %s: %s", toolName, err)
+			}
+			if statusCode != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", statusCode)
+			}
+			if mcpResp.Result.IsError {
+				t.Fatalf("%s returned error result: %v", toolName, mcpResp.Result)
+			}
+			got := []any{}
+			for _, content := range mcpResp.Result.Content {
+				switch v := decode(t, content.Text).(type) {
+				case []any:
+					got = append(got, v...)
+				default:
+					got = append(got, v)
+				}
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("unexpected result (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // RunToolInvoke runs the tool invoke endpoint
 func RunToolInvokeTest(t *testing.T, select1Want string, options ...InvokeTestOption) {
 	// Resolve options
