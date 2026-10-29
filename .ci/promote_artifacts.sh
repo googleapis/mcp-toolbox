@@ -134,7 +134,7 @@ tag_with_children() {
   children=$(curl -fsSL --retry 3 \
     -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${repo}/dockerImages/${encoded_package}@${digest}" \
-    | jq -r '.imageManifests[]?.digest // empty | select(startswith("sha256:"))') || true
+    | jq -r '.imageManifests[]?.digest // empty | select(startswith("sha256:"))')
   if [[ -z "${children}" ]]; then
     if [[ "${require_children}" == "true" ]]; then
       echo "ERROR: No child manifests found for ${repo}/${PACKAGE_NAME}@${digest}" >&2
