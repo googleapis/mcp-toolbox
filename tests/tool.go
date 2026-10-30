@@ -4085,7 +4085,7 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 			name:           "invoke get_query_plan with invalid query",
 			requestBody:    bytes.NewBufferString(`{"sql_statement": "SELECT * FROM non_existent_table"}`),
 			wantStatusCode: http.StatusOK,
-			wantError:      "non_existent_table",
+			wantError:      "Error 1146",
 		},
 	}
 
