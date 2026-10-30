@@ -372,12 +372,18 @@ func EscapeUnquotedParameterFilters(ctx context.Context, sdk *v4.LookerSDK, wq *
 func stripWrappingQuotesAndBrackets(s string, stripBrackets bool) string {
 	for len(s) >= 2 {
 		if (s[0] == '\'' || s[0] == '"') && s[0] == s[len(s)-1] {
-			s = s[1 : len(s)-1]
-			continue
+			inner := s[1 : len(s)-1]
+			if !strings.ContainsRune(inner, rune(s[0])) {
+				s = inner
+				continue
+			}
 		}
 		if stripBrackets && s[0] == '[' && s[len(s)-1] == ']' {
-			s = s[1 : len(s)-1]
-			continue
+			inner := s[1 : len(s)-1]
+			if !strings.ContainsAny(inner, "[]") {
+				s = inner
+				continue
+			}
 		}
 		break
 	}
@@ -430,7 +436,9 @@ func NormalizeFilterKeys(filters map[string]any, fields []string, hints ...strin
 	})
 
 	processed := make(map[string]any, len(filters))
-	for k, v := range filters {
+	canonicalAssigned := make(map[string]bool, len(filters))
+	for _, k := range slices.Sorted(maps.Keys(filters)) {
+		v := filters[k]
 		newKey := stripWrappingQuotesAndBrackets(k, true)
 		if !strings.Contains(newKey, ".") && strings.Contains(newKey, "_") {
 			matched := false
@@ -457,11 +465,17 @@ func NormalizeFilterKeys(filters map[string]any, fields []string, hints ...strin
 		}
 
 		newVal := v
-		if s, ok := v.(string); ok && len(s) >= 2 &&
-			(s[0] == '\'' || s[0] == '"') && s[0] == s[len(s)-1] {
-			newVal = s[1 : len(s)-1]
+		if s, ok := v.(string); ok {
+			newVal = stripWrappingQuotesAndBrackets(s, false)
+		}
+		isCanonical := newKey == k && strings.Contains(k, ".")
+		if canonicalAssigned[newKey] && !isCanonical {
+			continue
 		}
 		processed[newKey] = newVal
+		if isCanonical {
+			canonicalAssigned[newKey] = true
+		}
 	}
 	return processed
 }
@@ -549,10 +563,12 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 	paramsMap := params.AsMap()
 
 	modelName, ok := paramsMap["model"].(string)
+	modelName = strings.TrimSpace(modelName)
 	if !ok || modelName == "" {
 		return nil, fmt.Errorf("'model' must be a non-empty string")
 	}
 	exploreName, ok := paramsMap["explore"].(string)
+	exploreName = strings.TrimSpace(exploreName)
 	if !ok || exploreName == "" {
 		return nil, fmt.Errorf("'explore' must be a non-empty string")
 	}
@@ -586,9 +602,13 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 		sorts = s.([]string)
 	}
 
-	rawFilters, _ := paramsMap["filters"].(map[string]any)
-	if rawFilters == nil {
-		rawFilters = map[string]any{}
+	rawFilters := map[string]any{}
+	if val, ok := paramsMap["filters"]; ok && val != nil {
+		fMap, ok := val.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("'filters' must be a map, got %T", val)
+		}
+		rawFilters = fMap
 	}
 	hints := make([]string, 0, 1+len(pivots)+len(sorts))
 	hints = append(hints, exploreName)
@@ -596,8 +616,17 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 	hints = append(hints, sorts...)
 	filters := NormalizeFilterKeys(rawFilters, fields, hints...)
 	limit := "500"
-	if l, ok := paramsMap["limit"].(int); ok && l != 0 {
-		limit = fmt.Sprintf("%d", l)
+	if val, ok := paramsMap["limit"]; ok && val != nil {
+		l, ok := val.(int)
+		if !ok {
+			return nil, fmt.Errorf("'limit' must be an integer, got %T", val)
+		}
+		if l < -1 {
+			return nil, fmt.Errorf("'limit' must be a positive integer or -1, got %d", l)
+		}
+		if l != 0 {
+			limit = fmt.Sprintf("%d", l)
+		}
 	}
 
 	var tz string
@@ -623,14 +652,18 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 		if !ok {
 			return nil, fmt.Errorf("'filter_expression' must be a string, got %T", val)
 		}
-		if strings.TrimSpace(strVal) != "" {
-			filterExpressionPtr = &strVal
+		if trimmed := strings.TrimSpace(strVal); trimmed != "" {
+			filterExpressionPtr = &trimmed
 		}
 	}
 
 	var dynamicFieldsPtr *string
 	if val, ok := paramsMap["dynamic_fields"]; ok && val != nil {
-		if sliceVal, ok := val.([]any); ok && len(sliceVal) > 0 {
+		sliceVal, ok := val.([]any)
+		if !ok {
+			return nil, fmt.Errorf("'dynamic_fields' must be an array, got %T", val)
+		}
+		if len(sliceVal) > 0 {
 			jsonBytes, err := json.Marshal(sliceVal)
 			if err != nil {
 				return nil, fmt.Errorf("error marshaling dynamic_fields: %w", err)
@@ -656,17 +689,17 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 }
 
 // WriteQueryFromQuery converts a Looker v4.Query into a v4.WriteQuery,
-// cloning mutable map/slice fields and omitting FilterConfig and ClientId so
+// deep-cloning mutable map/slice fields and omitting FilterConfig and ClientId so
 // Looker does not allow explore UI filter_config to override Filters.
 func WriteQueryFromQuery(baseQuery v4.Query) v4.WriteQuery {
 	var filtersPtr *map[string]any
 	if baseQuery.Filters != nil {
-		cloned := maps.Clone(*baseQuery.Filters)
+		cloned := cloneJSONMap(*baseQuery.Filters)
 		filtersPtr = &cloned
 	}
 	var visConfigPtr *map[string]any
 	if baseQuery.VisConfig != nil {
-		cloned := maps.Clone(*baseQuery.VisConfig)
+		cloned := cloneJSONMap(*baseQuery.VisConfig)
 		visConfigPtr = &cloned
 	}
 	var fieldsPtr *[]string
@@ -791,10 +824,7 @@ func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboar
 
 	qresp, err := sdk.CreateQuery(*wq, "id", opts)
 	if err != nil {
-		if strings.Contains(err.Error(), "status=401") {
-			return v4.WriteDashboardElement{}, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
-		}
-		return v4.WriteDashboardElement{}, util.ProcessGeneralError(err)
+		return v4.WriteDashboardElement{}, ProcessLookerAPIError(err)
 	}
 
 	dashFilters := []any{}
@@ -1031,10 +1061,6 @@ func RunSavedQuery(ctx context.Context, l *v4.LookerSDK, queryId string, format 
 		}
 	}
 	err := l.AuthSession.Do(&result, "GET", "/4.0", path, queryParams, nil, options)
-	if err != nil {
-		// Also try POST if GET failed
-		err = l.AuthSession.Do(&result, "POST", "/4.0", path, queryParams, nil, options)
-	}
 	return result, err
 }
 
@@ -1178,7 +1204,12 @@ func ExtractLookerErrorMessage(err error) error {
 		return nil
 	}
 	raw := err.Error()
-	startIdx := strings.Index(raw, "{")
+	startIdx := -1
+	if errPrefixIdx := strings.Index(raw, "error={"); errPrefixIdx != -1 {
+		startIdx = errPrefixIdx + len("error=")
+	} else {
+		startIdx = strings.Index(raw, "{")
+	}
 	endIdx := strings.LastIndex(raw, "}")
 	if startIdx == -1 || endIdx <= startIdx {
 		return err
@@ -1195,25 +1226,40 @@ func ExtractLookerErrorMessage(err error) error {
 		return err
 	}
 
-	msg := strings.TrimSpace(parsed.Message)
-	if msg == "" && len(parsed.Errors) > 0 {
-		msg = strings.TrimSpace(parsed.Errors[0].Message)
-		if msg == "" {
-			msg = strings.TrimSpace(parsed.Errors[0].MessageDetails)
+	var parts []string
+	seen := make(map[string]bool)
+	addPart := func(s string) {
+		trimmed := strings.TrimSpace(s)
+		if trimmed == "" || strings.EqualFold(trimmed, "Sinatra::NotFound") || seen[trimmed] {
+			return
+		}
+		seen[trimmed] = true
+		parts = append(parts, trimmed)
+	}
+
+	addPart(parsed.Message)
+	for _, item := range parsed.Errors {
+		if strings.TrimSpace(item.Message) != "" {
+			addPart(item.Message)
+		} else {
+			addPart(item.MessageDetails)
 		}
 	}
 
-	if msg == "" || strings.EqualFold(msg, "Sinatra::NotFound") {
+	if len(parts) == 0 {
 		return err
 	}
 
-	return fmt.Errorf("%s", msg)
+	return fmt.Errorf("%s", strings.Join(parts, ": "))
 }
 
 // ProcessLookerAPIError maps a Looker SDK HTTP error to a ToolboxError,
 // returning an HTTP 401 ClientServerError on unauthorized responses and
 // extracting human-readable Looker JSON error messages otherwise.
 func ProcessLookerAPIError(err error) util.ToolboxError {
+	if err == nil {
+		return nil
+	}
 	if strings.Contains(err.Error(), "status=401") {
 		return util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
 	}

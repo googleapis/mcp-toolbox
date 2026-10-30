@@ -17,6 +17,7 @@ package lookercommon_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
@@ -972,6 +974,10 @@ func TestWriteQueryFromQueryPreservesAndClonesFields(t *testing.T) {
 }
 
 func TestProcessLookerAPIError(t *testing.T) {
+	if got := lookercommon.ProcessLookerAPIError(nil); got != nil {
+		t.Errorf("expected nil for ProcessLookerAPIError(nil), got %v", got)
+	}
+
 	unauthErr := lookercommon.ProcessLookerAPIError(lookerTestError("response error. status=401 Unauthorized"))
 	var csErr *util.ClientServerError
 	if cs, ok := unauthErr.(*util.ClientServerError); !ok || cs.Code != http.StatusUnauthorized {
@@ -979,8 +985,130 @@ func TestProcessLookerAPIError(t *testing.T) {
 		t.Errorf("expected 401 ClientServerError, got %T (%v)", unauthErr, csErr)
 	}
 
-	badReqErr := lookercommon.ProcessLookerAPIError(lookerTestError(`response error. status=400 Bad Request. error={"message":"Unknown field orders.bad"}`))
-	if badReqErr == nil || !strings.Contains(badReqErr.Error(), "Unknown field orders.bad") {
-		t.Errorf("expected extracted Looker error message, got %v", badReqErr)
+	badReqErr := lookercommon.ProcessLookerAPIError(lookerTestError(`context={foo} response error. status=400 Bad Request. error={"message":"Validation Failed","errors":[{"message":"Unknown field orders.bad"}]}`))
+	if badReqErr == nil || !strings.Contains(badReqErr.Error(), "Validation Failed: Unknown field orders.bad") {
+		t.Errorf("expected combined Looker error message, got %v", badReqErr)
+	}
+}
+
+func TestNormalizeFilterKeysPreservesMultiQuotedValuesAndCanonicalPrecedence(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		got := lookercommon.NormalizeFilterKeys(
+			map[string]any{
+				"orders.status":   "complete",
+				"orders_status":   "cancelled",
+				"orders.category": "'complete', 'pending'",
+			},
+			[]string{"orders.status", "orders.category"},
+		)
+		if got["orders.status"] != "complete" {
+			t.Fatalf("iteration %d: expected canonical key orders.status=complete to win over orders_status, got %v", i, got["orders.status"])
+		}
+		if got["orders.category"] != "'complete', 'pending'" {
+			t.Fatalf("iteration %d: expected multi-quoted filter expression to be preserved, got %q", i, got["orders.category"])
+		}
+	}
+}
+
+func TestProcessQueryArgsValidatesLimitFiltersAndDynamicFields(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Whitespace-only model rejected
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "   "},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+	}); err == nil {
+		t.Errorf("expected error for whitespace-only model")
+	}
+
+	// limit = -1 allowed, limit = -2 rejected
+	wq, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "limit", Value: -1},
+	})
+	if err != nil || wq.Limit == nil || *wq.Limit != "-1" {
+		t.Errorf("expected limit=-1 to succeed, got wq.Limit=%v err=%v", wq.Limit, err)
+	}
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "limit", Value: -2},
+	}); err == nil {
+		t.Errorf("expected error for limit=-2")
+	}
+
+	// Non-map filters rejected
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "filters", Value: "invalid"},
+	}); err == nil {
+		t.Errorf("expected error for non-map filters")
+	}
+
+	// Non-slice dynamic_fields rejected
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "dynamic_fields", Value: "invalid"},
+	}); err == nil {
+		t.Errorf("expected error for non-slice dynamic_fields")
+	}
+}
+
+func TestWriteQueryFromQueryDeepClonesNestedVisConfig(t *testing.T) {
+	hidden := []any{"orders.count"}
+	visConfig := map[string]any{"type": "looker_column", "hidden_fields": hidden}
+	q := v4.Query{
+		Model:     "thelook",
+		View:      "orders",
+		VisConfig: &visConfig,
+	}
+	wq := lookercommon.WriteQueryFromQuery(q)
+	wqHidden := (*wq.VisConfig)["hidden_fields"].([]any)
+	wqHidden[0] = "mutated"
+	if (*q.VisConfig)["hidden_fields"].([]any)[0] != "orders.count" {
+		t.Errorf("expected nested slice in q.VisConfig not to be mutated")
+	}
+}
+
+func TestRunSavedQueryDoesNotRetryPostOnGetFailure(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	postCalled := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			postCalled = true
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Sinatra::NotFound"}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"Unknown field orders.invalid"}`))
+	}))
+	defer ts.Close()
+
+	settings := &rtl.ApiSettings{BaseUrl: ts.URL}
+	session := rtl.NewAuthSession(*settings)
+	session.Client = *ts.Client()
+	sdk := v4.NewLookerSDK(session)
+
+	_, runErr := lookercommon.RunSavedQuery(ctx, sdk, "42", "json_detail", nil, settings)
+	if runErr == nil || !strings.Contains(runErr.Error(), "Unknown field orders.invalid") {
+		t.Errorf("expected original GET 400 error to be preserved, got %v", runErr)
+	}
+	if postCalled {
+		t.Errorf("expected RunSavedQuery not to issue a POST retry on GET failure")
 	}
 }

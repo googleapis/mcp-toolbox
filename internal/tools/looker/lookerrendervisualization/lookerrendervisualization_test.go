@@ -727,3 +727,154 @@ func TestInvokeSavedQueryPreservesTotalsAndLimitViaParseParams(t *testing.T) {
 		t.Errorf("expected saved query row_total=right to be preserved, got %v", capturedBody["row_total"])
 	}
 }
+
+func TestInvokeSavedQuerySlugLookupAndPreservesExistingPivotsOnFieldOverride(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	numericIDLookupCalled := false
+	var capturedFields []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/4.0/queries/slug99":
+			numericIDLookupCalled = true
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/4.0/queries/slug/slug99":
+			_, _ = w.Write([]byte(`{"id":"99","slug":"slug99","client_id":"cid99","model":"thelook","view":"orders","fields":["orders.status","orders.created_year","orders.count"],"pivots":["orders.created_year"],"vis_config":{"type":"looker_column"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/4.0/queries/run/json_detail":
+			bodyBytes, _ := io.ReadAll(r.Body)
+			var payload struct {
+				Fields []string `json:"fields"`
+			}
+			_ = json.Unmarshal(bodyBytes, &payload)
+			capturedFields = payload.Fields
+			_, _ = w.Write([]byte(`{"data":[{"orders.status":{"value":"complete"}}],"fields":{"pivots":[{"name":"orders.created_year"}]},"row_totals":{"orders.count":{"value":10}},"subtotals_data":[{"orders.count":{"value":10}}]}`))
+		case r.URL.Path == "/api/4.0/user":
+			_, _ = w.Write([]byte(`{"id":"1","locale":"en"}`))
+		case r.URL.Path == "/api/4.0/color_collections/active":
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	settings := &rtl.ApiSettings{BaseUrl: server.URL}
+	session := rtl.NewAuthSession(*settings)
+	session.Client = *server.Client()
+	sdk := v4.NewLookerSDK(session)
+
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "render_visualization",
+			Description: "Render visualization tool",
+		},
+		Type:   "looker-render-visualization",
+		Source: "my-instance",
+	}
+	toolInstance, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	res, tbErr := toolInstance.Invoke(ctx, mockVisLookerSource{settings: settings, sdk: sdk}, parameters.ParamValues{
+		{Name: "query_id", Value: "slug99"},
+		{Name: "fields", Value: []any{"orders.status", "orders.count"}},
+	}, "")
+	if tbErr != nil {
+		t.Fatalf("Invoke failed: %v", tbErr)
+	}
+	if numericIDLookupCalled {
+		t.Errorf("expected non-numeric slug99 to call QueryForSlug first without hitting /api/4.0/queries/slug99")
+	}
+	if !slices.Contains(capturedFields, "orders.created_year") {
+		t.Errorf("expected existing pivot orders.created_year to be retained in WriteQuery.Fields when fields is overridden, got %v", capturedFields)
+	}
+	structured := res.(tools.StructuredToolResult)
+	visData := structured.StructuredContent["visualizationData"].(map[string]any)
+	qr := visData["queryResult"].(map[string]any)
+	if qr["row_totals"] == nil || qr["subtotals_data"] == nil {
+		t.Errorf("expected row_totals and subtotals_data to be preserved in queryResult, got %v", qr)
+	}
+}
+
+func TestInvokeNonPivotedFatalDetailErrorAndLargePayloadSummary(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	returnLargePayload := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/4.0/queries":
+			_, _ = w.Write([]byte(`{"id":"101","slug":"slug101","client_id":"cid101"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/4.0/queries/run/json_detail":
+			if !returnLargePayload {
+				_, _ = w.Write([]byte(`{"data":[],"errors":[{"message":"Field 'orders.nonexistent' does not exist","fatal":true}]}`))
+				return
+			}
+			bigText := strings.Repeat("x", 950*1024)
+			_, _ = w.Write([]byte(`{"data":[{"orders.status":{"value":"` + bigText + `"}}]}`))
+		case r.URL.Path == "/api/4.0/user":
+			_, _ = w.Write([]byte(`{"id":"1","locale":"en"}`))
+		case r.URL.Path == "/api/4.0/color_collections/active":
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	settings := &rtl.ApiSettings{BaseUrl: server.URL}
+	session := rtl.NewAuthSession(*settings)
+	session.Client = *server.Client()
+	sdk := v4.NewLookerSDK(session)
+
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "render_visualization",
+			Description: "Render visualization tool",
+		},
+		Type:   "looker-render-visualization",
+		Source: "my-instance",
+	}
+	toolInstance, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	params := parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.nonexistent"}},
+	}
+	_, tbErr := toolInstance.Invoke(ctx, mockVisLookerSource{settings: settings, sdk: sdk}, params, "")
+	if tbErr == nil || !strings.Contains(tbErr.Error(), "Field 'orders.nonexistent' does not exist") {
+		t.Fatalf("expected fatal json_detail error on non-pivoted query to return AgentError, got %v", tbErr)
+	}
+
+	returnLargePayload = true
+	res, tbErr := toolInstance.Invoke(ctx, mockVisLookerSource{settings: settings, sdk: sdk}, params, "")
+	if tbErr != nil {
+		t.Fatalf("unexpected error on large payload: %v", tbErr)
+	}
+	structured := res.(tools.StructuredToolResult)
+	contentMap, ok := structured.Content.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map summary in Content, got %T", structured.Content)
+	}
+	if contentMap["status"] != "response_too_large" || contentMap["response_too_large"] != true || contentMap["row_count"] != 1 {
+		t.Errorf("expected compact response_too_large summary with row_count=1 in Content, got %v", contentMap)
+	}
+	if _, hasVisDataInSummary := contentMap["visualizationData"]; hasVisDataInSummary {
+		t.Errorf("expected Content summary NOT to include full visualizationData")
+	}
+	if structured.StructuredContent["slug"] != "slug101" || structured.StructuredContent["client_id"] != "cid101" {
+		t.Errorf("expected separate slug=slug101 and client_id=cid101 to be preserved, got slug=%v client_id=%v", structured.StructuredContent["slug"], structured.StructuredContent["client_id"])
+	}
+}

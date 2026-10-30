@@ -189,7 +189,7 @@ func (t Tool) ValidateSource(source sources.Source) error {
 	return nil
 }
 
-var dynamicFieldExprRefRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_.]+)\}`)
+var dynamicFieldExprRefRe = regexp.MustCompile(`\$\{\s*([a-zA-Z0-9_.]+)\s*\}`)
 
 func parseDynamicFieldsForMeta(raw *string) []any {
 	if raw == nil || strings.TrimSpace(*raw) == "" {
@@ -361,16 +361,64 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	return t.invokeInlineQuery(ctx, logger, sdk, opts, params, visConfig)
 }
 
+func isNumericQueryID(queryID string) bool {
+	if queryID == "" {
+		return false
+	}
+	for i := 0; i < len(queryID); i++ {
+		if queryID[i] < '0' || queryID[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func fetchQueryByIDOrSlug(sdk *v4.LookerSDK, queryID string, opts *rtl.ApiSettings) (*v4.Query, error) {
-	q, err := sdk.Query(queryID, "", opts)
+	if isNumericQueryID(queryID) {
+		q, err := sdk.Query(queryID, "", opts)
+		if err == nil {
+			return &q, nil
+		}
+		q, slugErr := sdk.QueryForSlug(queryID, "", opts)
+		if slugErr == nil {
+			return &q, nil
+		}
+		return nil, err
+	}
+	q, err := sdk.QueryForSlug(queryID, "", opts)
 	if err == nil {
 		return &q, nil
 	}
-	q, err = sdk.QueryForSlug(queryID, "", opts)
-	if err == nil {
+	q, idErr := sdk.Query(queryID, "", opts)
+	if idErr == nil {
 		return &q, nil
 	}
 	return nil, err
+}
+
+func hasRequestedQueryOverrides(paramMap map[string]any, visConfig map[string]any) bool {
+	if len(visConfig) > 0 {
+		return true
+	}
+	if rawLimit, ok := paramMap["limit"]; ok && rawLimit != nil {
+		if limitVal, ok := rawLimit.(int); !ok || limitVal != 0 {
+			return true
+		}
+	}
+	for _, sliceKey := range []string{"sorts", "fields", "pivots", "dynamic_fields"} {
+		if s, ok := paramMap[sliceKey].([]any); ok && len(s) > 0 {
+			return true
+		}
+	}
+	for _, strKey := range []string{"model", "explore", "tz", "filter_expression"} {
+		if s, ok := paramMap[strKey].(string); ok && strings.TrimSpace(s) != "" {
+			return true
+		}
+	}
+	if fMap, ok := paramMap["filters"].(map[string]any); ok && len(fMap) > 0 {
+		return true
+	}
+	return false
 }
 
 func applySavedQueryOverrides(
@@ -386,10 +434,16 @@ func applySavedQueryOverrides(
 	wq := &baseWQ
 	hasOverrides := false
 
-	if limitVal, ok := paramMap["limit"].(int); ok && limitVal > 0 {
-		limitStr := fmt.Sprintf("%d", limitVal)
-		wq.Limit = &limitStr
-		hasOverrides = true
+	if rawLimit, ok := paramMap["limit"]; ok && rawLimit != nil {
+		limitVal, ok := rawLimit.(int)
+		if !ok || limitVal < -1 {
+			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid limit parameter: must be a positive integer or -1, got %v", rawLimit), nil)
+		}
+		if limitVal > 0 || limitVal == -1 {
+			limitStr := fmt.Sprintf("%d", limitVal)
+			wq.Limit = &limitStr
+			hasOverrides = true
+		}
 	}
 	if sortsSlice, ok := paramMap["sorts"].([]any); ok && len(sortsSlice) > 0 {
 		s, err := parameters.ConvertAnySliceToTyped(sortsSlice, "string")
@@ -415,17 +469,19 @@ func applySavedQueryOverrides(
 			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid pivots parameter: %v", err), err)
 		}
 		pivots := p.([]string)
+		wq.Pivots = &pivots
+		hasOverrides = true
+	}
+	if wq.Pivots != nil && len(*wq.Pivots) > 0 {
 		var currentFields []string
 		if wq.Fields != nil {
 			currentFields = *wq.Fields
 		}
-		updatedFields, pivErr := lookercommon.EnsurePivotsInFields(currentFields, pivots)
+		updatedFields, pivErr := lookercommon.EnsurePivotsInFields(currentFields, *wq.Pivots)
 		if pivErr != nil {
 			return nil, nil, false, util.NewAgentError(pivErr.Error(), pivErr)
 		}
 		wq.Fields = &updatedFields
-		wq.Pivots = &pivots
-		hasOverrides = true
 	}
 	if modelVal, _ := paramMap["model"].(string); strings.TrimSpace(modelVal) != "" {
 		wq.Model = strings.TrimSpace(modelVal)
@@ -462,7 +518,8 @@ func applySavedQueryOverrides(
 		hasOverrides = true
 	}
 	if feVal, _ := paramMap["filter_expression"].(string); strings.TrimSpace(feVal) != "" {
-		wq.FilterExpression = &feVal
+		trimmedFE := strings.TrimSpace(feVal)
+		wq.FilterExpression = &trimmedFE
 		hasOverrides = true
 	}
 	if dfSlice, ok := paramMap["dynamic_fields"].([]any); ok && len(dfSlice) > 0 {
@@ -498,6 +555,30 @@ func resolveEffectiveVisConfig(visConfig map[string]any, queryDef *v4.Query) map
 	return map[string]any{"type": "table", "show_row_numbers": true}
 }
 
+func extractFatalDetailError(detailResp map[string]any) error {
+	rawErrs, ok := detailResp["errors"].([]any)
+	if !ok || len(rawErrs) == 0 {
+		return nil
+	}
+	for _, e := range rawErrs {
+		errMap, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		if fatal, hasFatal := errMap["fatal"].(bool); hasFatal && !fatal {
+			continue
+		}
+		msg, _ := errMap["message"].(string)
+		if strings.TrimSpace(msg) == "" {
+			msg, _ = errMap["message_details"].(string)
+		}
+		if strings.TrimSpace(msg) != "" {
+			return fmt.Errorf("error running query: %s", strings.TrimSpace(msg))
+		}
+	}
+	return nil
+}
+
 func parseVisualizationQueryResult(rawResp string, requestedPivots *[]string) (map[string]any, util.ToolboxError) {
 	var rawParsed any
 	if err := json.Unmarshal([]byte(rawResp), &rawParsed); err != nil {
@@ -505,11 +586,13 @@ func parseVisualizationQueryResult(rawResp string, requestedPivots *[]string) (m
 	}
 
 	var (
-		dataVal   any
-		fieldsObj any
-		pivotsObj any
-		totalsObj any
-		errorsObj any
+		dataVal      any
+		fieldsObj    any
+		pivotsObj    any
+		totalsObj    any
+		rowTotalsObj any
+		subtotalsObj any
+		errorsObj    any
 	)
 
 	switch parsed := rawParsed.(type) {
@@ -519,11 +602,19 @@ func parseVisualizationQueryResult(rawResp string, requestedPivots *[]string) (m
 				return nil, util.NewAgentError(pivErr.Error(), pivErr)
 			}
 		}
+		dataRows, _ := parsed["data"].([]any)
+		if len(dataRows) == 0 {
+			if fatalErr := extractFatalDetailError(parsed); fatalErr != nil {
+				return nil, util.NewAgentError(fatalErr.Error(), fatalErr)
+			}
+		}
 		lookercommon.StripDrillLinks(parsed)
 		dataVal = parsed["data"]
 		fieldsObj = parsed["fields"]
 		pivotsObj = parsed["pivots"]
 		totalsObj = parsed["totals_data"]
+		rowTotalsObj = parsed["row_totals"]
+		subtotalsObj = parsed["subtotals_data"]
 		errorsObj = parsed["errors"]
 	case []any:
 		dataVal = parsed
@@ -536,6 +627,12 @@ func parseVisualizationQueryResult(rawResp string, requestedPivots *[]string) (m
 		"fields":      fieldsObj,
 		"pivots":      pivotsObj,
 		"totals_data": totalsObj,
+	}
+	if rowTotalsObj != nil {
+		queryResult["row_totals"] = rowTotalsObj
+	}
+	if subtotalsObj != nil {
+		queryResult["subtotals_data"] = subtotalsObj
 	}
 	if errorsObj != nil {
 		queryResult["errors"] = errorsObj
@@ -591,6 +688,18 @@ func populateQueryMetaFromQueryDef(meta map[string]any, queryDef *v4.Query) {
 	}
 	if meta["fields"] == nil && queryDef.Fields != nil {
 		meta["fields"] = *queryDef.Fields
+	}
+	if meta["filters"] == nil && queryDef.Filters != nil && len(*queryDef.Filters) > 0 {
+		meta["filters"] = *queryDef.Filters
+	}
+	if meta["pivots"] == nil && queryDef.Pivots != nil && len(*queryDef.Pivots) > 0 {
+		meta["pivots"] = *queryDef.Pivots
+	}
+	if meta["sorts"] == nil && queryDef.Sorts != nil && len(*queryDef.Sorts) > 0 {
+		meta["sorts"] = *queryDef.Sorts
+	}
+	if meta["limit"] == nil && queryDef.Limit != nil && *queryDef.Limit != "" {
+		meta["limit"] = *queryDef.Limit
 	}
 	if meta["filter_expression"] == nil && queryDef.FilterExpression != nil && *queryDef.FilterExpression != "" {
 		meta["filter_expression"] = *queryDef.FilterExpression
@@ -679,11 +788,19 @@ func (t Tool) invokeSavedQuery(
 	queryDef, qErr := fetchQueryByIDOrSlug(sdk, queryID, opts)
 	if qErr != nil {
 		logger.WarnContext(ctx, "could not fetch query definition by id or slug", "error", qErr)
+		if hasRequestedQueryOverrides(paramMap, visConfig) {
+			return nil, lookercommon.ProcessLookerAPIError(qErr)
+		}
 	}
 
 	wq, mergedVisConfig, hasOverrides, tbErr := applySavedQueryOverrides(queryDef, paramMap, visConfig)
 	if tbErr != nil {
 		return nil, tbErr
+	}
+
+	savedNumericID := queryID
+	if queryDef != nil && queryDef.Id != nil && *queryDef.Id != "" {
+		savedNumericID = *queryDef.Id
 	}
 
 	var (
@@ -704,10 +821,10 @@ func (t Tool) invokeSavedQuery(
 		resp, rErr = lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json_detail", &generateDrillLinks, opts)
 		if rErr != nil && !hasOverrides {
 			logger.WarnContext(ctx, "error running inline query from query definition, falling back to saved query", "error", rErr)
-			resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, queryID, "json_detail", &generateDrillLinks, opts)
+			resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, savedNumericID, "json_detail", &generateDrillLinks, opts)
 		}
 	} else {
-		resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, queryID, "json_detail", &generateDrillLinks, opts)
+		resp, rErr = lookercommon.RunSavedQuery(ctx, sdk, savedNumericID, "json_detail", &generateDrillLinks, opts)
 	}
 	if rErr != nil {
 		return nil, lookercommon.ProcessLookerAPIError(rErr)
@@ -769,20 +886,30 @@ func (t Tool) invokeInlineQuery(
 	var (
 		queryID          string
 		slug             string
+		clientID         string
 		shareURL         string
 		expandedShareURL string
 		queryURL         string
 		queryCan         map[string]bool
 	)
 	if createdQuery, cErr := sdk.CreateQuery(*wq, "id,slug,client_id,share_url,expanded_share_url,url,can", opts); cErr == nil {
-		// In Looker, Explore URLs require the 22-character client slug GUID (client_id) for ?qid= (stored in `slugs` table).
-		switch {
-		case createdQuery.ClientId != nil && *createdQuery.ClientId != "":
-			slug = *createdQuery.ClientId
-			queryID = *createdQuery.ClientId
-		case createdQuery.Slug != nil && *createdQuery.Slug != "":
+		if createdQuery.ClientId != nil && *createdQuery.ClientId != "" {
+			clientID = *createdQuery.ClientId
+		}
+		if createdQuery.Slug != nil && *createdQuery.Slug != "" {
 			slug = *createdQuery.Slug
-			queryID = *createdQuery.Slug
+		}
+		if slug == "" {
+			slug = clientID
+		}
+		if clientID == "" {
+			clientID = slug
+		}
+		switch {
+		case clientID != "":
+			queryID = clientID
+		case slug != "":
+			queryID = slug
 		case createdQuery.Id != nil:
 			queryID = *createdQuery.Id
 		}
@@ -805,9 +932,6 @@ func (t Tool) invokeInlineQuery(
 	generateDrillLinks := false
 	resp, err := lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json_detail", &generateDrillLinks, opts)
 	if err != nil {
-		resp, err = lookercommon.RunInlineQueryWithDrillLinks(ctx, sdk, wq, "json", &generateDrillLinks, opts)
-	}
-	if err != nil {
 		return nil, lookercommon.ProcessLookerAPIError(err)
 	}
 
@@ -821,8 +945,8 @@ func (t Tool) invokeInlineQuery(
 	queryMeta := map[string]any{
 		"id":                 queryID,
 		"slug":               slug,
-		"client_id":          slug,
-		"qid":                slug,
+		"client_id":          clientID,
+		"qid":                clientID,
 		"share_url":          shareURL,
 		"expanded_share_url": expandedShareURL,
 		"url":                queryURL,
@@ -836,47 +960,56 @@ func (t Tool) invokeInlineQuery(
 }
 
 func applyVisualizationPayloadLimit(resultPayload, visualizationData map[string]any) tools.StructuredToolResult {
-	if _, tooLarge := lookercommon.ExceedsMCPPayloadLimit(resultPayload, lookercommon.MaxMCPPayloadBytes); tooLarge {
-		errMsg := "This visualization's query result is too large to display here. Open it in Looker Explore to view the full result."
-		if qrMap, ok := visualizationData["queryResult"].(map[string]any); ok {
-			qrMap["data"] = []any{}
-			delete(qrMap, "totals_data")
-			delete(qrMap, "pivots")
-		}
-		visualizationData["response_too_large"] = true
-		visualizationData["error"] = errMsg
-		resultPayload["response_too_large"] = true
-		resultPayload["error"] = errMsg
-		return tools.StructuredToolResult{
-			Content:           resultPayload,
-			StructuredContent: resultPayload,
-		}
-	}
-
 	var rowCount int
 	if qrMap, ok := visualizationData["queryResult"].(map[string]any); ok {
 		if rows, ok := qrMap["data"].([]any); ok {
 			rowCount = len(rows)
 		}
 	}
-	summary := map[string]any{
-		"query_id":  resultPayload["query_id"],
-		"slug":      resultPayload["slug"],
-		"client_id": resultPayload["client_id"],
-		"share_url": resultPayload["share_url"],
-		"title":     visualizationData["title"],
-		"row_count": rowCount,
-		"status":    "rendered_in_ui",
+
+	buildSummary := func(status string) map[string]any {
+		summary := map[string]any{
+			"query_id":  resultPayload["query_id"],
+			"slug":      resultPayload["slug"],
+			"client_id": resultPayload["client_id"],
+			"share_url": resultPayload["share_url"],
+			"title":     visualizationData["title"],
+			"row_count": rowCount,
+			"status":    status,
+		}
+		if modelVal, ok := resultPayload["model"]; ok && modelVal != nil && modelVal != "" {
+			summary["model"] = modelVal
+		}
+		if exploreVal, ok := resultPayload["explore"]; ok && exploreVal != nil && exploreVal != "" {
+			summary["explore"] = exploreVal
+		}
+		return summary
 	}
-	if modelVal, ok := resultPayload["model"]; ok && modelVal != nil && modelVal != "" {
-		summary["model"] = modelVal
-	}
-	if exploreVal, ok := resultPayload["explore"]; ok && exploreVal != nil && exploreVal != "" {
-		summary["explore"] = exploreVal
+
+	if _, tooLarge := lookercommon.ExceedsMCPPayloadLimit(resultPayload, lookercommon.MaxMCPPayloadBytes); tooLarge {
+		errMsg := "This visualization's query result is too large to display here. Open it in Looker Explore to view the full result."
+		if qrMap, ok := visualizationData["queryResult"].(map[string]any); ok {
+			qrMap["data"] = []any{}
+			delete(qrMap, "totals_data")
+			delete(qrMap, "row_totals")
+			delete(qrMap, "subtotals_data")
+			delete(qrMap, "pivots")
+		}
+		visualizationData["response_too_large"] = true
+		visualizationData["error"] = errMsg
+		resultPayload["response_too_large"] = true
+		resultPayload["error"] = errMsg
+		summary := buildSummary("response_too_large")
+		summary["response_too_large"] = true
+		summary["error"] = errMsg
+		return tools.StructuredToolResult{
+			Content:           summary,
+			StructuredContent: resultPayload,
+		}
 	}
 
 	return tools.StructuredToolResult{
-		Content:           summary,
+		Content:           buildSummary("rendered_in_ui"),
 		StructuredContent: resultPayload,
 	}
 }
