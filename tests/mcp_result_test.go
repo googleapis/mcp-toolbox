@@ -149,7 +149,7 @@ func TestMySQLQueryPlanMCPErrorResponses(t *testing.T) {
 				return nil, fmt.Errorf("unexpected query-plan request: %s %+v", r.URL.Path, request)
 			}
 			t.Log("query-plan request received")
-			result := map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "table non_existent_table does not exist"}}}
+			result := map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "Error 1146 (42S02): Table 'toolbox.non_existent_table' doesn't exist"}}}
 			response := map[string]any{"jsonrpc": "2.0", "id": request.Id, "result": result}
 			switch scenario {
 			case "valid tool error":
@@ -157,10 +157,10 @@ func TestMySQLQueryPlanMCPErrorResponses(t *testing.T) {
 				result["isError"] = false
 				result["content"] = []any{}
 			case "wrong tool error":
-				result["content"] = []any{map[string]any{"type": "text", "text": "unrelated failure"}}
+				result["content"] = []any{map[string]any{"type": "text", "text": "permission denied for table non_existent_table"}}
 			case "protocol error":
 				delete(response, "result")
-				response["error"] = map[string]any{"code": -32603, "message": "table non_existent_table does not exist"}
+				response["error"] = map[string]any{"code": -32603, "message": "Error 1146 (42S02): Table 'toolbox.non_existent_table' doesn't exist"}
 			default:
 				return nil, fmt.Errorf("unknown scenario: %s", scenario)
 			}
