@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.15.0](https://github.com/googleapis/mcp-toolbox/compare/v1.14.0...v1.15.0) (2026-10-22)
+
+
+### Features
+
+* **conversational-analytics:** Add create, update, and delete data agent tools ([#3685](https://github.com/googleapis/mcp-toolbox/issues/3685)) ([aaf8841](https://github.com/googleapis/mcp-toolbox/commit/aaf88413e117856f80f646da7f1dbc63ebaedea3))
+* **looker:** Support running saved queries by query_id in query tool ([#4220](https://github.com/googleapis/mcp-toolbox/issues/4220)) ([0f2f3fb](https://github.com/googleapis/mcp-toolbox/commit/0f2f3fb2f3ee51e2959d028af31b2aabd46d248c))
+* **server:** Backport MCP Apps UI support across v20241105 - v20251125 ([#4057](https://github.com/googleapis/mcp-toolbox/issues/4057)) ([3a4032c](https://github.com/googleapis/mcp-toolbox/commit/3a4032cb939798309657dc7dd6050396d77d36ce))
+* **ui:** Add collapsible sidebar and resizable scrollable tool description ([#4281](https://github.com/googleapis/mcp-toolbox/issues/4281)) ([8d1930f](https://github.com/googleapis/mcp-toolbox/commit/8d1930fc972a59c03688be19fd577a5f6cbe3abd))
+* **ui:** Add MCP Apps support to toolbox playground ([#4063](https://github.com/googleapis/mcp-toolbox/issues/4063)) ([d0628f7](https://github.com/googleapis/mcp-toolbox/commit/d0628f76af4db1443340ed07ff5e7e9e5ae532fa))
+
+
+### Bug Fixes
+
+* **auth/generic:** Validate issuer claim in GetClaimsFromHeader ([#4296](https://github.com/googleapis/mcp-toolbox/issues/4296)) ([e0d655a](https://github.com/googleapis/mcp-toolbox/commit/e0d655a223cb6d3334ccf00012ef66675634b552))
+* **resource/file:** Sanitize server filesystem paths from read errors ([#4260](https://github.com/googleapis/mcp-toolbox/issues/4260)) ([5aeb8f9](https://github.com/googleapis/mcp-toolbox/commit/5aeb8f92957aebf12efb0c92a617ce0785fd7289))
+* **source/bigquery:** Sort allowedDatasets for deterministic tool manifests ([#4272](https://github.com/googleapis/mcp-toolbox/issues/4272)) ([6d46c5f](https://github.com/googleapis/mcp-toolbox/commit/6d46c5f39df8088cd275d7efd5104149eb7c751d))
+* **telemetry:** Disable self-tracing on GCP telemetry exporters ([#4230](https://github.com/googleapis/mcp-toolbox/issues/4230)) ([f9ba7e5](https://github.com/googleapis/mcp-toolbox/commit/f9ba7e52679fb9ef8166510955e9493a63e9440c))
+* **tools:** Remove `Authorized()` from Tool interface to ensure centralized `authRequired` check ([#4254](https://github.com/googleapis/mcp-toolbox/issues/4254)) ([00ce635](https://github.com/googleapis/mcp-toolbox/commit/00ce6356a539242ebb94729038efe960c7173387))
+
 ## [1.14.0](https://github.com/googleapis/mcp-toolbox/compare/v1.13.1...v1.14.0) (2026-10-08)
 
 
