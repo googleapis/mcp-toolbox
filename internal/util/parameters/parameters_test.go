@@ -1423,6 +1423,77 @@ func TestParametersParse(t *testing.T) {
 	})
 }
 
+func TestParseArrayAndMapNumericAllowedValuesFromYAML(t *testing.T) {
+	// YAML decodes numeric entries in array and map allowedValues and
+	// excludedValues as uint64, int64 or float64, while tool arguments arrive
+	// as json.Number. The values must match by number, not by Go type.
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	in := `
+- name: my_array
+  type: array
+  description: an array
+  items:
+    name: item
+    type: integer
+    description: an int
+  allowedValues: [[1, -2], [3]]
+- name: my_excluded_array
+  type: array
+  description: an array
+  items:
+    name: item
+    type: integer
+    description: an int
+  excludedValues: [[0]]
+- name: my_map
+  type: map
+  description: a map
+  valueType: float
+  allowedValues: [{a: 1, b: 2.5}]
+- name: my_excluded_map
+  type: map
+  description: a map
+  excludedValues: [{a: 0}]
+`
+	var ps parameters.Parameters
+	if err := yaml.UnmarshalContext(ctx, []byte(in), &ps); err != nil {
+		t.Fatalf("unable to unmarshal: %s", err)
+	}
+	tcs := []struct {
+		name    string
+		param   parameters.Parameter
+		in      any
+		wantErr bool
+	}{
+		{name: "array allowed", param: ps[0], in: []any{json.Number("1"), json.Number("-2")}},
+		{name: "single item array allowed", param: ps[0], in: []any{json.Number("3")}},
+		{name: "array order matters", param: ps[0], in: []any{json.Number("-2"), json.Number("1")}, wantErr: true},
+		{name: "array prefix not allowed", param: ps[0], in: []any{json.Number("1")}, wantErr: true},
+		{name: "array excluded", param: ps[1], in: []any{json.Number("0")}, wantErr: true},
+		{name: "array not excluded", param: ps[1], in: []any{json.Number("1")}},
+		{name: "map allowed", param: ps[2], in: map[string]any{"a": json.Number("1"), "b": json.Number("2.5")}},
+		{name: "map allowed by float input", param: ps[2], in: map[string]any{"a": json.Number("1.0"), "b": json.Number("2.5")}},
+		{name: "map value not allowed", param: ps[2], in: map[string]any{"a": json.Number("1"), "b": json.Number("2")}, wantErr: true},
+		{name: "map key not allowed", param: ps[2], in: map[string]any{"a": json.Number("1"), "c": json.Number("2.5")}, wantErr: true},
+		{name: "map excluded", param: ps[3], in: map[string]any{"a": json.Number("0")}, wantErr: true},
+		{name: "map string not equal to number", param: ps[3], in: map[string]any{"a": "0"}},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.param.Parse(tc.in)
+			if tc.wantErr && err == nil {
+				t.Fatalf("Parse(%v) expected an error, got nil", tc.in)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Parse(%v) unexpected error: %s", tc.in, err)
+			}
+		})
+	}
+}
+
 func TestParseTypeErrorReportsValue(t *testing.T) {
 	// When a value fails the type assertion, the error must report the actual
 	// offending value, not the zero value of the target type. The primitive
