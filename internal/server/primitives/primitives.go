@@ -16,6 +16,9 @@ package primitives
 
 import (
 	"cmp"
+	"context"
+	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -140,6 +143,31 @@ func (r *PrimitiveManager) SetPrimitives(sourcesMap map[string]sources.Source, a
 	r.resources = resourcesMap
 	r.resourceTemplates = resourceTemplatesMap
 	r.groups = groupsMap
+}
+
+// CloseSources releases every source that holds a connection worth releasing.
+// One source failing does not stop the rest; the failures are returned joined.
+func (r *PrimitiveManager) CloseSources(ctx context.Context) error {
+	// Snapshot under the lock and close outside it. Releasing a source can be
+	// slow, and a writer blocking behind this read lock would in turn block
+	// every later reader, since RWMutex stops admitting readers once a writer
+	// is waiting.
+	r.mu.RLock()
+	closers := make(map[string]sources.Closer, len(r.sources))
+	for name, src := range r.sources {
+		if closer, ok := src.(sources.Closer); ok {
+			closers[name] = closer
+		}
+	}
+	r.mu.RUnlock()
+
+	var errs []error
+	for name, closer := range closers {
+		if err := closer.Close(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("source %q: %w", name, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // AuthServices returns a copy of the auth services map
