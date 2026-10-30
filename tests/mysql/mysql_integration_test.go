@@ -75,17 +75,35 @@ func initMySQLConnectionPool(host, port, user, pass, dbname string) (*sql.DB, er
 	return pool, nil
 }
 
-func TestMySQLToolEndpoints(t *testing.T) {
-	sourceConfig := getMySQLVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+type mysqlTestFixture struct {
+	pool          *sql.DB
+	paramTable    string
+	authTable     string
+	templateTable string
+}
 
-	args := []string{"--enable-api"}
+type mysqlTestOptions struct {
+	invoke     []tests.InvokeTestOption
+	executeSQL []tests.ExecuteSqlOption
+	template   []tests.TemplateParamOption
+	prebuilt   []tests.ToolExecOption
+}
+
+func setupMySQLTest(t *testing.T) mysqlTestFixture {
+	t.Helper()
+	sourceConfig := getMySQLVars(t)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	t.Cleanup(cancel)
 
 	pool, err := initMySQLConnectionPool(MySQLHost, MySQLPort, MySQLUser, MySQLPass, MySQLDatabase)
 	if err != nil {
 		t.Fatalf("unable to create MySQL connection pool: %s", err)
 	}
+	t.Cleanup(func() {
+		if err := pool.Close(); err != nil {
+			t.Errorf("failed to close MySQL connection pool: %v", err)
+		}
+	})
 
 	// cleanup test environment
 	tests.CleanupMySQLTables(t, ctx, pool)
@@ -98,12 +116,12 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMySQLParamToolInfo(tableNameParam)
 	teardownTable1 := tests.SetupMySQLTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	t.Cleanup(func() { teardownTable1(t) })
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := tests.GetMySQLAuthToolInfo(tableNameAuth)
 	teardownTable2 := tests.SetupMySQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	t.Cleanup(func() { teardownTable2(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, MySQLToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -113,11 +131,20 @@ func TestMySQLToolEndpoints(t *testing.T) {
 
 	toolsFile = tests.AddMySQLPrebuiltToolConfig(t, toolsFile)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -127,24 +154,47 @@ func TestMySQLToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Get configs for tests
+	return mysqlTestFixture{pool: pool, paramTable: tableNameParam, authTable: tableNameAuth, templateTable: tableNameTemplateParam}
+}
+
+func runMySQLCallTests(t *testing.T, fixture mysqlTestFixture, options mysqlTestOptions) {
+	t.Helper()
 	select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want := tests.GetMySQLWants()
-
-	// Run tests
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, select1Want, tests.DisableArrayTest())
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
-
-	// Run specific MySQL tool tests
-	const expectedOwner = ""
-	tests.RunMySQLListTablesTest(t, MySQLDatabase, tableNameParam, tableNameAuth, expectedOwner)
-	tests.RunMySQLListActiveQueriesTest(t, ctx, pool)
-	tests.RunMySQLListTablesMissingUniqueIndexes(t, ctx, pool, MySQLDatabase)
-	tests.RunMySQLListTableFragmentationTest(t, MySQLDatabase, tableNameParam, tableNameAuth)
-	tests.RunMySQLGetQueryPlanTest(t, ctx, pool, MySQLDatabase, tableNameParam)
-	tests.RunMySQLListAllLocks(t, ctx, pool, MySQLDatabase)
-	tests.RunMySQLShowQueryStats(t, ctx, pool, MySQLDatabase)
-	tests.RunMySQLListTableStatsTest(t, ctx, pool, MySQLDatabase, tableNameParam, tableNameAuth)
+	t.Run("invoke", func(t *testing.T) {
+		opts := append([]tests.InvokeTestOption{tests.DisableArrayTest()}, options.invoke...)
+		tests.RunToolInvokeTest(t, select1Want, opts...)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
+	})
+	t.Run("execute_sql", func(t *testing.T) {
+		tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, options.executeSQL...)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		tests.RunToolInvokeWithTemplateParameters(t, fixture.templateTable, options.template...)
+	})
+	t.Run("list_tables", func(t *testing.T) {
+		tests.RunMySQLListTablesTest(t, MySQLDatabase, fixture.paramTable, fixture.authTable, "", options.prebuilt...)
+	})
+	t.Run("list_active_queries", func(t *testing.T) {
+		tests.RunMySQLListActiveQueriesTest(t, t.Context(), fixture.pool, options.prebuilt...)
+	})
+	t.Run("list_tables_missing_unique_indexes", func(t *testing.T) {
+		tests.RunMySQLListTablesMissingUniqueIndexes(t, t.Context(), fixture.pool, MySQLDatabase, options.prebuilt...)
+	})
+	t.Run("list_table_fragmentation", func(t *testing.T) {
+		tests.RunMySQLListTableFragmentationTest(t, MySQLDatabase, fixture.paramTable, fixture.authTable, options.prebuilt...)
+	})
+	t.Run("get_query_plan", func(t *testing.T) {
+		tests.RunMySQLGetQueryPlanTest(t, t.Context(), fixture.pool, MySQLDatabase, fixture.paramTable, options.prebuilt...)
+	})
+	t.Run("list_all_locks", func(t *testing.T) {
+		tests.RunMySQLListAllLocks(t, t.Context(), fixture.pool, MySQLDatabase, options.prebuilt...)
+	})
+	t.Run("show_query_stats", func(t *testing.T) {
+		tests.RunMySQLShowQueryStats(t, t.Context(), fixture.pool, MySQLDatabase, options.prebuilt...)
+	})
+	t.Run("list_table_stats", func(t *testing.T) {
+		tests.RunMySQLListTableStatsTest(t, t.Context(), fixture.pool, MySQLDatabase, fixture.paramTable, fixture.authTable, options.prebuilt...)
+	})
 }
