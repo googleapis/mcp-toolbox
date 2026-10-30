@@ -3134,9 +3134,14 @@ func testQueryById(t *testing.T, wantResult string) {
 	}
 	readReq := []byte(`{"jsonrpc":"2.0","id":"read-res","method":"resources/read","params":{"uri":"ui://looker/render_visualization.html"}}`)
 	resp, bodyBytes = tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/mcp", bytes.NewBuffer(readReq), mcpHeaders)
-	if resp.StatusCode != http.StatusOK &&
-		!(resp.StatusCode == http.StatusInternalServerError && strings.Contains(string(bodyBytes), "disabled by administrator")) {
-		t.Fatalf("unexpected response from resources/read: got %d, body: %s", resp.StatusCode, string(bodyBytes))
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusInternalServerError:
+		if !strings.Contains(string(bodyBytes), "disabled by administrator") {
+			t.Fatalf("unexpected 500 response from resources/read: %s", string(bodyBytes))
+		}
+	default:
+		t.Fatalf("unexpected status code from resources/read: got %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 }
 
