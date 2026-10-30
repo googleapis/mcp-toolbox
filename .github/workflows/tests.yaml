@@ -80,6 +80,9 @@ jobs:
         run: |
           go test -race -v ./internal/... ./cmd/...
 
+      - name: Run shared test harness regressions
+        run: go test -race -count=1 -v ./tests
+
       - name: Check coverage
         if: ${{ runner.os == 'Linux' }}
         run: |

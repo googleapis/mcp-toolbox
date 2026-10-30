@@ -141,6 +141,16 @@ func InvokeMCPTool(t *testing.T, toolName string, arguments map[string]any, requ
 // TODO: For tests that need to strictly validate the exact schema or structure of the output,
 // consider avoiding this helper and instead unmarshal the raw JSON directly into expected Go structs for comparison.
 func getMCPResultText(t *testing.T, resp *MCPCallToolResponse) []any {
+	t.Helper()
+	if resp == nil {
+		t.Fatal("missing MCP response")
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %+v", resp.Error)
+	}
+	if resp.Result.IsError {
+		t.Fatalf("unexpected MCP tool error: %+v", resp.Result)
+	}
 	if len(resp.Result.Content) == 0 {
 		return []any{}
 	}
