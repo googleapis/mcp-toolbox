@@ -29,7 +29,7 @@ description: "Details of the Looker prebuilt configuration."
     *   `get_filters`: Retrieves the list of filters in an explore.
     *   `get_parameters`: Retrieves the list of parameters in an explore.
     *   `get_field_value_suggestions`: Retrieves distinct value suggestions for a field.
-    *   `query`: Runs a query against the LookML model.
+    *   `query`: Runs an inline query against the LookML model or executes a saved query by ID/slug.
     *   `query_sql`: Generates the SQL for a query.
     *   `query_url`: Generates a URL for a query in Looker.
     *   `get_looks`: Searches for saved looks.
@@ -38,6 +38,7 @@ description: "Details of the Looker prebuilt configuration."
     *   `get_dashboards`: Searches for saved dashboards.
     *   `run_dashboard`: Runs the queries associated with a dashboard.
     *   `make_dashboard`: Creates a new dashboard.
+    *   `import_dashboard_from_lookml`: Imports a dashboard from a LookML YAML definition.
     *   `add_dashboard_element`: Adds a tile to a dashboard.
     *   `add_dashboard_filter`: Adds a filter to a dashboard.
     *   `generate_embed_url`: Generate an embed url for content.
