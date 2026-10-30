@@ -20,10 +20,17 @@ user: ${USER_NAME}
 password: ${PASSWORD}
 ```
 
-A default value can be specified like `${ENV_NAME:default}`.
+A variable referenced as `${ENV_NAME}` is required: Toolbox fails to start if it
+is unset or set to an empty value (`""`).
+
+A default value can be specified like `${ENV_NAME:default}`. The default is used
+only when the variable is unset; a variable that is set to an empty value
+resolves to `""`. Use `${ENV_NAME:}` to make a variable optional and allow an
+empty value.
 
 ```yaml
 port: ${DB_PORT:3306}
+role: ${DB_ROLE:}
 ```
 
 ### Sources
