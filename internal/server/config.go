@@ -110,6 +110,8 @@ type ServerConfig struct {
 	SkipSourceValidation bool
 	// DisableExt specifies MCP extension URIs disabled on this server.
 	DisableExt []string
+	// DisableExtensionCheck disables client extension capability checks in older MCP protocol versions.
+	DisableExtensionCheck bool
 	// DisableVersionCheck skips checking for newer Toolbox versions on startup.
 	DisableVersionCheck bool
 	// OpenAIAppsChallengeFile specifies the path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.

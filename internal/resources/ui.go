@@ -30,6 +30,28 @@ type CSPConfig struct {
 	BaseUriDomains  []string `yaml:"baseUriDomains,omitempty" json:"baseUriDomains,omitempty"`
 }
 
+// Clone returns a deep copy of the CSPConfig so callers can safely read or
+// modify domain slices without concurrent data races.
+func (c *CSPConfig) Clone() *CSPConfig {
+	if c == nil {
+		return nil
+	}
+	cloneSlice := func(s []string) []string {
+		if s == nil {
+			return nil
+		}
+		out := make([]string, len(s))
+		copy(out, s)
+		return out
+	}
+	return &CSPConfig{
+		ConnectDomains:  cloneSlice(c.ConnectDomains),
+		ResourceDomains: cloneSlice(c.ResourceDomains),
+		FrameDomains:    cloneSlice(c.FrameDomains),
+		BaseUriDomains:  cloneSlice(c.BaseUriDomains),
+	}
+}
+
 // validateHTTPOrigin checks that a string is a valid absolute URI with an http or https scheme and a host.
 func validateHTTPOrigin(raw string) error {
 	u, err := url.Parse(raw)

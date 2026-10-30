@@ -2335,11 +2335,11 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"discovery": group.GroupConfig{
 					Name:      "discovery",
-					ToolNames: []string{"search_entries", "lookup_entry", "search_aspect_types", "lookup_context", "search_dq_scans"},
+					ToolNames: []string{"search_entries", "lookup_entry", "lookup_context", "search_dq_scans"},
 				},
 				"data-products": group.GroupConfig{
 					Name:      "data-products",
-					ToolNames: []string{"search_entries", "lookup_entry", "search_aspect_types", "lookup_context", "list_data_products", "get_data_product", "list_data_assets", "get_data_asset", "create_data_product", "update_data_product", "create_data_asset", "update_data_asset", "update_data_product_aspects", "get_operation"},
+					ToolNames: []string{"search_entries", "lookup_entry", "lookup_context", "list_data_products", "get_data_product", "list_data_assets", "get_data_asset", "create_data_product", "update_data_product", "create_data_asset", "update_data_asset", "update_data_product_aspects", "get_operation"},
 				},
 				"enrich": group.GroupConfig{
 					Name:      "enrich",
@@ -2414,7 +2414,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"looker_tools": group.GroupConfig{
 					Name:        "looker_tools",
 					Description: "These skills are designed for data discovery and business intelligence.",
-					ToolNames:   []string{"get_models", "get_explores", "get_explore", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout_component"},
+					ToolNames:   []string{"get_models", "get_explores", "get_explore", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "import_dashboard_from_lookml", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout_component"},
 				},
 			},
 		},
