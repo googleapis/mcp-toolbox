@@ -167,6 +167,11 @@ func setupLooker(t *testing.T, sourceConfig map[string]any) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"import_dashboard_from_lookml": map[string]any{
+				"type":        "looker-import-dashboard-from-lookml",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"make_dashboard": map[string]any{
 				"type":        "looker-make-dashboard",
 				"source":      "my-instance",
@@ -441,6 +446,7 @@ func runLookerCallTools(t *testing.T, options ...lookerTestOption) {
 
 	wantResult = "{\"look.count\":"
 	runLookerToolContains(t, "query", []byte(`{"model": "system__activity", "explore": "look", "fields": ["look.count"]}`), wantResult, options...)
+	testQueryById(t, wantResult, options...)
 
 	wantResult = "SELECT"
 	runLookerToolContains(t, "query_sql", []byte(`{"model": "system__activity", "explore": "look", "fields": ["look.count"]}`), wantResult, options...)
@@ -573,16 +579,16 @@ func runLookerCallTools(t *testing.T, options ...lookerTestOption) {
 	testRunDashboard(t, dashboardId, options...)
 	testDashboardLifecycle(t, dashboardId, options...)
 
+	deleteImportedDashboard := testImportDashboardFromLookml(t, randstr, options...)
+	defer deleteImportedDashboard()
+
 	wantResult = "\"Connection\":\"thelook\""
 	runLookerToolContains(t, "health_pulse", []byte(`{"action": "check_db_connections"}`), wantResult, options...)
 
 	wantResult = "[]"
 	runLookerToolContains(t, "health_pulse", []byte(`{"action": "check_schedule_failures"}`), wantResult, options...)
 
-	// Newer Looker (Google Cloud core) instances no longer throw an "Unsupported" API error for
-	// legacy features, but instead return an empty list.
-	wantResult = "[]"
-	runLookerToolContains(t, "health_pulse", []byte(`{"action": "check_legacy_features"}`), wantResult, options...)
+	testHealthPulseLegacyFeatures(t, options...)
 
 	wantResult = "\"Project\":\"the_look\""
 	runLookerToolContains(t, "health_analyze", []byte(`{"action": "projects"}`), wantResult, options...)
@@ -978,4 +984,90 @@ func testDashboardLifecycle(t *testing.T, dashboardId string, options ...lookerT
 			t.Fatalf("failed to find element %s in target layout %s", elementId, newLayoutId)
 		}
 	})
+}
+
+func testQueryById(t *testing.T, wantResult string, options ...lookerTestOption) {
+	t.Helper()
+	sdk := newLookerTestSDK(t)
+	fields := []string{"look.count"}
+	savedQuery, err := sdk.CreateQuery(v4.WriteQuery{
+		Model:  "system__activity",
+		View:   "look",
+		Fields: &fields,
+	}, "", nil)
+	if err != nil {
+		t.Fatalf("failed to create saved query for query_id test: %v", err)
+	}
+	if savedQuery.Id == nil || *savedQuery.Id == "" {
+		t.Fatalf("expected non-empty saved query Id")
+	}
+	runLookerToolContains(t, "query", []byte(fmt.Sprintf(`{"query_id": "%s"}`, *savedQuery.Id)), wantResult, options...)
+}
+
+func testImportDashboardFromLookml(t *testing.T, randstr string, options ...lookerTestOption) func() {
+	var id string
+	t.Run("TestImportDashboardFromLookml", func(t *testing.T) {
+		lookml := fmt.Sprintf("- dashboard: test_imported_%s\n  title: TestImportedDashboard%s\n  layout: newspaper\n", randstr, randstr)
+		reqMap := map[string]any{
+			"lookml": lookml,
+		}
+		reqBody, err := json.Marshal(reqMap)
+		if err != nil {
+			t.Fatalf("error marshaling request body: %v", err)
+		}
+
+		url := "http://127.0.0.1:5000/api/tool/import_dashboard_from_lookml/invoke"
+		bodyBytes := invokeLookerTool(t, url, reqBody, options...)
+		var respBody map[string]any
+		if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
+			t.Fatalf("error parsing result body: %v", err)
+		}
+
+		var ok bool
+		if id, ok = respBody["id"].(string); !ok || id == "" {
+			t.Fatalf("didn't get imported dashboard id, got %s", string(bodyBytes))
+		}
+	})
+
+	return func() {
+		if id == "" {
+			return
+		}
+		sdk := newLookerTestSDK(t)
+
+		if _, err := sdk.DeleteDashboard(id, nil); err != nil {
+			t.Fatalf("error deleting imported dashboard: %v", err)
+		}
+	}
+}
+
+// testHealthPulseLegacyFeatures accepts enabled features added by Looker upgrades,
+// while rejecting malformed results and the SDK-error sentinel.
+func testHealthPulseLegacyFeatures(t *testing.T, options ...lookerTestOption) {
+	t.Helper()
+	t.Run("invoke health_pulse/check_legacy_features", func(t *testing.T) {
+		result := invokeLookerTool(t, "http://127.0.0.1:5000/api/tool/health_pulse/invoke", []byte(`{"action":"check_legacy_features"}`), options...)
+		if err := validateLookerLegacyFeatures(result); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func validateLookerLegacyFeatures(result []byte) error {
+	var features []map[string]string
+	if err := json.Unmarshal(result, &features); err != nil {
+		return fmt.Errorf("error parsing legacy features: %w", err)
+	}
+	if features == nil {
+		return fmt.Errorf("expected JSON array for legacy features, got: %s", result)
+	}
+	for _, f := range features {
+		if f["Feature"] == "" {
+			return fmt.Errorf("expected non-empty Feature name in entry: %v", f)
+		}
+		if f["Feature"] == "Unable to pull legacy features due to SDK error" {
+			return fmt.Errorf("unexpected SDK error checking legacy features: %s", result)
+		}
+	}
+	return nil
 }
