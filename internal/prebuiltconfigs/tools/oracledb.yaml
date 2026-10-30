@@ -135,9 +135,9 @@ description: List tablespace names, total size, free space, and used percentage 
 statement: |
   SELECT
       t.tablespace_name,
-      TO_CHAR(t.total_bytes / 1024 / 1024, '99,999.00') AS total_mb,
-      TO_CHAR(SUM(d.bytes) / 1024 / 1024, '99,999.00') AS free_mb,
-      TO_CHAR((t.total_bytes - SUM(d.bytes)) / t.total_bytes * 100, '99.00') AS used_pct
+      ROUND(t.total_bytes / 1024 / 1024, 2) AS total_mb,
+      ROUND(NVL(SUM(d.bytes), 0) / 1024 / 1024, 2) AS free_mb,
+      ROUND((t.total_bytes - NVL(SUM(d.bytes), 0)) / NULLIF(t.total_bytes, 0) * 100, 2) AS used_pct
   FROM
       (SELECT tablespace_name, SUM(bytes) AS total_bytes FROM dba_data_files GROUP BY tablespace_name) t,
       dba_free_space d
