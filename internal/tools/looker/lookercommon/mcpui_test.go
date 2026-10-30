@@ -350,6 +350,15 @@ func TestCacheConstantsAndResolveVerifySSL(t *testing.T) {
 	if lookercommon.MapApiKeyCacheTTL != 10*time.Minute {
 		t.Errorf("MapApiKeyCacheTTL = %v, want 10m", lookercommon.MapApiKeyCacheTTL)
 	}
+	if lookercommon.UIHTMLCacheTTL != 5*time.Minute {
+		t.Errorf("UIHTMLCacheTTL = %v, want 5m", lookercommon.UIHTMLCacheTTL)
+	}
+	if lookercommon.ClientUserLocaleCacheTTL != 5*time.Minute {
+		t.Errorf("ClientUserLocaleCacheTTL = %v, want 5m", lookercommon.ClientUserLocaleCacheTTL)
+	}
+	if lookercommon.StaticUserLocaleCacheTTL != 10*time.Second {
+		t.Errorf("StaticUserLocaleCacheTTL = %v, want 10s", lookercommon.StaticUserLocaleCacheTTL)
+	}
 
 	ctx := context.Background()
 	t.Setenv("LOOKER_VERIFY_SSL", "")
@@ -377,11 +386,12 @@ func TestRenderHTMLStripsSingleAndDoubleQuotedNonces(t *testing.T) {
 		SceneName:    "render_visualization",
 		UILabel:      "Looker Visualization",
 	})
-	rawHTML := `<!DOCTYPE html><html><head><base href="https://evil.example.com/"><script nonce='single-nonce-123'>window.__LOOKER_BASE_URL__="https://looker.example.com";</script></head><body><script type="text/javascript" nonce="double-nonce-456" src="/webpack/en/mcp-render-visualization.webpack.js"></script></body></html>`
+	rawHTML := `<!DOCTYPE html><html><head><base href="https://evil.example.com/"><script nonce='single-nonce-123'>window.__LOOKER_BASE_URL__="https://looker.example.com";const literal=" keep nonce=\"inside-js\"";</script></head><body><script type="text/javascript" nonce="double-nonce-456" src="/webpack/en/mcp-render-visualization.webpack.js"></script><script nonce=unquoted789 src='/webpack/en/chunk.js'></script></body></html>`
 	rendered := mgr.RenderHTML(rawHTML, "https://looker.example.com")
 
-	if got := rendered; got != `<!DOCTYPE html><html><head><script>window.__LOOKER_BASE_URL__="https://looker.example.com";</script></head><body><script type="text/javascript" src="https://looker.example.com/webpack/en/mcp-render-visualization.webpack.js"></script></body></html>` {
-		t.Errorf("RenderHTML() = %q", got)
+	want := `<!DOCTYPE html><html><head><script>window.__LOOKER_BASE_URL__="https://looker.example.com";const literal=" keep nonce=\"inside-js\"";</script></head><body><script type="text/javascript" src="https://looker.example.com/webpack/en/mcp-render-visualization.webpack.js"></script><script src='https://looker.example.com/webpack/en/chunk.js'></script></body></html>`
+	if got := rendered; got != want {
+		t.Errorf("RenderHTML() = %q, want %q", got, want)
 	}
 }
 
@@ -672,5 +682,235 @@ func TestFetchRemoteUIInsecureSSLWithWrappedDefaultTransport(t *testing.T) {
 	}
 	if !strings.Contains(html, "TLS UI OK") {
 		t.Errorf("expected response HTML to contain 'TLS UI OK', got %q", html)
+	}
+}
+
+func TestFetchMapApiKeyFailsClosedWithSchemelessOrEmptyBaseURL(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	var crossHostCalls int32
+	crossHostServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&crossHostCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"api_key": "evil-key"})
+	}))
+	defer crossHostServer.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/4.0/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "secret-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case "/api/4.0/user":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "1", "locale": "en"})
+		case "/api/4.0/color_collections/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{"default_collection_id": "default"})
+		case "/public/mcp/ui/map_api_key":
+			_ = json.NewEncoder(w).Encode(map[string]any{"api_key": "schemeless-base-key"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	t.Setenv("LOOKER_UI_URL", "https://untrusted-external.example.com")
+	t.Setenv("LOOKER_BASE_URL", "")
+
+	// Build SDK with full ts.URL for login, then pass scheme-less BaseUrl to FetchMcpAppState
+	loginSettings := rtl.ApiSettings{
+		BaseUrl:      ts.URL,
+		ApiVersion:   "4.0",
+		ClientId:     "id",
+		ClientSecret: "secret",
+	}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(loginSettings))
+
+	schemelessSettings := rtl.ApiSettings{
+		BaseUrl: strings.TrimPrefix(ts.URL, "http://"),
+	}
+	state := lookercommon.FetchMcpAppState(context.Background(), sdk, &schemelessSettings)
+	if got := atomic.LoadInt32(&crossHostCalls); got != 0 {
+		t.Errorf("expected 0 calls to cross-host server when BaseUrl omits scheme, got %d", got)
+	}
+	if got, _ := state["map_api_key"].(string); got != "schemeless-base-key" {
+		t.Errorf("state[map_api_key] = %q, want schemeless-base-key", got)
+	}
+
+	// Also verify empty BaseUrl fails closed and never sends token to LOOKER_UI_URL
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	emptySettings := rtl.ApiSettings{BaseUrl: ""}
+	stateEmpty := lookercommon.FetchMcpAppState(context.Background(), sdk, &emptySettings)
+	if got := atomic.LoadInt32(&crossHostCalls); got != 0 {
+		t.Errorf("expected 0 calls to cross-host server when BaseUrl is empty, got %d", got)
+	}
+	if _, exists := stateEmpty["map_api_key"]; exists {
+		t.Errorf("expected map_api_key to be omitted when BaseUrl is empty, got %v", stateEmpty["map_api_key"])
+	}
+}
+
+func TestFetchMcpAppStateClonesCachedColorCollections(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/4.0/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "test-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case "/api/4.0/user":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "1", "locale": "en"})
+		case "/api/4.0/color_collections/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"default_collection_id": "orig-id",
+				"standard":              []any{map[string]any{"id": "orig-id", "label": "Original"}},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	settings := rtl.ApiSettings{BaseUrl: ts.URL, ApiVersion: "4.0", ClientId: "id", ClientSecret: "s"}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(settings))
+
+	state1 := lookercommon.FetchMcpAppState(context.Background(), sdk, &settings)
+	cc1, ok := state1["color_collections"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected color_collections map in state1")
+	}
+	// Mutate top-level and nested slice/map entries in state1
+	cc1["default_collection_id"] = "mutated-id"
+	cc1["standard"].([]any)[0].(map[string]any)["label"] = "Mutated"
+
+	state2 := lookercommon.FetchMcpAppState(context.Background(), sdk, &settings)
+	cc2, ok := state2["color_collections"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected color_collections map in state2")
+	}
+	if cc2["default_collection_id"] != "orig-id" {
+		t.Errorf("expected cached default_collection_id to remain 'orig-id', got %v", cc2["default_collection_id"])
+	}
+	if gotLabel := cc2["standard"].([]any)[0].(map[string]any)["label"]; gotLabel != "Original" {
+		t.Errorf("expected cached nested standard[0].label to remain 'Original', got %v", gotLabel)
+	}
+}
+
+func TestSetSourceUpdatesCSPAndIsolatesMultiSourcePublicOrigins(t *testing.T) {
+	t.Setenv("LOOKER_BASE_URL", "")
+	t.Setenv("LOOKER_UI_URL", "")
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_custom_source",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	mgr.SetSource(perUserLocaleMockSource{
+		settings: &rtl.ApiSettings{BaseUrl: "http://localhost:19999"},
+	})
+
+	csp := mgr.CSP()
+	if !slices.Contains(csp.ResourceDomains, "http://localhost:3035") {
+		t.Errorf("expected SetSource with http://localhost:19999 to add local dev port 3035 to ResourceDomains, got %v", csp.ResourceDomains)
+	}
+
+	// Verify multi-source isolation: source with its own HTTPS BaseUrl does not allow a different global LOOKER_BASE_URL
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><script src="https://global-other.looker.com/webpack/en/mcp-render-visualization.webpack.js"></script></body></html>`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("LOOKER_UI_URL", ts.URL)
+	t.Setenv("LOOKER_BASE_URL", "https://global-other.looker.com")
+
+	mgrMulti := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_multi_source",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	mgrMulti.SetSource(perUserLocaleMockSource{
+		settings: &rtl.ApiSettings{BaseUrl: "https://source-a.looker.com"},
+	})
+
+	if _, err := mgrMulti.FetchRemoteUI(context.Background()); err != nil {
+		t.Fatalf("FetchRemoteUI failed: %v", err)
+	}
+	multiCSP := mgrMulti.CSP()
+	if !slices.Contains(multiCSP.ResourceDomains, "https://source-a.looker.com") {
+		t.Errorf("expected https://source-a.looker.com in ResourceDomains, got %v", multiCSP.ResourceDomains)
+	}
+	if slices.Contains(multiCSP.ResourceDomains, "https://global-other.looker.com") {
+		t.Errorf("did not expect global LOOKER_BASE_URL to be allowed when source has its own HTTPS BaseUrl, got %v", multiCSP.ResourceDomains)
+	}
+}
+
+func TestFetchRemoteUIDeduplicatesAndHandles401AndBaseURLFallback(t *testing.T) {
+	var assetFetches int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&assetFetches, 1)
+		time.Sleep(30 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><div>Deduplicated UI</div></body></html>`))
+	}))
+	defer ts.Close()
+
+	// Fallback to LOOKER_BASE_URL when LOOKER_UI_URL and SetSource are unset
+	t.Setenv("LOOKER_UI_URL", "")
+	t.Setenv("LOOKER_BASE_URL", ts.URL)
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_singleflight",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "visualization",
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := mgr.FetchRemoteUI(context.Background()); err != nil {
+				t.Errorf("concurrent FetchRemoteUI failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&assetFetches); got != 1 {
+		t.Errorf("expected singleflight to deduplicate concurrent cold fetches to 1 request, got %d", got)
+	}
+
+	// Verify HTTP 401 gives distinct operational guidance about LOOKER_UI_URL vs API port
+	ts401 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts401.Close()
+
+	t.Setenv("LOOKER_UI_URL", ts401.URL+"?env=dev")
+	mgr401 := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_401",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "visualization",
+	})
+	_, err := mgr401.FetchRemoteUI(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "HTTP 401") || !strings.Contains(err.Error(), "LOOKER_UI_URL") {
+		t.Errorf("expected HTTP 401 error mentioning LOOKER_UI_URL, got %v", err)
 	}
 }
