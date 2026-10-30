@@ -1204,7 +1204,7 @@ func ExtractLookerErrorMessage(err error) error {
 		return nil
 	}
 	raw := err.Error()
-	startIdx := -1
+	var startIdx int
 	if errPrefixIdx := strings.Index(raw, "error={"); errPrefixIdx != -1 {
 		startIdx = errPrefixIdx + len("error=")
 	} else {
