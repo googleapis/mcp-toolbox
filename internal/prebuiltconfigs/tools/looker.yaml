@@ -1012,7 +1012,7 @@ description: |
   - query_id (optional): Looker query ID (integer) or slug string to fetch and render a saved query visualization directly. If provided, `model`, `explore`, and `fields` are not required.
   - model: The name of the LookML model (from `get_models`). Required if `query_id` is not provided.
   - explore: The name of the explore (from `get_explores`). Required if `query_id` is not provided.
-  - fields: A list of field names (dimensions, measures, filters, or parameters from `get_dimensions`, `get_measures`, `get_filters`, or `get_parameters`) to include in the query. Required if `query_id` is not provided. For charts comparing a metric across categories or time (such as bar, column, line, area, pie, or scatter charts), `fields` MUST include BOTH the grouping dimension(s) AND the measure(s) in a single call (for example, `["products.department", "order_items.count"]`). Passing only a single field to a bar/column/line chart will fail with 'Not Enough Fields'.
+  - fields: A list of field names (dimensions, measures, filters, or parameters from `get_dimensions`, `get_measures`, `get_filters`, or `get_parameters`) to include in the query. Required if `query_id` is not provided.
   - pivots (optional): A list of fields to pivot the results by. Any pivot field omitted from `fields` is automatically appended to `fields`.
   - filters (optional): A map of filter expressions, e.g., `{"view_name.field_name": "value"}`.
   - filter_expression (optional): A Looker expression filter string (custom filter).

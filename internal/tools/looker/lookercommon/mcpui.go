@@ -259,6 +259,12 @@ func sanitizeLookerLocaleParam(rawLocale string) string {
 	return trimmed
 }
 
+func debugLog(ctx context.Context, msg string, args ...any) {
+	if logger, err := util.LoggerFromContext(ctx); err == nil {
+		logger.DebugContext(ctx, msg, args...)
+	}
+}
+
 func resolveUIUserLocale(ctx context.Context, src LookerUISource, settings *rtl.ApiSettings) string {
 	if src == nil || ctx.Err() != nil {
 		return ""
@@ -303,9 +309,7 @@ func resolveUIUserLocale(ctx context.Context, src LookerUISource, settings *rtl.
 	var u map[string]any
 	reqParams := map[string]any{"fields": "locale"}
 	if err := sdk.AuthSession.Do(&u, "GET", "/4.0", "/user", reqParams, nil, withShortSDKTimeout(settings)); err != nil {
-		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-			logger.DebugContext(ctx, "failed to fetch Looker user locale for MCP UI resource", "error", err)
-		}
+		debugLog(ctx, "failed to fetch Looker user locale for MCP UI resource", "error", err)
 		return ""
 	}
 
@@ -326,9 +330,7 @@ func fetchActiveColorCollections(ctx context.Context, sdk *v4.LookerSDK, setting
 
 	var ccMap map[string]any
 	if err := sdk.AuthSession.Do(&ccMap, "GET", "/4.0", "/color_collections/active", nil, nil, withShortSDKTimeout(settings)); err != nil {
-		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-			logger.DebugContext(ctx, "failed to fetch active color collections for MCP app_state", "error", err)
-		}
+		debugLog(ctx, "failed to fetch active color collections for MCP app_state", "error", err)
 		return nil
 	}
 	if len(ccMap) == 0 {
@@ -354,9 +356,7 @@ func fetchMapApiKey(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSet
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-			logger.DebugContext(ctx, "failed to create map_api_key request for MCP app_state", "error", err)
-		}
+		debugLog(ctx, "failed to create map_api_key request for MCP app_state", "error", err)
 		return ""
 	}
 	req.Header.Set("Accept", "application/json")
@@ -378,17 +378,13 @@ func fetchMapApiKey(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSet
 
 	resp, err := authSess.Client.Do(req)
 	if err != nil {
-		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-			logger.DebugContext(ctx, "failed to fetch map_api_key for MCP app_state", "error", err)
-		}
+		debugLog(ctx, "failed to fetch map_api_key for MCP app_state", "error", err)
 		return ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-			logger.DebugContext(ctx, "non-200 response from map_api_key endpoint for MCP app_state", "status", resp.StatusCode)
-		}
+		debugLog(ctx, "non-200 response from map_api_key endpoint for MCP app_state", "status", resp.StatusCode)
 		return ""
 	}
 
@@ -396,9 +392,7 @@ func fetchMapApiKey(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiSet
 		ApiKey string `json:"api_key"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxMapApiKeyResponseBytes)).Decode(&payload); err != nil {
-		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-			logger.DebugContext(ctx, "failed to decode map_api_key response for MCP app_state", "error", err)
-		}
+		debugLog(ctx, "failed to decode map_api_key response for MCP app_state", "error", err)
 		return ""
 	}
 
@@ -427,9 +421,7 @@ func FetchMcpAppState(ctx context.Context, sdk *v4.LookerSDK, settings *rtl.ApiS
 	var u map[string]any
 	reqParams := map[string]any{"fields": mcpUserFields}
 	if err := sdk.AuthSession.Do(&u, "GET", "/4.0", "/user", reqParams, nil, shortSettings); err != nil {
-		if logger, lErr := util.LoggerFromContext(ctx); lErr == nil {
-			logger.DebugContext(ctx, "failed to fetch user abilities for MCP app_state", "error", err)
-		}
+		debugLog(ctx, "failed to fetch user abilities for MCP app_state", "error", err)
 	} else if len(u) > 0 {
 		userMap = u
 	}
@@ -855,27 +847,6 @@ func (m *LookerUIResourceManager) resolveConfiguredPublicHTTPSOrigins(apiSetting
 	return configuredHTTPSOrigins
 }
 
-// resolveAllowedPublicOrigins builds the allowlist of HTTPS origins permitted
-// for DiscoverMCPUIPublicOrigin based on configured Looker URLs,
-// window.__LOOKER_BASE_URL__ in the HTML, and Looker's official CDN domains.
-func (m *LookerUIResourceManager) resolveAllowedPublicOrigins(apiSettings *rtl.ApiSettings, rawHTML string) []string {
-	configuredHTTPSOrigins := m.resolveConfiguredPublicHTTPSOrigins(apiSettings, rawHTML)
-	if len(configuredHTTPSOrigins) == 0 {
-		return nil
-	}
-	return slices.Concat(configuredHTTPSOrigins, DefaultAllowedLookerCDNOrigins)
-}
-
-// resolveAuthoritativePublicOrigin returns the highest-precedence browser-facing
-// HTTPS origin for rewriting relative UI assets, falling back to the
-// allowlist-validated discoveredOrigin from DiscoverMCPUIPublicOrigin.
-func (m *LookerUIResourceManager) resolveAuthoritativePublicOrigin(apiSettings *rtl.ApiSettings, rawHTML, discoveredOrigin string) string {
-	if configuredHTTPSOrigins := m.resolveConfiguredPublicHTTPSOrigins(apiSettings, rawHTML); len(configuredHTTPSOrigins) > 0 {
-		return configuredHTTPSOrigins[0]
-	}
-	return discoveredOrigin
-}
-
 // RenderHTML makes the fetched UI HTML loadable inside the MCP host's sandbox.
 // publicOrigin is the browser-facing Looker origin resolved from configuration
 // or DiscoverMCPUIPublicOrigin. If it is empty, relative asset URLs are resolved
@@ -1067,9 +1038,16 @@ func (m *LookerUIResourceManager) fetchAndCacheRemoteUI(ctx context.Context, api
 	}
 
 	rawHTML := string(bodyBytes)
-	allowedOrigins := m.resolveAllowedPublicOrigins(apiSettings, rawHTML)
+	configuredOrigins := m.resolveConfiguredPublicHTTPSOrigins(apiSettings, rawHTML)
+	var allowedOrigins []string
+	if len(configuredOrigins) > 0 {
+		allowedOrigins = slices.Concat(configuredOrigins, DefaultAllowedLookerCDNOrigins)
+	}
 	discoveredOrigin := DiscoverMCPUIPublicOrigin(rawHTML, allowedOrigins...)
-	publicOrigin := m.resolveAuthoritativePublicOrigin(apiSettings, rawHTML, discoveredOrigin)
+	publicOrigin := discoveredOrigin
+	if len(configuredOrigins) > 0 {
+		publicOrigin = configuredOrigins[0]
+	}
 	html := m.RenderHTML(rawHTML, publicOrigin)
 
 	m.mu.Lock()

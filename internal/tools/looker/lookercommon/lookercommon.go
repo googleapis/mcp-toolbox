@@ -507,6 +507,32 @@ func EnsurePivotsInFields(fields, pivots []string) ([]string, error) {
 	return out, nil
 }
 
+// ExtractFatalDetailErrorMessage returns the first fatal error message from a Looker
+// json_detail response's "errors" array, or an empty string if none is present.
+func ExtractFatalDetailErrorMessage(detailResp map[string]any) string {
+	rawErrs, ok := detailResp["errors"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, e := range rawErrs {
+		errMap, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		if fatal, hasFatal := errMap["fatal"].(bool); hasFatal && !fatal {
+			continue
+		}
+		msg, _ := errMap["message"].(string)
+		if strings.TrimSpace(msg) == "" {
+			msg, _ = errMap["message_details"].(string)
+		}
+		if msg = strings.TrimSpace(msg); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
 // ValidatePivotsInDetailResponse checks a Looker json_detail response when
 // pivots were requested. If Looker silently dropped a pivot field (returning
 // an empty fields.pivots array) or returned query errors in json_detail, an
@@ -515,17 +541,8 @@ func ValidatePivotsInDetailResponse(requestedPivots []string, detailResp map[str
 	if len(requestedPivots) == 0 || detailResp == nil {
 		return nil
 	}
-	if rawErrs, ok := detailResp["errors"].([]any); ok && len(rawErrs) > 0 {
-		for _, e := range rawErrs {
-			if errMap, ok := e.(map[string]any); ok {
-				if fatal, hasFatal := errMap["fatal"].(bool); hasFatal && !fatal {
-					continue
-				}
-				if msg, _ := errMap["message"].(string); strings.TrimSpace(msg) != "" {
-					return fmt.Errorf("error running pivoted query: %s", strings.TrimSpace(msg))
-				}
-			}
-		}
+	if msg := ExtractFatalDetailErrorMessage(detailResp); msg != "" {
+		return fmt.Errorf("error running pivoted query: %s", msg)
 	}
 	fieldsMap, ok := detailResp["fields"].(map[string]any)
 	if !ok {

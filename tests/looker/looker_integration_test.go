@@ -148,6 +148,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"render_visualization": map[string]any{
+				"type":        "looker-render-visualization",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"get_looks": map[string]any{
 				"type":        "looker-get-looks",
 				"source":      "my-instance",
@@ -967,6 +972,134 @@ func TestLooker(t *testing.T) {
 						"required":             false,
 						"type":                 "object",
 						"default":              map[string]any{},
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "render_visualization",
+		map[string]any{
+			"render_visualization": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional Looker query ID (or slug) to fetch and render the saved visualization directly. If provided, model, explore, and fields are not required.",
+						"name":         "query_id",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The model containing the explore (from get_models). Required if query_id is not provided.",
+						"name":         "model",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The explore to be queried (from get_explores). Required if query_id is not provided.",
+						"name":         "explore",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The fields to be retrieved (from get_dimensions, get_measures, get_filters, or get_parameters). Required if query_id is not provided. For charts comparing a metric across categories or time (such as bar, column, line, area, pie, or scatter charts), `fields` MUST include BOTH the grouping dimension(s) AND the measure(s) in a single call (for example, [\"products.department\", \"order_items.count\"]). Passing only a single field to a bar/column/line chart will fail with 'Not Enough Fields'.",
+						"items": map[string]any{
+							"authServices": []any{},
+							"description":  "A field to be returned in the query",
+							"name":         "field",
+							"required":     true,
+							"type":         "string",
+						},
+						"name":     "fields",
+						"required": false,
+						"type":     "array",
+					},
+					map[string]any{
+						"additionalProperties": true,
+						"authServices":         []any{},
+						"description":          "The filters for the query. Keys are fully-qualified field names (e.g. \"view.field\") and values are filter expressions or parameter values. Pass values bare — do not wrap them in extra quote characters. For LookML `parameter` fields, use the raw allowed_value (e.g. `first_touch`), not `\"first_touch\"`. To retrieve valid filter values for a suggestible field, use the 'get_field_value_suggestions' tool.",
+						"name":                 "filters",
+						"required":             false,
+						"default":              map[string]any{},
+						"type":                 "object",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The query pivots. Any pivot field omitted from `fields` is automatically appended to `fields`.",
+						"items": map[string]any{
+							"authServices": []any{},
+							"description":  "A field to be used as a pivot in the query",
+							"name":         "pivot_field",
+							"required":     false,
+							"type":         "string",
+						},
+						"name":     "pivots",
+						"required": false,
+						"type":     "array",
+						"default":  []any{},
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The sorts like \"field.id desc 0\".",
+						"items": map[string]any{
+							"authServices": []any{},
+							"description":  "A field to be used as a sort in the query",
+							"name":         "sort_field",
+							"required":     false,
+							"type":         "string",
+						},
+						"name":     "sorts",
+						"required": false,
+						"type":     "array",
+						"default":  []any{},
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The row limit.",
+						"name":         "limit",
+						"required":     false,
+						"type":         "integer",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The query timezone.",
+						"name":         "tz",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "An optional filter expression string.",
+						"name":         "filter_expression",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      []any{},
+						"description":  "An optional array of dynamic fields (table calculations, custom measures, custom dimensions).",
+						"items": map[string]any{
+							"additionalProperties": true,
+							"authServices":         []any{},
+							"description":          "A dynamic field definition",
+							"name":                 "dynamic_field",
+							"required":             false,
+							"type":                 "object",
+						},
+						"name":     "dynamic_fields",
+						"required": false,
+						"type":     "array",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional JSON string specifying the visualization configuration (e.g. chart type, options). Use \"looker_column\" for vertical column charts and \"looker_bar\" for horizontal bar charts.",
+						"name":         "vis_config",
+						"required":     false,
+						"type":         "string",
 					},
 				},
 			},
@@ -2980,6 +3113,30 @@ func testQueryById(t *testing.T, wantResult string) {
 		t.Fatalf("expected non-empty saved query Id")
 	}
 	tests.RunToolInvokeParametersTest(t, "query", []byte(fmt.Sprintf(`{"query_id": "%s"}`, *savedQuery.Id)), wantResult)
+
+	wantVis := `"status":"Visualization rendered in UI."`
+	tests.RunToolInvokeParametersTest(t, "render_visualization", []byte(`{"model": "system__activity", "explore": "look", "fields": ["look.count"], "vis_config": "{\"type\": \"looker_column\"}"}`), wantVis)
+	tests.RunToolInvokeParametersTest(t, "render_visualization", []byte(fmt.Sprintf(`{"query_id": "%s", "limit": 10, "sorts": ["look.count desc"], "vis_config": "{\"type\": \"looker_bar\"}"}`, *savedQuery.Id)), wantVis)
+	if savedQuery.ClientId != nil && *savedQuery.ClientId != "" {
+		tests.RunToolInvokeParametersTest(t, "render_visualization", []byte(fmt.Sprintf(`{"query_id": "%s"}`, *savedQuery.ClientId)), wantVis)
+	}
+
+	mcpHeaders := map[string]string{
+		"Content-Type":          "application/json",
+		"Accept":                "application/json, text/event-stream",
+		"Mcp-Protocol-Version":  "2025-11-25",
+		"X-Mcp-Capabilities-Ui": "true",
+	}
+	listReq := []byte(`{"jsonrpc":"2.0","id":"list-res","method":"resources/list"}`)
+	resp, bodyBytes := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/mcp", bytes.NewBuffer(listReq), mcpHeaders)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status code from resources/list: got %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
+	readReq := []byte(`{"jsonrpc":"2.0","id":"read-res","method":"resources/read","params":{"uri":"ui://looker/render_visualization.html"}}`)
+	resp, bodyBytes = tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/mcp", bytes.NewBuffer(readReq), mcpHeaders)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status code from resources/read: got %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
 }
 
 func testMakeLook(t *testing.T, randstr string) func() {

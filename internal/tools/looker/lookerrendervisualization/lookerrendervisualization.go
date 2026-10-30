@@ -421,6 +421,18 @@ func hasRequestedQueryOverrides(paramMap map[string]any, visConfig map[string]an
 	return false
 }
 
+func parseStringSliceParam(paramMap map[string]any, key string) ([]string, bool, util.ToolboxError) {
+	sliceVal, ok := paramMap[key].([]any)
+	if !ok || len(sliceVal) == 0 {
+		return nil, false, nil
+	}
+	typed, err := parameters.ConvertAnySliceToTyped(sliceVal, "string")
+	if err != nil {
+		return nil, false, util.NewAgentError(fmt.Sprintf("invalid %s parameter: %v", key, err), err)
+	}
+	return typed.([]string), true, nil
+}
+
 func applySavedQueryOverrides(
 	queryDef *v4.Query,
 	paramMap map[string]any,
@@ -445,30 +457,21 @@ func applySavedQueryOverrides(
 			hasOverrides = true
 		}
 	}
-	if sortsSlice, ok := paramMap["sorts"].([]any); ok && len(sortsSlice) > 0 {
-		s, err := parameters.ConvertAnySliceToTyped(sortsSlice, "string")
-		if err != nil {
-			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid sorts parameter: %v", err), err)
-		}
-		sorts := s.([]string)
+	if sorts, ok, tbErr := parseStringSliceParam(paramMap, "sorts"); tbErr != nil {
+		return nil, nil, false, tbErr
+	} else if ok {
 		wq.Sorts = &sorts
 		hasOverrides = true
 	}
-	if fieldsSlice, ok := paramMap["fields"].([]any); ok && len(fieldsSlice) > 0 {
-		f, err := parameters.ConvertAnySliceToTyped(fieldsSlice, "string")
-		if err != nil {
-			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid fields parameter: %v", err), err)
-		}
-		fields := f.([]string)
+	if fields, ok, tbErr := parseStringSliceParam(paramMap, "fields"); tbErr != nil {
+		return nil, nil, false, tbErr
+	} else if ok {
 		wq.Fields = &fields
 		hasOverrides = true
 	}
-	if pivotsSlice, ok := paramMap["pivots"].([]any); ok && len(pivotsSlice) > 0 {
-		p, err := parameters.ConvertAnySliceToTyped(pivotsSlice, "string")
-		if err != nil {
-			return nil, nil, false, util.NewAgentError(fmt.Sprintf("invalid pivots parameter: %v", err), err)
-		}
-		pivots := p.([]string)
+	if pivots, ok, tbErr := parseStringSliceParam(paramMap, "pivots"); tbErr != nil {
+		return nil, nil, false, tbErr
+	} else if ok {
 		wq.Pivots = &pivots
 		hasOverrides = true
 	}
@@ -555,30 +558,6 @@ func resolveEffectiveVisConfig(visConfig map[string]any, queryDef *v4.Query) map
 	return map[string]any{"type": "table", "show_row_numbers": true}
 }
 
-func extractFatalDetailError(detailResp map[string]any) error {
-	rawErrs, ok := detailResp["errors"].([]any)
-	if !ok || len(rawErrs) == 0 {
-		return nil
-	}
-	for _, e := range rawErrs {
-		errMap, ok := e.(map[string]any)
-		if !ok {
-			continue
-		}
-		if fatal, hasFatal := errMap["fatal"].(bool); hasFatal && !fatal {
-			continue
-		}
-		msg, _ := errMap["message"].(string)
-		if strings.TrimSpace(msg) == "" {
-			msg, _ = errMap["message_details"].(string)
-		}
-		if strings.TrimSpace(msg) != "" {
-			return fmt.Errorf("error running query: %s", strings.TrimSpace(msg))
-		}
-	}
-	return nil
-}
-
 func parseVisualizationQueryResult(rawResp string, requestedPivots *[]string) (map[string]any, util.ToolboxError) {
 	var rawParsed any
 	if err := json.Unmarshal([]byte(rawResp), &rawParsed); err != nil {
@@ -604,8 +583,9 @@ func parseVisualizationQueryResult(rawResp string, requestedPivots *[]string) (m
 		}
 		dataRows, _ := parsed["data"].([]any)
 		if len(dataRows) == 0 {
-			if fatalErr := extractFatalDetailError(parsed); fatalErr != nil {
-				return nil, util.NewAgentError(fatalErr.Error(), fatalErr)
+			if msg := lookercommon.ExtractFatalDetailErrorMessage(parsed); msg != "" {
+				err := fmt.Errorf("error running query: %s", msg)
+				return nil, util.NewAgentError(err.Error(), err)
 			}
 		}
 		lookercommon.StripDrillLinks(parsed)
@@ -680,44 +660,25 @@ func populateQueryMetaFromQueryDef(meta map[string]any, queryDef *v4.Query) {
 	if queryDef == nil {
 		return
 	}
-	if meta["model"] == nil && queryDef.Model != "" {
-		meta["model"] = queryDef.Model
+	var slug, clientID string
+	if queryDef.Slug != nil {
+		slug = *queryDef.Slug
 	}
-	if meta["view"] == nil && queryDef.View != "" {
-		meta["view"] = queryDef.View
+	if queryDef.ClientId != nil {
+		clientID = *queryDef.ClientId
 	}
-	if meta["fields"] == nil && queryDef.Fields != nil {
-		meta["fields"] = *queryDef.Fields
+	if slug == "" {
+		slug = clientID
 	}
-	if meta["filters"] == nil && queryDef.Filters != nil && len(*queryDef.Filters) > 0 {
-		meta["filters"] = *queryDef.Filters
+	if clientID == "" {
+		clientID = slug
 	}
-	if meta["pivots"] == nil && queryDef.Pivots != nil && len(*queryDef.Pivots) > 0 {
-		meta["pivots"] = *queryDef.Pivots
+	if slug != "" {
+		meta["slug"] = slug
 	}
-	if meta["sorts"] == nil && queryDef.Sorts != nil && len(*queryDef.Sorts) > 0 {
-		meta["sorts"] = *queryDef.Sorts
-	}
-	if meta["limit"] == nil && queryDef.Limit != nil && *queryDef.Limit != "" {
-		meta["limit"] = *queryDef.Limit
-	}
-	if meta["filter_expression"] == nil && queryDef.FilterExpression != nil && *queryDef.FilterExpression != "" {
-		meta["filter_expression"] = *queryDef.FilterExpression
-	}
-	if meta["query_timezone"] == nil && queryDef.QueryTimezone != nil && *queryDef.QueryTimezone != "" {
-		meta["query_timezone"] = *queryDef.QueryTimezone
-	}
-	if meta["dynamic_fields"] == nil {
-		if parsedDyn := parseDynamicFieldsForMeta(queryDef.DynamicFields); len(parsedDyn) > 0 {
-			meta["dynamic_fields"] = parsedDyn
-		}
-	}
-	if queryDef.Slug != nil && *queryDef.Slug != "" {
-		meta["slug"] = *queryDef.Slug
-	}
-	if queryDef.ClientId != nil && *queryDef.ClientId != "" {
-		meta["client_id"] = *queryDef.ClientId
-		meta["qid"] = *queryDef.ClientId
+	if clientID != "" {
+		meta["client_id"] = clientID
+		meta["qid"] = clientID
 	}
 	if queryDef.ShareUrl != nil && *queryDef.ShareUrl != "" {
 		meta["share_url"] = *queryDef.ShareUrl
@@ -851,13 +812,18 @@ func (t Tool) invokeSavedQuery(
 	}
 
 	queryMeta := map[string]any{"id": queryID}
+	if wq != nil {
+		populateQueryMetaFromWriteQuery(queryMeta, wq)
+	} else if queryDef != nil {
+		fallbackWQ := lookercommon.WriteQueryFromQuery(*queryDef)
+		populateQueryMetaFromWriteQuery(queryMeta, &fallbackWQ)
+	}
 	if strings.TrimSpace(modelVal) != "" {
 		queryMeta["model"] = strings.TrimSpace(modelVal)
 	}
 	if strings.TrimSpace(exploreVal) != "" {
 		queryMeta["view"] = strings.TrimSpace(exploreVal)
 	}
-	populateQueryMetaFromWriteQuery(queryMeta, wq)
 	populateQueryMetaFromQueryDef(queryMeta, queryDef)
 
 	return buildVisualizationResult(ctx, sdk, opts, title, queryID, effectiveVisConfig, queryResult, queryMeta), nil
@@ -883,48 +849,27 @@ func (t Tool) invokeInlineQuery(
 		logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
 	}
 
-	var (
-		queryID          string
-		slug             string
-		clientID         string
-		shareURL         string
-		expandedShareURL string
-		queryURL         string
-		queryCan         map[string]bool
-	)
+	queryMeta := map[string]any{
+		"id":                 "",
+		"slug":               "",
+		"client_id":          "",
+		"qid":                "",
+		"share_url":          "",
+		"expanded_share_url": "",
+		"url":                "",
+	}
+	var queryID string
 	if createdQuery, cErr := sdk.CreateQuery(*wq, "id,slug,client_id,share_url,expanded_share_url,url,can", opts); cErr == nil {
-		if createdQuery.ClientId != nil && *createdQuery.ClientId != "" {
-			clientID = *createdQuery.ClientId
-		}
-		if createdQuery.Slug != nil && *createdQuery.Slug != "" {
-			slug = *createdQuery.Slug
-		}
-		if slug == "" {
-			slug = clientID
-		}
-		if clientID == "" {
-			clientID = slug
-		}
+		populateQueryMetaFromQueryDef(queryMeta, &createdQuery)
 		switch {
-		case clientID != "":
-			queryID = clientID
-		case slug != "":
-			queryID = slug
+		case queryMeta["client_id"] != "":
+			queryID, _ = queryMeta["client_id"].(string)
+		case queryMeta["slug"] != "":
+			queryID, _ = queryMeta["slug"].(string)
 		case createdQuery.Id != nil:
 			queryID = *createdQuery.Id
 		}
-		if createdQuery.ShareUrl != nil {
-			shareURL = *createdQuery.ShareUrl
-		}
-		if createdQuery.ExpandedShareUrl != nil {
-			expandedShareURL = *createdQuery.ExpandedShareUrl
-		}
-		if createdQuery.Url != nil {
-			queryURL = *createdQuery.Url
-		}
-		if createdQuery.Can != nil && len(*createdQuery.Can) > 0 {
-			queryCan = *createdQuery.Can
-		}
+		queryMeta["id"] = queryID
 	} else {
 		logger.WarnContext(ctx, "could not create query in looker", "error", cErr)
 	}
@@ -941,20 +886,7 @@ func (t Tool) invokeInlineQuery(
 	}
 
 	effectiveVisConfig := resolveEffectiveVisConfig(visConfig, nil)
-
-	queryMeta := map[string]any{
-		"id":                 queryID,
-		"slug":               slug,
-		"client_id":          clientID,
-		"qid":                clientID,
-		"share_url":          shareURL,
-		"expanded_share_url": expandedShareURL,
-		"url":                queryURL,
-	}
 	populateQueryMetaFromWriteQuery(queryMeta, wq)
-	if len(queryCan) > 0 {
-		queryMeta["can"] = queryCan
-	}
 
 	return buildVisualizationResult(ctx, sdk, opts, wq.View, queryID, effectiveVisConfig, queryResult, queryMeta), nil
 }
