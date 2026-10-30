@@ -35,3 +35,10 @@ The following changes will **not** trigger a major version bump:
 * **Server**  
   * **Pre-built Config Modifications:** Adding, removing, or renaming individual tools within a pre-built toolset, as well as modifying server description, prompts, resources, tool descriptions or inputs, are treated as non-breaking changes.  
 * **Experimental Features:** Features or wrapper packages explicitly documented as "Preview" or "Beta" may introduce breaking changes without a major version bump to the core project.
+
+## Container Tagging Policy
+
+Official container images are published to `us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox`:
+
+* **Version tags (`X.Y.Z`, e.g., `1.14.0`):** Immutable tags pinned to a specific release digest (`linux/amd64` and `linux/arm64`). Once published, version tags are never overwritten. Pinning to a specific version tag or image digest (`@sha256:...`) is recommended for production workloads.
+* **`latest` tag:** A floating tag that points to the most recent stable release digest and is updated automatically whenever a new versioned release is promoted.

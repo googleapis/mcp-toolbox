@@ -15,15 +15,25 @@
 package bigquerysql
 
 import (
+	"bytes"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	bigqueryapi "cloud.google.com/go/bigquery"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	bqutil "github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigquerycommon"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	bigqueryrestapi "google.golang.org/api/bigquery/v2"
+	"google.golang.org/api/option"
 )
 
 func TestParseFromYamlBigQuery(t *testing.T) {
@@ -350,5 +360,56 @@ func TestBuildQueryParameters_EdgeCases(t *testing.T) {
 	}
 	if !foundNull {
 		t.Error("Expected low-level 'opt_map' NullFields to contain 'Value'")
+	}
+}
+
+func TestInvokeLogsDebugQuery(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"code":403,"message":"Access Denied"}}`, http.StatusForbidden)
+	}))
+	defer mockServer.Close()
+
+	var outBuf, errBuf bytes.Buffer
+	logger, err := log.NewStdLogger(&outBuf, &errBuf, "debug")
+	if err != nil {
+		t.Fatalf("failed to create debug logger: %v", err)
+	}
+	ctx := util.WithLogger(context.Background(), logger)
+
+	bqClient, err := bigqueryapi.NewClient(ctx, "test-project", option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery client: %v", err)
+	}
+	defer bqClient.Close()
+
+	restService, err := bigqueryrestapi.NewService(ctx, option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery REST service: %v", err)
+	}
+
+	src := &bqutil.MockSource{Client: bqClient, Service: restService}
+	cfg := Config{
+		ConfigBase: tools.ConfigBase{Name: "my_bq_sql_tool", Description: "Run custom BigQuery SQL"},
+		Type:       "bigquery-sql",
+		Source:     "my-bq-source",
+		Statement:  "SELECT * FROM `my_dataset.my_table` WHERE id = @id",
+		Parameters: parameters.Parameters{parameters.NewIntParameter("id", "row id")},
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+	paramVals, err := parameters.ParseParams(cfg.Parameters, map[string]any{"id": 42}, nil)
+	if err != nil {
+		t.Fatalf("failed to parse parameters: %v", err)
+	}
+
+	_, tbErr := tool.Invoke(ctx, src, paramVals, "")
+	if tbErr == nil {
+		t.Fatal("expected error when dry run returns 403 Forbidden, got nil")
+	}
+	wantLog := "executing `bigquery-sql` tool query: SELECT * FROM `my_dataset.my_table` WHERE id = @id"
+	if !strings.Contains(outBuf.String(), wantLog) {
+		t.Errorf("expected debug log output to contain %q, got %q", wantLog, outBuf.String())
 	}
 }
