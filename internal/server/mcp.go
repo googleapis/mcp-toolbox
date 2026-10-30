@@ -384,6 +384,18 @@ func mcpRouter(s *Server) (chi.Router, error) {
 	return r, nil
 }
 
+// telemetryToolsetName returns name when it identifies a configured toolset,
+// and "" otherwise. The {toolsetName} URL segment is attacker-controlled, so
+// it must never be attached raw to telemetry attributes: each distinct value
+// would mint a new metric stream, letting unauthenticated clients exhaust
+// metric-stream cardinality (see #4273).
+func (s *Server) telemetryToolsetName(name string) string {
+	if _, ok := s.PrimitiveMgr.GetGroup(name); !ok {
+		return ""
+	}
+	return name
+}
+
 // sseHandler handles sse initialization and message.
 func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	sessionStart := time.Now()
@@ -395,8 +407,11 @@ func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	sessionId := uuid.New().String()
 	groupName := chi.URLParam(r, "toolsetName")
 	s.logger.DebugContext(ctx, fmt.Sprintf("toolset name: %s", groupName))
+	// Validate before attaching to telemetry: a raw URL segment would mint a
+	// new metric stream per distinct value (see #4273).
+	telemetryName := s.telemetryToolsetName(groupName)
 	span.SetAttributes(attribute.String("mcp.session.id", sessionId))
-	span.SetAttributes(attribute.String("toolset.name", groupName))
+	span.SetAttributes(attribute.String("toolset.name", telemetryName))
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -409,7 +424,7 @@ func sseHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		attribute.String("network.protocol.name", "http"),
 		attribute.String("network.protocol.version", networkProtocolVersion),
 		attribute.String("mcp.protocol.version", "2024-11-05"),
-		attribute.String("toolset.name", groupName),
+		attribute.String("toolset.name", telemetryName),
 	}
 
 	// Increment active sessions counter
@@ -581,7 +596,10 @@ func httpHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	groupName := chi.URLParam(r, "toolsetName")
 	s.logger.DebugContext(ctx, fmt.Sprintf("toolset name: %s", groupName))
-	span.SetAttributes(attribute.String("toolset.name", groupName))
+	// Validate before attaching to telemetry (see #4273). The raw groupName
+	// is still passed to processMcpMessage, which validates it again for
+	// request routing.
+	span.SetAttributes(attribute.String("toolset.name", s.telemetryToolsetName(groupName)))
 
 	defer func() {
 		if err != nil {
@@ -673,6 +691,12 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 		return "", jsonrpc.NewError("", jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
 	}
 
+	// Normalize the toolset name for telemetry before any attribute is
+	// attached: the URL segment is unvalidated at this point, and the deferred
+	// metric recording below fires even when the group lookup fails (see #4273).
+	// Routing still uses the raw groupName, validated via GetGroup below.
+	telemetryName := s.telemetryToolsetName(groupName)
+
 	// Generic baseMessage could either be a JSONRPCNotification or JSONRPCRequest
 	var baseMessage jsonrpc.BaseMessage
 	if err = util.DecodeJSON(bytes.NewBuffer(body), &baseMessage); err != nil {
@@ -733,7 +757,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 			attribute.String("mcp.method.name", baseMessage.Method),
 			attribute.String("network.transport", networkTransport),
 			attribute.String("network.protocol.name", networkProtocolName),
-			attribute.String("toolset.name", groupName),
+			attribute.String("toolset.name", telemetryName),
 		}
 		if protocolVersion != "" {
 			durationAttrs = append(durationAttrs, attribute.String("mcp.protocol.version", protocolVersion))
@@ -807,7 +831,7 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 	}
 
 	// Set toolset name
-	span.SetAttributes(attribute.String("toolset.name", groupName))
+	span.SetAttributes(attribute.String("toolset.name", telemetryName))
 
 	// Check if message is a notification
 	if baseMessage.Id == nil {
