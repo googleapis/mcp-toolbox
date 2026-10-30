@@ -157,6 +157,14 @@ type Manifest struct {
 	AuthRequired []string                       `json:"authRequired"`
 }
 
+// StructuredToolResult allows a tool to return a concise Content representation
+// for the LLM context window alongside a full StructuredContent object for
+// MCP Apps UI rendering (per SEP-1865).
+type StructuredToolResult struct {
+	Content           any            `json:"content"`
+	StructuredContent map[string]any `json:"structuredContent,omitempty"`
+}
+
 // Helper function that returns if a tool invocation request is authorized
 func IsAuthorized(authRequiredSources []string, verifiedAuthServices []string) bool {
 	if len(authRequiredSources) == 0 {

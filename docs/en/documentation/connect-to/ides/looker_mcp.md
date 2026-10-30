@@ -109,23 +109,23 @@ After you install Looker in the MCP Store, resources and tools from the server a
 
 {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.15.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.15.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.15.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.15.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.14.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.15.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -520,6 +520,7 @@ instance and create new saved content.
 1. **run_dashboard**: Run the queries associated with a dashboard and return the
    data
 1. **make_dashboard**: Create a saved dashboard in Looker and return the URL
+1. **import_dashboard_from_lookml**: Import a LookML dashboard YAML definition to create or overwrite a saved dashboard in Looker
 1. **add_dashboard_element**: Add a tile to a dashboard
 1. **add_dashboard_filter**: Add a filter to a dashboard
 1. **generate_embed_url**: Generate an embed url for content
