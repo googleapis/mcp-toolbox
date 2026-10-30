@@ -1306,7 +1306,71 @@ func setupPostgresSchemas(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	}
 }
 
-func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user string) {
+// invokeToolForResult invokes toolName with args through the legacy REST API
+// or, when isMCP is set, the MCP endpoint. It returns the HTTP status code and
+// the tool result as a JSON string, so callers can run the same assertions for
+// both paths. On failure the string holds the error text. For MCP it also
+// returns the raw response so callers can assert on error content with
+// AssertMCPError; it is nil for the REST path.
+func invokeToolForResult(t *testing.T, toolName string, args map[string]any, isMCP bool) (int, string, *MCPCallToolResponse) {
+	t.Helper()
+	if args == nil {
+		args = make(map[string]any)
+	}
+
+	if !isMCP {
+		api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+		reqBytes, err := json.Marshal(args)
+		if err != nil {
+			t.Fatalf("error marshaling request body: %v", err)
+		}
+		resp, respBody := RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
+		if resp.StatusCode != http.StatusOK {
+			return resp.StatusCode, string(respBody), nil
+		}
+
+		var bodyWrapper struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
+			t.Fatalf("error decoding response wrapper: %v, body: %s", err, string(respBody))
+		}
+
+		var resultString string
+		if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
+			resultString = string(bodyWrapper.Result)
+		}
+		return resp.StatusCode, resultString, nil
+	}
+
+	statusCode, mcpResp, err := InvokeMCPTool(t, toolName, args, nil)
+	if err != nil {
+		return statusCode, err.Error(), mcpResp
+	}
+	if mcpResp.Error != nil {
+		return statusCode, mcpResp.Error.Message, mcpResp
+	}
+	if mcpResp.Result.IsError {
+		var errText string
+		for _, content := range mcpResp.Result.Content {
+			errText += content.Text
+		}
+		return statusCode, errText, mcpResp
+	}
+
+	gotBytes, err := json.Marshal(getMCPResultText(t, mcpResp))
+	if err != nil {
+		t.Fatalf("error marshaling MCP result: %v", err)
+	}
+	return statusCode, string(gotBytes), mcpResp
+}
+
+func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user string, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	// TableNameParam columns to construct want
 	paramTableColumns := fmt.Sprintf(`[
 		{"data_type": "integer", "column_name": "id", "column_default": "nextval('%s_id_seq'::regclass)", "is_not_nullable": true, "ordinal_position": 1, "column_comment": null},
@@ -1349,12 +1413,11 @@ func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user
 	invokeTcs := []struct {
 		name           string
 		toolName       string
-		requestHeader  map[string]string
 		args           map[string]any
 		wantStatusCode int
 		want           string
 		isAllTables    bool
-		isAgentErr     bool
+		wantContentErr string
 	}{
 		{
 			name:           "invoke list_tables all tables detailed output",
@@ -1391,14 +1454,14 @@ func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user
 			toolName:       "list_tables",
 			args:           map[string]any{"table_names": "", "output_format": "abcd"},
 			wantStatusCode: http.StatusOK,
-			isAgentErr:     true,
+			wantContentErr: "invalid value for output_format",
 		},
 		{
 			name:           "invoke list_tables with malformed table_names parameter",
 			toolName:       "list_tables",
 			args:           map[string]any{"table_names": 12345, "output_format": "detailed"},
 			wantStatusCode: http.StatusOK,
-			isAgentErr:     true,
+			wantContentErr: `unable to parse value for "table_names"`,
 		},
 		{
 			name:           "invoke list_tables with multiple table names",
@@ -1424,33 +1487,17 @@ func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
-			reqBytes, _ := json.Marshal(tc.args)
-			resp, respBytes := RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), tc.requestHeader)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBytes))
+			statusCode, resultString, mcpResp := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("response status code is not 200, got %d: %s", statusCode, resultString)
 			}
 
 			if tc.wantStatusCode == http.StatusOK {
-
-				var bodyWrapper map[string]json.RawMessage
-
-				if err := json.Unmarshal(respBytes, &bodyWrapper); err != nil {
-					t.Fatalf("error parsing response wrapper: %s, body: %s", err, string(respBytes))
-				}
-
-				resultJSON, ok := bodyWrapper["result"]
-				if !ok {
-					t.Fatal("unable to find 'result' in response body")
-				}
-
-				if tc.isAgentErr {
+				if tc.wantContentErr != "" {
+					if config.isMCP {
+						AssertMCPError(t, mcpResp, tc.wantContentErr)
+					}
 					return
-				}
-
-				var resultString string
-				if err := json.Unmarshal(resultJSON, &resultString); err != nil {
-					t.Fatalf("'result' is not a JSON-encoded string: %s", err)
 				}
 
 				var got, want []any
@@ -1508,7 +1555,12 @@ func setUpPostgresViews(t *testing.T, ctx context.Context, pool *pgxpool.Pool, v
 	}
 }
 
-func RunPostgresListViewsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListViewsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	//adding this line temporarily
 	viewName := "test_view_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	dropViewfunc1 := setUpPostgresViews(t, ctx, pool, viewName)
@@ -1516,45 +1568,34 @@ func RunPostgresListViewsTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           string
 	}{
 		{
 			name:           "invoke list_views with newly created view",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"view_name": "%s"}`, viewName))),
+			toolName:       "list_views",
+			args:           map[string]any{"view_name": viewName},
 			wantStatusCode: http.StatusOK,
 			want:           fmt.Sprintf(`[{"schema_name":"public","view_name":"%s","owner_name":"postgres","definition":" SELECT 1 AS col;"}]`, viewName),
 		},
 		{
 			name:           "invoke list_views with non-existent_view",
-			requestBody:    bytes.NewBuffer([]byte(`{"view_name": "non_existent_view"}`)),
+			toolName:       "list_views",
+			args:           map[string]any{"view_name": "non_existent_view"},
 			wantStatusCode: http.StatusOK,
 			want:           `[]`,
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_views/invoke"
-			resp, body := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(body))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(body, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got, want any
@@ -1572,7 +1613,12 @@ func RunPostgresListViewsTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 	}
 }
 
-func RunPostgresListSchemasTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner string, uniqueID string) {
+func RunPostgresListSchemasTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner string, uniqueID string, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	schemaName := "test_schema_" + uniqueID
 	cleanup := setupPostgresSchemas(t, ctx, pool, schemaName)
 	defer cleanup()
@@ -1581,59 +1627,51 @@ func RunPostgresListSchemasTest(t *testing.T, ctx context.Context, pool *pgxpool
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           []map[string]any
 		compareSubset  bool
 	}{
 		{
 			name:           "invoke list_schemas with schema_name",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"schema_name": "%s"}`, schemaName))),
+			toolName:       "list_schemas",
+			args:           map[string]any{"schema_name": schemaName},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantSchema},
 		},
 		// TODO: Re-enable this test case after this issue is fixed: https://github.com/googleapis/mcp-toolbox/issues/2562
 		// {
 		// 	name:           "invoke list_schemas with owner name",
-		// 	requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"owner": "%s"}`, owner))),
+		// 	toolName:       "list_schemas",
+		// 	args:           map[string]any{"owner": owner},
 		// 	wantStatusCode: http.StatusOK,
 		// 	want:           []map[string]any{wantSchema},
 		// 	compareSubset:  true,
 		// },
 		{
 			name:           "invoke list_schemas with limit 1",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"schema_name": "%s","limit": 1}`, schemaName))),
+			toolName:       "list_schemas",
+			args:           map[string]any{"schema_name": schemaName, "limit": 1},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantSchema},
 		},
 		{
 			name:           "invoke list_schemas with non-existent schema",
-			requestBody:    bytes.NewBuffer([]byte(`{"schema_name": "non_existent_schema"}`)),
+			toolName:       "list_schemas",
+			args:           map[string]any{"schema_name": "non_existent_schema"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_schemas/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -1665,26 +1703,15 @@ func RunPostgresListSchemasTest(t *testing.T, ctx context.Context, pool *pgxpool
 	}
 }
 
-func RunPostgresDatabaseOverviewTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
-	const api = "http://127.0.0.1:5000/api/tool/database_overview/invoke"
-	requestBody := bytes.NewBuffer([]byte(`{}`))
-
-	resp, respBody := RunRequest(t, http.MethodPost, api, requestBody, nil)
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, http.StatusOK, string(respBody))
+func RunPostgresDatabaseOverviewTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
 	}
 
-	var bodyWrapper struct {
-		Result json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-		t.Fatalf("error decoding response wrapper: %v, body: %s", err, string(respBody))
-	}
-
-	var resultString string
-	if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-		resultString = string(bodyWrapper.Result)
+	statusCode, resultString, _ := invokeToolForResult(t, "database_overview", map[string]any{}, config.isMCP)
+	if statusCode != http.StatusOK {
+		t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, http.StatusOK, resultString)
 	}
 
 	var got []map[string]any
@@ -1794,7 +1821,12 @@ func setupPostgresTrigger(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	}
 }
 
-func RunPostgresListTriggersTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListTriggersTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
 	schemaName := "test_schema_" + uniqueID
 	tableName := "test_table_" + uniqueID
@@ -1826,76 +1858,71 @@ func RunPostgresListTriggersTest(t *testing.T, ctx context.Context, pool *pgxpoo
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           []map[string]any
 		compareSubset  bool
 	}{
 		{
 			name:           "list all triggers (expecting the one we created)",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			toolName:       "list_triggers",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTrigger},
 			compareSubset:  true, // avoid test flakiness in race condition
 		},
 		{
 			name:           "filter by trigger_name",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"trigger_name": "%s"}`, triggerName))),
+			toolName:       "list_triggers",
+			args:           map[string]any{"trigger_name": triggerName},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTrigger},
 		},
 		{
 			name:           "filter by schema_name",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"schema_name": "%s"}`, schemaName))),
+			toolName:       "list_triggers",
+			args:           map[string]any{"schema_name": schemaName},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTrigger},
 		},
 		{
 			name:           "filter by table_name",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"table_name": "%s"}`, tableName))),
+			toolName:       "list_triggers",
+			args:           map[string]any{"table_name": tableName},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTrigger},
 		},
 		{
 			name:           "filter by non-existent trigger_name",
-			requestBody:    bytes.NewBuffer([]byte(`{"trigger_name": "non_existent_trigger"}`)),
+			toolName:       "list_triggers",
+			args:           map[string]any{"trigger_name": "non_existent_trigger"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 		{
 			name:           "filter by non-existent schema_name",
-			requestBody:    bytes.NewBuffer([]byte(`{"schema_name": "non_existent_schema"}`)),
+			toolName:       "list_triggers",
+			args:           map[string]any{"schema_name": "non_existent_schema"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 		{
 			name:           "filter by non-existent table_name",
-			requestBody:    bytes.NewBuffer([]byte(`{"table_name": "non_existent_table"}`)),
+			toolName:       "list_triggers",
+			args:           map[string]any{"table_name": "non_existent_table"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_triggers/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -1959,7 +1986,12 @@ func setupPostgresPublicationTable(t *testing.T, ctx context.Context, pool *pgxp
 	}
 }
 
-func RunPostgresListPublicationTablesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListPublicationTablesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	table1Name := "pub_table_1"
 	pub1Name := "pub_1"
 
@@ -2004,69 +2036,62 @@ func RunPostgresListPublicationTablesTest(t *testing.T, ctx context.Context, poo
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           []map[string]any
 	}{
 		{
 			name:           "list all publication tables",
-			requestBody:    bytes.NewBufferString(`{}`),
+			toolName:       "list_publication_tables",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTable1, wantTable2},
 		},
 		{
 			name:           "list all tables for the created publication",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"publication_names": "%s"}`, pub1Name)),
+			toolName:       "list_publication_tables",
+			args:           map[string]any{"publication_names": pub1Name},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTable1},
 		},
 		{
 			name:           "filter by table_name",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_names": "%s, %s"}`, table1Name, table2Name)),
+			toolName:       "list_publication_tables",
+			args:           map[string]any{"table_names": fmt.Sprintf("%s, %s", table1Name, table2Name)},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTable1, wantTable2},
 		},
 		{
 			name:           "filter by schema_name and table_name",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_names": "public", "table_name": "%s , %s"}`, table1Name, table2Name)),
+			toolName:       "list_publication_tables",
+			args:           map[string]any{"schema_names": "public", "table_name": fmt.Sprintf("%s , %s", table1Name, table2Name)},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTable1, wantTable2},
 		},
 		{
 			name:           "invoke list_publication_tables with non-existent table",
-			requestBody:    bytes.NewBufferString(`{"table_names": "non_existent_table"}`),
+			toolName:       "list_publication_tables",
+			args:           map[string]any{"table_names": "non_existent_table"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 		{
 			name:           "invoke list_publication_tables with non-existent publication",
-			requestBody:    bytes.NewBufferString(`{"publication_names": "non_existent_pub"}`),
+			toolName:       "list_publication_tables",
+			args:           map[string]any{"publication_names": "non_existent_pub"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_publication_tables/invoke"
-
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -2081,7 +2106,12 @@ func RunPostgresListPublicationTablesTest(t *testing.T, ctx context.Context, poo
 	}
 }
 
-func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	type queryListDetails struct {
 		ProcessId        any    `json:"pid"`
 		User             string `json:"user"`
@@ -2181,26 +2211,12 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 				time.Sleep(time.Duration(tc.waitSecsBeforeCheck) * time.Second)
 			}
 
-			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
-			reqBytes, _ := json.Marshal(tc.args)
-			resp, respBody := RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var details []queryListDetails
@@ -2238,25 +2254,30 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 	}
 }
 
-func RunPostgresListAvailableExtensionsTest(t *testing.T) {
+func RunPostgresListAvailableExtensionsTest(t *testing.T, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
 		name           string
-		api            string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 	}{
 		{
 			name:           "invoke list_available_extensions output",
-			api:            "http://127.0.0.1:5000/api/tool/list_available_extensions/invoke",
+			toolName:       "list_available_extensions",
 			wantStatusCode: http.StatusOK,
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			args:           map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, respBody := RunRequest(t, http.MethodPost, tc.api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+			statusCode, result, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("response status code is not 200, got %d: %s", statusCode, result)
 			}
 
 			// Intentionally not adding the output check as output depends on the postgres instance used where the the functional test runs.
@@ -2265,25 +2286,30 @@ func RunPostgresListAvailableExtensionsTest(t *testing.T) {
 	}
 }
 
-func RunPostgresListInstalledExtensionsTest(t *testing.T) {
+func RunPostgresListInstalledExtensionsTest(t *testing.T, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
 		name           string
-		api            string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 	}{
 		{
 			name:           "invoke list_installed_extensions output",
-			api:            "http://127.0.0.1:5000/api/tool/list_installed_extensions/invoke",
+			toolName:       "list_installed_extensions",
 			wantStatusCode: http.StatusOK,
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			args:           map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, bodyBytes := RunRequest(t, http.MethodPost, tc.api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+			statusCode, result, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("response status code is not 200, got %d: %s", statusCode, result)
 			}
 
 			// Intentionally not adding the output check as output depends on the postgres instance used where the the functional test runs.
@@ -2325,7 +2351,12 @@ func setupPostgresIndex(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 	}
 }
 
-func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	schemaName := "testschema_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableName := "table1_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	cleanup := setupPostgresIndex(t, ctx, pool, schemaName, tableName)
@@ -2370,7 +2401,8 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           []map[string]any
 	}{
@@ -2378,63 +2410,55 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 		// defined outside of this test, which could make the test flaky.
 		{
 			name:           "list_indexes for a specific schema and table",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s"}`, schemaName, tableName)),
+			toolName:       "list_indexes",
+			args:           map[string]any{"schema_name": schemaName, "table_name": tableName},
 			wantStatusCode: http.StatusOK,
 			want:           allWantIndexes,
 		},
 		{
 			name:           "list_indexes for a specific schema",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s"}`, schemaName)),
+			toolName:       "list_indexes",
+			args:           map[string]any{"schema_name": schemaName},
 			wantStatusCode: http.StatusOK,
 			want:           allWantIndexes,
 		},
 		{
 			name:           "list_indexes with non-existent schema",
-			requestBody:    bytes.NewBufferString(`{"schema_name": "non_existent_schema"}`),
+			toolName:       "list_indexes",
+			args:           map[string]any{"schema_name": "non_existent_schema"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 		{
 			name:           "list_indexes with non-existent table in existing schema",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "non_existent_table"}`, schemaName)),
+			toolName:       "list_indexes",
+			args:           map[string]any{"schema_name": schemaName, "table_name": "non_existent_table"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 		{
 			name:           "list_indexes filter by index name",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s", "index_name": "%s"}`, schemaName, tableName, tableName+"_email_idx")),
+			toolName:       "list_indexes",
+			args:           map[string]any{"schema_name": schemaName, "table_name": tableName, "index_name": tableName + "_email_idx"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantIndexEmail},
 		},
 		{
 			name:           "list_indexes filter by non-existent index name",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s", "index_name": "non_existent_idx"}`, schemaName, tableName)),
+			toolName:       "list_indexes",
+			args:           map[string]any{"schema_name": schemaName, "table_name": tableName, "index_name": "non_existent_idx"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_indexes/invoke"
-
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -2472,7 +2496,12 @@ func setupListSequencesTest(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	}
 }
 
-func RunPostgresListSequencesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListSequencesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	sequenceName, teardown := setupListSequencesTest(t, ctx, pool)
 	defer teardown(t)
 
@@ -2491,44 +2520,34 @@ func RunPostgresListSequencesTest(t *testing.T, ctx context.Context, pool *pgxpo
 	invokeTcs := []struct {
 		name           string
 		api            string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           []map[string]any
 	}{
 		{
 			name:           "invoke list_sequences",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"sequence_name": "%s"}`, sequenceName)),
+			toolName:       "list_sequences",
+			args:           map[string]any{"sequence_name": sequenceName},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantSequence},
 		},
 		{
 			name:           "invoke list_sequences with non-existent sequence",
-			requestBody:    bytes.NewBufferString(`{"sequence_name": "non_existent_sequence"}`),
+			toolName:       "list_sequences",
+			args:           map[string]any{"sequence_name": "non_existent_sequence"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_sequences/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -2543,25 +2562,30 @@ func RunPostgresListSequencesTest(t *testing.T, ctx context.Context, pool *pgxpo
 	}
 }
 
-func RunPostgresListTableSpacesTest(t *testing.T) {
+func RunPostgresListTableSpacesTest(t *testing.T, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	invokeTcs := []struct {
 		name           string
-		api            string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 	}{
 		{
 			name:           "invoke list_tablespaces output",
-			api:            "http://127.0.0.1:5000/api/tool/list_tablespaces/invoke",
+			toolName:       "list_tablespaces",
 			wantStatusCode: http.StatusOK,
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			args:           map[string]any{},
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, respBody := RunRequest(t, http.MethodPost, tc.api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+			statusCode, result, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("response status code is not 200, got %d: %s", statusCode, result)
 			}
 
 			// Intentionally not adding the output check as output depends on the postgres instance used where the the functional test runs.
@@ -2570,7 +2594,12 @@ func RunPostgresListTableSpacesTest(t *testing.T) {
 	}
 }
 
-func RunPostgresListPgSettingsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListPgSettingsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	targetSetting := "maintenance_work_mem"
 	var name, setting, unit, shortDesc, source, contextVal string
 
@@ -2607,19 +2636,22 @@ func RunPostgresListPgSettingsTest(t *testing.T, ctx context.Context, pool *pgxp
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           string
 	}{
 		{
 			name:           "invoke list_pg_settings with specific setting",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"setting_name": "%s"}`, targetSetting))),
+			toolName:       "list_pg_settings",
+			args:           map[string]any{"setting_name": targetSetting},
 			wantStatusCode: http.StatusOK,
 			want:           string(expectedJSON),
 		},
 		{
 			name:           "invoke list_pg_settings with non-existent setting",
-			requestBody:    bytes.NewBuffer([]byte(`{"setting_name": "non_existent_config_xyz"}`)),
+			toolName:       "list_pg_settings",
+			args:           map[string]any{"setting_name": "non_existent_config_xyz"},
 			wantStatusCode: http.StatusOK,
 			want:           `[]`,
 		},
@@ -2627,26 +2659,12 @@ func RunPostgresListPgSettingsTest(t *testing.T, ctx context.Context, pool *pgxp
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_pg_settings/invoke"
-			resp, body := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(body))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(body, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got, want any
@@ -2666,7 +2684,12 @@ func RunPostgresListPgSettingsTest(t *testing.T, ctx context.Context, pool *pgxp
 
 // RunPostgresDatabaseStatsTest tests the database_stats tool by comparing API results
 // against a direct query to the database.
-func RunPostgresListDatabaseStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListDatabaseStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	dbName1 := "test_db_stats_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	dbOwner1 := "test_user_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	dbName2 := "test_db_stats_" + strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -2700,31 +2723,36 @@ func RunPostgresListDatabaseStatsTest(t *testing.T, ctx context.Context, pool *p
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           []map[string]interface{}
 	}{
 		{
 			name:           "invoke database_stats filtering by specific database name",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"database_name": "%s"}`, dbName1))),
+			toolName:       "list_database_stats",
+			args:           map[string]any{"database_name": dbName1},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]interface{}{db1Want},
 		},
 		{
 			name:           "invoke database_stats filtering by specific owner",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"database_owner": "%s"}`, dbOwner2))),
+			toolName:       "list_database_stats",
+			args:           map[string]any{"database_owner": dbOwner2},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]interface{}{db2Want},
 		},
 		{
 			name:           "filter by tablespace",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"default_tablespace": "pg_default", "database_name": "%s"}`, dbName1))),
+			toolName:       "list_database_stats",
+			args:           map[string]any{"default_tablespace": "pg_default", "database_name": dbName1},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]interface{}{db1Want},
 		},
 		{
 			name:           "sort by size",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"sort_by": "size", "database_name": "%s"}`, dbName2))),
+			toolName:       "list_database_stats",
+			args:           map[string]any{"sort_by": "size", "database_name": dbName2},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]interface{}{db2Want},
 		},
@@ -2732,22 +2760,9 @@ func RunPostgresListDatabaseStatsTest(t *testing.T, ctx context.Context, pool *p
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_database_stats/invoke"
-			resp, body := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(body))
-			}
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(body, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 
 			var got []map[string]interface{}
@@ -2844,7 +2859,12 @@ func setupPostgresRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (
 	}
 }
 
-func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	adminUser, superUser, normalUser, cleanup := setupPostgresRoles(t, ctx, pool)
 	defer cleanup(t)
 
@@ -2892,25 +2912,29 @@ func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		want           []map[string]any
 	}{
 		{
 			name:           "list_roles with filter for created roles",
-			requestBody:    bytes.NewBufferString(`{"role_name": "test_role_"}`),
+			toolName:       "list_roles",
+			args:           map[string]any{"role_name": "test_role_"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantAdmin, wantNormalUser, wantSuperUser},
 		},
 		{
 			name:           "list_roles filter specific role",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"role_name": "%s"}`, superUser)),
+			toolName:       "list_roles",
+			args:           map[string]any{"role_name": superUser},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantSuperUser},
 		},
 		{
 			name:           "list_roles non-existent role",
-			requestBody:    bytes.NewBufferString(`{"role_name": "non_existent_role_xyz"}`),
+			toolName:       "list_roles",
+			args:           map[string]any{"role_name": "non_existent_role_xyz"},
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{},
 		},
@@ -2918,26 +2942,12 @@ func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_roles/invoke"
-
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -4611,7 +4621,11 @@ func CreateAndLockPostgresTable(t *testing.T, ctx context.Context, pool *pgxpool
 }
 
 // RunPostgresListLocksTest runs tests for the postgres list-locks tool
-func RunPostgresListLocksTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListLocksTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
 
 	// Create and lock a test table
 	cleanup := CreateAndLockPostgresTable(t, ctx, pool, "test_postgres_list_locks_table")
@@ -4627,38 +4641,27 @@ func RunPostgresListLocksTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		expectResults  bool
 	}{
 		{
 			name:           "invoke list_locks with no arguments",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			toolName:       "list_locks",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 			expectResults:  true,
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_locks/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []lockDetails
@@ -4676,7 +4679,12 @@ func RunPostgresListLocksTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 }
 
 // RunPostgresLongRunningTransactionsTest runs tests for the postgres long-running-transactions tool
-func RunPostgresLongRunningTransactionsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresLongRunningTransactionsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	type transactionDetails struct {
 		Pid               any    `json:"pid"`
 		Usename           string `json:"usename"`
@@ -4690,41 +4698,31 @@ func RunPostgresLongRunningTransactionsTest(t *testing.T, ctx context.Context, p
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 	}{
 		{
 			name:           "invoke long_running_transactions with default threshold",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			toolName:       "long_running_transactions",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "invoke long_running_transactions with custom threshold",
-			requestBody:    bytes.NewBuffer([]byte(`{"min_transaction_duration_secs": 3600}`)),
+			toolName:       "long_running_transactions",
+			args:           map[string]any{"min_transaction_duration_secs": 3600},
 			wantStatusCode: http.StatusOK,
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/long_running_transactions/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []transactionDetails
@@ -4745,7 +4743,12 @@ func RunPostgresLongRunningTransactionsTest(t *testing.T, ctx context.Context, p
 }
 
 // RunPostgresReplicationStatsTest runs tests for the postgres replication-stats tool
-func RunPostgresReplicationStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresReplicationStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	type replicationStats struct {
 		ClientAddr          string `json:"client_addr"`
 		Username            string `json:"usename"`
@@ -4767,36 +4770,25 @@ func RunPostgresReplicationStatsTest(t *testing.T, ctx context.Context, pool *pg
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 	}{
 		{
 			name:           "invoke replication_stats with no arguments",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			toolName:       "replication_stats",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 		},
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/replication_stats/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []replicationStats
@@ -4816,7 +4808,12 @@ func RunPostgresReplicationStatsTest(t *testing.T, ctx context.Context, pool *pg
 	}
 }
 
-func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	schemaName := "testschema_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableName := "table1_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	cleanup := setupPostgresSchemas(t, ctx, pool, schemaName)
@@ -4864,31 +4861,36 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		shouldHaveData bool // Whether we expect data in the response
 	}{
 		{
 			name:           "get cardinality for a specific column",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s", "column_name": "email"}`, schemaName, tableName)),
+			toolName:       "get_column_cardinality",
+			args:           map[string]any{"schema_name": schemaName, "table_name": tableName, "column_name": "email"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: true,
 		},
 		{
 			name:           "get cardinality for all columns",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s"}`, schemaName, tableName)),
+			toolName:       "get_column_cardinality",
+			args:           map[string]any{"schema_name": schemaName, "table_name": tableName},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: true,
 		},
 		{
 			name:           "get cardinality with non-existent column",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s", "column_name": "non_existent"}`, schemaName, tableName)),
+			toolName:       "get_column_cardinality",
+			args:           map[string]any{"schema_name": schemaName, "table_name": tableName, "column_name": "non_existent"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "get cardinality with non-existent schema",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "non_existent_schema", "table_name": "%s"}`, tableName)),
+			toolName:       "get_column_cardinality",
+			args:           map[string]any{"schema_name": "non_existent_schema", "table_name": tableName},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
@@ -4896,25 +4898,12 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/get_column_cardinality/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -4977,7 +4966,12 @@ func createPostgresExtension(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	}
 }
 
-func RunPostgresListQueryStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListQueryStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	// Insert a simple query by running a SELECT statement
 	// This will record statistics in pg_stat_statements
 	selectStmt := "SELECT 1 as test_query"
@@ -5003,52 +4997,44 @@ func RunPostgresListQueryStatsTest(t *testing.T, ctx context.Context, pool *pgxp
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 	}{
 		{
 			name:           "list query stats with default limit",
-			requestBody:    bytes.NewBufferString(`{}`),
+			toolName:       "list_query_stats",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list query stats with custom limit",
-			requestBody:    bytes.NewBufferString(`{"limit": 10}`),
+			toolName:       "list_query_stats",
+			args:           map[string]any{"limit": 10},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list query stats for specific database",
-			requestBody:    bytes.NewBufferString(`{"database_name": "postgres"}`),
+			toolName:       "list_query_stats",
+			args:           map[string]any{"database_name": "postgres"},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "list query stats with non-existent database name",
-			requestBody:    bytes.NewBufferString(`{"database_name": "non_existent_db_xyz"}`),
+			toolName:       "list_query_stats",
+			args:           map[string]any{"database_name": "non_existent_db_xyz"},
 			wantStatusCode: http.StatusOK,
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_query_stats/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []map[string]any
@@ -5089,7 +5075,12 @@ func RunPostgresListQueryStatsTest(t *testing.T, ctx context.Context, pool *pgxp
 }
 
 // RunPostgresListTableStatsTest runs tests for the postgres list-table-stats tool
-func RunPostgresListTableStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListTableStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	type tableStatsDetails struct {
 		SchemaName          string  `json:"schema_name"`
 		TableName           string  `json:"table_name"`
@@ -5159,75 +5150,87 @@ func RunPostgresListTableStatsTest(t *testing.T, ctx context.Context, pool *pgxp
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		shouldHaveData bool
 		filterTable    bool
 	}{
 		{
 			name:           "list table stats with no arguments (default limit)",
-			requestBody:    bytes.NewBufferString(`{}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false, // may or may not have data depending on what's in the database
 		},
 		{
 			name:           "list table stats with default limit",
-			requestBody:    bytes.NewBufferString(`{"schema_name": "public"}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"schema_name": "public"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats filtering by specific table",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_name": "%s"}`, testTableName)),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"table_name": testTableName},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: true,
 			filterTable:    true,
 		},
 		{
 			name:           "list table stats with custom limit",
-			requestBody:    bytes.NewBufferString(`{"limit": 10}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"limit": 10},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats sorted by size",
-			requestBody:    bytes.NewBufferString(`{"sort_by": "size", "limit": 5}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"sort_by": "size", "limit": 5},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats sorted by seq_scan",
-			requestBody:    bytes.NewBufferString(`{"sort_by": "seq_scan", "limit": 5}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"sort_by": "seq_scan", "limit": 5},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats sorted by idx_scan",
-			requestBody:    bytes.NewBufferString(`{"sort_by": "idx_scan", "limit": 5}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"sort_by": "idx_scan", "limit": 5},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats sorted by dead_rows",
-			requestBody:    bytes.NewBufferString(`{"sort_by": "dead_rows", "limit": 5}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"sort_by": "dead_rows", "limit": 5},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats with non-existent table filter",
-			requestBody:    bytes.NewBufferString(`{"table_name": "non_existent_table_xyz"}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"table_name": "non_existent_table_xyz"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats with non-existent schema filter",
-			requestBody:    bytes.NewBufferString(`{"schema_name": "non_existent_schema_xyz"}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"schema_name": "non_existent_schema_xyz"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list table stats with owner filter",
-			requestBody:    bytes.NewBufferString(`{"owner": "postgres"}`),
+			toolName:       "list_table_stats",
+			args:           map[string]any{"owner": "postgres"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
@@ -5235,25 +5238,12 @@ func RunPostgresListTableStatsTest(t *testing.T, ctx context.Context, pool *pgxp
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_table_stats/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []tableStatsDetails
@@ -5368,7 +5358,12 @@ func cleanupOldSchemas(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 }
 
 // RunPostgresListStoredProcedureTest runs tests for the postgres list-stored-procedure tool
-func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	cleanupOldSchemas(t, ctx, pool)
 
 	type storedProcedureDetails struct {
@@ -5439,7 +5434,8 @@ func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool 
 
 	invokeTcs := []struct {
 		name           string
-		requestBody    io.Reader
+		toolName       string
+		args           map[string]any
 		wantStatusCode int
 		shouldHaveData bool
 		expectedCount  int
@@ -5448,13 +5444,15 @@ func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool 
 	}{
 		{
 			name:           "list stored procedures with no arguments (default limit 20)",
-			requestBody:    bytes.NewBufferString(`{}`),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false, // may or may not have data depending on what's in the database
 		},
 		{
 			name:           "list stored procedures filtering by specific schema",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s"}`, testSchemaName)),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"schema_name": testSchemaName},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: true,
 			expectedCount:  2,
@@ -5462,19 +5460,22 @@ func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool 
 		},
 		{
 			name:           "list stored procedures filtering by procedure owner (postgres)",
-			requestBody:    bytes.NewBufferString(`{"role_name": "postgres"}`),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"role_name": "postgres"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false, // might have procedures owned by postgres
 		},
 		{
 			name:           "list stored procedures with custom limit",
-			requestBody:    bytes.NewBufferString(`{"limit": 5}`),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"limit": 5},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list stored procedures filtering by schema and role",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "role_name": "postgres"}`, testSchemaName)),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"schema_name": testSchemaName, "role_name": "postgres"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: true,
 			expectedCount:  2,
@@ -5483,26 +5484,30 @@ func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool 
 		},
 		{
 			name:           "list stored procedures with non-existent schema",
-			requestBody:    bytes.NewBufferString(`{"schema_name": "non_existent_schema_xyz"}`),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"schema_name": "non_existent_schema_xyz"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list stored procedures with non-existent role",
-			requestBody:    bytes.NewBufferString(`{"role_name": "non_existent_role_xyz"}`),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"role_name": "non_existent_role_xyz"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
 		},
 		{
 			name:           "list stored procedures with partial schema name match",
-			requestBody:    bytes.NewBufferString(`{"schema_name": "test_proc"}`),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"schema_name": "test_proc"},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: true,
 			expectedCount:  2,
 		},
 		{
 			name:           "list stored procedures with limit 1",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "limit": 1}`, testSchemaName)),
+			toolName:       "list_stored_procedure",
+			args:           map[string]any{"schema_name": testSchemaName, "limit": 1},
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: true,
 			expectedCount:  1,
@@ -5512,25 +5517,12 @@ func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool 
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			const api = "http://127.0.0.1:5000/api/tool/list_stored_procedure/invoke"
-			resp, respBody := RunRequest(t, http.MethodPost, api, tc.requestBody, nil)
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, tc.wantStatusCode, string(respBody))
+			statusCode, resultString, _ := invokeToolForResult(t, tc.toolName, tc.args, config.isMCP)
+			if statusCode != tc.wantStatusCode {
+				t.Fatalf("wrong status code: got %d, want %d, body: %s", statusCode, tc.wantStatusCode, resultString)
 			}
 			if tc.wantStatusCode != http.StatusOK {
 				return
-			}
-
-			var bodyWrapper struct {
-				Result json.RawMessage `json:"result"`
-			}
-			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
-				t.Fatalf("error decoding response wrapper: %v", err)
-			}
-
-			var resultString string
-			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
-				resultString = string(bodyWrapper.Result)
 			}
 
 			var got []storedProcedureDetails
