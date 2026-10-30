@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -599,6 +600,11 @@ func (p *CommonParameter) GetValueFromParam() string {
 func MatchStringOrRegex(input, target any) bool {
 	targetS, ok := target.(string)
 	if !ok {
+		// YAML decodes numeric entries as uint64, int64 or float64, so compare
+		// numbers by value rather than by Go type.
+		if a, b := numberValue(input), numberValue(target); a != nil && b != nil {
+			return a.Cmp(b) == 0
+		}
 		return input == target
 	}
 	re, err := regexp.Compile(targetS)
@@ -608,6 +614,20 @@ func MatchStringOrRegex(input, target any) bool {
 	}
 	inputS := fmt.Sprintf("%v", input)
 	return re.MatchString(inputS)
+}
+
+// numberValue returns v as an exact rational, or nil if v is not a number.
+func numberValue(v any) *big.Rat {
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return new(big.Rat).SetInt64(rv.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return new(big.Rat).SetUint64(rv.Uint())
+	case reflect.Float32, reflect.Float64:
+		return new(big.Rat).SetFloat64(rv.Float())
+	}
+	return nil
 }
 
 // McpManifest returns the MCP manifest for the Parameter.

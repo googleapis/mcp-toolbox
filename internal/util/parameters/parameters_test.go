@@ -1423,6 +1423,60 @@ func TestParametersParse(t *testing.T) {
 	})
 }
 
+func TestParseNumericAllowedValuesFromYAML(t *testing.T) {
+	// YAML decodes numeric allowedValues and excludedValues as uint64, int64
+	// or float64, while tool arguments arrive as json.Number and parse to int
+	// or float64. The values must match by number, not by Go type.
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	in := `
+- name: my_int
+  type: integer
+  description: an int
+  allowedValues: [1, -3]
+- name: my_excluded_int
+  type: integer
+  description: an int
+  excludedValues: [5]
+- name: my_float
+  type: float
+  description: a float
+  allowedValues: [1, 2.5]
+`
+	var ps parameters.Parameters
+	if err := yaml.UnmarshalContext(ctx, []byte(in), &ps); err != nil {
+		t.Fatalf("unable to unmarshal: %s", err)
+	}
+	tcs := []struct {
+		name    string
+		param   parameters.Parameter
+		in      json.Number
+		wantErr bool
+	}{
+		{name: "int allowed", param: ps[0], in: "1"},
+		{name: "negative int allowed", param: ps[0], in: "-3"},
+		{name: "int not allowed", param: ps[0], in: "2", wantErr: true},
+		{name: "int excluded", param: ps[1], in: "5", wantErr: true},
+		{name: "int not excluded", param: ps[1], in: "6"},
+		{name: "float allowed by integer entry", param: ps[2], in: "1"},
+		{name: "float allowed", param: ps[2], in: "2.5"},
+		{name: "float not allowed", param: ps[2], in: "1.5", wantErr: true},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.param.Parse(tc.in)
+			if tc.wantErr && err == nil {
+				t.Fatalf("Parse(%s) expected an error, got nil", tc.in)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Parse(%s) unexpected error: %s", tc.in, err)
+			}
+		})
+	}
+}
+
 func TestParseTypeErrorReportsValue(t *testing.T) {
 	// When a value fails the type assertion, the error must report the actual
 	// offending value, not the zero value of the target type. The primitive
