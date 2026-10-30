@@ -1,0 +1,916 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package lookercommon_test
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
+	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/looker-open-source/sdk-codegen/go/rtl"
+	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
+)
+
+func TestDiscoverMCPUIPublicOrigin(t *testing.T) {
+	tcs := []struct {
+		desc string
+		html string
+		want string
+	}{
+		{
+			desc: "dashboard entry script",
+			html: `<script type="text/javascript" nonce="abc" src="https://looker.example.com/webpack/en/mcp-render-dashboard.webpack.js?v=26.18.0"></script>`,
+			want: "https://looker.example.com",
+		},
+		{
+			desc: "visualization entry script with port and single quotes",
+			html: `<script src='https://Looker.Example.com:8443/webpack/en/mcp-render-visualization.webpack.js'></script>`,
+			want: "https://looker.example.com:8443",
+		},
+		{
+			desc: "ignores unrelated scripts before the entry script",
+			html: `<script src="https://cdn.example.com/other.js"></script>` +
+				`<script src="https://looker.example.com/webpack/en/mcp-render-dashboard.webpack.js"></script>`,
+			want: "https://looker.example.com",
+		},
+		{
+			desc: "rejects http origins",
+			html: `<script src="http://looker:19999/webpack/en/mcp-render-dashboard.webpack.js"></script>`,
+			want: "",
+		},
+		{
+			desc: "rejects relative src",
+			html: `<script src="/webpack/en/mcp-render-dashboard.webpack.js"></script>`,
+			want: "",
+		},
+		{
+			desc: "no entry script",
+			html: `<html><body>Looker Dashboard</body></html>`,
+			want: "",
+		},
+		{
+			desc: "rejects userinfo in https origin",
+			html: `<script src="https://user:pass@looker.example.com/webpack/en/mcp-render-dashboard.webpack.js"></script>`,
+			want: "",
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			if got := lookercommon.DiscoverMCPUIPublicOrigin(tc.html); got != tc.want {
+				t.Errorf("DiscoverMCPUIPublicOrigin() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("allowedOrigins filter", func(t *testing.T) {
+		html := `<script src="https://looker.example.com/webpack/en/mcp-render-dashboard.webpack.js"></script>`
+		if got := lookercommon.DiscoverMCPUIPublicOrigin(html, "https://looker.example.com"); got != "https://looker.example.com" {
+			t.Errorf("expected allowed origin to match, got %q", got)
+		}
+		if got := lookercommon.DiscoverMCPUIPublicOrigin(html, "https://other.example.com"); got != "" {
+			t.Errorf("expected mismatched allowed origin to be rejected, got %q", got)
+		}
+	})
+}
+
+func TestAddCSPOrigin(t *testing.T) {
+	csp := &resources.CSPConfig{
+		ResourceDomains: []string{"https://looker.example.com/"},
+		ConnectDomains:  []string{"https://maps.googleapis.com"},
+	}
+
+	lookercommon.AddCSPOrigin(csp, "https://looker.example.com")
+	lookercommon.AddCSPOrigin(csp, "https://looker.example.com")
+	lookercommon.AddCSPOrigin(csp, "http://localhost:9999/")
+	lookercommon.AddCSPOrigin(csp, "")
+	lookercommon.AddCSPOrigin(nil, "https://ignored.example.com")
+
+	want := &resources.CSPConfig{
+		ResourceDomains: []string{"https://looker.example.com/", "http://localhost:9999"},
+		ConnectDomains: []string{
+			"https://maps.googleapis.com",
+			"https://looker.example.com",
+			"wss://looker.example.com",
+			"http://localhost:9999",
+			"ws://localhost:9999",
+		},
+	}
+	if diff := cmp.Diff(want, csp); diff != "" {
+		t.Errorf("AddCSPOrigin() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestGoogleMapsCSPDomains(t *testing.T) {
+	csp := lookercommon.DefaultMCPUICSPConfig()
+	if csp == nil {
+		t.Fatalf("expected non-nil CSPConfig")
+	}
+
+	requiredGoogleMapsResourceDomains := []string{
+		"https://maps.googleapis.com",
+		"https://mapsresources-pa.googleapis.com",
+		"https://streetviewpixels-pa.googleapis.com",
+		"https://khms0.googleapis.com",
+		"https://khms1.googleapis.com",
+		"https://maps.gstatic.com",
+		"https://*.gstatic.com",
+		"https://*.ggpht.com",
+		"https://fonts.googleapis.com",
+		"https://fonts.gstatic.com",
+	}
+
+	requiredGoogleMapsConnectDomains := []string{
+		"https://maps.googleapis.com",
+		"https://mapsresources-pa.googleapis.com",
+		"https://streetviewpixels-pa.googleapis.com",
+		"https://khms0.googleapis.com",
+		"https://khms1.googleapis.com",
+		"https://maps.gstatic.com",
+		"https://*.ggpht.com",
+		"https://fonts.googleapis.com",
+		"https://fonts.gstatic.com",
+	}
+
+	for _, domain := range requiredGoogleMapsResourceDomains {
+		if !slices.Contains(lookercommon.GoogleMapsResourceDomains, domain) {
+			t.Errorf("expected GoogleMapsResourceDomains to contain %q", domain)
+		}
+		if !slices.Contains(csp.ResourceDomains, domain) {
+			t.Errorf("expected DefaultMCPUICSPConfig().ResourceDomains to contain %q", domain)
+		}
+	}
+
+	for _, domain := range requiredGoogleMapsConnectDomains {
+		if !slices.Contains(lookercommon.GoogleMapsConnectDomains, domain) {
+			t.Errorf("expected GoogleMapsConnectDomains to contain %q", domain)
+		}
+		if !slices.Contains(csp.ConnectDomains, domain) {
+			t.Errorf("expected DefaultMCPUICSPConfig().ConnectDomains to contain %q", domain)
+		}
+	}
+
+	for _, disallowed := range []string{"https://*.googleapis.com", "https://*.googleusercontent.com"} {
+		if slices.Contains(lookercommon.GoogleMapsResourceDomains, disallowed) || slices.Contains(csp.ResourceDomains, disallowed) {
+			t.Errorf("did not expect ResourceDomains to contain wildcard %q", disallowed)
+		}
+		if slices.Contains(lookercommon.GoogleMapsConnectDomains, disallowed) || slices.Contains(csp.ConnectDomains, disallowed) {
+			t.Errorf("did not expect ConnectDomains to contain wildcard %q", disallowed)
+		}
+	}
+	if slices.Contains(lookercommon.GoogleMapsConnectDomains, "https://*.gstatic.com") || slices.Contains(csp.ConnectDomains, "https://*.gstatic.com") {
+		t.Errorf("did not expect ConnectDomains to contain wildcard https://*.gstatic.com")
+	}
+}
+
+func TestBuildLookerUICSPHostnameCheck(t *testing.T) {
+	t.Setenv("LOOKER_BASE_URL", "https://localhost.evil.example.com")
+	t.Setenv("LOOKER_UI_URL", "https://looker.example.com/localhost")
+
+	csp := lookercommon.BuildLookerUICSP()
+	for _, d := range csp.ResourceDomains {
+		if d == "http://localhost:9999" || d == "http://127.0.0.1:9999" {
+			t.Errorf("did not expect local dev ports for non-loopback hostname, got %q", d)
+		}
+	}
+
+	t.Setenv("LOOKER_BASE_URL", "http://localhost:19999")
+	t.Setenv("LOOKER_UI_URL", "http://localhost:9999")
+	localCsp := lookercommon.BuildLookerUICSP()
+	foundLocal := false
+	for _, d := range localCsp.ResourceDomains {
+		if d == "http://localhost:3035" {
+			foundLocal = true
+			break
+		}
+	}
+	if !foundLocal {
+		t.Errorf("expected http://localhost:3035 in local dev CSP ResourceDomains")
+	}
+}
+
+func TestFetchMcpAppStateCachesColorCollectionsPerInstanceOnly(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	var userCalls int32
+	var colorCalls int32
+	var mapKeyCalls int32
+	var lastAssetRawQuery atomic.Value
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/4.0/login":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "test-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case "/api/4.0/user":
+			w.Header().Set("Content-Type", "application/json")
+			callNum := atomic.AddInt32(&userCalls, 1)
+			locale := "en"
+			if callNum == 2 {
+				locale = "ja_JP"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":     "1",
+				"locale": locale,
+				"abilities": map[string]any{
+					"objects": map[string]any{
+						"query": map[string]any{"can": map[string]any{"explore": true, "run": true}},
+					},
+				},
+			})
+		case "/api/4.0/color_collections/active":
+			w.Header().Set("Content-Type", "application/json")
+			atomic.AddInt32(&colorCalls, 1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"default_collection_id": "b43731d5-dc87-4a8e-b807-635bef3948e7",
+				"default_colors":        []string{"#FBBC04", "#EA4335"},
+				"custom":                []any{},
+				"standard":              []any{map[string]any{"id": "b43731d5-dc87-4a8e-b807-635bef3948e7", "label": "Boardwalk"}},
+			})
+		case "/public/mcp/ui/map_api_key":
+			w.Header().Set("Content-Type", "application/json")
+			if r.Header.Get("Authorization") == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "Unauthorized"})
+				return
+			}
+			atomic.AddInt32(&mapKeyCalls, 1)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"api_key": "test-gmaps-key-123",
+			})
+		case "/public/mcp/ui/render_visualization/assets":
+			lastAssetRawQuery.Store(r.URL.RawQuery)
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><div id="root"></div></body></html>`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	settings := rtl.ApiSettings{
+		BaseUrl:      ts.URL,
+		ApiVersion:   "4.0",
+		ClientId:     "id",
+		ClientSecret: "secret",
+	}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(settings))
+
+	// First call fetches /user, /color_collections/active, and /public/mcp/ui/map_api_key
+	state1 := lookercommon.FetchMcpAppState(context.Background(), sdk, &settings)
+	if state1 == nil {
+		t.Fatalf("expected non-nil app_state on first call")
+	}
+	if got := atomic.LoadInt32(&userCalls); got != 1 {
+		t.Errorf("userCalls after call 1 = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&colorCalls); got != 1 {
+		t.Errorf("colorCalls after call 1 = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&mapKeyCalls); got != 1 {
+		t.Errorf("mapKeyCalls after call 1 = %d, want 1", got)
+	}
+	if got, _ := state1["map_api_key"].(string); got != "test-gmaps-key-123" {
+		t.Errorf("state1[map_api_key] = %q, want test-gmaps-key-123", got)
+	}
+	if user1, ok := state1["user"].(map[string]any); !ok || user1["locale"] != "en" {
+		t.Errorf("state1[user][locale] = %v, want en", state1["user"])
+	}
+
+	// Second call fetches /user again (not cached) but reuses cached /color_collections/active and /public/mcp/ui/map_api_key
+	state2 := lookercommon.FetchMcpAppState(context.Background(), sdk, &settings)
+	if state2 == nil {
+		t.Fatalf("expected non-nil app_state on second call")
+	}
+	if got := atomic.LoadInt32(&userCalls); got != 2 {
+		t.Errorf("userCalls after call 2 = %d, want 2", got)
+	}
+	if got := atomic.LoadInt32(&colorCalls); got != 1 {
+		t.Errorf("colorCalls after call 2 = %d, want 1 (should be cached)", got)
+	}
+	if got := atomic.LoadInt32(&mapKeyCalls); got != 1 {
+		t.Errorf("mapKeyCalls after call 2 = %d, want 1 (should be cached)", got)
+	}
+	if got, _ := state2["map_api_key"].(string); got != "test-gmaps-key-123" {
+		t.Errorf("state2[map_api_key] = %q, want test-gmaps-key-123", got)
+	}
+	if user2, ok := state2["user"].(map[string]any); !ok || user2["locale"] != "ja_JP" {
+		t.Errorf("state2[user][locale] = %v, want ja_JP", state2["user"])
+	}
+
+	// Verify FetchRemoteUI does not leak User 2's locale into shared resources/read asset fetches
+	// and rewrites any /public/mcp/ui/<other_scene>/assets URL to the manager's sceneName.
+	t.Setenv("LOOKER_UI_URL", ts.URL+"/public/mcp/ui/other_scene/assets")
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	if _, err := mgr.FetchRemoteUI(context.Background()); err != nil {
+		t.Fatalf("FetchRemoteUI() failed: %v", err)
+	}
+	if gotQuery, _ := lastAssetRawQuery.Load().(string); gotQuery != "" {
+		t.Errorf("expected FetchRemoteUI not to leak cross-user locale query param, got %q", gotQuery)
+	}
+}
+
+func TestCacheConstantsAndResolveVerifySSL(t *testing.T) {
+	if lookercommon.ColorCollectionsCacheTTL != 10*time.Minute {
+		t.Errorf("ColorCollectionsCacheTTL = %v, want 10m", lookercommon.ColorCollectionsCacheTTL)
+	}
+	if lookercommon.MapApiKeyCacheTTL != 10*time.Minute {
+		t.Errorf("MapApiKeyCacheTTL = %v, want 10m", lookercommon.MapApiKeyCacheTTL)
+	}
+	if lookercommon.UIHTMLCacheTTL != 5*time.Minute {
+		t.Errorf("UIHTMLCacheTTL = %v, want 5m", lookercommon.UIHTMLCacheTTL)
+	}
+	if lookercommon.ClientUserLocaleCacheTTL != 5*time.Minute {
+		t.Errorf("ClientUserLocaleCacheTTL = %v, want 5m", lookercommon.ClientUserLocaleCacheTTL)
+	}
+	if lookercommon.StaticUserLocaleCacheTTL != 10*time.Second {
+		t.Errorf("StaticUserLocaleCacheTTL = %v, want 10s", lookercommon.StaticUserLocaleCacheTTL)
+	}
+
+	ctx := context.Background()
+	t.Setenv("LOOKER_VERIFY_SSL", "")
+	if !lookercommon.ResolveVerifySSL(ctx, nil, "test") {
+		t.Errorf("expected default VerifySSL=true when env var is empty")
+	}
+	t.Setenv("LOOKER_VERIFY_SSL", "false")
+	if lookercommon.ResolveVerifySSL(ctx, nil, "test") {
+		t.Errorf("expected VerifySSL=false when LOOKER_VERIFY_SSL=false")
+	}
+	t.Setenv("LOOKER_VERIFY_SSL", "0")
+	if lookercommon.ResolveVerifySSL(ctx, nil, "test") {
+		t.Errorf("expected VerifySSL=false when LOOKER_VERIFY_SSL=0")
+	}
+	if !lookercommon.ResolveVerifySSL(ctx, &rtl.ApiSettings{VerifySsl: true}, "test") {
+		t.Errorf("expected apiSettings.VerifySsl=true to take precedence over env var")
+	}
+}
+
+func TestRenderHTMLStripsSingleAndDoubleQuotedNonces(t *testing.T) {
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	rawHTML := `<!DOCTYPE html><html><head><base href="https://evil.example.com/"><script nonce='single-nonce-123'>window.__LOOKER_BASE_URL__="https://looker.example.com";const literal=" keep nonce=\"inside-js\"";</script></head><body><script type="text/javascript" nonce="double-nonce-456" src="/webpack/en/mcp-render-visualization.webpack.js"></script><script nonce=unquoted789 src='/webpack/en/chunk.js'></script></body></html>`
+	rendered := mgr.RenderHTML(rawHTML, "https://looker.example.com")
+
+	want := `<!DOCTYPE html><html><head><script>window.__LOOKER_BASE_URL__="https://looker.example.com";const literal=" keep nonce=\"inside-js\"";</script></head><body><script type="text/javascript" src="https://looker.example.com/webpack/en/mcp-render-visualization.webpack.js"></script><script src='https://looker.example.com/webpack/en/chunk.js'></script></body></html>`
+	if got := rendered; got != want {
+		t.Errorf("RenderHTML() = %q, want %q", got, want)
+	}
+}
+
+func TestFetchMapApiKeyDoesNotLeakTokenToCrossHostLookerUIURL(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	var crossHostCalls int32
+	crossHostServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&crossHostCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"api_key": "evil-key"})
+	}))
+	defer crossHostServer.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/4.0/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "secret-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case "/api/4.0/user":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "1", "locale": "en"})
+		case "/api/4.0/color_collections/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{"default_collection_id": "default"})
+		case "/public/mcp/ui/map_api_key":
+			_ = json.NewEncoder(w).Encode(map[string]any{"api_key": "trusted-base-key"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	// Set LOOKER_UI_URL to an external non-loopback host that differs from ts.URL (127.0.0.1)
+	t.Setenv("LOOKER_UI_URL", "https://untrusted-external.example.com")
+
+	settings := rtl.ApiSettings{
+		BaseUrl:      ts.URL,
+		ApiVersion:   "4.0",
+		ClientId:     "id",
+		ClientSecret: "secret",
+	}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(settings))
+
+	state := lookercommon.FetchMcpAppState(context.Background(), sdk, &settings)
+	if got := atomic.LoadInt32(&crossHostCalls); got != 0 {
+		t.Errorf("expected 0 calls to cross-host server, got %d", got)
+	}
+	if got, _ := state["map_api_key"].(string); got != "trusted-base-key" {
+		t.Errorf("state[map_api_key] = %q, want trusted-base-key", got)
+	}
+}
+
+func TestDiscoverMCPUIPublicOriginWildcardAllowlist(t *testing.T) {
+	cdnHTML := `<script src="https://static-a.lookercdn.com/webpack/en/mcp-render-dashboard.webpack.js"></script>`
+	if got := lookercommon.DiscoverMCPUIPublicOrigin(cdnHTML, "https://looker.example.com", "https://*.lookercdn.com"); got != "https://static-a.lookercdn.com" {
+		t.Errorf("expected wildcard CDN allowlist to match, got %q", got)
+	}
+
+	appCDNHTML := `<script src="https://assets.cdn.looker.app/webpack/en/mcp-render-visualization.webpack.js"></script>`
+	if got := lookercommon.DiscoverMCPUIPublicOrigin(appCDNHTML, "https://looker.example.com", "https://*.cdn.looker.app"); got != "https://assets.cdn.looker.app" {
+		t.Errorf("expected *.cdn.looker.app wildcard allowlist to match, got %q", got)
+	}
+
+	evilHTML := `<script src="https://evil-lookercdn.com/webpack/en/mcp-render-dashboard.webpack.js"></script>`
+	if got := lookercommon.DiscoverMCPUIPublicOrigin(evilHTML, "https://looker.example.com", "https://*.lookercdn.com"); got != "" {
+		t.Errorf("expected evil-lookercdn.com to be rejected, got %q", got)
+	}
+
+	bareRootHTML := `<script src="https://lookercdn.com/webpack/en/mcp-render-dashboard.webpack.js"></script>`
+	if got := lookercommon.DiscoverMCPUIPublicOrigin(bareRootHTML, "https://looker.example.com", "https://*.lookercdn.com"); got != "" {
+		t.Errorf("expected bare root lookercdn.com not to match *.lookercdn.com wildcard, got %q", got)
+	}
+}
+
+func TestFetchRemoteUIOriginValidationAndConcurrentCSPSafety(t *testing.T) {
+	// Case 1: Untrusted script src is rejected when LOOKER_BASE_URL is configured;
+	// authoritative LOOKER_BASE_URL origin is added to both ResourceDomains and ConnectDomains.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><script>window.__LOOKER_BASE_URL__="https://tenant.looker.com";</script></head><body><script src="https://evil.attacker.example/webpack/en/mcp-render-visualization.webpack.js"></script></body></html>`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("LOOKER_BASE_URL", ts.URL)
+	t.Setenv("LOOKER_UI_URL", ts.URL)
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_test",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	resList := mgr.GetResources()
+	if len(resList) != 1 {
+		t.Fatalf("expected 1 UI resource, got %d", len(resList))
+	}
+	res, ok := resList[0].(*resources.DynamicUIResource)
+	if !ok {
+		t.Fatalf("expected *resources.DynamicUIResource")
+	}
+
+	// Run concurrent FetchRemoteUI and GetResourceUIMetadata / CSP reads to verify race-free CSP updates
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = mgr.FetchRemoteUI(context.Background())
+		}()
+		go func() {
+			defer wg.Done()
+			_ = res.GetResourceUIMetadata()
+			_ = mgr.CSP()
+		}()
+	}
+	wg.Wait()
+
+	csp := mgr.CSP()
+	for _, domain := range csp.ResourceDomains {
+		if domain == "https://evil.attacker.example" {
+			t.Errorf("untrusted script origin was added to ResourceDomains: %v", csp.ResourceDomains)
+		}
+	}
+	for _, domain := range csp.ConnectDomains {
+		if domain == "https://evil.attacker.example" {
+			t.Errorf("untrusted script origin was added to ConnectDomains: %v", csp.ConnectDomains)
+		}
+	}
+
+	foundConnectTenant := false
+	for _, domain := range csp.ConnectDomains {
+		if domain == "https://tenant.looker.com" {
+			foundConnectTenant = true
+			break
+		}
+	}
+	if !foundConnectTenant {
+		t.Errorf("expected authoritative window.__LOOKER_BASE_URL__ origin https://tenant.looker.com in ConnectDomains, got %v", csp.ConnectDomains)
+	}
+}
+
+type perUserLocaleMockSource struct {
+	settings  *rtl.ApiSettings
+	sdkByAuth map[string]*v4.LookerSDK
+}
+
+func (m perUserLocaleMockSource) UseClientAuthorization() bool        { return true }
+func (m perUserLocaleMockSource) GetAuthTokenHeaderName() string      { return "Authorization" }
+func (m perUserLocaleMockSource) LookerApiSettings() *rtl.ApiSettings { return m.settings }
+func (m perUserLocaleMockSource) GetLookerSDK(_ context.Context, token string) (*v4.LookerSDK, error) {
+	return m.sdkByAuth[token], nil
+}
+
+func TestFetchRemoteUIPerUserLocaleResolutionAndIsolation(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	var userAPICalls int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/4.0/login":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": r.FormValue("client_id"),
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case "/api/4.0/user":
+			atomic.AddInt32(&userAPICalls, 1)
+			w.Header().Set("Content-Type", "application/json")
+			locale := "en"
+			if r.Header.Get("Authorization") == "Bearer ja-session" {
+				locale = "ja_JP"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "1", "locale": locale})
+		case "/public/mcp/ui/render_visualization/assets":
+			w.Header().Set("Content-Type", "text/html")
+			loc := r.URL.Query().Get("locale")
+			if loc == "" {
+				loc = "en"
+			}
+			_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><script>window.__LOOKER_LOCALE__="` + loc + `";</script></head><body><script src="/webpack/` + loc + `/mcp-render-visualization.webpack.js"></script></body></html>`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	t.Setenv("LOOKER_UI_URL", ts.URL)
+
+	jaSettings := rtl.ApiSettings{BaseUrl: ts.URL, ApiVersion: "4.0", ClientId: "ja-session", ClientSecret: "s"}
+	enSettings := rtl.ApiSettings{BaseUrl: ts.URL, ApiVersion: "4.0", ClientId: "en-session", ClientSecret: "s"}
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_locale_test",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	mgr.SetSource(perUserLocaleMockSource{
+		settings: &jaSettings,
+		sdkByAuth: map[string]*v4.LookerSDK{
+			"Bearer token-ja": v4.NewLookerSDK(rtl.NewAuthSession(jaSettings)),
+			"Bearer token-en": v4.NewLookerSDK(rtl.NewAuthSession(enSettings)),
+		},
+	})
+
+	jaCtx := util.WithRequestHeader(context.Background(), http.Header{"Authorization": []string{"Bearer token-ja"}})
+	enCtx := util.WithRequestHeader(context.Background(), http.Header{"Authorization": []string{"Bearer token-en"}})
+
+	jaHTML, err := mgr.FetchRemoteUI(jaCtx)
+	if err != nil {
+		t.Fatalf("FetchRemoteUI(jaCtx) failed: %v", err)
+	}
+	if want := `/webpack/ja_JP/mcp-render-visualization.webpack.js`; !strings.Contains(jaHTML, want) {
+		t.Errorf("expected jaHTML to contain %q, got %q", want, jaHTML)
+	}
+
+	// Second call for same user uses cached locale + cached per-locale HTML (zero extra /api/4.0/user calls)
+	if _, err := mgr.FetchRemoteUI(jaCtx); err != nil {
+		t.Fatalf("second FetchRemoteUI(jaCtx) failed: %v", err)
+	}
+	if got := atomic.LoadInt32(&userAPICalls); got != 1 {
+		t.Errorf("expected 1 /api/4.0/user call after cached repeat read, got %d", got)
+	}
+
+	// Concurrent English user receives English HTML rather than cached Japanese HTML
+	enHTML, err := mgr.FetchRemoteUI(enCtx)
+	if err != nil {
+		t.Fatalf("FetchRemoteUI(enCtx) failed: %v", err)
+	}
+	if want := `/webpack/en/mcp-render-visualization.webpack.js`; !strings.Contains(enHTML, want) {
+		t.Errorf("expected enHTML to contain %q, got %q", want, enHTML)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestFetchRemoteUIInsecureSSLWithWrappedDefaultTransport(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	origDefaultTransport := http.DefaultTransport
+	t.Cleanup(func() {
+		http.DefaultTransport = origDefaultTransport
+	})
+	http.DefaultTransport = roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		return origDefaultTransport.RoundTrip(r)
+	})
+
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><div>TLS UI OK</div></body></html>`))
+	}))
+	defer tlsSrv.Close()
+
+	t.Setenv("LOOKER_UI_URL", "")
+	t.Setenv("LOOKER_VERIFY_SSL", "false")
+
+	settings := rtl.ApiSettings{
+		BaseUrl:    tlsSrv.URL,
+		VerifySsl:  false,
+		ApiVersion: "4.0",
+	}
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_tls_fallback_test",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	mgr.SetSource(perUserLocaleMockSource{settings: &settings})
+
+	html, err := mgr.FetchRemoteUI(context.Background())
+	if err != nil {
+		t.Fatalf("FetchRemoteUI with wrapped http.DefaultTransport failed: %v", err)
+	}
+	if !strings.Contains(html, "TLS UI OK") {
+		t.Errorf("expected response HTML to contain 'TLS UI OK', got %q", html)
+	}
+}
+
+func TestFetchMapApiKeyFailsClosedWithSchemelessOrEmptyBaseURL(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	var crossHostCalls int32
+	crossHostServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&crossHostCalls, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"api_key": "evil-key"})
+	}))
+	defer crossHostServer.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/4.0/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "secret-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case "/api/4.0/user":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "1", "locale": "en"})
+		case "/api/4.0/color_collections/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{"default_collection_id": "default"})
+		case "/public/mcp/ui/map_api_key":
+			_ = json.NewEncoder(w).Encode(map[string]any{"api_key": "schemeless-base-key"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	t.Setenv("LOOKER_UI_URL", "https://untrusted-external.example.com")
+	t.Setenv("LOOKER_BASE_URL", "")
+
+	// Build SDK with full ts.URL for login, then pass scheme-less BaseUrl to FetchMcpAppState
+	loginSettings := rtl.ApiSettings{
+		BaseUrl:      ts.URL,
+		ApiVersion:   "4.0",
+		ClientId:     "id",
+		ClientSecret: "secret",
+	}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(loginSettings))
+
+	schemelessSettings := rtl.ApiSettings{
+		BaseUrl: strings.TrimPrefix(ts.URL, "http://"),
+	}
+	state := lookercommon.FetchMcpAppState(context.Background(), sdk, &schemelessSettings)
+	if got := atomic.LoadInt32(&crossHostCalls); got != 0 {
+		t.Errorf("expected 0 calls to cross-host server when BaseUrl omits scheme, got %d", got)
+	}
+	if got, _ := state["map_api_key"].(string); got != "schemeless-base-key" {
+		t.Errorf("state[map_api_key] = %q, want schemeless-base-key", got)
+	}
+
+	// Also verify empty BaseUrl fails closed and never sends token to LOOKER_UI_URL
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	emptySettings := rtl.ApiSettings{BaseUrl: ""}
+	stateEmpty := lookercommon.FetchMcpAppState(context.Background(), sdk, &emptySettings)
+	if got := atomic.LoadInt32(&crossHostCalls); got != 0 {
+		t.Errorf("expected 0 calls to cross-host server when BaseUrl is empty, got %d", got)
+	}
+	if _, exists := stateEmpty["map_api_key"]; exists {
+		t.Errorf("expected map_api_key to be omitted when BaseUrl is empty, got %v", stateEmpty["map_api_key"])
+	}
+}
+
+func TestFetchMcpAppStateClonesCachedColorCollections(t *testing.T) {
+	lookercommon.ClearMcpAppStateCacheForTesting()
+	defer lookercommon.ClearMcpAppStateCacheForTesting()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/4.0/login":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "test-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case "/api/4.0/user":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "1", "locale": "en"})
+		case "/api/4.0/color_collections/active":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"default_collection_id": "orig-id",
+				"standard":              []any{map[string]any{"id": "orig-id", "label": "Original"}},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	settings := rtl.ApiSettings{BaseUrl: ts.URL, ApiVersion: "4.0", ClientId: "id", ClientSecret: "s"}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(settings))
+
+	state1 := lookercommon.FetchMcpAppState(context.Background(), sdk, &settings)
+	cc1, ok := state1["color_collections"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected color_collections map in state1")
+	}
+	// Mutate top-level and nested slice/map entries in state1
+	cc1["default_collection_id"] = "mutated-id"
+	cc1["standard"].([]any)[0].(map[string]any)["label"] = "Mutated"
+
+	state2 := lookercommon.FetchMcpAppState(context.Background(), sdk, &settings)
+	cc2, ok := state2["color_collections"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected color_collections map in state2")
+	}
+	if cc2["default_collection_id"] != "orig-id" {
+		t.Errorf("expected cached default_collection_id to remain 'orig-id', got %v", cc2["default_collection_id"])
+	}
+	if gotLabel := cc2["standard"].([]any)[0].(map[string]any)["label"]; gotLabel != "Original" {
+		t.Errorf("expected cached nested standard[0].label to remain 'Original', got %v", gotLabel)
+	}
+}
+
+func TestSetSourceUpdatesCSPAndIsolatesMultiSourcePublicOrigins(t *testing.T) {
+	t.Setenv("LOOKER_BASE_URL", "")
+	t.Setenv("LOOKER_UI_URL", "")
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_custom_source",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	mgr.SetSource(perUserLocaleMockSource{
+		settings: &rtl.ApiSettings{BaseUrl: "http://localhost:19999"},
+	})
+
+	csp := mgr.CSP()
+	if !slices.Contains(csp.ResourceDomains, "http://localhost:3035") {
+		t.Errorf("expected SetSource with http://localhost:19999 to add local dev port 3035 to ResourceDomains, got %v", csp.ResourceDomains)
+	}
+
+	// Verify multi-source isolation: source with its own HTTPS BaseUrl does not allow a different global LOOKER_BASE_URL
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><script src="https://global-other.looker.com/webpack/en/mcp-render-visualization.webpack.js"></script></body></html>`))
+	}))
+	defer ts.Close()
+
+	t.Setenv("LOOKER_UI_URL", ts.URL)
+	t.Setenv("LOOKER_BASE_URL", "https://global-other.looker.com")
+
+	mgrMulti := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_multi_source",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "Looker Visualization",
+	})
+	mgrMulti.SetSource(perUserLocaleMockSource{
+		settings: &rtl.ApiSettings{BaseUrl: "https://source-a.looker.com"},
+	})
+
+	if _, err := mgrMulti.FetchRemoteUI(context.Background()); err != nil {
+		t.Fatalf("FetchRemoteUI failed: %v", err)
+	}
+	multiCSP := mgrMulti.CSP()
+	if !slices.Contains(multiCSP.ResourceDomains, "https://source-a.looker.com") {
+		t.Errorf("expected https://source-a.looker.com in ResourceDomains, got %v", multiCSP.ResourceDomains)
+	}
+	if slices.Contains(multiCSP.ResourceDomains, "https://global-other.looker.com") {
+		t.Errorf("did not expect global LOOKER_BASE_URL to be allowed when source has its own HTTPS BaseUrl, got %v", multiCSP.ResourceDomains)
+	}
+}
+
+func TestFetchRemoteUIDeduplicatesAndHandles401AndBaseURLFallback(t *testing.T) {
+	var assetFetches int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&assetFetches, 1)
+		time.Sleep(30 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><div>Deduplicated UI</div></body></html>`))
+	}))
+	defer ts.Close()
+
+	// Fallback to LOOKER_BASE_URL when LOOKER_UI_URL and SetSource are unset
+	t.Setenv("LOOKER_UI_URL", "")
+	t.Setenv("LOOKER_BASE_URL", ts.URL)
+
+	mgr := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_singleflight",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "visualization",
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := mgr.FetchRemoteUI(context.Background()); err != nil {
+				t.Errorf("concurrent FetchRemoteUI failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&assetFetches); got != 1 {
+		t.Errorf("expected singleflight to deduplicate concurrent cold fetches to 1 request, got %d", got)
+	}
+
+	// Verify HTTP 401 gives distinct operational guidance about LOOKER_UI_URL vs API port
+	ts401 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts401.Close()
+
+	t.Setenv("LOOKER_UI_URL", ts401.URL+"?env=dev")
+	mgr401 := lookercommon.NewLookerUIResourceManager(lookercommon.LookerUIResourceConfig{
+		ResourceName: "looker_vis_401",
+		ResourceURI:  "ui://looker/render_visualization.html",
+		Description:  "desc",
+		SceneName:    "render_visualization",
+		UILabel:      "visualization",
+	})
+	_, err := mgr401.FetchRemoteUI(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "HTTP 401") || !strings.Contains(err.Error(), "LOOKER_UI_URL") {
+		t.Errorf("expected HTTP 401 error mentioning LOOKER_UI_URL, got %v", err)
+	}
+}
