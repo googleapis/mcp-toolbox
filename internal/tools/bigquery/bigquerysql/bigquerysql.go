@@ -133,6 +133,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, tbErr
 	}
 
+	// Log the query executed for debugging.
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, newStatement))
+
 	connProps := []*bigqueryapi.ConnectionProperty{}
 	if source.BigQuerySession() != nil {
 		session, err := source.BigQuerySession()(ctx)
