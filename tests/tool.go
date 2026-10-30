@@ -4062,6 +4062,7 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 		name           string
 		requestBody    io.Reader
 		wantStatusCode int
+		wantError      string
 		checkResult    func(t *testing.T, result any)
 	}{
 		{
@@ -4082,7 +4083,7 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 			name:           "invoke get_query_plan with invalid query",
 			requestBody:    bytes.NewBufferString(`{"sql_statement": "SELECT * FROM non_existent_table"}`),
 			wantStatusCode: http.StatusOK,
-			checkResult:    nil,
+			wantError:      "non_existent_table",
 		},
 	}
 
@@ -4105,6 +4106,17 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 					t.Fatalf("wrong status code: got %d, want %d, err: %v", statusCode, tc.wantStatusCode, err)
 				}
 				if tc.wantStatusCode != http.StatusOK {
+					return
+				}
+
+				if mcpResp.Error != nil {
+					t.Fatalf("unexpected JSON-RPC error: %v", mcpResp.Error)
+				}
+				if tc.wantError != "" {
+					if !mcpResp.Result.IsError {
+						t.Fatal("expected a tool error")
+					}
+					AssertMCPError(t, mcpResp, tc.wantError)
 					return
 				}
 
