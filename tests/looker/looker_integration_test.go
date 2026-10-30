@@ -1011,7 +1011,7 @@ func TestLooker(t *testing.T) {
 							"authServices": []any{},
 							"description":  "A field to be returned in the query",
 							"name":         "field",
-							"required":     true,
+							"required":     false,
 							"type":         "string",
 						},
 						"name":     "fields",
@@ -3114,7 +3114,7 @@ func testQueryById(t *testing.T, wantResult string) {
 	}
 	tests.RunToolInvokeParametersTest(t, "query", []byte(fmt.Sprintf(`{"query_id": "%s"}`, *savedQuery.Id)), wantResult)
 
-	wantVis := `"status":"Visualization rendered in UI."`
+	wantVis := `"visualizationData":`
 	tests.RunToolInvokeParametersTest(t, "render_visualization", []byte(`{"model": "system__activity", "explore": "look", "fields": ["look.count"], "vis_config": "{\"type\": \"looker_column\"}"}`), wantVis)
 	tests.RunToolInvokeParametersTest(t, "render_visualization", []byte(fmt.Sprintf(`{"query_id": "%s", "limit": 10, "sorts": ["look.count desc"], "vis_config": "{\"type\": \"looker_bar\"}"}`, *savedQuery.Id)), wantVis)
 	if savedQuery.ClientId != nil && *savedQuery.ClientId != "" {
