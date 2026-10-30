@@ -32,6 +32,7 @@ description: "Details of the Looker prebuilt configuration."
     *   `query`: Runs an inline query against the LookML model or executes a saved query by ID/slug.
     *   `query_sql`: Generates the SQL for a query.
     *   `query_url`: Generates a URL for a query in Looker.
+    *   `render_visualization`: Executes a query or saved query and renders an interactive visualization UI via MCP Apps.
     *   `get_looks`: Searches for saved looks.
     *   `run_look`: Runs the query associated with a look.
     *   `make_look`: Creates a new look.

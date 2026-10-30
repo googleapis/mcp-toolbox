@@ -17,8 +17,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -285,14 +288,25 @@ func EscapeFiltersForUnquotedParameters(wq *v4.WriteQuery, unquotedNames map[str
 
 // resolveUnquotedParameterNames fetches the parameter metadata for the explore
 // targeted by wq and returns the set of fully-qualified parameter names whose
-// LookML type is `unquoted`. Returns an empty map (and no error) when the
-// WriteQuery has no model/view set or no filters at all — the caller has
-// nothing to escape in either case.
+// LookML type is `unquoted`. When wq.Filters contains keys without a dot (`.`),
+// it also requests dimension/measure/filter names as a temporary workaround to
+// resolve underscored keys until the upstream issue causing dot replacement in
+// filter names (e.g., in Vertex OpenAPI tool calling) is fixed.
 func resolveUnquotedParameterNames(ctx context.Context, sdk *v4.LookerSDK, wq *v4.WriteQuery, opts *rtl.ApiSettings) (map[string]bool, error) {
 	if wq == nil || wq.Filters == nil || len(*wq.Filters) == 0 || wq.Model == "" || wq.View == "" {
 		return map[string]bool{}, nil
 	}
+	hasDotlessKey := false
+	for k := range *wq.Filters {
+		if !strings.Contains(k, ".") && strings.Contains(k, "_") {
+			hasDotlessKey = true
+			break
+		}
+	}
 	fields := ParametersFields
+	if hasDotlessKey {
+		fields = "fields(dimensions(name),measures(name),filters(name),parameters(name,type))"
+	}
 	req := v4.RequestLookmlModelExplore{
 		LookmlModelName: wq.Model,
 		ExploreName:     wq.View,
@@ -303,7 +317,30 @@ func resolveUnquotedParameterNames(ctx context.Context, sdk *v4.LookerSDK, wq *v
 		return nil, err
 	}
 	out := map[string]bool{}
-	if resp.Fields == nil || resp.Fields.Parameters == nil {
+	if resp.Fields == nil {
+		return out, nil
+	}
+	if hasDotlessKey {
+		var exploreFieldNames []string
+		for _, slicePtr := range []*[]v4.LookmlModelExploreField{
+			resp.Fields.Dimensions,
+			resp.Fields.Measures,
+			resp.Fields.Filters,
+			resp.Fields.Parameters,
+		} {
+			if slicePtr == nil {
+				continue
+			}
+			for _, f := range *slicePtr {
+				if f.Name != nil && *f.Name != "" {
+					exploreFieldNames = append(exploreFieldNames, *f.Name)
+				}
+			}
+		}
+		normalized := NormalizeFilterKeys(*wq.Filters, exploreFieldNames, wq.View)
+		*wq.Filters = normalized
+	}
+	if resp.Fields.Parameters == nil {
 		return out, nil
 	}
 	for _, p := range *resp.Fields.Parameters {
@@ -332,6 +369,207 @@ func EscapeUnquotedParameterFilters(ctx context.Context, sdk *v4.LookerSDK, wq *
 	return nil
 }
 
+func stripWrappingQuotesAndBrackets(s string, stripBrackets bool) string {
+	for len(s) >= 2 {
+		if (s[0] == '\'' || s[0] == '"') && s[0] == s[len(s)-1] {
+			inner := s[1 : len(s)-1]
+			if !strings.ContainsRune(inner, rune(s[0])) {
+				s = inner
+				continue
+			}
+		}
+		if stripBrackets && s[0] == '[' && s[len(s)-1] == ']' {
+			inner := s[1 : len(s)-1]
+			if !strings.ContainsAny(inner, "[]") {
+				s = inner
+				continue
+			}
+		}
+		break
+	}
+	return s
+}
+
+// NormalizeFilterKeys strips wrapping quotes/brackets from filter keys and
+// string values, and temporarily works around upstream MCP client tool-calling
+// layers (such as Vertex OpenAPI) that replace dots with underscores in map
+// keys by rewriting dotless underscored filter keys (e.g.,
+// "order_items_created_date" -> "order_items.created_date" or
+// "users_state" -> "users.state") until that dot-replacement issue is fixed.
+func NormalizeFilterKeys(filters map[string]any, fields []string, hints ...string) map[string]any {
+	if filters == nil {
+		return nil
+	}
+
+	var knownFields []string
+	viewPrefixSet := make(map[string]bool)
+	addCandidate := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		token := strings.Fields(raw)[0]
+		token = stripWrappingQuotesAndBrackets(token, true)
+		if dotIdx := strings.IndexByte(token, '.'); dotIdx > 0 {
+			knownFields = append(knownFields, token)
+			viewPrefixSet[token[:dotIdx]] = true
+		} else if token != "" {
+			viewPrefixSet[token] = true
+		}
+	}
+	for _, f := range fields {
+		addCandidate(f)
+	}
+	for _, h := range hints {
+		addCandidate(h)
+	}
+
+	viewPrefixes := make([]string, 0, len(viewPrefixSet))
+	for vp := range viewPrefixSet {
+		viewPrefixes = append(viewPrefixes, vp)
+	}
+	sort.Slice(viewPrefixes, func(i, j int) bool {
+		if len(viewPrefixes[i]) != len(viewPrefixes[j]) {
+			return len(viewPrefixes[i]) > len(viewPrefixes[j])
+		}
+		return viewPrefixes[i] < viewPrefixes[j]
+	})
+
+	processed := make(map[string]any, len(filters))
+	canonicalAssigned := make(map[string]bool, len(filters))
+	for _, k := range slices.Sorted(maps.Keys(filters)) {
+		v := filters[k]
+		newKey := stripWrappingQuotesAndBrackets(k, true)
+		if !strings.Contains(newKey, ".") && strings.Contains(newKey, "_") {
+			matched := false
+			for _, vf := range knownFields {
+				if strings.ReplaceAll(vf, ".", "_") == newKey {
+					newKey = vf
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				for _, vp := range viewPrefixes {
+					prefix := vp + "_"
+					if strings.HasPrefix(newKey, prefix) && len(newKey) > len(prefix) {
+						newKey = vp + "." + newKey[len(prefix):]
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched && strings.Count(newKey, "_") == 1 {
+				newKey = strings.Replace(newKey, "_", ".", 1)
+			}
+		}
+
+		newVal := v
+		if s, ok := v.(string); ok {
+			newVal = stripWrappingQuotesAndBrackets(s, false)
+		}
+		isCanonical := newKey == k && strings.Contains(k, ".")
+		if canonicalAssigned[newKey] && !isCanonical {
+			continue
+		}
+		processed[newKey] = newVal
+		if isCanonical {
+			canonicalAssigned[newKey] = true
+		}
+	}
+	return processed
+}
+
+// EnsurePivotsInFields validates that every pivot field is formatted as
+// "view.field" and ensures each pivot field is included in fields.
+func EnsurePivotsInFields(fields, pivots []string) ([]string, error) {
+	if len(pivots) == 0 {
+		return fields, nil
+	}
+	fieldSet := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		fieldSet[f] = true
+	}
+	out := append([]string(nil), fields...)
+	for _, p := range pivots {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.Contains(trimmed, ".") {
+			return nil, fmt.Errorf("invalid pivot field %q: pivot fields must be in 'view.field' format and included in fields", trimmed)
+		}
+		if !fieldSet[trimmed] {
+			out = append(out, trimmed)
+			fieldSet[trimmed] = true
+		}
+	}
+	return out, nil
+}
+
+// ExtractFatalDetailErrorMessage returns the first fatal error message from a Looker
+// json_detail response's "errors" array, or an empty string if none is present.
+func ExtractFatalDetailErrorMessage(detailResp map[string]any) string {
+	rawErrs, ok := detailResp["errors"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, e := range rawErrs {
+		errMap, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		if fatal, hasFatal := errMap["fatal"].(bool); hasFatal && !fatal {
+			continue
+		}
+		msg, _ := errMap["message"].(string)
+		if strings.TrimSpace(msg) == "" {
+			msg, _ = errMap["message_details"].(string)
+		}
+		if msg = strings.TrimSpace(msg); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+// ValidatePivotsInDetailResponse checks a Looker json_detail response when
+// pivots were requested. If Looker silently dropped a pivot field (returning
+// an empty fields.pivots array) or returned query errors in json_detail, an
+// actionable error is returned so the caller/agent can correct the pivot field.
+func ValidatePivotsInDetailResponse(requestedPivots []string, detailResp map[string]any) error {
+	if len(requestedPivots) == 0 || detailResp == nil {
+		return nil
+	}
+	if msg := ExtractFatalDetailErrorMessage(detailResp); msg != "" {
+		return fmt.Errorf("error running pivoted query: %s", msg)
+	}
+	fieldsMap, ok := detailResp["fields"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	rawFieldPivots, hasFieldPivots := fieldsMap["pivots"]
+	if !hasFieldPivots {
+		return nil
+	}
+	pivotSlice, _ := rawFieldPivots.([]any)
+	activePivotFields := make(map[string]bool, len(pivotSlice))
+	for _, item := range pivotSlice {
+		if m, ok := item.(map[string]any); ok {
+			if name, _ := m["name"].(string); name != "" {
+				activePivotFields[name] = true
+			}
+		}
+	}
+	for _, reqPivot := range requestedPivots {
+		reqPivot = strings.TrimSpace(reqPivot)
+		if reqPivot != "" && !activePivotFields[reqPivot] {
+			return fmt.Errorf("invalid pivot field %q: Looker ignored the pivot because the field does not exist in this explore or cannot be pivoted; use get_dimensions to verify valid dimension names", reqPivot)
+		}
+	}
+	return nil
+}
+
 func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.WriteQuery, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
@@ -341,12 +579,14 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 	logger.DebugContext(ctx, "params = ", params)
 	paramsMap := params.AsMap()
 
-	model, ok := paramsMap["model"].(string)
-	if !ok || model == "" {
+	modelName, ok := paramsMap["model"].(string)
+	modelName = strings.TrimSpace(modelName)
+	if !ok || modelName == "" {
 		return nil, fmt.Errorf("'model' must be a non-empty string")
 	}
-	explore, ok := paramsMap["explore"].(string)
-	if !ok || explore == "" {
+	exploreName, ok := paramsMap["explore"].(string)
+	exploreName = strings.TrimSpace(exploreName)
+	if !ok || exploreName == "" {
 		return nil, fmt.Errorf("'explore' must be a non-empty string")
 	}
 	fieldsRaw, ok := paramsMap["fields"].([]any)
@@ -358,42 +598,63 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 		return nil, fmt.Errorf("can't convert fields to array of strings: %s", err)
 	}
 	fields := f.([]string)
-	filters, _ := paramsMap["filters"].(map[string]any)
-	// Strip a single layer of wrapping quotes from keys and string values.
-	// Values matter for LookML `type: unquoted` parameters, where Looker
-	// substitutes the value bare into SQL via {% parameter %}. Build a new map
-	// rather than mutating during iteration, and avoid comparing `any` values
-	// directly (non-comparable dynamic types like slices would panic).
-	processedFilters := make(map[string]any, len(filters))
-	for k, v := range filters {
-		newKey := k
-		if len(k) >= 2 && (k[0] == '\'' || k[0] == '"') && k[0] == k[len(k)-1] {
-			newKey = k[1 : len(k)-1]
+	var pivots []string
+	if rawPivots, ok := paramsMap["pivots"].([]any); ok {
+		p, err := parameters.ConvertAnySliceToTyped(rawPivots, "string")
+		if err != nil {
+			return nil, fmt.Errorf("can't convert pivots to array of strings: %s", err)
 		}
-		newVal := v
-		if s, ok := v.(string); ok && len(s) >= 2 &&
-			(s[0] == '\'' || s[0] == '"') && s[0] == s[len(s)-1] {
-			newVal = s[1 : len(s)-1]
+		pivots = p.([]string)
+	}
+	fields, err = EnsurePivotsInFields(fields, pivots)
+	if err != nil {
+		return nil, err
+	}
+	var sorts []string
+	if rawSorts, ok := paramsMap["sorts"].([]any); ok {
+		s, err := parameters.ConvertAnySliceToTyped(rawSorts, "string")
+		if err != nil {
+			return nil, fmt.Errorf("can't convert sorts to array of strings: %s", err)
 		}
-		processedFilters[newKey] = newVal
+		sorts = s.([]string)
 	}
-	filters = processedFilters
-	p, err := parameters.ConvertAnySliceToTyped(paramsMap["pivots"].([]any), "string")
-	if err != nil {
-		return nil, fmt.Errorf("can't convert pivots to array of strings: %s", err)
+
+	rawFilters := map[string]any{}
+	if val, ok := paramsMap["filters"]; ok && val != nil {
+		fMap, ok := val.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("'filters' must be a map, got %T", val)
+		}
+		rawFilters = fMap
 	}
-	pivots := p.([]string)
-	s, err := parameters.ConvertAnySliceToTyped(paramsMap["sorts"].([]any), "string")
-	if err != nil {
-		return nil, fmt.Errorf("can't convert sorts to array of strings: %s", err)
+	hints := make([]string, 0, 1+len(pivots)+len(sorts))
+	hints = append(hints, exploreName)
+	hints = append(hints, pivots...)
+	hints = append(hints, sorts...)
+	filters := NormalizeFilterKeys(rawFilters, fields, hints...)
+	limit := "500"
+	if val, ok := paramsMap["limit"]; ok && val != nil {
+		l, ok := val.(int)
+		if !ok {
+			return nil, fmt.Errorf("'limit' must be an integer, got %T", val)
+		}
+		if l < -1 {
+			return nil, fmt.Errorf("'limit' must be a positive integer or -1, got %d", l)
+		}
+		if l != 0 {
+			limit = fmt.Sprintf("%d", l)
+		}
 	}
-	sorts := s.([]string)
-	limit := fmt.Sprintf("%v", paramsMap["limit"].(int))
 
 	var tz string
-	if paramsMap["tz"] != nil {
-		tz = paramsMap["tz"].(string)
-	} else {
+	if val, ok := paramsMap["tz"]; ok && val != nil {
+		tzStr, ok := val.(string)
+		if !ok {
+			return nil, fmt.Errorf("'tz' must be a string, got %T", val)
+		}
+		tz = strings.TrimSpace(tzStr)
+	}
+	if tz == "" {
 		tzname, err := tzlocal.RuntimeTZ()
 		if err != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("Error getting local timezone: %s", err))
@@ -404,16 +665,22 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 
 	var filterExpressionPtr *string
 	if val, ok := paramsMap["filter_expression"]; ok && val != nil {
-		if strVal, ok := val.(string); ok {
-			filterExpressionPtr = &strVal
-		} else {
+		strVal, ok := val.(string)
+		if !ok {
 			return nil, fmt.Errorf("'filter_expression' must be a string, got %T", val)
+		}
+		if trimmed := strings.TrimSpace(strVal); trimmed != "" {
+			filterExpressionPtr = &trimmed
 		}
 	}
 
 	var dynamicFieldsPtr *string
 	if val, ok := paramsMap["dynamic_fields"]; ok && val != nil {
-		if sliceVal, ok := val.([]any); ok && len(sliceVal) > 0 {
+		sliceVal, ok := val.([]any)
+		if !ok {
+			return nil, fmt.Errorf("'dynamic_fields' must be an array, got %T", val)
+		}
+		if len(sliceVal) > 0 {
 			jsonBytes, err := json.Marshal(sliceVal)
 			if err != nil {
 				return nil, fmt.Errorf("error marshaling dynamic_fields: %w", err)
@@ -424,8 +691,8 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 	}
 
 	wq := v4.WriteQuery{
-		Model:            model,
-		View:             explore,
+		Model:            modelName,
+		View:             exploreName,
 		Fields:           &fields,
 		Pivots:           &pivots,
 		Filters:          &filters,
@@ -436,6 +703,55 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 		DynamicFields:    dynamicFieldsPtr,
 	}
 	return &wq, nil
+}
+
+// WriteQueryFromQuery converts a Looker v4.Query into a v4.WriteQuery,
+// deep-cloning mutable map/slice fields and omitting FilterConfig and ClientId so
+// Looker does not allow explore UI filter_config to override Filters.
+func WriteQueryFromQuery(baseQuery v4.Query) v4.WriteQuery {
+	var filtersPtr *map[string]any
+	if baseQuery.Filters != nil {
+		cloned := cloneJSONMap(*baseQuery.Filters)
+		filtersPtr = &cloned
+	}
+	var visConfigPtr *map[string]any
+	if baseQuery.VisConfig != nil {
+		cloned := cloneJSONMap(*baseQuery.VisConfig)
+		visConfigPtr = &cloned
+	}
+	var fieldsPtr *[]string
+	if baseQuery.Fields != nil {
+		cloned := slices.Clone(*baseQuery.Fields)
+		fieldsPtr = &cloned
+	}
+	var pivotsPtr *[]string
+	if baseQuery.Pivots != nil {
+		cloned := slices.Clone(*baseQuery.Pivots)
+		pivotsPtr = &cloned
+	}
+	var sortsPtr *[]string
+	if baseQuery.Sorts != nil {
+		cloned := slices.Clone(*baseQuery.Sorts)
+		sortsPtr = &cloned
+	}
+	return v4.WriteQuery{
+		Model:            baseQuery.Model,
+		View:             baseQuery.View,
+		Fields:           fieldsPtr,
+		Pivots:           pivotsPtr,
+		FillFields:       baseQuery.FillFields,
+		Filters:          filtersPtr,
+		FilterExpression: baseQuery.FilterExpression,
+		Sorts:            sortsPtr,
+		Limit:            baseQuery.Limit,
+		ColumnLimit:      baseQuery.ColumnLimit,
+		Total:            baseQuery.Total,
+		RowTotal:         baseQuery.RowTotal,
+		Subtotals:        baseQuery.Subtotals,
+		VisConfig:        visConfigPtr,
+		DynamicFields:    baseQuery.DynamicFields,
+		QueryTimezone:    baseQuery.QueryTimezone,
+	}
 }
 
 func optionalStringPtr(paramsMap map[string]any, key string) *string {
@@ -525,10 +841,7 @@ func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboar
 
 	qresp, err := sdk.CreateQuery(*wq, "id", opts)
 	if err != nil {
-		if strings.Contains(err.Error(), "status=401") {
-			return v4.WriteDashboardElement{}, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
-		}
-		return v4.WriteDashboardElement{}, util.ProcessGeneralError(err)
+		return v4.WriteDashboardElement{}, ProcessLookerAPIError(err)
 	}
 
 	dashFilters := []any{}
@@ -765,10 +1078,6 @@ func RunSavedQuery(ctx context.Context, l *v4.LookerSDK, queryId string, format 
 		}
 	}
 	err := l.AuthSession.Do(&result, "GET", "/4.0", path, queryParams, nil, options)
-	if err != nil {
-		// Also try POST if GET failed
-		err = l.AuthSession.Do(&result, "POST", "/4.0", path, queryParams, nil, options)
-	}
 	return result, err
 }
 
@@ -900,4 +1209,94 @@ func StripDrillLinks(detailResp map[string]any) {
 			}
 		}
 	}
+}
+
+// ExtractLookerErrorMessage extracts a human-readable error message from a
+// Looker Go SDK HTTP error containing an embedded JSON error object
+// (e.g., `response error. status=400 Bad Request. error={"message":"..."}`).
+// If no human-readable message can be extracted (or if the message is an internal
+// marker like "Sinatra::NotFound"), the original error is returned unchanged.
+func ExtractLookerErrorMessage(err error) error {
+	if err == nil {
+		return nil
+	}
+	raw := err.Error()
+	var startIdx int
+	if errPrefixIdx := strings.Index(raw, "error={"); errPrefixIdx != -1 {
+		startIdx = errPrefixIdx + len("error=")
+	} else {
+		startIdx = strings.Index(raw, "{")
+	}
+	endIdx := strings.LastIndex(raw, "}")
+	if startIdx == -1 || endIdx <= startIdx {
+		return err
+	}
+
+	var parsed struct {
+		Message string `json:"message"`
+		Errors  []struct {
+			Message        string `json:"message"`
+			MessageDetails string `json:"message_details"`
+		} `json:"errors"`
+	}
+	if jsonErr := json.Unmarshal([]byte(raw[startIdx:endIdx+1]), &parsed); jsonErr != nil {
+		return err
+	}
+
+	var parts []string
+	seen := make(map[string]bool)
+	addPart := func(s string) {
+		trimmed := strings.TrimSpace(s)
+		if trimmed == "" || strings.EqualFold(trimmed, "Sinatra::NotFound") || seen[trimmed] {
+			return
+		}
+		seen[trimmed] = true
+		parts = append(parts, trimmed)
+	}
+
+	addPart(parsed.Message)
+	for _, item := range parsed.Errors {
+		if strings.TrimSpace(item.Message) != "" {
+			addPart(item.Message)
+		} else {
+			addPart(item.MessageDetails)
+		}
+	}
+
+	if len(parts) == 0 {
+		return err
+	}
+
+	return fmt.Errorf("%s", strings.Join(parts, ": "))
+}
+
+// ProcessLookerAPIError maps a Looker SDK HTTP error to a ToolboxError,
+// returning an HTTP 401 ClientServerError on unauthorized responses and
+// extracting human-readable Looker JSON error messages otherwise.
+func ProcessLookerAPIError(err error) util.ToolboxError {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "status=401") {
+		return util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
+	}
+	return util.ProcessGeneralError(ExtractLookerErrorMessage(err))
+}
+
+// MaxMCPPayloadBytes is the maximum serialized JSON byte size for an MCP App
+// tool response (900 KB) so responses stay safely under MCP host limits
+// (such as Claude Desktop's 1 MB tool result cap).
+const MaxMCPPayloadBytes = 900 * 1024
+
+// ExceedsMCPPayloadLimit checks whether the JSON-serialized form of payload
+// exceeds maxBytes (defaulting to MaxMCPPayloadBytes when maxBytes <= 0).
+func ExceedsMCPPayloadLimit(payload any, maxBytes int) (int, bool) {
+	if maxBytes <= 0 {
+		maxBytes = MaxMCPPayloadBytes
+	}
+	rawBytes, err := json.Marshal(payload)
+	if err != nil {
+		return 0, false
+	}
+	return len(rawBytes), len(rawBytes) > maxBytes
 }
