@@ -27,6 +27,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -38,6 +40,89 @@ var (
 	TiDBUser       = os.Getenv("TIDB_USER")
 	TiDBPass       = os.Getenv("TIDB_PASS")
 )
+
+const (
+	// tidbImage is a standalone tidb-server backed by embedded unistore
+	// storage. It doesn't need PD/TiKV and doesn't ship Grafana or other
+	// monitoring components.
+	tidbImage = "pingcap/tidb:v8.5.8"
+	// tidbContainerDatabase and tidbContainerUser are created inside the
+	// ephemeral container when no external TiDB instance is configured.
+	tidbContainerDatabase = "test_database"
+	tidbContainerUser     = "toolbox"
+)
+
+// setupTiDBContainer starts an ephemeral TiDB container and provisions a
+// database plus a non-root user with a random per-run password (the tidb
+// source requires a non-empty password). It returns the connection details
+// and a cleanup function that terminates the container.
+func setupTiDBContainer(ctx context.Context, t *testing.T) (host, port, user, pass, database string, cleanup func()) {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image:        tidbImage,
+		ExposedPorts: []string{"4000/tcp", "10080/tcp"},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("4000/tcp"),
+			wait.ForHTTP("/status").WithPort("10080/tcp"),
+		).WithDeadline(3 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start TiDB container: %s", err)
+	}
+
+	cleanup = func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cleanupCancel()
+		if err := container.Terminate(cleanupCtx); err != nil {
+			t.Logf("failed to terminate TiDB container: %s", err)
+		}
+	}
+
+	host, err = container.Host(ctx)
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get TiDB container host: %s", err)
+	}
+
+	mappedPort, err := container.MappedPort(ctx, "4000/tcp")
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get TiDB container mapped port: %s", err)
+	}
+	port = mappedPort.Port()
+
+	// The image's root user has an empty password; use it only to bootstrap
+	// a dedicated user with a random password.
+	rootPool, err := initTiDBConnectionPool(host, port, "root", "", "", false)
+	if err != nil {
+		cleanup()
+		t.Fatalf("unable to create TiDB root connection pool: %s", err)
+	}
+	defer rootPool.Close()
+
+	user = tidbContainerUser
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	database = tidbContainerDatabase
+	bootstrapStmts := []string{
+		fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", database),
+		fmt.Sprintf("CREATE USER '%s'@'%%' IDENTIFIED BY '%s'", user, pass),
+		fmt.Sprintf("GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%%'", database, user),
+	}
+	for _, stmt := range bootstrapStmts {
+		if _, err := rootPool.ExecContext(ctx, stmt); err != nil {
+			cleanup()
+			t.Fatalf("failed to bootstrap TiDB container: %s", err)
+		}
+	}
+
+	return host, port, user, pass, database, cleanup
+}
 
 func getTiDBVars(t *testing.T) map[string]any {
 	switch "" {
@@ -108,9 +193,18 @@ func addTiDBExecuteSqlConfig(t *testing.T, config map[string]any) map[string]any
 }
 
 func TestTiDBToolEndpoints(t *testing.T) {
-	sourceConfig := getTiDBVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
+
+	// Use an external TiDB instance when TIDB_HOST is set; otherwise start an
+	// ephemeral container.
+	if TiDBHost == "" {
+		host, port, user, pass, database, containerCleanup := setupTiDBContainer(ctx, t)
+		t.Cleanup(containerCleanup)
+		TiDBHost, TiDBPort, TiDBUser, TiDBPass, TiDBDatabase = host, port, user, pass, database
+	}
+
+	sourceConfig := getTiDBVars(t)
 
 	args := []string{"--enable-api"}
 
