@@ -169,6 +169,7 @@ func TestHealthcareToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
+	defer cmd.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -188,7 +189,7 @@ func TestHealthcareToolEndpoints(t *testing.T) {
 	runGetFHIRStoreToolInvokeTest(t, fhirStoreID, fhirStoreWant)
 	runGetFHIRStoreMetricsToolInvokeTest(t, fhirStoreID, `"metrics"`)
 	runGetFHIRResourceToolInvokeTest(t, fhirStoreID, "Patient", patient1ID, `"id":"`+patient1ID+`"`)
-	runFHIRPatientSearchToolInvokeTest(t, fhirStoreID, patient1ID, patient2ID)
+	runFHIRPatientSearchToolInvokeTest(t, fhirStoreID, []string{patient1ID, patient2ID})
 	runFHIRPatientEverythingToolInvokeTest(t, fhirStoreID, patient1ID, `"resourceType":"Bundle"`)
 
 	nextURL := getNextPageURLForPatientEverything(t, fhirStoreID, patient2ID)
@@ -254,6 +255,7 @@ func TestHealthcareToolWithStoreRestriction(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
+	defer cmd.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -301,7 +303,7 @@ func newHealthcareService(ctx context.Context) (*healthcare.Service, error) {
 	return healthcareService, nil
 }
 
-func setupHealthcareResources(t *testing.T, service *healthcare.Service, datasetID, fhirStoreID, dicomStoreID string) (string, string) {
+func setupHealthcareStoresOnly(t *testing.T, service *healthcare.Service, datasetID, fhirStoreID, dicomStoreID string) (*healthcare.FhirStore, *healthcare.DicomStore) {
 	datasetName := fmt.Sprintf("projects/%s/locations/%s/datasets/%s", healthcareProject, healthcareRegion, datasetID)
 	var err error
 
@@ -333,6 +335,12 @@ func setupHealthcareResources(t *testing.T, service *healthcare.Service, dataset
 			t.Logf("failed to delete dicom store: %v", err)
 		}
 	})
+
+	return fhirStore, dicomStore
+}
+
+func setupHealthcareResources(t *testing.T, service *healthcare.Service, datasetID, fhirStoreID, dicomStoreID string) (string, string) {
+	fhirStore, dicomStore := setupHealthcareStoresOnly(t, service, datasetID, fhirStoreID, dicomStoreID)
 
 	// Create Patient 1
 	patient1Body := bytes.NewBuffer([]byte(`{
@@ -735,7 +743,12 @@ func addClientAuthSourceConfig(t *testing.T, config map[string]any) map[string]a
 	return config
 }
 
-func runGetDatasetToolInvokeTest(t *testing.T, want string) {
+func runGetDatasetToolInvokeTest(t *testing.T, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -818,7 +831,7 @@ func runGetDatasetToolInvokeTest(t *testing.T, want string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -834,7 +847,12 @@ func runGetDatasetToolInvokeTest(t *testing.T, want string) {
 	}
 }
 
-func runListFHIRStoresToolInvokeTest(t *testing.T, want string) {
+func runListFHIRStoresToolInvokeTest(t *testing.T, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -917,7 +935,7 @@ func runListFHIRStoresToolInvokeTest(t *testing.T, want string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK {
 					t.Errorf("expected error but got success")
@@ -933,7 +951,12 @@ func runListFHIRStoresToolInvokeTest(t *testing.T, want string) {
 	}
 }
 
-func runListDICOMStoresToolInvokeTest(t *testing.T) {
+func runListDICOMStoresToolInvokeTest(t *testing.T, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1012,7 +1035,7 @@ func runListDICOMStoresToolInvokeTest(t *testing.T) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1028,7 +1051,12 @@ func runListDICOMStoresToolInvokeTest(t *testing.T) {
 	}
 }
 
-func runGetFHIRStoreToolInvokeTest(t *testing.T, fhirStoreID, want string) {
+func runGetFHIRStoreToolInvokeTest(t *testing.T, fhirStoreID, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1118,7 +1146,7 @@ func runGetFHIRStoreToolInvokeTest(t *testing.T, fhirStoreID, want string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1134,7 +1162,12 @@ func runGetFHIRStoreToolInvokeTest(t *testing.T, fhirStoreID, want string) {
 	}
 }
 
-func runGetFHIRStoreMetricsToolInvokeTest(t *testing.T, fhirStoreID, want string) {
+func runGetFHIRStoreMetricsToolInvokeTest(t *testing.T, fhirStoreID, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1224,7 +1257,7 @@ func runGetFHIRStoreMetricsToolInvokeTest(t *testing.T, fhirStoreID, want string
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1240,7 +1273,12 @@ func runGetFHIRStoreMetricsToolInvokeTest(t *testing.T, fhirStoreID, want string
 	}
 }
 
-func runGetFHIRResourceToolInvokeTest(t *testing.T, storeID, resType, resID, want string) {
+func runGetFHIRResourceToolInvokeTest(t *testing.T, storeID, resType, resID, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1337,7 +1375,7 @@ func runGetFHIRResourceToolInvokeTest(t *testing.T, storeID, resType, resID, wan
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1353,7 +1391,12 @@ func runGetFHIRResourceToolInvokeTest(t *testing.T, storeID, resType, resID, wan
 	}
 }
 
-func runFHIRPatientSearchToolInvokeTest(t *testing.T, fhirStoreID string, patientIDs ...string) {
+func runFHIRPatientSearchToolInvokeTest(t *testing.T, fhirStoreID string, patientIDs []string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1491,7 +1534,7 @@ func runFHIRPatientSearchToolInvokeTest(t *testing.T, fhirStoreID string, patien
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1507,7 +1550,12 @@ func runFHIRPatientSearchToolInvokeTest(t *testing.T, fhirStoreID string, patien
 	}
 }
 
-func runFHIRPatientEverythingToolInvokeTest(t *testing.T, fhirStoreID, patientID, want string) {
+func runFHIRPatientEverythingToolInvokeTest(t *testing.T, fhirStoreID, patientID, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1628,7 +1676,7 @@ func runFHIRPatientEverythingToolInvokeTest(t *testing.T, fhirStoreID, patientID
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1644,7 +1692,12 @@ func runFHIRPatientEverythingToolInvokeTest(t *testing.T, fhirStoreID, patientID
 	}
 }
 
-func runFHIRFetchPageToolInvokeTest(t *testing.T, pageURL, want string) {
+func runFHIRFetchPageToolInvokeTest(t *testing.T, pageURL, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1734,7 +1787,7 @@ func runFHIRFetchPageToolInvokeTest(t *testing.T, pageURL, want string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1750,25 +1803,40 @@ func runFHIRFetchPageToolInvokeTest(t *testing.T, pageURL, want string) {
 	}
 }
 
-func getNextPageURLForPatientEverything(t *testing.T, fhirStoreID, patientID string) string {
-	api := "http://127.0.0.1:5000/api/tool/my-fhir-patient-everything-tool/invoke"
-	reqBody := fmt.Sprintf(`{"storeID": "%s", "patientID": "%s"}`, fhirStoreID, patientID)
-	resp, bodyBytes := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(reqBody)), map[string]string{"Content-type": "application/json"})
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+func getNextPageURLForPatientEverything(t *testing.T, fhirStoreID, patientID string, opts ...chcExecOption) string {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
 	}
 
-	var body map[string]interface{}
-	err := json.Unmarshal(bodyBytes, &body)
-	if err != nil {
-		t.Fatalf("error parsing response body")
-	}
+	var resultStr string
+	if config.isMCP {
+		statusCode, mcpResp, err := tests.InvokeMCPTool(t, "my-fhir-patient-everything-tool", map[string]any{"storeID": fhirStoreID, "patientID": patientID}, nil)
+		if err != nil || statusCode != http.StatusOK || mcpResp == nil || mcpResp.Error != nil || mcpResp.Result.IsError || len(mcpResp.Result.Content) == 0 {
+			t.Fatalf("MCP my-fhir-patient-everything-tool failed: status=%d err=%v resp=%+v", statusCode, err, mcpResp)
+		}
+		resultStr = mcpResp.Result.Content[0].Text
+	} else {
+		api := "http://127.0.0.1:5000/api/tool/my-fhir-patient-everything-tool/invoke"
+		reqBody := fmt.Sprintf(`{"storeID": "%s", "patientID": "%s"}`, fhirStoreID, patientID)
+		resp, bodyBytes := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(reqBody)), map[string]string{"Content-type": "application/json"})
+		defer resp.Body.Close()
 
-	resultStr, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("unable to find result in response body")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		var body map[string]interface{}
+		err := json.Unmarshal(bodyBytes, &body)
+		if err != nil {
+			t.Fatalf("error parsing response body")
+		}
+
+		ok := false
+		resultStr, ok = body["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body")
+		}
 	}
 
 	var resultJSON map[string]interface{}
@@ -1793,7 +1861,58 @@ func getNextPageURLForPatientEverything(t *testing.T, fhirStoreID, patientID str
 	return ""
 }
 
-func runTest(t *testing.T, api string, requestHeader map[string]string, requestBody io.Reader) (string, int) {
+// toolNameFromAPI extracts the tool name from a legacy /api invoke URL. The
+// case tables in this file identify their tool by that URL, so deriving the
+// name here keeps one source of truth instead of restating it in all 151 cases.
+func toolNameFromAPI(t *testing.T, api string) string {
+	t.Helper()
+	const prefix = "/api/tool/"
+	const suffix = "/invoke"
+	start := strings.Index(api, prefix)
+	end := strings.LastIndex(api, suffix)
+	if start == -1 || end == -1 || start+len(prefix) >= end {
+		t.Fatalf("unable to extract a tool name from %q", api)
+	}
+	return api[start+len(prefix) : end]
+}
+
+// runTest invokes one tool and returns its result string and HTTP status. By
+// default it uses the legacy /api endpoint; pass a config built from
+// tests.WithMCPExec() to run the same case over MCP.
+func runTest(t *testing.T, config *chcExecConfig, api string, requestHeader map[string]string, requestBody io.Reader) (string, int) {
+	if config.isMCP {
+		args := map[string]any{}
+		if requestBody != nil {
+			raw, err := io.ReadAll(requestBody)
+			if err != nil {
+				t.Fatalf("unable to read request body: %s", err)
+			}
+			if len(raw) > 0 {
+				if err := json.Unmarshal(raw, &args); err != nil {
+					return err.Error(), http.StatusBadRequest
+				}
+			}
+		}
+
+		statusCode, mcpResp, err := tests.InvokeMCPTool(t, toolNameFromAPI(t, api), args, requestHeader)
+		if err != nil || mcpResp == nil || statusCode != http.StatusOK {
+			return "", statusCode
+		}
+		if mcpResp.Error != nil {
+			// Protocol-level JSON-RPC errors correspond to HTTP 401/403/500 on the legacy /api endpoint.
+			return mcpResp.Error.Message, http.StatusUnauthorized
+		}
+		if mcpResp.Result.IsError {
+			var sb strings.Builder
+			sb.WriteString("error: ")
+			for _, content := range mcpResp.Result.Content {
+				sb.WriteString(content.Text)
+			}
+			return sb.String(), http.StatusOK
+		}
+		return getMCPResultJSON(t, mcpResp), http.StatusOK
+	}
+
 	resp, bodyBytes := tests.RunRequest(t, http.MethodPost, api, requestBody, requestHeader)
 	defer resp.Body.Close()
 
@@ -1817,9 +1936,14 @@ func runTest(t *testing.T, api string, requestHeader map[string]string, requestB
 	return got, http.StatusOK
 }
 
-func runListFHIRStoresWithRestriction(t *testing.T, allowedFHIRStore, disallowedFHIRStore string) {
+func runListFHIRStoresWithRestriction(t *testing.T, allowedFHIRStore, disallowedFHIRStore string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	api := "http://127.0.0.1:5000/api/tool/list-fhir-stores-restricted/invoke"
-	got, status := runTest(t, api, map[string]string{"Content-type": "application/json"}, bytes.NewBuffer([]byte(`{}`)))
+	got, status := runTest(t, config, api, map[string]string{"Content-type": "application/json"}, bytes.NewBuffer([]byte(`{}`)))
 	if status != http.StatusOK {
 		t.Fatalf("expected status OK but got %d", status)
 	}
@@ -1832,9 +1956,14 @@ func runListFHIRStoresWithRestriction(t *testing.T, allowedFHIRStore, disallowed
 	}
 }
 
-func runListDICOMStoresWithRestriction(t *testing.T, allowedDICOMStore, disallowedDICOMStore string) {
+func runListDICOMStoresWithRestriction(t *testing.T, allowedDICOMStore, disallowedDICOMStore string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	api := "http://127.0.0.1:5000/api/tool/list-dicom-stores-restricted/invoke"
-	got, status := runTest(t, api, map[string]string{"Content-type": "application/json"}, bytes.NewBuffer([]byte(`{}`)))
+	got, status := runTest(t, config, api, map[string]string{"Content-type": "application/json"}, bytes.NewBuffer([]byte(`{}`)))
 	if status != http.StatusOK {
 		t.Fatalf("expected status OK but got %d", status)
 	}
@@ -1847,7 +1976,12 @@ func runListDICOMStoresWithRestriction(t *testing.T, allowedDICOMStore, disallow
 	}
 }
 
-func runGetDICOMStoreToolInvokeTest(t *testing.T, dicomStoreID, want string) {
+func runGetDICOMStoreToolInvokeTest(t *testing.T, dicomStoreID, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -1937,7 +2071,7 @@ func runGetDICOMStoreToolInvokeTest(t *testing.T, dicomStoreID, want string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -1953,7 +2087,12 @@ func runGetDICOMStoreToolInvokeTest(t *testing.T, dicomStoreID, want string) {
 	}
 }
 
-func runGetDICOMStoreMetricsToolInvokeTest(t *testing.T, dicomStoreID, want string) {
+func runGetDICOMStoreMetricsToolInvokeTest(t *testing.T, dicomStoreID, want string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2043,7 +2182,7 @@ func runGetDICOMStoreMetricsToolInvokeTest(t *testing.T, dicomStoreID, want stri
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -2059,7 +2198,12 @@ func runGetDICOMStoreMetricsToolInvokeTest(t *testing.T, dicomStoreID, want stri
 	}
 }
 
-func runSearchDICOMStudiesToolInvokeTest(t *testing.T, dicomStoreID string) {
+func runSearchDICOMStudiesToolInvokeTest(t *testing.T, dicomStoreID string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2165,7 +2309,7 @@ func runSearchDICOMStudiesToolInvokeTest(t *testing.T, dicomStoreID string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -2181,7 +2325,12 @@ func runSearchDICOMStudiesToolInvokeTest(t *testing.T, dicomStoreID string) {
 	}
 }
 
-func runSearchDICOMSeriesToolInvokeTest(t *testing.T, dicomStoreID string) {
+func runSearchDICOMSeriesToolInvokeTest(t *testing.T, dicomStoreID string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2287,7 +2436,7 @@ func runSearchDICOMSeriesToolInvokeTest(t *testing.T, dicomStoreID string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -2303,7 +2452,12 @@ func runSearchDICOMSeriesToolInvokeTest(t *testing.T, dicomStoreID string) {
 	}
 }
 
-func runSearchDICOMInstancesToolInvokeTest(t *testing.T, dicomStoreID string) {
+func runSearchDICOMInstancesToolInvokeTest(t *testing.T, dicomStoreID string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2409,7 +2563,7 @@ func runSearchDICOMInstancesToolInvokeTest(t *testing.T, dicomStoreID string) {
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
@@ -2425,7 +2579,12 @@ func runSearchDICOMInstancesToolInvokeTest(t *testing.T, dicomStoreID string) {
 	}
 }
 
-func runRetrieveRenderedDICOMInstanceToolInvokeTest(t *testing.T, dicomStoreID string) {
+func runRetrieveRenderedDICOMInstanceToolInvokeTest(t *testing.T, dicomStoreID string, opts ...chcExecOption) {
+	config := &chcExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -2524,7 +2683,7 @@ func runRetrieveRenderedDICOMInstanceToolInvokeTest(t *testing.T, dicomStoreID s
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			got, status := runTest(t, tc.api, tc.requestHeader, tc.requestBody)
+			got, status := runTest(t, config, tc.api, tc.requestHeader, tc.requestBody)
 			if tc.isErr {
 				if status == http.StatusOK && !strings.Contains(got, "error") {
 					t.Errorf("expected error but got success: %s", got)
