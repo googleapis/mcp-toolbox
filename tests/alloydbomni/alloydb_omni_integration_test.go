@@ -57,7 +57,22 @@ func initPostgresConnectionPool(host, port, user, pass, dbname string) (*pgxpool
 	return pool, nil
 }
 
-func setupAlloyDBContainer(ctx context.Context, t *testing.T) (string, string, func()) {
+// columnarEnvVar gates the tests that need the AlloyDB columnar engine. Only CI
+// sets it: a columnar-enabled container needs more memory than a typical
+// development machine has to spare.
+const columnarEnvVar = "ALLOYDB_OMNI_COLUMNAR"
+
+// skipUnlessColumnar skips the test unless columnarEnvVar is set to "true".
+func skipUnlessColumnar(t *testing.T) {
+	t.Helper()
+	if os.Getenv(columnarEnvVar) != "true" {
+		t.Skipf("%s not set; columnar engine tests run only in CI", columnarEnvVar)
+	}
+}
+
+// setupAlloyDBContainer starts an AlloyDB Omni container, with the columnar
+// engine enabled when columnar is set.
+func setupAlloyDBContainer(ctx context.Context, t *testing.T, columnar bool) (string, string, func()) {
 	t.Helper()
 
 	req := testcontainers.ContainerRequest{
@@ -72,38 +87,49 @@ func setupAlloyDBContainer(ctx context.Context, t *testing.T) (string, string, f
 			wait.ForExposedPort(),
 		),
 	}
+	if columnar {
+		req.Cmd = []string{"-c", "google_columnar_engine.enabled=on"}
+	}
 
 	return tests.SetupGenericPostgresTestContainer(ctx, t, req)
 }
 
-func TestAlloyDBOmni(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+// setupAlloyDBOmniTest starts an AlloyDB Omni container and a toolbox server
+// with the alloydb-omni prebuilt tools, and returns a connection pool to the
+// database and a unique ID for test resources. The REST API is only enabled
+// when isMCP is false, and the columnar engine only when columnar is set.
+// Everything is torn down on cleanup.
+func setupAlloyDBOmniTest(t *testing.T, ctx context.Context, isMCP, columnar bool) (*pgxpool.Pool, string) {
+	t.Helper()
 
-	AlloyDBHost, AlloyDBPort, containerCleanup := setupAlloyDBContainer(ctx, t)
-	defer containerCleanup()
+	AlloyDBHost, AlloyDBPort, containerCleanup := setupAlloyDBContainer(ctx, t, columnar)
+	t.Cleanup(containerCleanup)
 
-	os.Setenv("ALLOYDB_OMNI_HOST", AlloyDBHost)
-	os.Setenv("ALLOYDB_OMNI_PORT", AlloyDBPort)
-	os.Setenv("ALLOYDB_OMNI_USER", AlloyDBUser)
-	os.Setenv("ALLOYDB_OMNI_PASSWORD", AlloyDBPass)
-	os.Setenv("ALLOYDB_OMNI_DATABASE", AlloyDBDatabase)
+	t.Setenv("ALLOYDB_OMNI_HOST", AlloyDBHost)
+	t.Setenv("ALLOYDB_OMNI_PORT", AlloyDBPort)
+	t.Setenv("ALLOYDB_OMNI_USER", AlloyDBUser)
+	t.Setenv("ALLOYDB_OMNI_PASSWORD", AlloyDBPass)
+	t.Setenv("ALLOYDB_OMNI_DATABASE", AlloyDBDatabase)
 
 	// Generate a unique ID
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
-
-	args := []string{"--prebuilt", "alloydb-omni", "--enable-api"}
 
 	pool, err := initPostgresConnectionPool(AlloyDBHost, AlloyDBPort, AlloyDBUser, AlloyDBPass, AlloyDBDatabase)
 	if err != nil {
 		t.Fatalf("unable to create alloydb connection pool: %s", err)
 	}
+	t.Cleanup(pool.Close)
 
+	args := []string{"--prebuilt", "alloydb-omni"}
+	if !isMCP {
+		args = append(args, "--enable-api")
+	}
 	cmd, cleanup, err := tests.StartCmd(ctx, map[string]any{}, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
 	// Wait for server to be ready
 	waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
@@ -115,37 +141,68 @@ func TestAlloyDBOmni(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	// Run Postgres prebuilt tool tests
-	tests.RunPostgresListViewsTest(t, ctx, pool)
-	tests.RunPostgresListSchemasTest(t, ctx, pool, AlloyDBUser, uniqueID)
-	tests.RunPostgresListActiveQueriesTest(t, ctx, pool)
-	tests.RunPostgresListAvailableExtensionsTest(t)
-	tests.RunPostgresListInstalledExtensionsTest(t)
-	tests.RunPostgresDatabaseOverviewTest(t, ctx, pool)
-	tests.RunPostgresListTriggersTest(t, ctx, pool)
-	tests.RunPostgresListIndexesTest(t, ctx, pool)
-	tests.RunPostgresListSequencesTest(t, ctx, pool)
-	tests.RunPostgresLongRunningTransactionsTest(t, ctx, pool)
-	tests.RunPostgresListLocksTest(t, ctx, pool)
-	tests.RunPostgresReplicationStatsTest(t, ctx, pool)
-	tests.RunPostgresGetColumnCardinalityTest(t, ctx, pool)
-	tests.RunPostgresListTableStatsTest(t, ctx, pool)
-	tests.RunPostgresListPublicationTablesTest(t, ctx, pool)
-	tests.RunPostgresListTableSpacesTest(t)
-	tests.RunPostgresListPgSettingsTest(t, ctx, pool)
-	tests.RunPostgresListDatabaseStatsTest(t, ctx, pool)
-	tests.RunPostgresListRolesTest(t, ctx, pool)
-	tests.RunPostgresListStoredProcedureTest(t, ctx, pool)
+	return pool, uniqueID
+}
+
+// runAlloyDBOmniTests runs the Postgres prebuilt tool tests and the AlloyDB
+// Omni statement tools that don't need the columnar engine, passing opts to
+// every helper.
+func runAlloyDBOmniTests(t *testing.T, ctx context.Context, pool *pgxpool.Pool, uniqueID string, opts ...tests.ToolExecOption) {
+	tests.RunPostgresListViewsTest(t, ctx, pool, opts...)
+	tests.RunPostgresListSchemasTest(t, ctx, pool, AlloyDBUser, uniqueID, opts...)
+	tests.RunPostgresListActiveQueriesTest(t, ctx, pool, opts...)
+	tests.RunPostgresListAvailableExtensionsTest(t, opts...)
+	tests.RunPostgresListInstalledExtensionsTest(t, opts...)
+	tests.RunPostgresDatabaseOverviewTest(t, ctx, pool, opts...)
+	tests.RunPostgresListTriggersTest(t, ctx, pool, opts...)
+	tests.RunPostgresListIndexesTest(t, ctx, pool, opts...)
+	tests.RunPostgresListSequencesTest(t, ctx, pool, opts...)
+	tests.RunPostgresLongRunningTransactionsTest(t, ctx, pool, opts...)
+	tests.RunPostgresListLocksTest(t, ctx, pool, opts...)
+	tests.RunPostgresReplicationStatsTest(t, ctx, pool, opts...)
+	tests.RunPostgresGetColumnCardinalityTest(t, ctx, pool, opts...)
+	tests.RunPostgresListTableStatsTest(t, ctx, pool, opts...)
+	tests.RunPostgresListPublicationTablesTest(t, ctx, pool, opts...)
+	tests.RunPostgresListTableSpacesTest(t, opts...)
+	tests.RunPostgresListPgSettingsTest(t, ctx, pool, opts...)
+	tests.RunPostgresListDatabaseStatsTest(t, ctx, pool, opts...)
+	tests.RunPostgresListRolesTest(t, ctx, pool, opts...)
+	tests.RunPostgresListStoredProcedureTest(t, ctx, pool, opts...)
 
 	toolsToTest := map[string]string{
-		"list_autovacuum_configurations":    `{}`,
-		"list_memory_configurations":        `{}`,
-		"list_top_bloated_tables":           `{"limit": 10}`,
-		"list_replication_slots":            `{}`,
-		"list_invalid_indexes":              `{}`,
-		"get_query_plan":                    `{"query": "SELECT 1"}`,
+		"list_autovacuum_configurations": `{}`,
+		"list_memory_configurations":     `{}`,
+		"list_top_bloated_tables":        `{"limit": 10}`,
+		"list_replication_slots":         `{}`,
+		"list_invalid_indexes":           `{}`,
+		"get_query_plan":                 `{"query": "SELECT 1"}`,
+	}
+	tests.RunStatementToolsTest(t, toolsToTest, opts...)
+}
+
+// runAlloyDBOmniColumnarTests runs the statement tools that need the columnar
+// engine enabled.
+func runAlloyDBOmniColumnarTests(t *testing.T, opts ...tests.ToolExecOption) {
+	toolsToTest := map[string]string{
 		"list_columnar_configurations":      `{}`,
 		"list_columnar_recommended_columns": `{}`,
 	}
-	tests.RunStatementToolsTest(t, toolsToTest)
+	tests.RunStatementToolsTest(t, toolsToTest, opts...)
+}
+
+func TestAlloyDBOmni(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	pool, uniqueID := setupAlloyDBOmniTest(t, ctx, false, false)
+	runAlloyDBOmniTests(t, ctx, pool, uniqueID)
+}
+
+func TestAlloyDBOmniColumnar(t *testing.T) {
+	skipUnlessColumnar(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	setupAlloyDBOmniTest(t, ctx, false, true)
+	runAlloyDBOmniColumnarTests(t)
 }

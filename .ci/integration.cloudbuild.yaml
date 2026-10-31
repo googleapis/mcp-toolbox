@@ -241,6 +241,7 @@ steps:
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
+      - "ALLOYDB_OMNI_COLUMNAR=true"
     volumes:
       - name: "go"
         path: "/gopath"
