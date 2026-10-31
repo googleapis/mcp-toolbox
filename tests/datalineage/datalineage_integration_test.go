@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +35,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -90,17 +92,16 @@ func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineag
 	}
 
 	// 2. Create Run
-	tTime, err := time.Parse(time.RFC3339Nano, "2026-01-01T01:01:01.010Z")
-	if err != nil {
-		t.Fatalf("failed to parse start time: %v", err)
-	}
-	startTime := timestamppb.New(tTime)
+	now := time.Now().UTC()
+	startTime := timestamppb.New(now.Add(-1 * time.Minute))
+	endTime := timestamppb.New(now)
 
 	createRunReq := &lineagepb.CreateRunRequest{
 		Parent: process.GetName(),
 		Run: &lineagepb.Run{
 			Name:      fmt.Sprintf("%s/runs/%s", process.GetName(), runID),
 			StartTime: startTime,
+			EndTime:   endTime,
 			State:     lineagepb.Run_COMPLETED,
 		},
 	}
@@ -115,6 +116,7 @@ func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineag
 		LineageEvent: &lineagepb.LineageEvent{
 			Name:      fmt.Sprintf("%s/lineageEvents/%s", run.GetName(), eventID),
 			StartTime: startTime,
+			EndTime:   endTime,
 			Links: []*lineagepb.EventLink{
 				{
 					Source: &lineagepb.EntityReference{FullyQualifiedName: sourceFQN},
@@ -130,15 +132,17 @@ func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineag
 
 	// Teardown function
 	teardown := func(t *testing.T) {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
 		deleteProcessReq := &lineagepb.DeleteProcessRequest{
 			Name: process.GetName(),
 		}
-		op, err := client.DeleteProcess(ctx, deleteProcessReq)
+		op, err := client.DeleteProcess(cleanupCtx, deleteProcessReq)
 		if err != nil {
 			t.Errorf("Failed to delete process %s: %v", process.GetName(), err)
 			return
 		}
-		if err := op.Wait(ctx); err != nil {
+		if err := op.Wait(cleanupCtx); err != nil {
 			t.Logf("Warning: Failed to wait for delete process %s: %v", process.GetName(), err)
 		}
 	}
@@ -165,7 +169,7 @@ func TestDatalineageToolEndpoints(t *testing.T) {
 	sourceConfig := getDatalineageVars(t)
 	project := sourceConfig["project"].(string)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
 
 	args := []string{"--enable-api"}
@@ -208,10 +212,11 @@ func TestDatalineageToolEndpoints(t *testing.T) {
 		"direction": "UPSTREAM",
 	}
 	t.Log("Polling search lineage index for the new link with exponential backoff...")
-	// Poll up to 5 minutes for eventual consistency
-	pollTimeout := 5 * time.Minute
+	// Poll up to 3 minutes for eventual consistency
+	pollTimeout := 3 * time.Minute
 	links, err := pollSearchLineage(t, "my-datalineage-search-tool", reqBody, sourceFQN, targetFQN, pollTimeout)
 	if err != nil {
+		logLineageDiagnostics(t, ctx, lineageClient, project, sourceFQN, targetFQN)
 		t.Fatalf("failed to find the link in search index within %s timeout: %v", pollTimeout, err)
 	}
 
@@ -223,19 +228,20 @@ func TestDatalineageToolEndpoints(t *testing.T) {
 func pollSearchLineage(t *testing.T, toolName string, reqBody map[string]any, wantSourceFQN, wantTargetFQN string, timeout time.Duration) ([]map[string]any, error) {
 	reqBytes, _ := json.Marshal(reqBody)
 	startTime := time.Now()
+	deadline := startTime.Add(timeout)
 	delay := 2 * time.Second
-	maxDelay := 30 * time.Second
+	maxDelay := 10 * time.Second
 
-	for time.Since(startTime) < timeout {
-		t.Logf("Querying search lineage index (elapsed: %s, next poll in %s)...", time.Since(startTime).Round(time.Second), delay)
+	for {
+		t.Logf("Querying search lineage index (elapsed: %s)...", time.Since(startTime).Round(time.Second))
 		resp, err := http.Post(
 			fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName),
 			"application/json",
 			bytes.NewBuffer(reqBytes),
 		)
 		if err == nil {
-			defer resp.Body.Close()
 			bodyBytes, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 			if resp.StatusCode == 200 {
 				var result map[string]interface{}
 				if err := json.Unmarshal(bodyBytes, &result); err == nil {
@@ -247,8 +253,12 @@ func pollSearchLineage(t *testing.T, toolName string, reqBody map[string]any, wa
 							var searchResp struct {
 								Links       []map[string]any `json:"links"`
 								Unreachable []string         `json:"unreachable"`
+								Error       string           `json:"error"`
 							}
 							if err := json.Unmarshal([]byte(resultStr), &searchResp); err == nil {
+								if searchResp.Error != "" {
+									t.Logf("  Tool returned agent error: %s", searchResp.Error)
+								}
 								if len(searchResp.Unreachable) > 0 {
 									t.Logf("  Unreachable locations detected: %v", searchResp.Unreachable)
 								}
@@ -275,7 +285,15 @@ func pollSearchLineage(t *testing.T, toolName string, reqBody map[string]any, wa
 			t.Logf("  HTTP POST error: %v", err)
 		}
 
-		time.Sleep(delay)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		sleep := delay
+		if sleep > remaining {
+			sleep = remaining
+		}
+		time.Sleep(sleep)
 		// Exponential backoff
 		delay = delay * 2
 		if delay > maxDelay {
@@ -283,6 +301,76 @@ func pollSearchLineage(t *testing.T, toolName string, reqBody map[string]any, wa
 		}
 	}
 	return nil, fmt.Errorf("timeout waiting for lineage link %q -> %q", wantSourceFQN, wantTargetFQN)
+}
+
+// logLineageDiagnostics queries the Data Lineage API directly via the Go SDK (bypassing Toolbox)
+// when polling times out, distinguishing GCP async search-index lag from write loss or Toolbox bugs.
+func logLineageDiagnostics(t *testing.T, ctx context.Context, client *lineage.Client, project, wantSourceFQN, wantTargetFQN string) {
+	t.Helper()
+	diagCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+
+	parent := fmt.Sprintf("projects/%s/locations/us", project)
+
+	// 1. Check synchronous 1-hop store via SearchLinks
+	foundSync := false
+	it := client.SearchLinks(diagCtx, &lineagepb.SearchLinksRequest{
+		Parent: parent,
+		Criteria: &lineagepb.SearchLinksRequest_Target{
+			Target: &lineagepb.EntityReference{FullyQualifiedName: wantTargetFQN},
+		},
+	})
+	for {
+		link, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			t.Logf("Diagnostic SearchLinks error: %v", err)
+			break
+		}
+		if link.GetSource().GetFullyQualifiedName() == wantSourceFQN && link.GetTarget().GetFullyQualifiedName() == wantTargetFQN {
+			foundSync = true
+			break
+		}
+	}
+
+	// 2. Check raw SDK SearchLineageStreaming (bypassing Toolbox HTTP server)
+	foundStream := false
+	stream, err := client.SearchLineageStreaming(diagCtx, &lineagepb.SearchLineageStreamingRequest{
+		Parent:    parent,
+		Locations: []string{"us"},
+		RootCriteria: &lineagepb.SearchLineageStreamingRequest_RootCriteria{
+			Criteria: &lineagepb.SearchLineageStreamingRequest_RootCriteria_Entities{
+				Entities: &lineagepb.MultipleEntityReference{
+					Entities: []*lineagepb.EntityReference{{FullyQualifiedName: wantTargetFQN}},
+				},
+			},
+		},
+		Direction: lineagepb.SearchLineageStreamingRequest_UPSTREAM,
+	})
+	if err != nil {
+		t.Logf("Diagnostic raw SearchLineageStreaming start error: %v", err)
+	} else {
+		for {
+			resp, recvErr := stream.Recv()
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			if recvErr != nil {
+				t.Logf("Diagnostic raw SearchLineageStreaming recv error: %v", recvErr)
+				break
+			}
+			for _, link := range resp.GetLinks() {
+				if link.GetSource().GetFullyQualifiedName() == wantSourceFQN && link.GetTarget().GetFullyQualifiedName() == wantTargetFQN {
+					foundStream = true
+					break
+				}
+			}
+		}
+	}
+
+	t.Logf("Lineage timeout diagnostics (direct SDK, bypassing Toolbox): SearchLinks(sync)=%v, SearchLineageStreaming(async)=%v", foundSync, foundStream)
 }
 
 func runDatalineageToolGetTest(t *testing.T) {
@@ -394,9 +482,9 @@ func runDatalineageSearchWithProcessDetailsTest(t *testing.T, sourceFQN, targetF
 				time.Sleep(delay)
 				continue
 			}
-			defer resp.Body.Close()
 
 			bodyBytes, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 			if resp.StatusCode != 200 {
 				t.Logf("  Server returned HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 				time.Sleep(delay)
