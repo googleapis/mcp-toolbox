@@ -179,10 +179,10 @@ func TestValidateLocalPath(t *testing.T) {
 		wantErr      bool
 	}{
 		{
-			desc:         "empty allowedLocalRoots succeeds",
+			desc:         "empty allowedLocalRoots fails closed",
 			allowedRoots: nil,
 			path:         filepath.Join(base, "var", "tmp", "file.txt"),
-			wantErr:      false,
+			wantErr:      true,
 		},
 		{
 			desc:         "under allowed root succeeds",
@@ -324,9 +324,10 @@ func TestValidateLocalPathSymlinks(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			desc:         "unset allowedLocalRoots leaves links unrestricted",
+			desc:         "unset allowedLocalRoots fails closed",
 			allowedRoots: nil,
 			path:         filepath.Join(allowed, "link_out.txt"),
+			wantErr:      true,
 		},
 	}
 	for _, tc := range tcs {
