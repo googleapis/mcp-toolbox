@@ -42,6 +42,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp"
 	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
@@ -70,6 +71,7 @@ type Server struct {
 	openAIAppsChallengeFile string
 	httpMaxRequestBytes     int64
 	enableDraftSpecs        bool
+	disableExtensionCheck   bool
 }
 
 func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
@@ -255,6 +257,18 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resources: %s", len(resourcesMap), strings.Join(resourceNames, ", ")))
 
+	// Validate every skill the config declares. This runs after the log above
+	// because every resource did initialize: the check is across resources.
+	// Nothing is hashed here; skills/list and skills/get compute digests per
+	// request.
+	found, err := skills.Validate(ctx, resourcesMap)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
+	if err := skills.WarnOnDocNameMismatch(ctx, found, resourcesMap); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
+
 	// initialize and validate the resource templates from configs
 	resourceTemplatesMap := make(map[string]resources.ResourceTemplate)
 	for name, rtc := range cfg.ResourceTemplateConfigs {
@@ -286,12 +300,48 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resource templates: %s", len(resourceTemplatesMap), strings.Join(resourceTemplateNames, ", ")))
 
+	registerDynamicResources(ctx, toolsMap, resourcesMap, l)
+
 	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
 	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, nil
+}
+
+// registerDynamicResources registers dynamic UI resources exposed by tools implementing resources.ResourceProvider.
+func registerDynamicResources(ctx context.Context, toolsMap map[string]tools.Tool, resourcesMap map[string]resources.Resource, l log.Logger) {
+	for _, t := range toolsMap {
+		if rp, ok := t.(resources.ResourceProvider); ok {
+			for _, res := range rp.GetResources() {
+				name := res.GetName()
+				if name == "" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource from tool %q has an empty name and was skipped", t.GetName()))
+					continue
+				}
+				uri := res.GetURI()
+				if uri == "" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q has an empty URI and was skipped", name, t.GetName()))
+					continue
+				}
+				parsed, err := url.Parse(uri)
+				if err != nil || parsed.Scheme == "" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q has an invalid URI %q and was skipped", name, t.GetName(), uri))
+					continue
+				}
+				if res.IsUI() && parsed.Scheme != "ui" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q has invalid scheme %q (expected 'ui') and was skipped", name, t.GetName(), parsed.Scheme))
+					continue
+				}
+				if _, exists := resourcesMap[name]; !exists {
+					resourcesMap[name] = res
+				} else {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q conflicts with an existing resource and was skipped", name, t.GetName()))
+				}
+			}
+		}
+	}
 }
 
 // InitializeOfflineConfigs initializes only tools, prompts, and groups from the
@@ -346,6 +396,8 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 		}
 		resourceTemplatesMap[name] = rt
 	}
+
+	registerDynamicResources(ctx, toolsMap, resourcesMap, l)
 
 	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
@@ -620,6 +672,7 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 		openAIAppsChallengeFile: cfg.OpenAIAppsChallengeFile,
 		httpMaxRequestBytes:     limit,
 		enableDraftSpecs:        cfg.EnableDraftSpecs,
+		disableExtensionCheck:   cfg.DisableExtensionCheck,
 	}
 
 	if s.enableDraftSpecs {
