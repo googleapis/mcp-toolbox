@@ -91,6 +91,11 @@ func (h *preCheckHandler) handlePreCheckV1(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "missing targetDatabaseVersion", http.StatusBadRequest)
 		return
 	}
+	if got := body.PreCheckMajorVersionUpgradeContext.TargetDatabaseVersion; got != "POSTGRES_18" {
+		h.t.Errorf("targetDatabaseVersion = %q, want POSTGRES_18", got)
+		http.Error(w, "unexpected targetDatabaseVersion", http.StatusBadRequest)
+		return
+	}
 
 	parts := strings.Split(r.URL.Path, "/")
 
@@ -178,6 +183,9 @@ func (h *preCheckHandler) handleOperations(w http.ResponseWriter, r *http.Reques
 	if status == "DONE" {
 		opResponse.PreCheckMajorVersionUpgradeContext = &sqladmin.PreCheckMajorVersionUpgradeContext{
 			PreCheckResponse: result, // This can be nil or empty
+		}
+		if result != nil {
+			opResponse.PreCheckMajorVersionUpgradeContext.ForceSendFields = []string{"PreCheckResponse"}
 		}
 	}
 
