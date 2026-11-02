@@ -111,6 +111,8 @@ func (opts *ToolboxOptions) Setup(ctx context.Context) (context.Context, func(co
 
 	ctx = util.WithIgnoreUnknownTools(ctx, opts.Cfg.IgnoreUnknownTools)
 
+	opts.loadRestrictionsFromEnv()
+
 	logger.InfoContext(ctx, fmt.Sprintf("Starting MCP Toolbox for Databases version %s", opts.Cfg.Version))
 
 	go opts.checkVersion(context.WithoutCancel(ctx))
