@@ -1,0 +1,146 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+image:
+  repository: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Tool configuration. Set `toolsYaml` or `existingSecret` (not both), and/or
+# `prebuilt`. Toolbox merges prebuilt tools with the tools file.
+config:
+  # Inline tools.yaml content. The chart stores it in a Secret.
+  toolsYaml: ""
+  # Name of an existing Secret that holds the tools.yaml file.
+  existingSecret: ""
+  # Key inside the Secret that holds the tools.yaml file.
+  secretKey: tools.yaml
+  # Prebuilt tool sets to load (passed as --prebuilt), e.g. ["postgres"].
+  # Connection settings for prebuilt tools are read from environment
+  # variables; set them with `env` or `envFrom`. Prebuilt tools are meant for
+  # trusted, build-time use; see the Toolbox docs before exposing them.
+  prebuilt: []
+  # Disable dynamic reloading of the tools file.
+  disableReload: false
+  # Seconds between checks of the mounted tools file (passed as
+  # --poll-interval). The kubelet updates Secret volumes by swapping a symlink,
+  # which Toolbox's file watcher does not see, so polling is what picks up
+  # Secret changes without a restart. Set to 0 to disable.
+  pollInterval: 10
+
+server:
+  port: 5000
+  # Hosts allowed in the Host header. Empty uses the Toolbox default ("*").
+  # /healthz is exempt, so probes keep working with a strict list.
+  allowedHosts: []
+  # Origins allowed for CORS. Empty uses the Toolbox default ("*").
+  allowedOrigins: []
+  # One of DEBUG, INFO, WARN, ERROR. Empty uses the Toolbox default.
+  logLevel: ""
+  # One of standard, JSON. Empty uses the Toolbox default.
+  loggingFormat: ""
+  # Additional command-line arguments.
+  extraArgs: []
+
+env: []
+envFrom: []
+
+serviceAccount:
+  create: true
+  # Annotations for the ServiceAccount. For GKE Workload Identity, set
+  # iam.gke.io/gcp-service-account: <GSA>@<PROJECT_ID>.iam.gserviceaccount.com
+  annotations: {}
+  # Defaults to the fullname when create is true, or "default" otherwise.
+  name: ""
+
+# Toolbox does not call the Kubernetes API.
+automountServiceAccountToken: false
+
+replicaCount: 1
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  # The image runs as the distroless "nonroot" user. Its numeric UID/GID must
+  # be set here, or the kubelet cannot verify runAsNonRoot and refuses to start
+  # the container.
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 5000
+  annotations: {}
+  # Set to ClientIP when clients use the legacy /sse transport with more than
+  # one replica. The streamable HTTP endpoint (/mcp) does not need it.
+  sessionAffinity: None
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: toolbox.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 5
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: ""
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  maxUnavailable: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
