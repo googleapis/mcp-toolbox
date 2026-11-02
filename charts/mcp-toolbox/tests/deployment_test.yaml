@@ -135,6 +135,31 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --enable-api
 
+  - it: adds extra volumes and mounts
+    set:
+      config.toolsYaml: "kind: source"
+      extraVolumes:
+        - name: db-certs
+          secret:
+            secretName: db-certs
+      extraVolumeMounts:
+        - name: db-certs
+          mountPath: /etc/db-certs
+          readOnly: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: db-certs
+            secret:
+              secretName: db-certs
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: db-certs
+            mountPath: /etc/db-certs
+            readOnly: true
+
   - it: defaults the image tag to the chart appVersion
     set:
       config.toolsYaml: "kind: source"

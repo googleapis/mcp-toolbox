@@ -61,6 +61,11 @@ server:
 env: []
 envFrom: []
 
+# Additional volumes and mounts, e.g. database TLS certificates or a Google
+# Cloud service account key.
+extraVolumes: []
+extraVolumeMounts: []
+
 serviceAccount:
   create: true
   # Annotations for the ServiceAccount. For GKE Workload Identity, set

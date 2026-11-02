@@ -112,6 +112,7 @@ transport with more than one replica, set `service.sessionAffinity: ClientIP`.
 | `server.loggingFormat` | `""` | `standard` or `JSON`. |
 | `server.extraArgs` | `[]` | Additional Toolbox flags. |
 | `env` / `envFrom` | `[]` | Container environment. |
+| `extraVolumes` / `extraVolumeMounts` | `[]` | Additional volumes, such as database TLS certificates. |
 | `serviceAccount.create` | `true` | Create a ServiceAccount. |
 | `serviceAccount.annotations` | `{}` | ServiceAccount annotations. |
 | `automountServiceAccountToken` | `false` | Mount a ServiceAccount token. Toolbox does not call the Kubernetes API. |
