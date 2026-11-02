@@ -20,6 +20,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 )
 
 const resourceType = "text"
@@ -69,14 +70,53 @@ func (c *Config) ResourceConfigType() string {
 // Initialize computes the size of the text and returns an initialized textual resource.
 func (c *Config) Initialize(ctx context.Context) (resources.Resource, error) {
 	size := int64(len(c.Text))
+	r := &Resource{Config: *c, Size: size}
 
-	return &Resource{Config: *c, Size: size}, nil
+	// SEP-2640 lists a SKILL.md under the name and description in its
+	// frontmatter, so read them now. If the frontmatter is invalid, keep the
+	// config values; skills.Validate will fail startup and explain why.
+	if skills.IsDoc(c.URI) {
+		r.skillName, r.skillDescription, _ = skills.DocIdentity(c.Text)
+	}
+	return r, nil
 }
 
 // Resource represents the initialized textual resource that returns plain text payloads.
 type Resource struct {
 	Config
 	Size int64
+
+	// skillName and skillDescription come from a SKILL.md's frontmatter.
+	// They are empty for all other resources.
+	skillName        string
+	skillDescription string
+}
+
+// GetName returns the frontmatter name for a SKILL.md, and the config name
+// otherwise.
+func (r *Resource) GetName() string {
+	if r.skillName != "" {
+		return r.skillName
+	}
+	return r.Name
+}
+
+// GetDescription returns the frontmatter description for a SKILL.md, and the
+// config description otherwise.
+func (r *Resource) GetDescription() string {
+	if r.skillName != "" {
+		return r.skillDescription
+	}
+	return r.Description
+}
+
+// GetMimeType returns text/markdown for a SKILL.md, as SEP-2640 requires, and
+// the configured MIME type otherwise.
+func (r *Resource) GetMimeType() string {
+	if r.skillName != "" {
+		return skills.DocMimeType
+	}
+	return r.MimeType
 }
 
 var _ resources.Resource = &Resource{}

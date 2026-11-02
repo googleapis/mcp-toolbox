@@ -30,10 +30,14 @@ const (
 // ToolboxExtensionURI identifies the experimental Toolbox MCP extension.
 const ToolboxExtensionURI = "com.google.cloud/toolbox.v1"
 
+// SkillsExtensionURI is the extension URI for Agent Skills support, per SEP-2640.
+const SkillsExtensionURI = "io.modelcontextprotocol/skills"
+
 // SupportedExtensions lists all MCP extension URIs supported by Toolbox by default.
 var SupportedExtensions = map[string]any{
 	ToolboxExtensionURI: map[string]any{},
 	UIExtensionURI:      map[string]any{},
+	SkillsExtensionURI:  map[string]any{},
 }
 
 // ServerExtensions is the map of extension URIs enabled on this server.
