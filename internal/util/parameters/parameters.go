@@ -692,8 +692,12 @@ type StringParameter struct {
 
 // Parse casts the value "v" as a "string".
 func (p *StringParameter) Parse(v any) (any, error) {
-	newV, ok := v.(string)
-	if !ok {
+	var newV string
+	if str, ok := v.(string); ok {
+		newV = str
+	} else if bytes, err := json.Marshal(v); err == nil && len(bytes) > 0 && (bytes[0] == '{' || bytes[0] == '[') {
+		newV = string(bytes)
+	} else {
 		return nil, &ParseTypeError{p.Name, p.Type, v}
 	}
 	if !p.IsAllowedValues(newV) {
