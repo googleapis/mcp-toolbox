@@ -18,22 +18,13 @@ steps:
     args:
     - "secure_content_scan"
     - "--allowed_prefixes"
-    - "https://python.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
-    - "https://maven.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
-    - "https://npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
-    - "https://docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
-    - "https://go.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
-    - "https://apt.pkg.dev/projects/${_AIRLOCK_AR_PROJECT}/"
-    - "https://us-python.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
-    - "https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "gcr.io/distroless/"
+    - "golang:"
     - "https://us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
     - "https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
     - "https://us-apt.pkg.dev/projects/${_AIRLOCK_AR_PROJECT}/"
-    - "https://storage.googleapis.com/toolbox-build-assets/"
-    - "gcr.io/distroless/"
-    - "golang:"
+    - "https://storage.googleapis.com/${_ASSETS_BUCKET}/"
     - "gcr.io/cloud-builders/"
-    - "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
     results:
       - name: "allowed_uri_prefix"
         attestationContent: "allowed_uri_prefix"
@@ -54,13 +45,6 @@ steps:
       
       # Write auth files to the persistent /workspace directory
       echo "machine us-go.pkg.dev login oauth2accesstoken password $TOKEN" > /workspace/.netrc
-      echo "machine us-python.pkg.dev login oauth2accesstoken password $TOKEN" >> /workspace/.netrc
-      
-      cat > /workspace/.npmrc <<EOL
-      registry=https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/
-      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:always-auth=true
-      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:_authToken=$TOKEN
-      EOL
 
       echo "$TOKEN" > /workspace/.airlock_token
 

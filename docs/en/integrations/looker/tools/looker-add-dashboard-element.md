@@ -10,6 +10,7 @@ description: >
 
 The `looker-add-dashboard-element` tool creates a new tile (element) within an existing Looker dashboard.
 Tiles are added in the order this tool is called for a given `dashboard_id`.
+It supports query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
 
 CRITICAL ORDER OF OPERATIONS:
 1. Create the dashboard using `make_dashboard`.
@@ -30,6 +31,7 @@ source: looker-source
 description: |
   This tool creates a new tile (element) within an existing Looker dashboard.
   Tiles are added in the order this tool is called for a given `dashboard_id`.
+  It supports query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
 
   CRITICAL ORDER OF OPERATIONS:
   1. Create the dashboard using `make_dashboard`.
@@ -38,20 +40,28 @@ description: |
 
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
-  - model_name, explore_name, fields: These query parameters are inherited
-    from the `query` tool and are required to define the data for the tile.
+  - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` are required to define the query for the tile.
 
   Optional Parameters:
-  - title: An optional title for the dashboard tile.
-  - pivots, filters, sorts, limit, query_timezone: These query parameters are
-    inherited from the `query` tool and can be used to customize the tile's query.
+  - type: The type of dashboard element (`'vis'`, `'data'`, or `'text'`). If omitted, `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
+  - title: An optional title for query-based dashboard tiles.
+  - title_text: The header title text for `'text'` tiles.
+  - subtitle_text: The subtitle text displayed below the title.
+  - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
+  - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `'{"format":"slate"}'`).
+  - note_text: Note text attached to the tile.
+  - note_display: Where the note appears on the tile (`'above'`, `'below'`, or `'hover'`).
+  - note_state: The display state of the note (`'expanded'` or `'collapsed'`).
+  - title_hidden: Whether to hide the tile title (`true`/`false`).
+  - refresh_interval: Auto-refresh interval for the tile (e.g., `'1 hour'`).
+  - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters inherited from the `query` tool to customize a query tile.
   - vis_config: A JSON object defining the visualization settings for this tile.
     The structure and options are the same as for the `query_url` tool's `vis_config`.
 
   Connecting to Dashboard Filters:
   A dashboard element can be connected to one or more dashboard filters (created with
-  `add_dashboard_filter`). To do this, specify the `name` of the dashboard filter
-  and the `field` from the element's query that the filter should apply to.
+  `add_dashboard_filter`). To do this, specify the `dashboard_filter_name` of the dashboard filter
+  and the `field` from the element's query that the filter should apply to in `dashboard_filters`.
   The format for specifying the field is `view_name.field_name`.
 ```
 
