@@ -266,6 +266,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	MSSQLDB() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
+	initMssqlConnection(context.Context, trace.Tracer, string, string, string, string, string, string, string) (*sql.DB, error)
 }
 
 type Config struct {
