@@ -17,7 +17,6 @@ package cassandra
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strings"
@@ -163,17 +162,18 @@ func initTable(tableName string, session *gocql.Session) error {
 	return nil
 }
 
-func dropTable(session *gocql.Session, tableName string) {
+func dropTable(t *testing.T, session *gocql.Session, tableName string) {
+	t.Helper()
 	err := session.Query(fmt.Sprintf("DROP TABLE IF EXISTS %s.%s", Keyspace, tableName)).Exec()
 	if err != nil {
-		log.Printf("Failed to drop table %s: %v", tableName, err)
+		t.Errorf("failed to drop table %s: %v", tableName, err)
 	}
 }
 
 // setupTable registers the drop before creating the table, so a failed insert can't leak it.
 func setupTable(t *testing.T, session *gocql.Session, tableName string) {
 	t.Helper()
-	t.Cleanup(func() { dropTable(session, tableName) })
+	t.Cleanup(func() { dropTable(t, session, tableName) })
 	if err := initTable(tableName, session); err != nil {
 		t.Fatal(err)
 	}
