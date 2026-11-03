@@ -364,6 +364,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"update_dashboard": map[string]any{
+				"type":        "looker-update-dashboard",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"update_dashboard_element": map[string]any{
 				"type":        "looker-update-dashboard-element",
 				"source":      "my-instance",
@@ -371,6 +376,11 @@ func TestLooker(t *testing.T) {
 			},
 			"create_dashboard_layout": map[string]any{
 				"type":        "looker-create-dashboard-layout",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"update_dashboard_layout": map[string]any{
+				"type":        "looker-update-dashboard-layout",
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
@@ -2525,6 +2535,87 @@ func TestLooker(t *testing.T) {
 			},
 		},
 	)
+	tests.RunToolGetTestByName(t, "update_dashboard",
+		map[string]any{
+			"update_dashboard": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The ID of the dashboard to update.",
+						"name":         "dashboard_id",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional updated title for the dashboard.",
+						"name":         "title",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional updated description for the dashboard.",
+						"name":         "description",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Whether to display Looker's native top header bar (title, filter bar, reload icon, menu). Set to false for full-bleed Data Apps.",
+						"name":         "show_dashboard_header",
+						"required":     false,
+						"type":         "boolean",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The page margin width in pixels (e.g. 0 for full bleed).",
+						"name":         "page_side_margins",
+						"required":     false,
+						"type":         "integer",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The spacing between dashboard tiles in pixels (e.g. 0 for full bleed).",
+						"name":         "tile_space_between",
+						"required":     false,
+						"type":         "integer",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Whether dashboard tiles display a shadow border (e.g. false for full bleed).",
+						"name":         "tile_shadow",
+						"required":     false,
+						"type":         "boolean",
+					},
+					map[string]any{
+						"additionalProperties": true,
+						"authServices":         []any{},
+						"description":          "Optional appearance settings map to customize colors and styling.",
+						"name":                 "appearance",
+						"required":             false,
+						"type":                 "object",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Whether to hide the dashboard in navigation.",
+						"name":         "hidden",
+						"required":     false,
+						"type":         "boolean",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Auto-refresh interval phrase (e.g. '1 hour', '30 minutes').",
+						"name":         "refresh_interval",
+						"required":     false,
+						"type":         "string",
+					},
+				},
+			},
+		},
+	)
 	tests.RunToolGetTestByName(t, "create_dashboard_layout",
 		map[string]any{
 			"create_dashboard_layout": map[string]any{
@@ -2560,6 +2651,45 @@ func TestLooker(t *testing.T) {
 						"required":     false,
 						"type":         "boolean",
 						"default":      false,
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "update_dashboard_layout",
+		map[string]any{
+			"update_dashboard_layout": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The ID of the dashboard layout to update.",
+						"name":         "dashboard_layout_id",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The layout type for this dashboard layout: 'newspaper' (responsive 24-column grid), 'extension' (frameless full-bleed single extension tile), or 'grid'.",
+						"enum":         []any{"newspaper", "extension", "grid"},
+						"name":         "type",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Whether to make this layout the active layout for the dashboard.",
+						"name":         "active",
+						"required":     false,
+						"type":         "boolean",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The display label for this layout tab.",
+						"name":         "label",
+						"required":     false,
+						"type":         "string",
 					},
 				},
 			},

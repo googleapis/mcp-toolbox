@@ -20,9 +20,10 @@ CRITICAL ORDER OF OPERATIONS:
 DATA APP EXTENSION PUBLISHING LIFECYCLE:
 To mount a Data App Extension on a dashboard:
 1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
-2. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
-3. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
-4. Sizing: Use `update_dashboard_layout_component` to size the tile to full-bleed (`width: 24`, `height: 20`).
+2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
 ## Compatible Sources
 
@@ -49,9 +50,10 @@ description: |
   DATA APP EXTENSION PUBLISHING LIFECYCLE:
   To mount a Data App Extension on a dashboard:
   1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
-  2. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
-  3. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
-  4. Sizing: Use `update_dashboard_layout_component` to size the tile to full-bleed (`width: 24`, `height: 20`).
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.

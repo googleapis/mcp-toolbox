@@ -520,6 +520,8 @@ instance and create new saved content.
 1. **run_dashboard**: Run the queries associated with a dashboard and return the
    data
 1. **make_dashboard**: Create a saved dashboard in Looker and return the URL
+1. **update_dashboard**: Update a dashboard container and appearance settings
+1. **update_dashboard_layout**: Update a dashboard layout (tab)
 1. **import_dashboard_from_lookml**: Import a LookML dashboard YAML definition to create or overwrite a saved dashboard in Looker
 1. **add_dashboard_element**: Add a tile to a dashboard
 1. **add_dashboard_filter**: Add a filter to a dashboard

@@ -18,9 +18,10 @@ NOTE: This tool creates the Extension entity in Looker's database, but does NOT 
 
 LIFECYCLE / ORDER OF OPERATIONS:
 1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
-2. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
-3. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
-4. (Recommended) Call `update_dashboard_layout_component` to size the tile to full-bleed (`width: 24`, `height: 20`).
+2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+4. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
+5. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
 It returns the created extension metadata, including `id` and `extension_id`
 (`"db::<id>"`) for mounting on a dashboard tile.
@@ -59,9 +60,10 @@ description: |
 
   LIFECYCLE / ORDER OF OPERATIONS:
   1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
-  2. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
-  3. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
-  4. (Recommended) Call `update_dashboard_layout_component` to size the tile to full-bleed (`width: 24`, `height: 20`).
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
   Required Parameters:
   - label: The user-friendly display label for the Data App Extension (up to 255 characters).

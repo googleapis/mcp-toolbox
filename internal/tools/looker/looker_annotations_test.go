@@ -77,7 +77,9 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrunlookmltests"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerswitchgitbranch"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdateagent"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboardelement"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboardlayout"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboardlayoutcomponent"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedataappextension"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdateprojectfile"
@@ -366,7 +368,17 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 			wantDestructive: true,
 		},
 		{
+			resourceType:    "looker-update-dashboard",
+			wantReadOnly:    false,
+			wantDestructive: true,
+		},
+		{
 			resourceType:    "looker-update-dashboard-element",
+			wantReadOnly:    false,
+			wantDestructive: true,
+		},
+		{
+			resourceType:    "looker-update-dashboard-layout",
 			wantReadOnly:    false,
 			wantDestructive: true,
 		},

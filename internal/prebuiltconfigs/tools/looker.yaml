@@ -851,9 +851,10 @@ description: |
   DATA APP EXTENSION PUBLISHING LIFECYCLE:
   To mount a Data App Extension on a dashboard:
   1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
-  2. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
-  3. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
-  4. Sizing: Use `update_dashboard_layout_component` to size the tile to full-bleed (`width: 24`, `height: 20`).
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
@@ -940,6 +941,34 @@ description: |
   - dashboard_id (required): The unique identifier of the dashboard.
 ---
 kind: tool
+name: update_dashboard
+type: looker-update-dashboard
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard (`PATCH /api/4.0/dashboards/:id`).
+  It allows updating top-level dashboard properties such as title, description,
+  visibility, refresh interval, and dashboard appearance settings.
+
+  FULL-BLEED DATA APP APPEARANCE:
+  To configure a dashboard container for full-bleed Data Applications, pass:
+  - `show_dashboard_header: false` (hides Looker's native top navigation bar, title, filter bar, reload icon, and menu)
+  - `page_side_margins: 0` (removes outer dashboard margins)
+  - `tile_space_between: 0` (removes gutter spacing between tiles)
+  - `tile_shadow: false` (removes tile drop shadows)
+
+  Parameters:
+  - dashboard_id (required): The unique identifier of the dashboard to update.
+  - title (optional): Updated dashboard title.
+  - description (optional): Updated dashboard description.
+  - show_dashboard_header (optional): Whether to display Looker's native header bar. Set to false for full-bleed Data Apps.
+  - page_side_margins (optional): Page margin width in pixels (e.g. 0 for full bleed).
+  - tile_space_between (optional): Spacing between tiles in pixels (e.g. 0 for full bleed).
+  - tile_shadow (optional): Whether tiles have drop shadows (e.g. false for full bleed).
+  - appearance (optional): Map of additional appearance styling settings.
+  - hidden (optional): Whether to hide the dashboard in navigation.
+  - refresh_interval (optional): Auto-refresh interval phrase (e.g. '1 hour').
+---
+kind: tool
 name: update_dashboard_element
 type: looker-update-dashboard-element
 source: looker-source
@@ -985,6 +1014,24 @@ description: |
   - active (optional): Whether to make this layout active.
 ---
 kind: tool
+name: update_dashboard_layout
+type: looker-update-dashboard-layout
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard layout (`PATCH /api/4.0/dashboard_layouts/:id`).
+  It allows changing the layout type, toggling whether the layout is active, or updating the tab label.
+
+  DATA APP FULL-BLEED LAYOUT:
+  Setting `type: "extension"` configures the layout as a frameless, 100% viewport container
+  for hosting a single Data App Extension tile without 24-column grid constraints.
+
+  Parameters:
+  - dashboard_layout_id (required): The ID of the dashboard layout to update.
+  - type (optional): Layout type: 'newspaper' (responsive 24-column grid), 'extension' (frameless full-bleed single extension tile), or 'grid'.
+  - active (optional): Whether this layout is the active layout for the dashboard.
+  - label (optional): Display label for this layout tab.
+---
+kind: tool
 name: update_dashboard_layout_component
 type: looker-update-dashboard-layout-component
 source: looker-source
@@ -1013,9 +1060,10 @@ description: |
 
   LIFECYCLE / ORDER OF OPERATIONS:
   1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
-  2. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
-  3. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
-  4. (Recommended) Call `update_dashboard_layout_component` to size the tile to full-bleed (`width: 24`, `height: 20`).
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
   Required Parameters:
   - label: The user-friendly display label for the Data App Extension (up to 255 characters).
@@ -1081,8 +1129,10 @@ tools:
 - add_dashboard_filter
 - generate_embed_url
 - get_dashboard
+- update_dashboard
 - update_dashboard_element
 - create_dashboard_layout
+- update_dashboard_layout
 - update_dashboard_layout_component
 - create_data_app_extension
 - update_data_app_extension
