@@ -13,10 +13,10 @@
 # limitations under the License.
 #
 # Retry-only pipeline for the OSS Exit Gate npm publish steps. Use when the
-# npm portion of the versioned release fails after Go binaries are already in
-# GCS. Each platform package's prepack script downloads its binary from GCS by
-# version, and publish_npm_to_ar.sh's idempotency check skips packages already
-# in AR.
+# npm portion of the Stage 2 promotion pipeline (.ci/promote.cloudbuild.yaml)
+# fails after signed Go binaries are already in GCS. Each platform package's
+# prepack script downloads its binary from GCS by version, and
+# publish_npm_to_ar.sh's idempotency check skips packages already in AR.
 #
 # Invoke after checking out the version's tag locally:
 #   git checkout v<X.Y.Z>

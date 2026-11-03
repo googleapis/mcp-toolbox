@@ -15,6 +15,7 @@
 package bigqueryforecast_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -24,11 +25,13 @@ import (
 
 	bigqueryapi "cloud.google.com/go/bigquery"
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigquerycommon"
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigqueryforecast"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	bigqueryrestapi "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/option"
@@ -188,10 +191,12 @@ func TestInvoke(t *testing.T) {
 				t.Fatalf("unexpected error parsing parameters: %v", err)
 			}
 
-			ctx, err := testutils.ContextWithNewLogger()
+			var outBuf, errBuf bytes.Buffer
+			logger, err := log.NewStdLogger(&outBuf, &errBuf, "debug")
 			if err != nil {
-				t.Fatalf("failed to create context with logger: %v", err)
+				t.Fatalf("failed to create debug logger: %v", err)
 			}
+			ctx := util.WithLogger(context.Background(), logger)
 
 			resp, err := tool.Invoke(ctx, src, paramVals, "")
 			if tc.wantErr {
@@ -214,6 +219,9 @@ func TestInvoke(t *testing.T) {
 
 			if tc.wantSQLSub != "" && !strings.Contains(src.CalledSQL, tc.wantSQLSub) {
 				t.Errorf("expected SQL to contain %q, but got:\n%s", tc.wantSQLSub, src.CalledSQL)
+			}
+			if !strings.Contains(outBuf.String(), "executing `bigquery-forecast` tool query:") {
+				t.Errorf("expected debug log to contain forecast query, got %q", outBuf.String())
 			}
 		})
 	}
