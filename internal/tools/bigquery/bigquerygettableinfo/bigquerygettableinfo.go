@@ -139,6 +139,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("failed to retrieve BigQuery client", http.StatusInternalServerError, err)
 	}
 
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool for table `%s.%s.%s`", resourceType, projectId, datasetId, tableId))
+
 	dsHandle := bqClient.DatasetInProject(projectId, datasetId)
 	tableHandle := dsHandle.Table(tableId)
 

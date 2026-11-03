@@ -427,6 +427,7 @@ func (s *Source) newBigQuerySessionProvider() BigQuerySessionProvider {
 				DryRun: true,
 				Query: &bigqueryrestapi.JobConfigurationQuery{
 					Query:         "SELECT 1",
+					UseLegacySql:  new(bool),
 					CreateSession: true,
 				},
 			},
