@@ -291,6 +291,13 @@ func TestServerConfigFlags(t *testing.T) {
 			}),
 		},
 		{
+			desc: "disable extension check",
+			args: []string{"--disable-extension-check"},
+			want: withDefaults(server.ServerConfig{
+				DisableExtensionCheck: true,
+			}),
+		},
+		{
 			desc: "disable version check",
 			args: []string{"--disable-version-check"},
 			want: withDefaults(server.ServerConfig{
