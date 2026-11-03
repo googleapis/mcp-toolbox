@@ -110,6 +110,11 @@ func (s *Source) MSSQLDB() *sql.DB {
 	return s.Db
 }
 
+// function to lock specific tool to non cloud mssql
+func (s *Source) IsNonCloud() bool {
+	return true
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
 	results, err := s.MSSQLDB().QueryContext(ctx, statement, params...)
 	if err != nil {

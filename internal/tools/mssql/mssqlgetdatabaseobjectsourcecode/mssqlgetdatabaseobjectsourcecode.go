@@ -26,7 +26,6 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const resourceType string = "mssql-get-database-object-source-code"
@@ -267,7 +266,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	MSSQLDB() *sql.DB
 	RunSQL(context.Context, string, []any) (any, error)
-	initMssqlConnection(context.Context, trace.Tracer, string, string, string, string, string, string, string) (*sql.DB, error)
+	IsNonCloud() bool
 }
 
 type Config struct {

@@ -121,6 +121,7 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	tmplSelectCombined, tmplSelectFilterCombined := tests.GetMSSQLTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, MSSQLToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 	toolsFile = tests.AddMSSQLPrebuiltToolConfig(t, toolsFile)
+	toolsFile = addNonCloudMSSQLPrebuiltToolConfig(t, toolsFile)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
@@ -149,4 +150,18 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	// Run specific MSSQL tool tests
 	tests.RunMSSQLListTablesTest(t, tableNameParam, tableNameAuth)
 	tests.RunMSSQLGetDatabaseObjectSourceCodeTest(t, tableNameParam, tableNameAuth)
+}
+
+func addNonCloudMSSQLPrebuiltToolConfig(t *testing.T, config map[string]any) map[string]any {
+	tools, ok := config["tools"].(map[string]any)
+	if !ok {
+		t.Fatalf("unable to get tools from config")
+	}
+	tools["get_database_object_source_code"] = map[string]any{
+		"type":        "mssql-get-database-object-source-code",
+		"source":      "my-instance",
+		"description": "Executes a query to retrieve source code for all coding objects.",
+	}
+	config["tools"] = tools
+	return config
 }

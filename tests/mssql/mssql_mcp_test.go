@@ -65,6 +65,7 @@ func setupMSSQLMCPServer(t *testing.T, ctx context.Context) (string, string, str
 	tmplSelectCombined, tmplSelectFilterCombined := tests.GetMSSQLTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, MSSQLToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 	toolsFile = tests.AddMSSQLPrebuiltToolConfig(t, toolsFile)
+	toolsFile = addNonCloudMSSQLPrebuiltToolConfig(t, toolsFile)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
@@ -131,4 +132,5 @@ func TestMSSQLMCPCallTool(t *testing.T) {
 
 	// Run the SQL Server specific tool test over MCP
 	tests.RunMSSQLListTablesTest(t, tableNameParam, tableNameAuth, tests.WithMCPExec())
+	tests.RunMSSQLGetDatabaseObjectSourceCodeTest(t, tableNameParam, tableNameAuth, tests.WithMCPExec())
 }
