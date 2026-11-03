@@ -26,6 +26,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const resourceType string = "mssql-get-database-object-source-code"
