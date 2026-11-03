@@ -164,9 +164,18 @@ func initTable(tableName string, session *gocql.Session) error {
 }
 
 func dropTable(session *gocql.Session, tableName string) {
-	err := session.Query(fmt.Sprintf("drop table %s.%s", Keyspace, tableName)).Exec()
+	err := session.Query(fmt.Sprintf("DROP TABLE IF EXISTS %s.%s", Keyspace, tableName)).Exec()
 	if err != nil {
 		log.Printf("Failed to drop table %s: %v", tableName, err)
+	}
+}
+
+// setupTable registers the drop before creating the table, so a failed insert can't leak it.
+func setupTable(t *testing.T, session *gocql.Session, tableName string) {
+	t.Helper()
+	t.Cleanup(func() { dropTable(session, tableName) })
+	if err := initTable(tableName, session); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -175,7 +184,8 @@ func TestCassandra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer session.Close()
+	// t.Cleanup, not defer: the table drops below run as cleanups and need the session.
+	t.Cleanup(session.Close)
 	sourceConfig := getCassandraVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -184,23 +194,9 @@ func TestCassandra(t *testing.T) {
 	paramTableName := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	err = initTable(paramTableName, session)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dropTable(session, paramTableName)
-
-	err = initTable(tableNameAuth, session)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dropTable(session, tableNameAuth)
-
-	err = initTable(tableNameTemplateParam, session)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dropTable(session, tableNameTemplateParam)
+	setupTable(t, session, paramTableName)
+	setupTable(t, session, tableNameAuth)
+	setupTable(t, session, tableNameTemplateParam)
 
 	paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt := createParamToolInfo(paramTableName)
 	_, _, authToolStmt := getCassandraAuthToolInfo(tableNameAuth)
