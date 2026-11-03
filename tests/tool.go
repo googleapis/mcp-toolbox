@@ -4622,44 +4622,43 @@ func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, table
 
 	invokeTcs := []struct {
 		name           string
-		api            string
-		requestBody    string
+		args           map[string]any
 		wantStatusCode int
 		wantContains   []string
 		isAgentErr     bool
 	}{
 		{
 			name:           "invoke get_database_object_source_code for tables namesOnly true",
-			requestBody:    `{"object_type": "tables", "namesOnly": true}`,
+			args:           map[string]any{"object_type": "tables", "namesOnly": true},
 			wantStatusCode: http.StatusOK,
 			wantContains:   []string{fmt.Sprintf("[dbo].[%s]", tableNameParam), fmt.Sprintf("[dbo].[%s]", tableNameAuth)},
 		},
 		{
 			name:           "invoke get_database_object_source_code for all objects namesOnly true",
-			requestBody:    `{"object_type": "all", "namesOnly": true}`,
+			args:           map[string]any{"object_type": "all", "namesOnly": true},
 			wantStatusCode: http.StatusOK,
 			wantContains:   []string{fmt.Sprintf("[dbo].[%s]", tableNameParam), fmt.Sprintf("[dbo].[%s]", tableNameAuth)},
 		},
 		{
 			name:           "invoke get_database_object_source_code for tables namesOnly false",
-			requestBody:    `{"object_type": "tables", "namesOnly": false}`,
+			args:           map[string]any{"object_type": "tables", "namesOnly": false},
 			wantStatusCode: http.StatusOK,
 			wantContains:   []string{"-------------------------------------------------------"},
 		},
 		{
 			name:           "invoke get_database_object_source_code for assemblies",
-			requestBody:    `{"object_type": "assemblies", "namesOnly": false}`,
+			args:           map[string]any{"object_type": "assemblies", "namesOnly": false},
 			wantStatusCode: http.StatusOK,
 		},
 		{
 			name:           "invoke get_database_object_source_code with invalid object_type",
-			requestBody:    `{"object_type": "invalid_type"}`,
+			args:           map[string]any{"object_type": "invalid_type"},
 			wantStatusCode: http.StatusOK,
 			isAgentErr:     true,
 		},
 		{
 			name:           "invoke get_database_object_source_code with malformed namesOnly parameter",
-			requestBody:    `{"namesOnly": "not_a_boolean"}`,
+			args:           map[string]any{"namesOnly": "not_a_boolean"},
 			wantStatusCode: http.StatusOK,
 			isAgentErr:     true,
 		},
@@ -4669,12 +4668,7 @@ func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, table
 			var resultString string
 
 			if config.isMCP {
-				var reqBody map[string]any
-				err := json.Unmarshal([]byte(tc.requestBody), &reqBody)
-				if err != nil {
-					t.Fatalf("Error parsing JSON: %v", err)
-				}
-				statusCode, mcpResp, err := InvokeMCPTool(t, "get_database_object_source_code", reqBody, nil)
+				statusCode, mcpResp, err := InvokeMCPTool(t, "get_database_object_source_code", tc.args, nil)
 				if statusCode != tc.wantStatusCode {
 					t.Fatalf("response status code is not %d, got %d: %v", tc.wantStatusCode, statusCode, err)
 				}
@@ -4687,7 +4681,7 @@ func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, table
 					if tc.isAgentErr {
 						return
 					}
-					t.Fatalf("list_tables returned an error result: %+v", mcpResp.Result.Content)
+					t.Fatalf("get_database_object_source_code returned an error result: %+v", mcpResp.Result.Content)
 				}
 				if tc.isAgentErr {
 					return
@@ -4697,7 +4691,7 @@ func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, table
 				resultString = string(gotBytes)
 			} else {
 				const api = "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke"
-				reqBytes, _ := json.Marshal(tc.requestBody)
+				reqBytes, _ := json.Marshal(tc.args)
 
 				resp, respBytes := RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
 
@@ -4715,58 +4709,11 @@ func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, table
 					t.Fatal("unable to find 'result' in response body")
 				}
 
-				if tc.isAgentErr {
-					return
-				}
-
 				if err := json.Unmarshal(resultJSON, &resultString); err != nil {
 					resultString = string(resultJSON)
 				}
 			}
 			if tc.wantStatusCode == http.StatusOK {
-				if tc.isAgentErr {
-					var errMap map[string]any
-					if err := json.Unmarshal([]byte(resultString), &errMap); err != nil {
-						t.Fatalf("expected error JSON in result, got: %s", resultString)
-					}
-					if _, ok := errMap["error"]; !ok {
-						t.Fatalf("expected error in response result, got: %s", resultString)
-					}
-					return
-				}
-
-				for _, wantSubstr := range tc.wantContains {
-					if !strings.Contains(resultString, wantSubstr) {
-						t.Errorf("expected result to contain %q, got: %s", wantSubstr, resultString)
-					}
-				}
-			}
-		})
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, respBytes := RunRequest(t, http.MethodPost, tc.api, bytes.NewBuffer([]byte(tc.requestBody)), nil)
-
-			if resp.StatusCode != tc.wantStatusCode {
-				t.Fatalf("response status code is not %d, got %d: %s", tc.wantStatusCode, resp.StatusCode, string(respBytes))
-			}
-
-			if tc.wantStatusCode == http.StatusOK {
-				var bodyWrapper map[string]json.RawMessage
-				if err := json.Unmarshal(respBytes, &bodyWrapper); err != nil {
-					t.Fatalf("error parsing response wrapper: %s, body: %s", err, string(respBytes))
-				}
-
-				resultJSON, ok := bodyWrapper["result"]
-				if !ok {
-					t.Fatalf("unable to find 'result' in response body: %s", string(respBytes))
-				}
-
-				var resultString string
-				if err := json.Unmarshal(resultJSON, &resultString); err != nil {
-					resultString = string(resultJSON)
-				}
-
 				if tc.isAgentErr {
 					var errMap map[string]any
 					if err := json.Unmarshal([]byte(resultString), &errMap); err != nil {
