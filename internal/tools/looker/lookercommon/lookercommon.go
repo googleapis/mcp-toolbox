@@ -19,8 +19,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
+	"time"
+	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
@@ -198,7 +202,8 @@ func getQueryParameters() parameters.Parameters {
 
 func GetDashboardElementParameters() parameters.Parameters {
 	return parameters.Parameters{
-		parameters.NewStringParameter("type", "The type of dashboard element: 'vis' (visualization), 'data' (data table), or 'text' (text/markdown tile).", parameters.WithStringRequired(false), parameters.WithStringAllowedValues([]any{"vis", "data", "text"})),
+		parameters.NewStringParameter("type", "The type of dashboard element: 'vis' (visualization), 'data' (data table), 'text' (text/markdown tile), or 'extension' (extension/data app tile). Note that 'extension' is automatically inferred when extension_id is provided.", parameters.WithStringRequired(false), parameters.WithStringAllowedValues([]any{"vis", "data", "text", "extension"})),
+		parameters.NewStringParameter("extension_id", "The ID of the extension (e.g. 'db::<id>' from create_data_app_extension or 'app::<id>' from LookML extensions) for 'extension' tiles. For extension tiles, query fields (model, explore, fields) should be omitted as the extension manages its own queries via the Looker SDK.", parameters.WithStringRequired(false)),
 		parameters.NewStringParameter("body_text", "The text, Markdown, HTML, or Slate JSON body content for 'text' tiles.", parameters.WithStringRequired(false)),
 		parameters.NewStringParameter("title_text", "The title text for 'text' tiles.", parameters.WithStringRequired(false)),
 		parameters.NewStringParameter("subtitle_text", "The subtitle text displayed below the title.", parameters.WithStringRequired(false)),
@@ -456,8 +461,8 @@ func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboar
 	paramsMap := params.AsMap()
 
 	elemType, _ := paramsMap["type"].(string)
-	if elemType != "" && elemType != "vis" && elemType != "data" && elemType != "text" {
-		return v4.WriteDashboardElement{}, util.NewAgentError(fmt.Sprintf("invalid element type %q: must be 'vis', 'data', or 'text'", elemType), nil)
+	if elemType != "" && elemType != "vis" && elemType != "data" && elemType != "text" && elemType != "extension" {
+		return v4.WriteDashboardElement{}, util.NewAgentError(fmt.Sprintf("invalid element type %q: must be 'vis', 'data', 'text', or 'extension'", elemType), nil)
 	}
 
 	title, _ := paramsMap["title"].(string)
@@ -466,6 +471,7 @@ func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboar
 		visConfig = make(map[string]any)
 	}
 
+	extensionIdPtr := optionalStringPtr(paramsMap, "extension_id")
 	bodyTextPtr := optionalStringPtr(paramsMap, "body_text")
 	titleTextPtr := optionalStringPtr(paramsMap, "title_text")
 	subtitleTextPtr := optionalStringPtr(paramsMap, "subtitle_text")
@@ -483,7 +489,9 @@ func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboar
 	if elemType == "" {
 		model, _ := paramsMap["model"].(string)
 		explore, _ := paramsMap["explore"].(string)
-		if model == "" && explore == "" && (bodyTextPtr != nil || titleTextPtr != nil || subtitleTextPtr != nil || richContentJsonPtr != nil) {
+		if extensionIdPtr != nil && *extensionIdPtr != "" {
+			elemType = "extension"
+		} else if model == "" && explore == "" && (bodyTextPtr != nil || titleTextPtr != nil || subtitleTextPtr != nil || richContentJsonPtr != nil) {
 			elemType = "text"
 		} else if len(visConfig) > 0 {
 			elemType = "vis"
@@ -504,12 +512,70 @@ func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboar
 		NoteState:       noteStatePtr,
 		TitleHidden:     titleHiddenPtr,
 		RefreshInterval: refreshIntervalPtr,
+		ExtensionId:     extensionIdPtr,
 	}
 
 	if elemType == "text" {
 		if wde.TitleText == nil && title != "" {
 			wde.TitleText = &title
 		}
+		return wde, nil
+	}
+
+	if elemType == "extension" {
+		if _, isUpdate := paramsMap["dashboard_element_id"]; !isUpdate {
+			if extensionIdPtr == nil || strings.TrimSpace(*extensionIdPtr) == "" {
+				return v4.WriteDashboardElement{}, util.NewAgentError("'extension_id' is required when creating an 'extension' dashboard element", nil)
+			}
+			if wde.TitleHidden == nil {
+				hideTitle := true
+				wde.TitleHidden = &hideTitle
+			}
+		}
+		if title != "" {
+			wde.Title = &title
+		}
+
+		dashFilters := []any{}
+		if v, ok := paramsMap["dashboard_filters"]; ok && v != nil {
+			if df, ok := v.([]any); ok {
+				dashFilters = df
+			}
+		}
+
+		var filterables []v4.ResultMakerFilterables
+		var listeners []v4.ResultMakerFilterablesListen
+		for _, m := range dashFilters {
+			f, ok := m.(map[string]any)
+			if !ok {
+				return v4.WriteDashboardElement{}, util.NewAgentError("invalid dashboard filter structure", nil)
+			}
+			name, ok := f["dashboard_filter_name"].(string)
+			if !ok {
+				return v4.WriteDashboardElement{}, util.NewAgentError("error processing dashboard filter: missing dashboard_filter_name", nil)
+			}
+			field, ok := f["field"].(string)
+			if !ok {
+				return v4.WriteDashboardElement{}, util.NewAgentError("error processing dashboard filter: missing field", nil)
+			}
+			listener := v4.ResultMakerFilterablesListen{
+				DashboardFilterName: &name,
+				Field:               &field,
+			}
+			listeners = append(listeners, listener)
+		}
+
+		if len(listeners) > 0 {
+			filterables = []v4.ResultMakerFilterables{
+				{
+					Listen: &listeners,
+				},
+			}
+			wde.ResultMaker = &v4.WriteResultMakerWithIdVisConfigAndDynamicFields{
+				Filterables: &filterables,
+			}
+		}
+
 		return wde, nil
 	}
 
@@ -899,5 +965,222 @@ func StripDrillLinks(detailResp map[string]any) {
 				}
 			}
 		}
+	}
+}
+
+const (
+	MaxDataAppExtensionCodeBytes = 5 * 1024 * 1024
+	MaxDataAppExtensionFieldLen  = 255
+)
+
+var (
+	dataAppExtensionIdentRegex = regexp.MustCompile(`^[a-zA-Z0-9\-_]+$`)
+	nonAlphanumericSlugRegex   = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+)
+
+// WriteDataAppExtension represents the writable request body for Looker's
+// undocumented /api/4.0/data_app_extension endpoints.
+type WriteDataAppExtension struct {
+	Name        *string `json:"name,omitempty"`
+	Label       *string `json:"label,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Code        *string `json:"code,omitempty"`
+}
+
+// DataAppExtension represents the metadata response returned by Looker's
+// undocumented /api/4.0/data_app_extension endpoints.
+type DataAppExtension struct {
+	Id           string          `json:"id,omitempty"`
+	ExtensionId  string          `json:"extension_id,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Label        string          `json:"label,omitempty"`
+	Description  *string         `json:"description,omitempty"`
+	UserId       any             `json:"user_id,omitempty"`
+	MountPoints  map[string]any  `json:"mount_points,omitempty"`
+	Entitlements map[string]any  `json:"entitlements,omitempty"`
+	CodeSize     *int64          `json:"code_size,omitempty"`
+	CreatedAt    *string         `json:"created_at,omitempty"`
+	UpdatedAt    *string         `json:"updated_at,omitempty"`
+	Can          map[string]bool `json:"can,omitempty"`
+}
+
+// GenerateDataAppExtensionName builds a unique system name (`data-app-<slug>-<uuid>`)
+// satisfying Looker's `[a-zA-Z0-9-_]` format and <= 255-character constraint.
+func GenerateDataAppExtensionName(label string) string {
+	slug := strings.Trim(strings.ToLower(nonAlphanumericSlugRegex.ReplaceAllString(label, "-")), "-")
+	if len(slug) > 64 {
+		slug = strings.TrimRight(slug[:64], "-")
+	}
+	if slug == "" {
+		slug = "untitled"
+	}
+	return fmt.Sprintf("data-app-%s-%s", slug, uuid.NewString())
+}
+
+// ValidateDataAppExtensionName validates a Data App Extension `name` against Looker's format and length rules.
+func ValidateDataAppExtensionName(name string) error {
+	if name == "" {
+		return fmt.Errorf("'name' cannot be empty")
+	}
+	if len(name) > MaxDataAppExtensionFieldLen {
+		return fmt.Errorf("'name' cannot exceed %d characters", MaxDataAppExtensionFieldLen)
+	}
+	if !dataAppExtensionIdentRegex.MatchString(name) {
+		return fmt.Errorf("'name' may only contain letters, numbers, hyphens, and underscores")
+	}
+	return nil
+}
+
+// ValidateDataAppExtensionLabel validates a Data App Extension `label`.
+func ValidateDataAppExtensionLabel(label string) error {
+	if strings.TrimSpace(label) == "" {
+		return fmt.Errorf("'label' cannot be empty")
+	}
+	if utf8.RuneCountInString(label) > MaxDataAppExtensionFieldLen {
+		return fmt.Errorf("'label' cannot exceed %d characters", MaxDataAppExtensionFieldLen)
+	}
+	return nil
+}
+
+// ValidateDataAppExtensionCode validates a Data App Extension JavaScript payload.
+func ValidateDataAppExtensionCode(code string) error {
+	if strings.TrimSpace(code) == "" {
+		return fmt.Errorf("'code' cannot be empty")
+	}
+	if len(code) > MaxDataAppExtensionCodeBytes {
+		return fmt.Errorf("'code' size (%d bytes) cannot exceed %d bytes (5 MB)", len(code), MaxDataAppExtensionCodeBytes)
+	}
+	return nil
+}
+
+// NormalizeDataAppExtensionID strips an optional "db::" prefix and validates the raw ID
+// against `[a-zA-Z0-9-_]` to prevent URL path traversal or query injection.
+func NormalizeDataAppExtensionID(id string) (string, error) {
+	trimmed := strings.TrimSpace(id)
+	rawID := strings.TrimPrefix(trimmed, "db::")
+	if rawID == "" {
+		return "", fmt.Errorf("'data_app_extension_id' cannot be empty")
+	}
+	if len(rawID) > MaxDataAppExtensionFieldLen || !dataAppExtensionIdentRegex.MatchString(rawID) {
+		return "", fmt.Errorf("invalid 'data_app_extension_id' %q: must contain only letters, numbers, hyphens, or underscores", id)
+	}
+	return rawID, nil
+}
+
+// EnsureDataAppMeta prepends window.__lookerDataAppMeta with a UTC publishedAt
+// timestamp if the code payload does not already define __lookerDataAppMeta.
+// This ensures the Looker Data Apps runtime stamp displays the publish date
+// rather than falling back to "- local dev".
+func EnsureDataAppMeta(code string) string {
+	if strings.TrimSpace(code) == "" || strings.Contains(code, "__lookerDataAppMeta") {
+		return code
+	}
+	publishedAt := time.Now().UTC().Format("2006-01-02 15:04 UTC")
+	metaLine := fmt.Sprintf("window.__lookerDataAppMeta = Object.assign(window.__lookerDataAppMeta || {}, {\"publishedAt\": %q});\n", publishedAt)
+	return metaLine + code
+}
+
+// CreateDataAppExtension calls POST /api/4.0/data_app_extension via Looker SDK transport.
+func CreateDataAppExtension(l *v4.LookerSDK, req WriteDataAppExtension, options *rtl.ApiSettings) (*DataAppExtension, error) {
+	if req.Code != nil && *req.Code != "" {
+		stamped := EnsureDataAppMeta(*req.Code)
+		req.Code = &stamped
+	}
+	var result DataAppExtension
+	if err := l.AuthSession.Do(&result, "POST", "/4.0", "/data_app_extension", nil, req, options); err != nil {
+		return nil, err
+	}
+	if result.Id != "" {
+		result.ExtensionId = "db::" + result.Id
+	}
+	return &result, nil
+}
+
+// UpdateDataAppExtension calls PATCH /api/4.0/data_app_extension/:data_app_extension_id via Looker SDK transport.
+func UpdateDataAppExtension(l *v4.LookerSDK, id string, dashboardId string, req WriteDataAppExtension, options *rtl.ApiSettings) (*DataAppExtension, error) {
+	rawID, err := NormalizeDataAppExtensionID(id)
+	if err != nil {
+		return nil, err
+	}
+	if req.Code != nil && *req.Code != "" {
+		stamped := EnsureDataAppMeta(*req.Code)
+		req.Code = &stamped
+	}
+	path := fmt.Sprintf("/data_app_extension/%s", url.PathEscape(rawID))
+	var queryParams map[string]any
+	if trimmedDashID := strings.TrimSpace(dashboardId); trimmedDashID != "" {
+		queryParams = map[string]any{
+			"dashboard_id": trimmedDashID,
+		}
+	}
+	var result DataAppExtension
+	if err := l.AuthSession.Do(&result, "PATCH", "/4.0", path, queryParams, req, options); err != nil {
+		return nil, err
+	}
+	if result.Id != "" {
+		result.ExtensionId = "db::" + result.Id
+	}
+	return &result, nil
+}
+
+type fullBleedDashboardAppearance struct {
+	ShowDashboardHeader bool  `json:"show_dashboard_header"`
+	PageSideMargins     int64 `json:"page_side_margins"`
+	TileSpaceBetween    int64 `json:"tile_space_between"`
+	TileShadow          bool  `json:"tile_shadow"`
+}
+
+type writeFullBleedDashboard struct {
+	Appearance fullBleedDashboardAppearance `json:"appearance"`
+}
+
+// ConfigureExtensionDashboard configures a dashboard hosting an "extension" element
+// for full-bleed rendering: hides the element title via PATCH, switches the active
+// dashboard layout to type="extension", and applies full-bleed appearance settings
+// (hiding Looker's native dashboard header and zeroing margins/shadows).
+// All steps are best-effort so callers degrade gracefully on older Looker instances.
+func ConfigureExtensionDashboard(ctx context.Context, l *v4.LookerSDK, dashboardID string, elementID string, titleHidden *bool, options *rtl.ApiSettings) {
+	logger, _ := util.LoggerFromContext(ctx)
+
+	if elementID != "" && titleHidden != nil && *titleHidden {
+		if _, err := l.UpdateDashboardElement(elementID, v4.WriteDashboardElement{TitleHidden: titleHidden}, "", options); err != nil && logger != nil {
+			logger.DebugContext(ctx, "best-effort PATCH title_hidden on extension element failed", "element_id", elementID, "error", err)
+		}
+	}
+
+	dash, err := l.Dashboard(dashboardID, "id,dashboard_layouts", options)
+	if err != nil {
+		if logger != nil {
+			logger.DebugContext(ctx, "best-effort GET dashboard for extension layout failed", "dashboard_id", dashboardID, "error", err)
+		}
+	} else if dash.DashboardLayouts != nil && len(*dash.DashboardLayouts) > 0 {
+		layouts := *dash.DashboardLayouts
+		activeLayout := layouts[0]
+		for _, lay := range layouts {
+			if lay.Active != nil && *lay.Active {
+				activeLayout = lay
+				break
+			}
+		}
+		if activeLayout.Id != nil && (activeLayout.Type == nil || *activeLayout.Type != "extension") {
+			extType := "extension"
+			if _, err := l.UpdateDashboardLayout(*activeLayout.Id, v4.WriteDashboardLayout{Type: &extType}, "", options); err != nil && logger != nil {
+				logger.DebugContext(ctx, "best-effort PATCH dashboard_layout type=extension failed", "layout_id", *activeLayout.Id, "error", err)
+			}
+		}
+	}
+
+	dashPath := fmt.Sprintf("/dashboards/%s", url.PathEscape(dashboardID))
+	appearancePatch := writeFullBleedDashboard{
+		Appearance: fullBleedDashboardAppearance{
+			ShowDashboardHeader: false,
+			PageSideMargins:     0,
+			TileSpaceBetween:    0,
+			TileShadow:          false,
+		},
+	}
+	var dashResp map[string]any
+	if err := l.AuthSession.Do(&dashResp, "PATCH", "/4.0", dashPath, nil, appearancePatch, options); err != nil && logger != nil {
+		logger.DebugContext(ctx, "best-effort PATCH dashboard full-bleed appearance failed", "dashboard_id", dashboardID, "error", err)
 	}
 }

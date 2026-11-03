@@ -60,6 +60,8 @@ The Looker MCP server provides a wide range of tools. Here are some of the key c
 | `make_dashboard`        | Creates a new dashboard.                                  |
 | `import_dashboard_from_lookml` | Imports a dashboard from a LookML YAML definition. |
 | `add_dashboard_element` | Adds a tile to a dashboard.                               |
+| `create_data_app_extension` | Creates a Data App Extension.                 |
+| `update_data_app_extension` | Updates an existing Data App Extension.         |
 | `health_pulse`          | Checks the status of the Looker instance.                 |
 | `dev_mode`              | Toggles development mode.                                 |
 | `get_projects`          | Lists LookML projects.                                    |

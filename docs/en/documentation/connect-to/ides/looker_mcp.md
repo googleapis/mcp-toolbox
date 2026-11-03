@@ -524,6 +524,8 @@ instance and create new saved content.
 1. **add_dashboard_element**: Add a tile to a dashboard
 1. **add_dashboard_filter**: Add a filter to a dashboard
 1. **generate_embed_url**: Generate an embed url for content
+1. **create_data_app_extension**: Create a Data App Extension in Looker
+1. **update_data_app_extension**: Update an existing Data App Extension in Looker
 
 ### Looker Instance Health Tools
 

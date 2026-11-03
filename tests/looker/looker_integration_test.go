@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -375,6 +376,16 @@ func TestLooker(t *testing.T) {
 			},
 			"update_dashboard_layout_component": map[string]any{
 				"type":        "looker-update-dashboard-layout-component",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"create_data_app_extension": map[string]any{
+				"type":        "looker-create-data-app-extension",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"update_data_app_extension": map[string]any{
+				"type":        "looker-update-data-app-extension",
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
@@ -1623,8 +1634,15 @@ func TestLooker(t *testing.T) {
 					},
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The type of dashboard element: 'vis' (visualization), 'data' (data table), or 'text' (text/markdown tile).",
+						"description":  "The type of dashboard element: 'vis' (visualization), 'data' (data table), 'text' (text/markdown tile), or 'extension' (extension/data app tile). Note that 'extension' is automatically inferred when extension_id is provided.",
 						"name":         "type",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The ID of the extension (e.g. 'db::<id>' from create_data_app_extension or 'app::<id>' from LookML extensions) for 'extension' tiles. For extension tiles, query fields (model, explore, fields) should be omitted as the extension manages its own queries via the Looker SDK.",
+						"name":         "extension_id",
 						"required":     false,
 						"type":         "string",
 					},
@@ -2428,8 +2446,15 @@ func TestLooker(t *testing.T) {
 					},
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The type of dashboard element: 'vis' (visualization), 'data' (data table), or 'text' (text/markdown tile).",
+						"description":  "The type of dashboard element: 'vis' (visualization), 'data' (data table), 'text' (text/markdown tile), or 'extension' (extension/data app tile). Note that 'extension' is automatically inferred when extension_id is provided.",
 						"name":         "type",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The ID of the extension (e.g. 'db::<id>' from create_data_app_extension or 'app::<id>' from LookML extensions) for 'extension' tiles. For extension tiles, query fields (model, explore, fields) should be omitted as the extension manages its own queries via the Looker SDK.",
+						"name":         "extension_id",
 						"required":     false,
 						"type":         "string",
 					},
@@ -2587,6 +2612,98 @@ func TestLooker(t *testing.T) {
 						"name":         "height",
 						"required":     false,
 						"type":         "integer",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "create_data_app_extension",
+		map[string]any{
+			"create_data_app_extension": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The user-friendly display label for the Data App Extension (up to 255 characters).",
+						"name":         "label",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (<script type=\"module\">), not CommonJS or an IIFE bundle. Relative imports (e.g. '/runtime/data-app.js') must be rewritten to absolute CDN URLs (e.g. 'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js' and 'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'). Must end with the custom element registration guard: if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;",
+						"name":         "code",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional description of the Data App Extension.",
+						"name":         "description",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional unique system name matching [a-zA-Z0-9-_]+. Leave empty to auto-generate a collision-free name.",
+						"name":         "name",
+						"required":     false,
+						"type":         "string",
+						"default":      "",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "update_data_app_extension",
+		map[string]any{
+			"update_data_app_extension": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The ID of the Data App Extension to update (accepts '<id>' or 'db::<id>').",
+						"name":         "data_app_extension_id",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional updated display label for the Data App Extension (up to 255 characters).",
+						"name":         "label",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional updated uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (<script type=\"module\">), not CommonJS or an IIFE bundle. Relative imports (e.g. '/runtime/data-app.js') must be rewritten to absolute CDN URLs (e.g. 'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js' and 'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'). Must end with the custom element registration guard: if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;",
+						"name":         "code",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional updated description of the Data App Extension.",
+						"name":         "description",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional updated unique system name matching [a-zA-Z0-9-_]+. Usually omitted on update to avoid unique-index collisions.",
+						"name":         "name",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional ID of the shared dashboard containing this Data App tile, used for contextual edit authorization when updating an extension in a shared folder.",
+						"name":         "dashboard_id",
+						"required":     false,
+						"type":         "string",
+						"default":      "",
 					},
 				},
 			},
@@ -2763,6 +2880,9 @@ func TestLooker(t *testing.T) {
 
 	deleteImportedDashboard := testImportDashboardFromLookml(t, randstr)
 	defer deleteImportedDashboard()
+
+	deleteDataAppExtension := testDataAppExtensionLifecycle(t, randstr)
+	defer deleteDataAppExtension()
 
 	wantResult = "\"Connection\":\"thelook\""
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_db_connections"}`), wantResult)
@@ -3373,6 +3493,102 @@ func testImportDashboardFromLookml(t *testing.T, randstr string) func() {
 
 		if _, err := sdk.DeleteDashboard(id, nil); err != nil {
 			t.Fatalf("error deleting imported dashboard: %v", err)
+		}
+	}
+}
+
+func testDataAppExtensionLifecycle(t *testing.T, randstr string) func() {
+	var id string
+	t.Run("TestDataAppExtensionLifecycle", func(t *testing.T) {
+		createReq := map[string]any{
+			"label":       fmt.Sprintf("TestDataApp%s", randstr),
+			"description": "Integration test Data App Extension",
+			"code":        "export default function App() { return null; }",
+		}
+		reqBody, err := json.Marshal(createReq)
+		if err != nil {
+			t.Fatalf("error marshaling create request body: %v", err)
+		}
+
+		createURL := "http://127.0.0.1:5000/api/tool/create_data_app_extension/invoke"
+		resp, bodyBytes := tests.RunRequest(t, http.MethodPost, createURL, bytes.NewBuffer(reqBody), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("unexpected status code on create: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+		}
+
+		var respMap map[string]any
+		if err := json.Unmarshal(bodyBytes, &respMap); err != nil {
+			t.Fatalf("error parsing create response body: %v", err)
+		}
+		resultStr, ok := respMap["result"].(string)
+		if !ok {
+			t.Fatalf("expected string result in create response, got: %s", string(bodyBytes))
+		}
+
+		var created map[string]any
+		if err := json.Unmarshal([]byte(resultStr), &created); err != nil {
+			t.Fatalf("error parsing create result JSON: %v", err)
+		}
+		if errStr, hasErr := created["error"].(string); hasErr && errStr != "" {
+			if strings.Contains(errStr, "status=404") || strings.Contains(errStr, "status 404") || strings.Contains(errStr, "Error 404") {
+				t.Skipf("skipping Data App Extension lifecycle test: inline_extensions feature is disabled on Looker instance (%s)", errStr)
+			}
+			t.Fatalf("create_data_app_extension returned error: %s", errStr)
+		}
+
+		if id, ok = created["id"].(string); !ok || id == "" {
+			t.Fatalf("didn't get created data app extension id, got: %s", resultStr)
+		}
+		if extID, _ := created["extension_id"].(string); extID != "db::"+id {
+			t.Errorf("expected extension_id %q, got %q", "db::"+id, extID)
+		}
+
+		updatedLabel := fmt.Sprintf("UpdatedDataApp%s", randstr)
+		updateReq := map[string]any{
+			"data_app_extension_id": "db::" + id,
+			"label":                 updatedLabel,
+			"code":                  "export default function App() { return 'updated'; }",
+		}
+		updateBody, err := json.Marshal(updateReq)
+		if err != nil {
+			t.Fatalf("error marshaling update request body: %v", err)
+		}
+
+		updateURL := "http://127.0.0.1:5000/api/tool/update_data_app_extension/invoke"
+		resp, bodyBytes = tests.RunRequest(t, http.MethodPost, updateURL, bytes.NewBuffer(updateBody), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("unexpected status code on update: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+		}
+
+		respMap = nil
+		if err := json.Unmarshal(bodyBytes, &respMap); err != nil {
+			t.Fatalf("error parsing update response body: %v", err)
+		}
+		resultStr, ok = respMap["result"].(string)
+		if !ok {
+			t.Fatalf("expected string result in update response, got: %s", string(bodyBytes))
+		}
+
+		var updated map[string]any
+		if err := json.Unmarshal([]byte(resultStr), &updated); err != nil {
+			t.Fatalf("error parsing update result JSON: %v", err)
+		}
+		if errStr, hasErr := updated["error"].(string); hasErr && errStr != "" {
+			t.Fatalf("update_data_app_extension returned error: %s", errStr)
+		}
+		if gotLabel, _ := updated["label"].(string); gotLabel != updatedLabel {
+			t.Errorf("expected updated label %q, got %q", updatedLabel, gotLabel)
+		}
+	})
+
+	return func() {
+		if id == "" {
+			return
+		}
+		sdk := newLookerTestSDK(t)
+		var delResp any
+		if err := sdk.AuthSession.Do(&delResp, "DELETE", "/4.0", "/data_app_extension/"+neturl.PathEscape(id), nil, nil, nil); err != nil {
+			t.Fatalf("error deleting data app extension %s: %v", id, err)
 		}
 	}
 }

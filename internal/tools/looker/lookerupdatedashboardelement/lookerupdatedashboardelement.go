@@ -168,6 +168,10 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	logger.DebugContext(ctx, "resp = %v", resp)
 
+	if wde.Type != nil && *wde.Type == "extension" {
+		lookercommon.ConfigureExtensionDashboard(ctx, sdk, dashboardId, dashboardElementId, wde.TitleHidden, source.LookerApiSettings())
+	}
+
 	data := make(map[string]any)
 	data["result"] = fmt.Sprintf("Dashboard element %s updated", dashboardElementId)
 	if resp.Id != nil {
