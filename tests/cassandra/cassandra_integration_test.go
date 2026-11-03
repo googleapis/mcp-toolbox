@@ -33,9 +33,10 @@ var (
 	CassandraSourceType = "cassandra"
 	CassandraToolType   = "cassandra-cql"
 	Hosts               = os.Getenv("CASSANDRA_HOST")
-	Keyspace            = "example_keyspace"
-	Username            = os.Getenv("CASSANDRA_USER")
-	Password            = os.Getenv("CASSANDRA_PASS")
+	// Per-run keyspace (dropped on cleanup) so runs never share or leak one.
+	Keyspace = "toolbox_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	Username = os.Getenv("CASSANDRA_USER")
+	Password = os.Getenv("CASSANDRA_PASS")
 )
 
 func getCassandraVars(t *testing.T) map[string]any {
@@ -179,6 +180,13 @@ func setupTable(t *testing.T, session *gocql.Session, tableName string) {
 	}
 }
 
+func dropKeyspace(t *testing.T, session *gocql.Session) {
+	t.Helper()
+	if err := session.Query(fmt.Sprintf("DROP KEYSPACE IF EXISTS %s", Keyspace)).Exec(); err != nil {
+		t.Errorf("failed to drop keyspace %s: %v", Keyspace, err)
+	}
+}
+
 func TestCassandra(t *testing.T) {
 	session, err := initCassandraSession()
 	if err != nil {
@@ -186,6 +194,8 @@ func TestCassandra(t *testing.T) {
 	}
 	// t.Cleanup, not defer: the table drops below run as cleanups and need the session.
 	t.Cleanup(session.Close)
+	// Runs after the table drops and before the session closes (cleanups are LIFO).
+	t.Cleanup(func() { dropKeyspace(t, session) })
 	sourceConfig := getCassandraVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
