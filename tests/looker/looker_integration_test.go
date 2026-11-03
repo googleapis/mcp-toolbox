@@ -173,6 +173,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"import_dashboard_from_lookml": map[string]any{
+				"type":        "looker-import-dashboard-from-lookml",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"add_dashboard_filter": map[string]any{
 				"type":        "looker-add-dashboard-filter",
 				"source":      "my-instance",
@@ -1357,6 +1362,31 @@ func TestLooker(t *testing.T) {
 			},
 		},
 	)
+	tests.RunToolGetTestByName(t, "import_dashboard_from_lookml",
+		map[string]any{
+			"import_dashboard_from_lookml": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The LookML YAML definition of the dashboard to import",
+						"name":         "lookml",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The folder id where the Dashboard will be created. Leave blank to use the user's personal folder",
+						"name":         "folder",
+						"required":     false,
+						"type":         "string",
+						"default":      "",
+					},
+				},
+			},
+		},
+	)
 	tests.RunToolGetTestByName(t, "add_dashboard_filter",
 		map[string]any{
 			"add_dashboard_filter": map[string]any{
@@ -1448,30 +1478,30 @@ func TestLooker(t *testing.T) {
 				"parameters": []any{
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The model containing the explore.",
+						"description":  "The model containing the explore (required if type is 'vis' or 'data').",
 						"name":         "model",
-						"required":     true,
+						"required":     false,
 						"type":         "string",
 					},
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The explore to be queried.",
+						"description":  "The explore to be queried (required if type is 'vis' or 'data').",
 						"name":         "explore",
-						"required":     true,
+						"required":     false,
 						"type":         "string",
 					},
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The fields to be retrieved.",
+						"description":  "The fields to be retrieved (required if type is 'vis' or 'data').",
 						"items": map[string]any{
 							"authServices": []any{},
 							"description":  "A field to be returned in the query",
 							"name":         "field",
-							"required":     true,
+							"required":     false,
 							"type":         "string",
 						},
 						"name":     "fields",
-						"required": true,
+						"required": false,
 						"type":     "array",
 					},
 					map[string]any{
@@ -1590,6 +1620,76 @@ func TestLooker(t *testing.T) {
 						"name":     "dashboard_filters",
 						"required": false,
 						"type":     "array",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The type of dashboard element: 'vis' (visualization), 'data' (data table), or 'text' (text/markdown tile).",
+						"name":         "type",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The text, Markdown, HTML, or Slate JSON body content for 'text' tiles.",
+						"name":         "body_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The title text for 'text' tiles.",
+						"name":         "title_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The subtitle text displayed below the title.",
+						"name":         "subtitle_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "A JSON string containing properties for rich text (Slate) elements (e.g. '{\"format\":\"slate\"}').",
+						"name":         "rich_content_json",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The note text attached to the tile.",
+						"name":         "note_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Where the note appears on the tile: 'above', 'below', or 'hover'.",
+						"name":         "note_display",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The display state of the note: 'expanded' or 'collapsed'.",
+						"name":         "note_state",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Whether to hide the tile title.",
+						"name":         "title_hidden",
+						"required":     false,
+						"type":         "boolean",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The auto-refresh interval for the tile.",
+						"name":         "refresh_interval",
+						"required":     false,
+						"type":         "string",
 					},
 				},
 			},
@@ -2176,30 +2276,30 @@ func TestLooker(t *testing.T) {
 				"parameters": []any{
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The model containing the explore.",
+						"description":  "The model containing the explore (required if type is 'vis' or 'data').",
 						"name":         "model",
-						"required":     true,
+						"required":     false,
 						"type":         "string",
 					},
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The explore to be queried.",
+						"description":  "The explore to be queried (required if type is 'vis' or 'data').",
 						"name":         "explore",
-						"required":     true,
+						"required":     false,
 						"type":         "string",
 					},
 					map[string]any{
 						"authServices": []any{},
-						"description":  "The fields to be retrieved.",
+						"description":  "The fields to be retrieved (required if type is 'vis' or 'data').",
 						"items": map[string]any{
 							"authServices": []any{},
 							"description":  "A field to be returned in the query",
 							"name":         "field",
-							"required":     true,
+							"required":     false,
 							"type":         "string",
 						},
 						"name":     "fields",
-						"required": true,
+						"required": false,
 						"type":     "array",
 					},
 					map[string]any{
@@ -2325,6 +2425,76 @@ func TestLooker(t *testing.T) {
 						"name":     "dashboard_filters",
 						"required": false,
 						"type":     "array",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The type of dashboard element: 'vis' (visualization), 'data' (data table), or 'text' (text/markdown tile).",
+						"name":         "type",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The text, Markdown, HTML, or Slate JSON body content for 'text' tiles.",
+						"name":         "body_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The title text for 'text' tiles.",
+						"name":         "title_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The subtitle text displayed below the title.",
+						"name":         "subtitle_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "A JSON string containing properties for rich text (Slate) elements (e.g. '{\"format\":\"slate\"}').",
+						"name":         "rich_content_json",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The note text attached to the tile.",
+						"name":         "note_text",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Where the note appears on the tile: 'above', 'below', or 'hover'.",
+						"name":         "note_display",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The display state of the note: 'expanded' or 'collapsed'.",
+						"name":         "note_state",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Whether to hide the tile title.",
+						"name":         "title_hidden",
+						"required":     false,
+						"type":         "boolean",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The auto-refresh interval for the tile.",
+						"name":         "refresh_interval",
+						"required":     false,
+						"type":         "string",
 					},
 				},
 			},
@@ -2591,16 +2761,16 @@ func TestLooker(t *testing.T) {
 	testRunDashboard(t, dashboardId)
 	testDashboardLifecycle(t, dashboardId)
 
+	deleteImportedDashboard := testImportDashboardFromLookml(t, randstr)
+	defer deleteImportedDashboard()
+
 	wantResult = "\"Connection\":\"thelook\""
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_db_connections"}`), wantResult)
 
 	wantResult = "[]"
 	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_schedule_failures"}`), wantResult)
 
-	// Newer Looker (Google Cloud core) instances no longer throw an "Unsupported" API error for
-	// legacy features, but instead return an empty list.
-	wantResult = "[]"
-	tests.RunToolInvokeParametersTest(t, "health_pulse", []byte(`{"action": "check_legacy_features"}`), wantResult)
+	testHealthPulseLegacyFeatures(t)
 
 	wantResult = "\"Project\":\"the_look\""
 	tests.RunToolInvokeParametersTest(t, "health_analyze", []byte(`{"action": "projects"}`), wantResult)
@@ -2610,6 +2780,52 @@ func TestLooker(t *testing.T) {
 
 	wantResult = "\"Model\":\"the_look\""
 	tests.RunToolInvokeParametersTest(t, "health_vacuum", []byte(`{"action": "models"}`), wantResult)
+}
+
+// testHealthPulseLegacyFeatures asserts that health_pulse check_legacy_features
+// returns a valid JSON array of enabled legacy features without an SDK error.
+// Looker upgrades on the live test instance can introduce new default-enabled
+// legacy features over time, so the exact list cannot be pinned to "[]".
+func testHealthPulseLegacyFeatures(t *testing.T) {
+	t.Helper()
+	t.Run("invoke health_pulse/check_legacy_features", func(t *testing.T) {
+		t.Helper()
+		url := "http://127.0.0.1:5000/api/tool/health_pulse/invoke"
+		params := []byte(`{"action": "check_legacy_features"}`)
+		resp, bodyBytes := tests.RunRequest(t, http.MethodPost, url, bytes.NewBuffer(params), nil)
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+		}
+
+		var respBody map[string]any
+		if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
+			t.Fatalf("error parsing response body: %v", err)
+		}
+
+		result, ok := respBody["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body: %s", string(bodyBytes))
+		}
+
+		var features []map[string]string
+		if err := json.Unmarshal([]byte(result), &features); err != nil {
+			t.Fatalf("error parsing result body: %v", err)
+		}
+		if features == nil {
+			t.Fatalf("expected JSON array for legacy features, got: %s", result)
+		}
+
+		for _, f := range features {
+			name := f["Feature"]
+			if name == "" {
+				t.Errorf("expected non-empty Feature name in entry: %v", f)
+			}
+			if name == "Unable to pull legacy features due to SDK error" {
+				t.Errorf("unexpected SDK error checking legacy features: %s", result)
+			}
+		}
+	})
 }
 
 // testFieldValueSuggestions asserts that get_field_value_suggestions returns at
@@ -3112,4 +3328,51 @@ func testDashboardLifecycle(t *testing.T, dashboardId string) {
 			t.Fatalf("failed to find element %s in target layout %s", elementId, newLayoutId)
 		}
 	})
+}
+
+func testImportDashboardFromLookml(t *testing.T, randstr string) func() {
+	var id string
+	t.Run("TestImportDashboardFromLookml", func(t *testing.T) {
+		lookml := fmt.Sprintf("- dashboard: test_imported_%s\n  title: TestImportedDashboard%s\n  layout: newspaper\n", randstr, randstr)
+		reqMap := map[string]any{
+			"lookml": lookml,
+		}
+		reqBody, err := json.Marshal(reqMap)
+		if err != nil {
+			t.Fatalf("error marshaling request body: %v", err)
+		}
+
+		url := "http://127.0.0.1:5000/api/tool/import_dashboard_from_lookml/invoke"
+		resp, bodyBytes := tests.RunRequest(t, http.MethodPost, url, bytes.NewBuffer(reqBody), nil)
+
+		if resp.StatusCode != 200 {
+			t.Fatalf("unexpected status code: got %d, want %d. Body: %s", resp.StatusCode, 200, string(bodyBytes))
+		}
+
+		var respBody map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &respBody); err != nil {
+			t.Fatalf("error parsing response body: %v", err)
+		}
+
+		result := respBody["result"].(string)
+		if err := json.Unmarshal([]byte(result), &respBody); err != nil {
+			t.Fatalf("error parsing result body: %v", err)
+		}
+
+		var ok bool
+		if id, ok = respBody["id"].(string); !ok || id == "" {
+			t.Fatalf("didn't get imported dashboard id, got %s", string(bodyBytes))
+		}
+	})
+
+	return func() {
+		if id == "" {
+			return
+		}
+		sdk := newLookerTestSDK(t)
+
+		if _, err := sdk.DeleteDashboard(id, nil); err != nil {
+			t.Fatalf("error deleting imported dashboard: %v", err)
+		}
+	}
 }

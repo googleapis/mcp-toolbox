@@ -300,12 +300,48 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 	}
 	l.InfoContext(ctx, fmt.Sprintf("Initialized %d resource templates: %s", len(resourceTemplatesMap), strings.Join(resourceTemplateNames, ", ")))
 
+	registerDynamicResources(ctx, toolsMap, resourcesMap, l)
+
 	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
 	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, nil
+}
+
+// registerDynamicResources registers dynamic UI resources exposed by tools implementing resources.ResourceProvider.
+func registerDynamicResources(ctx context.Context, toolsMap map[string]tools.Tool, resourcesMap map[string]resources.Resource, l log.Logger) {
+	for _, t := range toolsMap {
+		if rp, ok := t.(resources.ResourceProvider); ok {
+			for _, res := range rp.GetResources() {
+				name := res.GetName()
+				if name == "" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource from tool %q has an empty name and was skipped", t.GetName()))
+					continue
+				}
+				uri := res.GetURI()
+				if uri == "" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q has an empty URI and was skipped", name, t.GetName()))
+					continue
+				}
+				parsed, err := url.Parse(uri)
+				if err != nil || parsed.Scheme == "" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q has an invalid URI %q and was skipped", name, t.GetName(), uri))
+					continue
+				}
+				if res.IsUI() && parsed.Scheme != "ui" {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q has invalid scheme %q (expected 'ui') and was skipped", name, t.GetName(), parsed.Scheme))
+					continue
+				}
+				if _, exists := resourcesMap[name]; !exists {
+					resourcesMap[name] = res
+				} else {
+					l.WarnContext(ctx, fmt.Sprintf("Dynamic UI resource %q from tool %q conflicts with an existing resource and was skipped", name, t.GetName()))
+				}
+			}
+		}
+	}
 }
 
 // InitializeOfflineConfigs initializes only tools, prompts, and groups from the
@@ -360,6 +396,8 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 		}
 		resourceTemplatesMap[name] = rt
 	}
+
+	registerDynamicResources(ctx, toolsMap, resourcesMap, l)
 
 	groupsMap, err := initializeGroups(ctx, cfg, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, instrumentation, l)
 	if err != nil {
