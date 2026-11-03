@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -126,6 +127,30 @@ func GetQueryParameters() parameters.Parameters {
 		"The fields to be retrieved.",
 		parameters.NewStringParameter("field", "A field to be returned in the query"),
 	)
+	return append(parameters.Parameters{modelParameter, exploreParameter, fieldsParameter}, getQueryParameters()...)
+}
+
+func GetDashboardElementQueryParameters() parameters.Parameters {
+	modelParameter := parameters.NewStringParameter(
+		"model",
+		"The model containing the explore (required if type is 'vis' or 'data').",
+		parameters.WithStringRequired(false),
+	)
+	exploreParameter := parameters.NewStringParameter(
+		"explore",
+		"The explore to be queried (required if type is 'vis' or 'data').",
+		parameters.WithStringRequired(false),
+	)
+	fieldsParameter := parameters.NewArrayParameter(
+		"fields",
+		"The fields to be retrieved (required if type is 'vis' or 'data').",
+		parameters.NewStringParameter("field", "A field to be returned in the query"),
+		parameters.WithArrayRequired(false),
+	)
+	return append(parameters.Parameters{modelParameter, exploreParameter, fieldsParameter}, getQueryParameters()...)
+}
+
+func getQueryParameters() parameters.Parameters {
 	filtersParameter := parameters.NewMapParameter(
 		"filters",
 		"The filters for the query. Keys are fully-qualified field names "+
@@ -161,9 +186,6 @@ func GetQueryParameters() parameters.Parameters {
 	)
 
 	return parameters.Parameters{
-		modelParameter,
-		exploreParameter,
-		fieldsParameter,
 		filtersParameter,
 		pivotsParameter,
 		sortsParameter,
@@ -171,6 +193,21 @@ func GetQueryParameters() parameters.Parameters {
 		tzParameter,
 		filterExpressionParameter,
 		dynamicFieldsParameter,
+	}
+}
+
+func GetDashboardElementParameters() parameters.Parameters {
+	return parameters.Parameters{
+		parameters.NewStringParameter("type", "The type of dashboard element: 'vis' (visualization), 'data' (data table), or 'text' (text/markdown tile).", parameters.WithStringRequired(false), parameters.WithStringAllowedValues([]any{"vis", "data", "text"})),
+		parameters.NewStringParameter("body_text", "The text, Markdown, HTML, or Slate JSON body content for 'text' tiles.", parameters.WithStringRequired(false)),
+		parameters.NewStringParameter("title_text", "The title text for 'text' tiles.", parameters.WithStringRequired(false)),
+		parameters.NewStringParameter("subtitle_text", "The subtitle text displayed below the title.", parameters.WithStringRequired(false)),
+		parameters.NewStringParameter("rich_content_json", "A JSON string containing properties for rich text (Slate) elements (e.g. '{\"format\":\"slate\"}').", parameters.WithStringRequired(false)),
+		parameters.NewStringParameter("note_text", "The note text attached to the tile.", parameters.WithStringRequired(false)),
+		parameters.NewStringParameter("note_display", "Where the note appears on the tile: 'above', 'below', or 'hover'.", parameters.WithStringRequired(false)),
+		parameters.NewStringParameter("note_state", "The display state of the note: 'expanded' or 'collapsed'.", parameters.WithStringRequired(false)),
+		parameters.NewBooleanParameter("title_hidden", "Whether to hide the tile title.", parameters.WithBooleanRequired(false)),
+		parameters.NewStringParameter("refresh_interval", "The auto-refresh interval for the tile.", parameters.WithStringRequired(false)),
 	}
 }
 
@@ -304,12 +341,24 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 	logger.DebugContext(ctx, "params = ", params)
 	paramsMap := params.AsMap()
 
-	f, err := parameters.ConvertAnySliceToTyped(paramsMap["fields"].([]any), "string")
+	model, ok := paramsMap["model"].(string)
+	if !ok || model == "" {
+		return nil, fmt.Errorf("'model' must be a non-empty string")
+	}
+	explore, ok := paramsMap["explore"].(string)
+	if !ok || explore == "" {
+		return nil, fmt.Errorf("'explore' must be a non-empty string")
+	}
+	fieldsRaw, ok := paramsMap["fields"].([]any)
+	if !ok || len(fieldsRaw) == 0 {
+		return nil, fmt.Errorf("'fields' must be a non-empty array of strings")
+	}
+	f, err := parameters.ConvertAnySliceToTyped(fieldsRaw, "string")
 	if err != nil {
 		return nil, fmt.Errorf("can't convert fields to array of strings: %s", err)
 	}
 	fields := f.([]string)
-	filters := paramsMap["filters"].(map[string]any)
+	filters, _ := paramsMap["filters"].(map[string]any)
 	// Strip a single layer of wrapping quotes from keys and string values.
 	// Values matter for LookML `type: unquoted` parameters, where Looker
 	// substitutes the value bare into SQL via {% parameter %}. Build a new map
@@ -375,8 +424,8 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 	}
 
 	wq := v4.WriteQuery{
-		Model:            paramsMap["model"].(string),
-		View:             paramsMap["explore"].(string),
+		Model:            model,
+		View:             explore,
 		Fields:           &fields,
 		Pivots:           &pivots,
 		Filters:          &filters,
@@ -387,6 +436,149 @@ func ProcessQueryArgs(ctx context.Context, params parameters.ParamValues) (*v4.W
 		DynamicFields:    dynamicFieldsPtr,
 	}
 	return &wq, nil
+}
+
+func optionalStringPtr(paramsMap map[string]any, key string) *string {
+	if v, ok := paramsMap[key].(string); ok {
+		return &v
+	}
+	return nil
+}
+
+// BuildWriteDashboardElement constructs a v4.WriteDashboardElement for both
+// query-backed ("vis", "data") and non-query ("text") dashboard elements.
+func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboardId string, params parameters.ParamValues, opts *rtl.ApiSettings) (v4.WriteDashboardElement, util.ToolboxError) {
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return v4.WriteDashboardElement{}, util.NewClientServerError("unable to get logger from ctx", http.StatusInternalServerError, err)
+	}
+
+	paramsMap := params.AsMap()
+
+	elemType, _ := paramsMap["type"].(string)
+	if elemType != "" && elemType != "vis" && elemType != "data" && elemType != "text" {
+		return v4.WriteDashboardElement{}, util.NewAgentError(fmt.Sprintf("invalid element type %q: must be 'vis', 'data', or 'text'", elemType), nil)
+	}
+
+	title, _ := paramsMap["title"].(string)
+	visConfig, ok := paramsMap["vis_config"].(map[string]any)
+	if !ok {
+		visConfig = make(map[string]any)
+	}
+
+	bodyTextPtr := optionalStringPtr(paramsMap, "body_text")
+	titleTextPtr := optionalStringPtr(paramsMap, "title_text")
+	subtitleTextPtr := optionalStringPtr(paramsMap, "subtitle_text")
+	richContentJsonPtr := optionalStringPtr(paramsMap, "rich_content_json")
+	noteTextPtr := optionalStringPtr(paramsMap, "note_text")
+	noteDisplayPtr := optionalStringPtr(paramsMap, "note_display")
+	noteStatePtr := optionalStringPtr(paramsMap, "note_state")
+	refreshIntervalPtr := optionalStringPtr(paramsMap, "refresh_interval")
+
+	var titleHiddenPtr *bool
+	if v, ok := paramsMap["title_hidden"].(bool); ok {
+		titleHiddenPtr = &v
+	}
+
+	if elemType == "" {
+		model, _ := paramsMap["model"].(string)
+		explore, _ := paramsMap["explore"].(string)
+		if model == "" && explore == "" && (bodyTextPtr != nil || titleTextPtr != nil || subtitleTextPtr != nil || richContentJsonPtr != nil) {
+			elemType = "text"
+		} else if len(visConfig) > 0 {
+			elemType = "vis"
+		} else {
+			elemType = "data"
+		}
+	}
+
+	wde := v4.WriteDashboardElement{
+		DashboardId:     &dashboardId,
+		Type:            &elemType,
+		TitleText:       titleTextPtr,
+		SubtitleText:    subtitleTextPtr,
+		BodyText:        bodyTextPtr,
+		RichContentJson: richContentJsonPtr,
+		NoteText:        noteTextPtr,
+		NoteDisplay:     noteDisplayPtr,
+		NoteState:       noteStatePtr,
+		TitleHidden:     titleHiddenPtr,
+		RefreshInterval: refreshIntervalPtr,
+	}
+
+	if elemType == "text" {
+		if wde.TitleText == nil && title != "" {
+			wde.TitleText = &title
+		}
+		return wde, nil
+	}
+
+	wq, err := ProcessQueryArgs(ctx, params)
+	if err != nil {
+		return v4.WriteDashboardElement{}, util.NewAgentError("error building query request", err)
+	}
+	wq.VisConfig = &visConfig
+
+	if escErr := EscapeUnquotedParameterFilters(ctx, sdk, wq, opts); escErr != nil {
+		logger.WarnContext(ctx, "skipping unquoted-parameter escape, metadata lookup failed", "error", escErr)
+	}
+
+	qresp, err := sdk.CreateQuery(*wq, "id", opts)
+	if err != nil {
+		if strings.Contains(err.Error(), "status=401") {
+			return v4.WriteDashboardElement{}, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
+		}
+		return v4.WriteDashboardElement{}, util.ProcessGeneralError(err)
+	}
+
+	dashFilters := []any{}
+	if v, ok := paramsMap["dashboard_filters"]; ok && v != nil {
+		if df, ok := v.([]any); ok {
+			dashFilters = df
+		}
+	}
+
+	var filterables []v4.ResultMakerFilterables
+	var listeners []v4.ResultMakerFilterablesListen
+	for _, m := range dashFilters {
+		f, ok := m.(map[string]any)
+		if !ok {
+			return v4.WriteDashboardElement{}, util.NewAgentError("invalid dashboard filter structure", nil)
+		}
+		name, ok := f["dashboard_filter_name"].(string)
+		if !ok {
+			return v4.WriteDashboardElement{}, util.NewAgentError("error processing dashboard filter: missing dashboard_filter_name", nil)
+		}
+		field, ok := f["field"].(string)
+		if !ok {
+			return v4.WriteDashboardElement{}, util.NewAgentError("error processing dashboard filter: missing field", nil)
+		}
+		listener := v4.ResultMakerFilterablesListen{
+			DashboardFilterName: &name,
+			Field:               &field,
+		}
+		listeners = append(listeners, listener)
+	}
+
+	if len(listeners) > 0 {
+		filterables = []v4.ResultMakerFilterables{
+			{
+				Listen: &listeners,
+			},
+		}
+	}
+
+	wrm := v4.WriteResultMakerWithIdVisConfigAndDynamicFields{
+		Query:       wq,
+		VisConfig:   &visConfig,
+		Filterables: &filterables,
+	}
+	wde.Title = &title
+	wde.ResultMaker = &wrm
+	wde.Query = wq
+	wde.QueryId = qresp.Id
+
+	return wde, nil
 }
 
 type QueryApiClientContext struct {

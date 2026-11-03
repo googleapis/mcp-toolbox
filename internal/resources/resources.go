@@ -534,3 +534,8 @@ func validateUIScheme(ui bool, scheme, name, entity string) error {
 	}
 	return nil
 }
+
+// ResourceProvider is an optional interface tools can implement to expose UI resources.
+type ResourceProvider interface {
+	GetResources() []Resource
+}
