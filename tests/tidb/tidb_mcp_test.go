@@ -32,6 +32,7 @@ import (
 // Cleanups run LIFO, so the server stops before the tables it queries are
 // dropped, and the pool is closed last.
 func setupTiDBMCPServer(t *testing.T, ctx context.Context) string {
+	useTiDB(ctx, t)
 	sourceConfig := getTiDBVars(t)
 
 	pool, err := initTiDBConnectionPool(TiDBHost, TiDBPort, TiDBUser, TiDBPass, TiDBDatabase, false)
