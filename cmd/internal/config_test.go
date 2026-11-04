@@ -2120,7 +2120,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"alloydb_postgres_advisor_tools": group.GroupConfig{
 					Name:      "alloydb_postgres_advisor_tools",
-					ToolNames: []string{},
+					ToolNames: []string{"get_index_recommendations"},
 				},
 			},
 		},

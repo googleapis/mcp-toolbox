@@ -23,4 +23,6 @@ description: "Details of the AlloyDB Postgres Advisor prebuilt configuration."
 *   **Permissions:**
     *   **AlloyDB Client** (`roles/alloydb.client`) to connect to the instance.
     *   Database-level `SELECT` permission on `google_db_advisor` views.
+*   **Tools:**
+    *   `get_index_recommendations`: Get ADD index recommendations in the database.
 

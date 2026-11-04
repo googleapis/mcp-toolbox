@@ -25,7 +25,53 @@ password: ${ALLOYDB_POSTGRES_PASSWORD:}
 ipType: ${ALLOYDB_POSTGRES_IP_TYPE:public}
 readOnly: ${ALLOYDB_POSTGRES_READONLY:false}
 ---
+kind: tool
+name: get_index_recommendations
+type: postgres-sql
+source: alloydb-pg-source
+description: Get ADD index recommendations from AlloyDB Index Advisor, returning action, schema_name, relation_name, column_names, index_config (access_method and distance_type), and estimated_storage_size_in_mb.
+annotations:
+  readOnlyHint: true
+statement: |
+  SELECT
+      'ADD' AS action,
+      btrim(s -> 'index' ->> 'schema_name', '"') AS schema_name,
+      btrim(s -> 'index' ->> 'relation_name', '"') AS relation_name,
+      ARRAY(
+          SELECT btrim(col, '"')
+          FROM jsonb_array_elements_text(
+              COALESCE(s -> 'index' -> 'column_names', '[]'::jsonb)
+          ) AS col
+      ) AS column_names,
+      jsonb_build_object(
+          'access_method',
+          lower(
+              replace(
+                  COALESCE(s -> 'index' -> 'index_config' ->> 'access_method', 'ACCESS_METHOD_BTREE'),
+                  'ACCESS_METHOD_',
+                  ''
+              )
+          ),
+          'distance_type',
+          NULLIF(
+              replace(
+                  COALESCE(s -> 'index' -> 'index_config' ->> 'distance_type', 'DISTANCE_TYPE_NONE'),
+                  'DISTANCE_TYPE_',
+                  ''
+              ),
+              'NONE'
+          )
+      ) AS index_config,
+      CEIL(COALESCE((s -> 'index' ->> 'size')::numeric, 0) / 1048576)::bigint AS estimated_storage_size_in_mb
+  FROM google_db_advisor_workload_report_detail
+  CROSS JOIN LATERAL jsonb_array_elements(
+      COALESCE(report_detail::jsonb -> 'recommended_index_stats', '[]'::jsonb)
+  ) AS s
+  WHERE COALESCE(current_setting('google_db_advisor.enable_vector_index_advisor', true), 'off') = 'on'
+     OR COALESCE(s -> 'index' -> 'index_config' ->> 'access_method', '') <> 'ACCESS_METHOD_SCANN';
+---
 kind: group
 name: alloydb_postgres_advisor_tools
-tools: []
+tools:
+- get_index_recommendations
 
