@@ -350,13 +350,18 @@ func RunToolInvokeTest(t *testing.T, select1Want string, options ...InvokeTestOp
 			wantStatusCodeMCP: http.StatusOK,
 		},
 		{
-			name:              "Invoke my-auth-tool with auth token",
-			toolName:          "my-auth-tool",
-			enabled:           configs.supportSelect1Auth,
-			requestHeader:     map[string]string{"my-google-auth_token": idToken},
-			args:              map[string]any{},
-			wantBody:          configs.myAuthToolWant,
-			wantBodyMCP:       "[{\"name\":\"Alice\"}]",
+			name:          "Invoke my-auth-tool with auth token",
+			toolName:      "my-auth-tool",
+			enabled:       configs.supportSelect1Auth,
+			requestHeader: map[string]string{"my-google-auth_token": idToken},
+			args:          map[string]any{},
+			wantBody:      configs.myAuthToolWant,
+			wantBodyMCP: func() string {
+				if configs.myAuthToolWant != "" {
+					return configs.myAuthToolWant
+				}
+				return "[{\"name\":\"Alice\"}]"
+			}(),
 			wantStatusCode:    http.StatusOK,
 			wantStatusCodeMCP: http.StatusOK,
 		},
