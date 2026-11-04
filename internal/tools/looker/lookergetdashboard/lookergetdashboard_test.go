@@ -159,12 +159,12 @@ func TestAnnotations(t *testing.T) {
 		ConfigBase: tools.ConfigBase{
 			Name:        "test_tool",
 			Description: "test description",
+			Annotations: &tools.ToolAnnotations{
+				ReadOnlyHint: &readOnlyTrue,
+			},
 		},
 		Type:   "looker-get-dashboard",
 		Source: "my-instance",
-		Annotations: &tools.ToolAnnotations{
-			ReadOnlyHint: &readOnlyTrue,
-		},
 	}
 
 	tool, err := cfg.Initialize(context.Background())
@@ -262,8 +262,10 @@ func TestInvokeLookerGetDashboard(t *testing.T) {
 		t.Fatalf("unexpected invoke error: %v", toolboxErr)
 	}
 
-	if !strings.Contains(requestedFields, "certification_metadata") {
-		t.Errorf("expected requested fields to include 'certification_metadata', got %q", requestedFields)
+	for _, expectedField := range []string{"certification_metadata", "rich_content_json", "note_text", "title_hidden"} {
+		if !strings.Contains(requestedFields, expectedField) {
+			t.Errorf("expected requested fields to include %q, got %q", expectedField, requestedFields)
+		}
 	}
 
 	dash, ok := got.(v4.Dashboard)

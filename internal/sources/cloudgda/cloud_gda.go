@@ -56,6 +56,7 @@ type Config struct {
 	Type           string `yaml:"type" validate:"required"`
 	ProjectID      string `yaml:"projectId" validate:"required"`
 	UseClientOAuth bool   `yaml:"useClientOAuth"`
+	ReadOnly       bool   `yaml:"readOnly"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -94,7 +95,7 @@ type Source struct {
 }
 
 func (s *Source) IsReadOnly() bool {
-	return false
+	return s.ReadOnly
 }
 
 func (s *Source) SourceType() string {
