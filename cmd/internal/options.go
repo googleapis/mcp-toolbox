@@ -58,6 +58,15 @@ type Option func(*ToolboxOptions)
 // githubReleasesURL is the endpoint used to check for latest Toolbox release on startup.
 var githubReleasesURL = "https://api.github.com/repos/googleapis/mcp-toolbox/releases/latest"
 
+const (
+	// allowedSourcesEnvVar holds a comma-separated allowlist of source types.
+	// When it is unset or empty, every source type is allowed.
+	allowedSourcesEnvVar = "TOOLBOX_ALLOWED_SOURCES"
+	// disallowedToolsEnvVar holds a comma-separated denylist of tool types.
+	// When it is unset or empty, every tool type is allowed.
+	disallowedToolsEnvVar = "TOOLBOX_DISALLOWED_TOOLS"
+)
+
 // NewToolboxOptions creates a new instance with defaults, then applies any
 // provided options.
 func NewToolboxOptions(opts ...Option) *ToolboxOptions {
@@ -370,5 +379,16 @@ func (opts *ToolboxOptions) checkVersion(ctx context.Context) {
 
 	if semver.Compare(latest, current) > 0 {
 		opts.Logger.InfoContext(ctx, fmt.Sprintf("A newer version of MCP Toolbox is available: (%s -> %s). Visit https://github.com/googleapis/mcp-toolbox/releases to view the latest release.", current, latest))
+	}
+}
+
+// loadRestrictionsFromEnv reads the source and tool type restrictions from
+// TOOLBOX_ALLOWED_SOURCES and TOOLBOX_DISALLOWED_TOOLS into opts.Cfg.
+func (opts *ToolboxOptions) loadRestrictionsFromEnv() {
+	if v := strings.TrimSpace(os.Getenv(allowedSourcesEnvVar)); v != "" {
+		opts.Cfg.AllowedSources = strings.Split(v, ",")
+	}
+	if v := strings.TrimSpace(os.Getenv(disallowedToolsEnvVar)); v != "" {
+		opts.Cfg.DisallowedTools = strings.Split(v, ",")
 	}
 }

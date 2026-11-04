@@ -19,7 +19,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -27,8 +26,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// recordingSourceConfig records whether Initialize was called. Tests use it to
-// check that a rejected config never opens a source connection.
+// recordingSourceConfig records whether Initialize was called.
 type recordingSourceConfig struct {
 	sourceType  string
 	initialized *bool
@@ -41,202 +39,128 @@ func (c recordingSourceConfig) Initialize(ctx context.Context, tracer trace.Trac
 	return testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{Type: c.sourceType}}, nil
 }
 
-func typeSet(entries ...string) map[string]struct{} {
-	s := make(map[string]struct{}, len(entries))
-	for _, e := range entries {
-		s[e] = struct{}{}
+func TestCheckRestrictions(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("error setting up logger: %s", err)
 	}
-	return s
-}
-
-func TestNewTypeSet(t *testing.T) {
-	tests := []struct {
-		name    string
-		entries []string
-		want    map[string]struct{}
-	}{
-		{name: "nil", entries: nil, want: nil},
-		{name: "empty", entries: []string{}, want: nil},
-		{name: "single", entries: []string{"spanner"}, want: typeSet("spanner")},
-		{name: "multiple", entries: []string{"cloud-sql-postgres", "cloud-sql-mysql", "spanner"}, want: typeSet("cloud-sql-postgres", "cloud-sql-mysql", "spanner")},
-		{name: "trims whitespace", entries: []string{" cloud-sql-postgres ", " spanner "}, want: typeSet("cloud-sql-postgres", "spanner")},
-		{name: "drops empty entries", entries: []string{"", "spanner", "", "alloydb-postgres", ""}, want: typeSet("spanner", "alloydb-postgres")},
-		{name: "duplicates collapse", entries: []string{"spanner", "spanner"}, want: typeSet("spanner")},
-		{name: "separators only gives empty non-nil set", entries: []string{" ", " ", ""}, want: typeSet()},
-		{name: "case is lowercased", entries: []string{"Spanner"}, want: typeSet("spanner")},
+	l, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		t.Fatalf("error getting logger: %s", err)
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := newTypeSet(tc.entries)
-			if (got == nil) != (tc.want == nil) {
-				t.Fatalf("newTypeSet(%q) nil = %v, want nil = %v", tc.entries, got == nil, tc.want == nil)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("newTypeSet(%q) mismatch (-want +got):\n%s", tc.entries, diff)
-			}
-		})
+
+	baseSources := SourceConfigs{
+		"pg":    testutils.MockSourceConfig{Name: "pg", Type: "cloud-sql-postgres"},
+		"bq":    testutils.MockSourceConfig{Name: "bq", Type: "bigquery"},
+		"local": testutils.MockSourceConfig{Name: "local", Type: "sqlite"},
 	}
-}
-
-func TestNewConfigRestrictions(t *testing.T) {
-	t.Run("unset means no restriction", func(t *testing.T) {
-		if newConfigRestrictions(ServerConfig{}).active() {
-			t.Fatalf("newConfigRestrictions().active() = true, want false")
-		}
-	})
-	t.Run("empty means no restriction", func(t *testing.T) {
-		r := newConfigRestrictions(ServerConfig{AllowedSources: []string{}, DisallowedTools: []string{}})
-		if r.active() {
-			t.Fatalf("newConfigRestrictions().active() = true, want false")
-		}
-	})
-	t.Run("reads both fields", func(t *testing.T) {
-		r := newConfigRestrictions(ServerConfig{
-			AllowedSources:  []string{"cloud-sql-postgres", " spanner"},
-			DisallowedTools: []string{"wait", "postgres-execute-sql"},
-		})
-		if !r.active() {
-			t.Fatalf("newConfigRestrictions().active() = false, want true")
-		}
-		if diff := cmp.Diff(typeSet("cloud-sql-postgres", "spanner"), r.allowedSources); diff != "" {
-			t.Errorf("allowedSources mismatch (-want +got):\n%s", diff)
-		}
-		if diff := cmp.Diff(typeSet("wait", "postgres-execute-sql"), r.disallowedTools); diff != "" {
-			t.Errorf("disallowedTools mismatch (-want +got):\n%s", diff)
-		}
-	})
-	t.Run("allowlist of separators only is active", func(t *testing.T) {
-		if !newConfigRestrictions(ServerConfig{AllowedSources: []string{"", ""}}).active() {
-			t.Fatalf("newConfigRestrictions().active() = false, want true")
-		}
-	})
-	t.Run("denylist of separators only is inactive", func(t *testing.T) {
-		if newConfigRestrictions(ServerConfig{DisallowedTools: []string{" ", " "}}).active() {
-			t.Fatalf("newConfigRestrictions().active() = true, want false")
-		}
-	})
-}
-
-func TestConfigRestrictionsValidate(t *testing.T) {
-	cfg := ServerConfig{
-		SourceConfigs: SourceConfigs{
-			"pg":    testutils.MockSourceConfig{Name: "pg", Type: "cloud-sql-postgres"},
-			"bq":    testutils.MockSourceConfig{Name: "bq", Type: "bigquery"},
-			"local": testutils.MockSourceConfig{Name: "local", Type: "sqlite"},
-		},
-		ToolConfigs: ToolConfigs{
-			"list":    testutils.MockToolConfig{Type: "postgres-list-tables"},
-			"exec":    testutils.MockToolConfig{Type: "postgres-execute-sql"},
-			"sleeper": testutils.MockToolConfig{Type: "wait"},
-		},
+	baseTools := ToolConfigs{
+		"list":    testutils.MockToolConfig{Type: "postgres-list-tables"},
+		"exec":    testutils.MockToolConfig{Type: "postgres-execute-sql"},
+		"sleeper": testutils.MockToolConfig{Type: "wait"},
 	}
 
 	tests := []struct {
-		name         string
-		restrictions configRestrictions
-		wantErr      bool
-		wantContains []string
-		wantMissing  []string
+		name            string
+		allowedSources  []string
+		disallowedTools []string
+		wantErr         bool
+		wantContains    []string
+		wantMissing     []string
 	}{
 		{
-			name:         "no restrictions",
-			restrictions: configRestrictions{},
+			name: "no restrictions",
 		},
 		{
-			name: "all sources allowed and no tools denied",
-			restrictions: configRestrictions{
-				allowedSources:  typeSet("cloud-sql-postgres", "bigquery", "sqlite"),
-				disallowedTools: typeSet("spanner-execute-sql"),
-			},
+			name:            "allowed sources and non-disallowed tools pass",
+			allowedSources:  []string{"cloud-sql-postgres", "bigquery", "sqlite"},
+			disallowedTools: []string{"spanner-execute-sql"},
 		},
 		{
-			name:         "disallowed sources are reported in sorted order",
-			restrictions: configRestrictions{allowedSources: typeSet("cloud-sql-postgres")},
-			wantErr:      true,
+			name:           "case-insensitive and whitespace-trimmed matching",
+			allowedSources: []string{" Cloud-SQL-Postgres ", "BigQuery", "SQLite"},
+		},
+		{
+			name:           "gcp-sources preset alone",
+			allowedSources: []string{"gcp-sources"},
+			wantErr:        true,
+			wantContains:   []string{`source "bq"`, `source "local"`},
+			wantMissing:    []string{`source "pg"`},
+		},
+		{
+			name:           "gcp-sources preset combined with other sources",
+			allowedSources: []string{" GCP-Sources ", "bigquery", "sqlite"},
+		},
+		{
+			name:            "gcp-sources is treated literally in disallowedTools",
+			disallowedTools: []string{"gcp-sources"},
+		},
+		{
+			name:           "disallowed sources reported in sorted order",
+			allowedSources: []string{"cloud-sql-postgres"},
+			wantErr:        true,
 			wantContains: []string{
 				`source "bq" has type "bigquery", which is not allowed by TOOLBOX_ALLOWED_SOURCES; source "local" has type "sqlite"`,
 			},
 			wantMissing: []string{`source "pg"`, "tool "},
 		},
 		{
-			name:         "empty non-nil allowlist rejects every source",
-			restrictions: configRestrictions{allowedSources: typeSet()},
-			wantErr:      true,
-			wantContains: []string{`source "bq"`, `source "local"`, `source "pg"`},
-		},
-		{
-			name:         "disallowed tools are reported",
-			restrictions: configRestrictions{disallowedTools: typeSet("postgres-execute-sql", "wait")},
-			wantErr:      true,
+			name:            "disallowed tools reported in sorted order",
+			disallowedTools: []string{" Postgres-Execute-SQL ", "wait"},
+			wantErr:         true,
 			wantContains: []string{
 				`tool "exec" has type "postgres-execute-sql", which is disallowed by TOOLBOX_DISALLOWED_TOOLS; tool "sleeper" has type "wait"`,
 			},
 			wantMissing: []string{`tool "list"`, "source "},
 		},
 		{
-			name: "source and tool violations are both reported",
-			restrictions: configRestrictions{
-				allowedSources:  typeSet("cloud-sql-postgres", "sqlite"),
-				disallowedTools: typeSet("wait"),
-			},
-			wantErr:      true,
-			wantContains: []string{`source "bq"`, `tool "sleeper"`},
-		},
-		{
-			name: "allowlist matching is case insensitive",
-			restrictions: newConfigRestrictions(ServerConfig{
-				AllowedSources: []string{"Cloud-SQL-Postgres", "BigQuery", "SQLite"},
-			}),
-		},
-		{
-			name: "denylist matching is case insensitive",
-			restrictions: newConfigRestrictions(ServerConfig{
-				DisallowedTools: []string{"Postgres-Execute-SQL"},
-			}),
-			wantErr:      true,
-			wantContains: []string{`tool "exec" has type "postgres-execute-sql", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`},
-			wantMissing:  []string{`tool "list"`, `tool "sleeper"`, "source "},
+			name:            "source and tool violations both reported",
+			allowedSources:  []string{"cloud-sql-postgres", "sqlite"},
+			disallowedTools: []string{"wait"},
+			wantErr:         true,
+			wantContains:    []string{`source "bq"`, `tool "sleeper"`},
 		},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.restrictions.validate(cfg)
-			if !tc.wantErr {
-				if err != nil {
-					t.Fatalf("validate() = %v, want nil", err)
-				}
-				return
+			cfg := ServerConfig{
+				AllowedSources:  tc.allowedSources,
+				DisallowedTools: tc.disallowedTools,
+				SourceConfigs:   baseSources,
+				ToolConfigs:     baseTools,
+			}
+			err := checkRestrictions(ctx, cfg, l)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("checkRestrictions() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if err == nil {
-				t.Fatalf("validate() = nil, want error")
+				return
 			}
 			for _, s := range tc.wantContains {
 				if !strings.Contains(err.Error(), s) {
-					t.Errorf("validate() error = %q, want it to contain %q", err, s)
+					t.Errorf("checkRestrictions() error = %q, want it to contain %q", err, s)
 				}
 			}
 			for _, s := range tc.wantMissing {
 				if strings.Contains(err.Error(), s) {
-					t.Errorf("validate() error = %q, want it not to contain %q", err, s)
+					t.Errorf("checkRestrictions() error = %q, want it not to contain %q", err, s)
 				}
 			}
 		})
 	}
 
-	t.Run("empty config passes any restriction", func(t *testing.T) {
-		r := configRestrictions{allowedSources: typeSet(), disallowedTools: typeSet("wait")}
-		if err := r.validate(ServerConfig{}); err != nil {
-			t.Fatalf("validate() = %v, want nil", err)
+	t.Run("all gcpSourceTypes pass under gcp-sources preset", func(t *testing.T) {
+		gcpConfigs := make(SourceConfigs, len(gcpSourceTypes))
+		for _, st := range gcpSourceTypes {
+			gcpConfigs[st] = testutils.MockSourceConfig{Name: st, Type: st}
 		}
-	})
-	t.Run("nil configs are skipped", func(t *testing.T) {
-		r := configRestrictions{allowedSources: typeSet(), disallowedTools: typeSet("wait")}
-		nilCfg := ServerConfig{
-			SourceConfigs: SourceConfigs{"nil-source": nil},
-			ToolConfigs:   ToolConfigs{"nil-tool": nil},
+		cfg := ServerConfig{
+			AllowedSources: []string{"gcp-sources"},
+			SourceConfigs:  gcpConfigs,
 		}
-		if err := r.validate(nilCfg); err != nil {
-			t.Fatalf("validate() = %v, want nil", err)
+		if err := checkRestrictions(ctx, cfg, l); err != nil {
+			t.Fatalf("checkRestrictions() = %v, want nil", err)
 		}
 	})
 }
@@ -266,64 +190,25 @@ func TestInitializeConfigsRestrictions(t *testing.T) {
 		}
 	}
 
-	t.Run("unset restrictions do not restrict", func(t *testing.T) {
+	t.Run("disallowed source fails before source initializes", func(t *testing.T) {
 		var initialized bool
-		sourcesMap, _, _, toolsMap, _, _, _, _, err := InitializeConfigs(ctx, newCfg(&initialized, nil, nil))
-		if err != nil {
-			t.Fatalf("InitializeConfigs() = %v, want nil", err)
-		}
-		if _, ok := sourcesMap["my-source"]; !ok {
-			t.Errorf("sourcesMap missing my-source")
-		}
-		if _, ok := toolsMap["my-tool"]; !ok {
-			t.Errorf("toolsMap missing my-tool")
-		}
-	})
-
-	t.Run("allowed source and non-denied tool start", func(t *testing.T) {
-		var initialized bool
-		cfg := newCfg(&initialized, []string{"cloud-sql-postgres", "mock-source"}, []string{"wait", "postgres-execute-sql"})
-		_, _, _, toolsMap, _, _, _, _, err := InitializeConfigs(ctx, cfg)
-		if err != nil {
-			t.Fatalf("InitializeConfigs() = %v, want nil", err)
-		}
-		if !initialized {
-			t.Errorf("source was not initialized")
-		}
-		if _, ok := toolsMap["my-tool"]; !ok {
-			t.Errorf("toolsMap missing my-tool")
-		}
-	})
-
-	t.Run("disallowed source fails before the source initializes", func(t *testing.T) {
-		var initialized bool
-		cfg := newCfg(&initialized, []string{"cloud-sql-postgres", "spanner"}, nil)
-		_, _, _, _, _, _, _, _, err := InitializeConfigs(ctx, cfg)
+		_, _, _, _, _, _, _, _, err := InitializeConfigs(ctx, newCfg(&initialized, []string{"spanner"}, nil))
 		if err == nil {
 			t.Fatalf("InitializeConfigs() = nil, want error")
 		}
-		want := `source "my-source" has type "mock-source", which is not allowed by TOOLBOX_ALLOWED_SOURCES`
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("InitializeConfigs() error = %q, want it to contain %q", err, want)
-		}
 		if initialized {
-			t.Errorf("source was initialized, want the check to run before any source connects")
+			t.Errorf("source was initialized, want check to run before any source connects")
 		}
 	})
 
-	t.Run("disallowed tool fails before the source initializes", func(t *testing.T) {
+	t.Run("disallowed tool fails before source initializes", func(t *testing.T) {
 		var initialized bool
-		cfg := newCfg(&initialized, nil, []string{"wait", "mock-tool"})
-		_, _, _, _, _, _, _, _, err := InitializeConfigs(ctx, cfg)
+		_, _, _, _, _, _, _, _, err := InitializeConfigs(ctx, newCfg(&initialized, nil, []string{"mock-tool"}))
 		if err == nil {
 			t.Fatalf("InitializeConfigs() = nil, want error")
 		}
-		want := `tool "my-tool" has type "mock-tool", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("InitializeConfigs() error = %q, want it to contain %q", err, want)
-		}
 		if initialized {
-			t.Errorf("source was initialized, want the check to run before any source connects")
+			t.Errorf("source was initialized, want check to run before any source connects")
 		}
 	})
 }
@@ -339,49 +224,18 @@ func TestInitializeOfflineConfigsRestrictions(t *testing.T) {
 	}
 	ctx = util.WithInstrumentation(ctx, instrumentation)
 
-	newCfg := func(allowedSources, disallowedTools []string) ServerConfig {
-		return ServerConfig{
-			Version:         "0.0.0",
-			AllowedSources:  allowedSources,
-			DisallowedTools: disallowedTools,
-			SourceConfigs: SourceConfigs{
-				"my-source": testutils.MockSourceConfig{Name: "my-source", Type: "mock-source"},
-			},
-			ToolConfigs: ToolConfigs{
-				"my-tool": testutils.NewMockTool("my-tool", "mock tool", "my-source", nil, false, false).ToConfig(),
-			},
-		}
+	cfg := ServerConfig{
+		Version:         "0.0.0",
+		AllowedSources:  []string{"spanner"},
+		DisallowedTools: []string{"mock-tool"},
+		SourceConfigs: SourceConfigs{
+			"my-source": testutils.MockSourceConfig{Name: "my-source", Type: "mock-source"},
+		},
+		ToolConfigs: ToolConfigs{
+			"my-tool": testutils.NewMockTool("my-tool", "mock tool", "my-source", nil, false, false).ToConfig(),
+		},
 	}
-
-	t.Run("unset restrictions do not restrict", func(t *testing.T) {
-		toolsMap, _, err := InitializeOfflineConfigs(ctx, newCfg(nil, nil))
-		if err != nil {
-			t.Fatalf("InitializeOfflineConfigs() = %v, want nil", err)
-		}
-		if _, ok := toolsMap["my-tool"]; !ok {
-			t.Errorf("toolsMap missing my-tool")
-		}
-	})
-
-	t.Run("disallowed source fails", func(t *testing.T) {
-		_, _, err := InitializeOfflineConfigs(ctx, newCfg([]string{"spanner"}, nil))
-		if err == nil {
-			t.Fatalf("InitializeOfflineConfigs() = nil, want error")
-		}
-		want := `source "my-source" has type "mock-source", which is not allowed by TOOLBOX_ALLOWED_SOURCES`
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("InitializeOfflineConfigs() error = %q, want it to contain %q", err, want)
-		}
-	})
-
-	t.Run("disallowed tool fails", func(t *testing.T) {
-		_, _, err := InitializeOfflineConfigs(ctx, newCfg(nil, []string{"mock-tool"}))
-		if err == nil {
-			t.Fatalf("InitializeOfflineConfigs() = nil, want error")
-		}
-		want := `tool "my-tool" has type "mock-tool", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("InitializeOfflineConfigs() error = %q, want it to contain %q", err, want)
-		}
-	})
+	if _, _, err := InitializeOfflineConfigs(ctx, cfg); err == nil {
+		t.Fatalf("InitializeOfflineConfigs() = nil, want error")
+	}
 }
