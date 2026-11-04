@@ -40,7 +40,7 @@ func newTypeSet(entries []string) map[string]struct{} {
 	}
 	set := make(map[string]struct{})
 	for _, entry := range entries {
-		entry = strings.TrimSpace(entry)
+		entry = strings.ToLower(strings.TrimSpace(entry))
 		if entry == "" {
 			continue
 		}
@@ -81,7 +81,7 @@ func (r configRestrictions) validate(cfg ServerConfig) error {
 				continue
 			}
 			sourceType := sc.SourceConfigType()
-			if _, ok := r.allowedSources[sourceType]; !ok {
+			if _, ok := r.allowedSources[strings.ToLower(sourceType)]; !ok {
 				violations = append(violations, fmt.Sprintf("source %q has type %q, which is not allowed by TOOLBOX_ALLOWED_SOURCES", name, sourceType))
 			}
 		}
@@ -99,7 +99,7 @@ func (r configRestrictions) validate(cfg ServerConfig) error {
 				continue
 			}
 			toolType := tc.ToolConfigType()
-			if _, ok := r.disallowedTools[toolType]; ok {
+			if _, ok := r.disallowedTools[strings.ToLower(toolType)]; ok {
 				violations = append(violations, fmt.Sprintf("tool %q has type %q, which is disallowed by TOOLBOX_DISALLOWED_TOOLS", name, toolType))
 			}
 		}

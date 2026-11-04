@@ -72,7 +72,7 @@ func expandSourcePresets(entries []string) []string {
 	}
 	expanded := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if strings.TrimSpace(e) == gcpSourcesPreset {
+		if strings.ToLower(strings.TrimSpace(e)) == gcpSourcesPreset {
 			expanded = append(expanded, gcpSourceTypes...)
 			continue
 		}

@@ -63,7 +63,7 @@ func TestNewTypeSet(t *testing.T) {
 		{name: "drops empty entries", entries: []string{"", "spanner", "", "alloydb-postgres", ""}, want: typeSet("spanner", "alloydb-postgres")},
 		{name: "duplicates collapse", entries: []string{"spanner", "spanner"}, want: typeSet("spanner")},
 		{name: "separators only gives empty non-nil set", entries: []string{" ", " ", ""}, want: typeSet()},
-		{name: "case is preserved", entries: []string{"Spanner"}, want: typeSet("Spanner")},
+		{name: "case is lowercased", entries: []string{"Spanner"}, want: typeSet("spanner")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -183,10 +183,19 @@ func TestConfigRestrictionsValidate(t *testing.T) {
 			wantContains: []string{`source "bq"`, `tool "sleeper"`},
 		},
 		{
-			name:         "type matching is case sensitive",
-			restrictions: configRestrictions{allowedSources: typeSet("Cloud-SQL-Postgres", "bigquery", "sqlite")},
+			name: "allowlist matching is case insensitive",
+			restrictions: newConfigRestrictions(ServerConfig{
+				AllowedSources: []string{"Cloud-SQL-Postgres", "BigQuery", "SQLite"},
+			}),
+		},
+		{
+			name: "denylist matching is case insensitive",
+			restrictions: newConfigRestrictions(ServerConfig{
+				DisallowedTools: []string{"Postgres-Execute-SQL"},
+			}),
 			wantErr:      true,
-			wantContains: []string{`source "pg"`},
+			wantContains: []string{`tool "exec" has type "postgres-execute-sql", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`},
+			wantMissing:  []string{`tool "list"`, `tool "sleeper"`, "source "},
 		},
 	}
 	for _, tc := range tests {

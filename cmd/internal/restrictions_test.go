@@ -38,7 +38,7 @@ func TestExpandSourcePresets(t *testing.T) {
 		{desc: "preset only", in: []string{"gcp-sources"}, want: gcpSourceTypes},
 		{desc: "preset with whitespace", in: []string{" gcp-sources "}, want: gcpSourceTypes},
 		{desc: "preset with others", in: []string{"bigquery", "gcp-sources"}, want: append([]string{"bigquery"}, gcpSourceTypes...)},
-		{desc: "preset is case sensitive", in: []string{"GCP-Sources"}, want: []string{"GCP-Sources"}},
+		{desc: "preset is case insensitive", in: []string{"GCP-Sources"}, want: gcpSourceTypes},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -71,6 +71,11 @@ func TestLoadRestrictionsFromEnv(t *testing.T) {
 			desc:               "gcp-sources preset is expanded",
 			envAllowedSources:  "gcp-sources,bigquery",
 			wantAllowedSources: append(append([]string{}, gcpSourceTypes...), "bigquery"),
+		},
+		{
+			desc:               "mixed-case gcp-sources preset is expanded",
+			envAllowedSources:  "GCP-Sources",
+			wantAllowedSources: gcpSourceTypes,
 		},
 		{
 			desc:               "whitespace only means no restriction",
