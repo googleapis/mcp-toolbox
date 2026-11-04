@@ -79,46 +79,74 @@ if [[ "${ATTESTATION_FOUND}" != "true" ]]; then
   exit 1
 fi
 
-TAG_PARENT="projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${STAGING_REPO}/packages/${PACKAGE_NAME}"
-TARGET_VERSION_NAME="${TAG_PARENT}/versions/${IMAGE_DIGEST}"
+readonly ACCESS_TOKEN=$(gcloud auth print-access-token)
 
-upsert_staging_tag() {
+upsert_tag() {
   local tag_id="$1"
+  local repo="${2:-${STAGING_REPO}}"
+  local digest="${3:-${IMAGE_DIGEST}}"
+  local encoded_package="${PACKAGE_NAME//\//%2F}"
+  local image_uri="${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${repo}/${PACKAGE_NAME}"
+  local tag_parent="projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${repo}/packages/${encoded_package}"
+  local target_version_name="${tag_parent}/versions/${digest}"
   local existing_digest
-  existing_digest=$(gcloud artifacts docker tags list "${STAGING_IMAGE_URI}" \
+
+  existing_digest=$(gcloud artifacts docker tags list "${image_uri}" \
     --project="${PROJECT_ID}" \
     --filter="tag ~ \"/tags/${tag_id}\$\"" \
     --format="value(version)" | head -n 1)
   existing_digest="${existing_digest##*/}"
 
-  if [[ "${existing_digest}" == "${IMAGE_DIGEST}" ]]; then
-    echo "Tag ${tag_id} on ${STAGING_IMAGE_URI} already points to ${IMAGE_DIGEST}."
+  if [[ "${existing_digest}" == "${digest}" ]]; then
+    echo "Tag ${tag_id} on ${image_uri} already points to ${digest}."
     return 0
   fi
 
   local tag_url method
   if [[ -z "${existing_digest}" ]]; then
-    echo "Creating tag ${tag_id} on ${STAGING_IMAGE_URI}@${IMAGE_DIGEST}..."
-    tag_url="https://artifactregistry.googleapis.com/v1/${TAG_PARENT}/tags?tagId=${tag_id}"
+    echo "Creating tag ${tag_id} on ${image_uri}@${digest}..."
+    tag_url="https://artifactregistry.googleapis.com/v1/${tag_parent}/tags?tagId=${tag_id}"
     method="POST"
   else
-    echo "Updating tag ${tag_id} on ${STAGING_IMAGE_URI} from ${existing_digest} to ${IMAGE_DIGEST}..."
-    tag_url="https://artifactregistry.googleapis.com/v1/${TAG_PARENT}/tags/${tag_id}?updateMask=version"
+    echo "Updating tag ${tag_id} on ${image_uri} from ${existing_digest} to ${digest}..."
+    tag_url="https://artifactregistry.googleapis.com/v1/${tag_parent}/tags/${tag_id}?updateMask=version"
     method="PATCH"
   fi
 
   local resp http_code body
-  resp=$(curl -sS -w "\n%{http_code}" -X "${method}" \
-    -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  resp=$(curl -sS --retry 3 -w "\n%{http_code}" -X "${method}" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     "${tag_url}" \
-    -d "{\"name\": \"${TAG_PARENT}/tags/${tag_id}\", \"version\": \"${TARGET_VERSION_NAME}\"}")
+    -d "{\"name\": \"${tag_parent}/tags/${tag_id}\", \"version\": \"${target_version_name}\"}")
   http_code=$(echo "${resp}" | tail -n 1)
   body=$(echo "${resp}" | sed '$d')
   if [[ "${http_code}" -lt 200 || "${http_code}" -ge 300 ]]; then
     echo "ERROR: Failed to ${method} tag ${tag_id} (HTTP ${http_code}): ${body}" >&2
     exit 1
   fi
+}
+
+tag_with_children() {
+  local prefix="$1" repo="$2" digest="$3" suffix="$4" require_children="${5:-true}" children child
+  local encoded_package="${PACKAGE_NAME//\//%2F}"
+  upsert_tag "${prefix}-${suffix}" "${repo}" "${digest}"
+  children=$(curl -fsSL --retry 3 \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+    "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${repo}/dockerImages/${encoded_package}@${digest}" \
+    | jq -r '.imageManifests[]?.digest // empty | select(startswith("sha256:"))')
+  if [[ -z "${children}" ]]; then
+    if [[ "${require_children}" == "true" ]]; then
+      echo "ERROR: No child manifests found for ${repo}/${PACKAGE_NAME}@${digest}" >&2
+      exit 1
+    fi
+    echo "WARNING: No child manifests found for ${repo}/${PACKAGE_NAME}@${digest}; skipping child tags." >&2
+    return 0
+  fi
+  for child in ${children}; do
+    local child_sha="${child#sha256:}"
+    upsert_tag "${prefix}-${child_sha:0:12}" "${repo}" "${child}"
+  done
 }
 
 PROD_IMAGE_URI="${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${PROD_REPO}/${PACKAGE_NAME}"
@@ -133,28 +161,20 @@ if [[ -n "${EXISTING_PROD_DIGEST}" && "${EXISTING_PROD_DIGEST}" != "${IMAGE_DIGE
   exit 1
 fi
 
+EXISTING_LATEST_DIGEST=""
 if [[ "${PUSH_LATEST:-false}" == "true" ]]; then
+  EXISTING_LATEST_DIGEST=$(gcloud artifacts docker tags list "${PROD_IMAGE_URI}" \
+    --project="${PROJECT_ID}" \
+    --filter="tag ~ \"/tags/latest\$\"" \
+    --format="value(version)" | head -n 1)
+  EXISTING_LATEST_DIGEST="${EXISTING_LATEST_DIGEST##*/}"
+
   echo "Tagging ${STAGING_IMAGE_URI}@${IMAGE_DIGEST} as latest..."
-  upsert_staging_tag "latest"
+  upsert_tag "latest"
 fi
 
-SKIP_PROMOTE=false
 if [[ "${EXISTING_PROD_DIGEST}" == "${IMAGE_DIGEST}" ]]; then
-  SKIP_PROMOTE=true
-  if [[ "${PUSH_LATEST:-false}" == "true" ]]; then
-    EXISTING_LATEST_DIGEST=$(gcloud artifacts docker tags list "${PROD_IMAGE_URI}" \
-      --project="${PROJECT_ID}" \
-      --filter="tag ~ \"/tags/latest\$\"" \
-      --format="value(version)" | head -n 1)
-    EXISTING_LATEST_DIGEST="${EXISTING_LATEST_DIGEST##*/}"
-    if [[ "${EXISTING_LATEST_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
-      SKIP_PROMOTE=false
-    fi
-  fi
-fi
-
-if [[ "${SKIP_PROMOTE}" == "true" ]]; then
-  echo "Image ${PACKAGE_NAME}@${IMAGE_DIGEST} (and requested tags) already promoted to ${PROD_REPO}; skipping promoteArtifact call."
+  echo "Image ${PACKAGE_NAME}@${IMAGE_DIGEST} already promoted to ${PROD_REPO}; skipping promoteArtifact call."
 else
   echo "Promoting ${PACKAGE_NAME}@${IMAGE_DIGEST} from ${STAGING_REPO} to ${PROD_REPO}..."
   PROMOTE_URL="https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${PROD_REPO}:promoteArtifact"
@@ -170,7 +190,7 @@ EOF
 )
 
   RESP=$(curl -sSL -X POST \
-    -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     "${PROMOTE_URL}" \
     -d "${PAYLOAD}")
@@ -192,7 +212,7 @@ EOF
   OP_COMPLETED=false
   while (( SECONDS - OP_START < 300 )); do
     OP_STATUS=$(curl -fsSL --retry 3 \
-      -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+      -H "Authorization: Bearer ${ACCESS_TOKEN}" \
       -H "Content-Type: application/json" \
       "https://artifactregistry.googleapis.com/v1/${OP_NAME}")
 
@@ -218,10 +238,22 @@ fi
 
 echo "Verifying prod tag ${PROD_REPO}/${PACKAGE_NAME}:${VERSION#v} -> ${IMAGE_DIGEST}..."
 PROD_DIGEST=$(curl -fsSL --retry 3 \
-  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
   "https://artifactregistry.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/repositories/${PROD_REPO}/packages/${PACKAGE_NAME}/tags/${VERSION#v}" \
   | jq -r '.version // empty' | awk -F'/' '{print $NF}')
 if [[ "${PROD_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
   echo "ERROR: prod tag ${VERSION#v} resolves to '${PROD_DIGEST}', expected ${IMAGE_DIGEST}" >&2
   exit 1
+fi
+
+echo "Tagging ${PROD_IMAGE_URI}@${IMAGE_DIGEST} (and platform manifests) as public-image..."
+tag_with_children "public-image" "${PROD_REPO}" "${IMAGE_DIGEST}" "${VERSION#v}" "true"
+
+if [[ "${PUSH_LATEST:-false}" == "true" ]]; then
+  upsert_tag "latest" "${PROD_REPO}" "${IMAGE_DIGEST}"
+  if [[ -n "${EXISTING_LATEST_DIGEST}" && "${EXISTING_LATEST_DIGEST}" != "${IMAGE_DIGEST}" ]]; then
+    echo "Marking previous latest image (${EXISTING_LATEST_DIGEST}) as deprecated..."
+    SHORT_LATEST="${EXISTING_LATEST_DIGEST#sha256:}"
+    tag_with_children "deprecated-public-image" "${PROD_REPO}" "${EXISTING_LATEST_DIGEST}" "${SHORT_LATEST:0:12}" "false"
+  fi
 fi
