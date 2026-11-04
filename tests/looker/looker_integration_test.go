@@ -2672,7 +2672,6 @@ func TestLooker(t *testing.T) {
 					map[string]any{
 						"authServices": []any{},
 						"description":  "The layout type for this dashboard layout: 'newspaper' (responsive 24-column grid), 'extension' (frameless full-bleed single extension tile), or 'grid'.",
-						"enum":         []any{"newspaper", "extension", "grid"},
 						"name":         "type",
 						"required":     false,
 						"type":         "string",

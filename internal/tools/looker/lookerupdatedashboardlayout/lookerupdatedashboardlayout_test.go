@@ -299,3 +299,53 @@ func TestInvokeLookerUpdateDashboardLayout(t *testing.T) {
 		t.Errorf("unexpected captured body: %v", capturedBody)
 	}
 }
+
+func TestInvokeLookerUpdateDashboardLayoutNoFields(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	settings := rtl.ApiSettings{
+		BaseUrl:      "http://localhost",
+		ApiVersion:   "4.0",
+		ClientId:     "id",
+		ClientSecret: "secret",
+	}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(settings))
+	src := fakeLookerSource{settings: &settings, sdk: sdk}
+
+	cfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "test_tool",
+			Description: "test description",
+		},
+		Type:   "looker-update-dashboard-layout",
+		Source: "my-instance",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	toolParams, err := tool.GetParameters(nil)
+	if err != nil {
+		t.Fatalf("failed to get tool parameters: %v", err)
+	}
+
+	rawParams := map[string]any{
+		"dashboard_layout_id": "369",
+	}
+	paramValues, err := parameters.ParseParams(toolParams, rawParams, nil)
+	if err != nil {
+		t.Fatalf("failed to parse params: %v", err)
+	}
+
+	_, tbErr := tool.Invoke(ctx, src, paramValues, "")
+	if tbErr == nil {
+		t.Fatal("expected error when no updatable fields provided, got nil")
+	}
+	if !strings.Contains(tbErr.Error(), "at least one of 'type', 'active', or 'label' must be provided to update") {
+		t.Errorf("unexpected error: %v", tbErr)
+	}
+}

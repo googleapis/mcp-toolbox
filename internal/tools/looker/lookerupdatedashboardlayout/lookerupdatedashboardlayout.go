@@ -158,6 +158,10 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		wdl.Label = &label
 	}
 
+	if wdl.Type == nil && wdl.Active == nil && wdl.Label == nil {
+		return nil, util.NewAgentError("at least one of 'type', 'active', or 'label' must be provided to update", nil)
+	}
+
 	sdk, err := source.GetLookerSDK(ctx, string(accessToken))
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)

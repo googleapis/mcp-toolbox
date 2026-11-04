@@ -533,6 +533,7 @@ func BuildWriteDashboardElement(ctx context.Context, sdk *v4.LookerSDK, dashboar
 			}
 		}
 		if title != "" {
+			// wde initializes TitleText above; set Title explicitly for extension tiles.
 			wde.Title = &title
 		}
 
