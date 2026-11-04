@@ -96,6 +96,7 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create SQL Server connection pool: %s", err)
 	}
+	defer pool.Close()
 
 	// cleanup test environment
 	tests.CleanupMSSQLTables(t, ctx, pool)
@@ -128,6 +129,7 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
+	defer cmd.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
