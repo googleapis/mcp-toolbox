@@ -1872,6 +1872,7 @@ func TestPrebuiltTools(t *testing.T) {
 	// Get prebuilt configs
 	alloydb_omni_config, _ := prebuiltconfigs.Get("alloydb-omni")
 	alloydb_admin_config, _ := prebuiltconfigs.Get("alloydb-postgres-admin")
+	alloydb_advisor_config, _ := prebuiltconfigs.Get("alloydb-postgres-advisor")
 	alloydb_config, _ := prebuiltconfigs.Get("alloydb-postgres")
 	alloydbobsvconfig, _ := prebuiltconfigs.Get("alloydb-postgres-observability")
 	bigquery_config, _ := prebuiltconfigs.Get("bigquery")
@@ -2110,6 +2111,16 @@ func TestPrebuiltTools(t *testing.T) {
 				"alloydb_postgres_admin_tools": group.GroupConfig{
 					Name:      "alloydb_postgres_admin_tools",
 					ToolNames: []string{"create_cluster", "wait_for_operation", "create_instance", "list_clusters", "list_instances", "list_users", "create_user", "get_cluster", "get_instance", "get_user"},
+				},
+			},
+		},
+		{
+			name: "alloydb postgres advisor prebuilt tools",
+			in:   alloydb_advisor_config,
+			wantGroups: server.GroupConfigs{
+				"alloydb_postgres_advisor_tools": group.GroupConfig{
+					Name:      "alloydb_postgres_advisor_tools",
+					ToolNames: []string{},
 				},
 			},
 		},
