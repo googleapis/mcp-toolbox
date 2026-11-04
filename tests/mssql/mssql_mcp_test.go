@@ -111,6 +111,18 @@ func TestMSSQLMCPListTools(t *testing.T) {
 			"required": []any{},
 		},
 	})
+	expectedTools = append(expectedTools, tests.MCPToolManifest{
+		Name:        "get_database_object_source_code",
+		Description: "Executes a query to retrieve source code for all coding objects.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"namesOnly":   map[string]any{"default": false, "description": "Optional: Set to true to return only object names instead of full object source code.", "type": "boolean"},
+				"object_type": map[string]any{"default": "all", "description": "Optional: Specify database object type to retrieve. Allowed values: all, functions, tables, procedures, views, triggers, linked_servers, assemblies.", "type": "string"},
+			},
+			"required": []any{},
+		},
+	})
 
 	t.Run("verify tools/list registry returns complete manifest", func(t *testing.T) {
 		tests.RunMCPToolsListMethod(t, expectedTools)
