@@ -191,6 +191,42 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 			wantErrSubs:      []string{"session variable assignment ('SET') is not allowed"},
 		},
 		{
+			// The dry run accepts dynamic SQL as a SCRIPT, so only the deferred
+			// lexical analysis error rejects it.
+			name:          "EXECUTE IMMEDIATE rejected even when dry run succeeds",
+			sql:           "EXECUTE IMMEDIATE 'SELECT * FROM proj.forbidden_ds.secret'",
+			statementType: "SCRIPT",
+			wantErr:       true,
+			wantErrSubs:   []string{"EXECUTE IMMEDIATE is not allowed"},
+		},
+		{
+			// A table named only inside a string literal is not an explicit reference, so
+			// without the deferred lexical analysis error this would be exempted like an
+			// authorized view.
+			name: "EXECUTE IMMEDIATE rejected even when dry run reports the forbidden table",
+			sql:  "EXECUTE IMMEDIATE 'SELECT * FROM proj.forbidden_ds.secret'",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret"},
+			},
+			statementType: "SCRIPT",
+			wantErr:       true,
+			wantErrSubs:   []string{"EXECUTE IMMEDIATE is not allowed"},
+		},
+		{
+			name:          "EXTERNAL_QUERY rejected even when dry run succeeds",
+			sql:           "SELECT * FROM EXTERNAL_QUERY('proj.us.conn', 'SELECT * FROM secret')",
+			statementType: "SELECT",
+			wantErr:       true,
+			wantErrSubs:   []string{"EXTERNAL_QUERY is not allowed"},
+		},
+		{
+			name:          "region-level INFORMATION_SCHEMA rejected even when dry run succeeds",
+			sql:           "SELECT * FROM `region-us`.INFORMATION_SCHEMA.SCHEMATA",
+			statementType: "SELECT",
+			wantErr:       true,
+			wantErrSubs:   []string{"non-dataset-level INFORMATION_SCHEMA view \"SCHEMATA\" is not allowed"},
+		},
+		{
 			name: "CREATE TEMP MODEL over allowed table with session temp object option",
 			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
 			referencedTables: []*bigquery.TableReference{
@@ -343,6 +379,93 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 				}
 			} else if errToolbox != nil {
 				t.Fatalf("expected no error, got %v", errToolbox)
+			}
+		})
+	}
+}
+
+func TestValidateQueryAgainstAllowedDatasetsBeforeDryRun(t *testing.T) {
+	testCases := []struct {
+		name          string
+		projectID     string
+		sql           string
+		wantDryRun    bool
+		wantErrSubs   []string
+		unwantedInErr string
+	}{
+		{
+			name:          "forbidden dataset surfaces allowlist error before dry run 404",
+			projectID:     "proj",
+			sql:           "SELECT * FROM forbidden_ds.no_such_table",
+			wantDryRun:    false,
+			wantErrSubs:   []string{"access to dataset 'proj.forbidden_ds' is not allowed"},
+			unwantedInErr: "no_such_table",
+		},
+		{
+			name:          "domain-scoped default project forbidden dataset surfaces allowlist error before dry run 404",
+			projectID:     "google.com:corp-proj",
+			sql:           "SELECT * FROM forbidden_ds.no_such_table",
+			wantDryRun:    false,
+			wantErrSubs:   []string{"access to dataset 'google.com:corp-proj.forbidden_ds' is not allowed"},
+			unwantedInErr: "no_such_table",
+		},
+		{
+			name:          "allowed dataset still surfaces dry run 404",
+			projectID:     "proj",
+			sql:           "SELECT * FROM allowed_ds.no_such_table",
+			wantDryRun:    true,
+			wantErrSubs:   []string{"no_such_table"},
+			unwantedInErr: "is not allowed",
+		},
+		{
+			name:          "restricted statement on non-existent object surfaces restriction error instead of 404",
+			projectID:     "proj",
+			sql:           "CALL forbidden_ds.no_such_proc()",
+			wantDryRun:    true,
+			wantErrSubs:   []string{"CALL is not allowed when dataset restrictions are in place"},
+			unwantedInErr: "no_such_table",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dryRunCalled := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				dryRunCalled = true
+				http.Error(w, "Not found: Table no_such_table", http.StatusNotFound)
+			}))
+			defer server.Close()
+
+			restService, err := bigquery.NewService(context.Background(), option.WithoutAuthentication(), option.WithEndpoint(server.URL))
+			if err != nil {
+				t.Fatalf("failed to create bigquery service: %v", err)
+			}
+
+			_, errToolbox := bigquerycommon.ValidateQueryAgainstAllowedDatasets(
+				context.Background(),
+				restService,
+				tc.projectID,
+				"US",
+				tc.sql,
+				nil,
+				nil,
+				mockDatasetValidator{},
+				0,
+				false,
+			)
+			if errToolbox == nil {
+				t.Fatalf("expected error containing %v, got nil", tc.wantErrSubs)
+			}
+			for _, sub := range tc.wantErrSubs {
+				if !strings.Contains(errToolbox.Error(), sub) {
+					t.Errorf("error = %q, want it to contain %q", errToolbox.Error(), sub)
+				}
+			}
+			if tc.unwantedInErr != "" && strings.Contains(errToolbox.Error(), tc.unwantedInErr) {
+				t.Errorf("error = %q, want it NOT to contain %q", errToolbox.Error(), tc.unwantedInErr)
+			}
+			if dryRunCalled != tc.wantDryRun {
+				t.Errorf("dryRunCalled = %v, want %v", dryRunCalled, tc.wantDryRun)
 			}
 		})
 	}

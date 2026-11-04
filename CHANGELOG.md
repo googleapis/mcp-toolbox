@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.15.0](https://github.com/googleapis/mcp-toolbox/compare/v1.14.0...v1.15.0) (2026-10-22)
+
+
+### Features
+
+* **conversational-analytics:** Add create, update, and delete data agent tools ([#3685](https://github.com/googleapis/mcp-toolbox/issues/3685)) ([aaf8841](https://github.com/googleapis/mcp-toolbox/commit/aaf88413e117856f80f646da7f1dbc63ebaedea3))
+* **looker:** Support running saved queries by query_id in query tool ([#4220](https://github.com/googleapis/mcp-toolbox/issues/4220)) ([0f2f3fb](https://github.com/googleapis/mcp-toolbox/commit/0f2f3fb2f3ee51e2959d028af31b2aabd46d248c))
+* **server:** Backport MCP Apps UI support across v20241105 - v20251125 ([#4057](https://github.com/googleapis/mcp-toolbox/issues/4057)) ([3a4032c](https://github.com/googleapis/mcp-toolbox/commit/3a4032cb939798309657dc7dd6050396d77d36ce))
+* **ui:** Add collapsible sidebar and resizable scrollable tool description ([#4281](https://github.com/googleapis/mcp-toolbox/issues/4281)) ([8d1930f](https://github.com/googleapis/mcp-toolbox/commit/8d1930fc972a59c03688be19fd577a5f6cbe3abd))
+* **ui:** Add MCP Apps support to toolbox playground ([#4063](https://github.com/googleapis/mcp-toolbox/issues/4063)) ([d0628f7](https://github.com/googleapis/mcp-toolbox/commit/d0628f76af4db1443340ed07ff5e7e9e5ae532fa))
+
+
+### Bug Fixes
+
+* **auth/generic:** Validate issuer claim in GetClaimsFromHeader ([#4296](https://github.com/googleapis/mcp-toolbox/issues/4296)) ([e0d655a](https://github.com/googleapis/mcp-toolbox/commit/e0d655a223cb6d3334ccf00012ef66675634b552))
+* **resource/file:** Sanitize server filesystem paths from read errors ([#4260](https://github.com/googleapis/mcp-toolbox/issues/4260)) ([5aeb8f9](https://github.com/googleapis/mcp-toolbox/commit/5aeb8f92957aebf12efb0c92a617ce0785fd7289))
+* **source/bigquery:** Sort allowedDatasets for deterministic tool manifests ([#4272](https://github.com/googleapis/mcp-toolbox/issues/4272)) ([6d46c5f](https://github.com/googleapis/mcp-toolbox/commit/6d46c5f39df8088cd275d7efd5104149eb7c751d))
+* **telemetry:** Disable self-tracing on GCP telemetry exporters ([#4230](https://github.com/googleapis/mcp-toolbox/issues/4230)) ([f9ba7e5](https://github.com/googleapis/mcp-toolbox/commit/f9ba7e52679fb9ef8166510955e9493a63e9440c))
+* **tools:** Remove `Authorized()` from Tool interface to ensure centralized `authRequired` check ([#4254](https://github.com/googleapis/mcp-toolbox/issues/4254)) ([00ce635](https://github.com/googleapis/mcp-toolbox/commit/00ce6356a539242ebb94729038efe960c7173387))
+
+## [1.14.0](https://github.com/googleapis/mcp-toolbox/compare/v1.13.1...v1.14.0) (2026-10-08)
+
+
+### Features
+
+* **bigquery:** Support authorized views with dataset restrictions ([#2561](https://github.com/googleapis/mcp-toolbox/issues/2561)) ([441d4e7](https://github.com/googleapis/mcp-toolbox/commit/441d4e796ae4a7cae7673cb822481e9c63da920c))
+* **looker:** Include LookML dashboards in get_dashboards tool ([#4216](https://github.com/googleapis/mcp-toolbox/issues/4216)) ([2fea1b5](https://github.com/googleapis/mcp-toolbox/commit/2fea1b5430995d882e81819784ace566fd8d15d2))
+* **source/firestore:** Propagate requester header on collection listing for get_schema ([#4131](https://github.com/googleapis/mcp-toolbox/issues/4131)) ([0fa215a](https://github.com/googleapis/mcp-toolbox/commit/0fa215ac2ccf5576cc13a62fa3eb6df7efce99c3))
+* **sources/spanner:** Add support for Spanner Omni ([#4198](https://github.com/googleapis/mcp-toolbox/issues/4198)) ([a24e5e6](https://github.com/googleapis/mcp-toolbox/commit/a24e5e68567fa014a42fc6cc711faa82b964d4c0))
+* **tool/cloud-gemini-data-analytics-query:** Support Bigtable and Firestore references ([#4136](https://github.com/googleapis/mcp-toolbox/issues/4136)) ([3aff9a7](https://github.com/googleapis/mcp-toolbox/commit/3aff9a7d635f5dfb19de528b319cc7bbec398900))
+* **tool/looker:** Add looker-get-explore tool ([#4173](https://github.com/googleapis/mcp-toolbox/issues/4173)) ([ceb657e](https://github.com/googleapis/mcp-toolbox/commit/ceb657e0f01851834528d7e2fadbc4790913ce8d))
+
+
+### Bug Fixes
+
+* **datalineage:** Increase timeouts ([69aa2f2](https://github.com/googleapis/mcp-toolbox/commit/69aa2f259a5ba92d20086e89d4e77e5d1630e1be))
+* **looker:** Update legacy feature test expectation ([e9c2f42](https://github.com/googleapis/mcp-toolbox/commit/e9c2f42a397d59230009f180e45cfab24ef72887))
+* **resources:** Normalize resource-template URI scheme to lowercase ([#4023](https://github.com/googleapis/mcp-toolbox/issues/4023)) ([2311dc1](https://github.com/googleapis/mcp-toolbox/commit/2311dc19f36ecc18587186629addae1515da3f93))
+* **test/alloydbainl:** Match query value instead of model-chosen alias ([#4125](https://github.com/googleapis/mcp-toolbox/issues/4125)) ([1b20eae](https://github.com/googleapis/mcp-toolbox/commit/1b20eaefcc452df0213c7aff1be54ca705de0d39))
+* **tool/bigquery:** Check lexically referenced datasets before dry run ([#4164](https://github.com/googleapis/mcp-toolbox/issues/4164)) ([912189f](https://github.com/googleapis/mcp-toolbox/commit/912189f6c842fdf8fc6ceb7d7a556cf9fa05286b))
+
 ## [1.13.1](https://github.com/googleapis/mcp-toolbox/compare/v1.13.0...v1.13.1) (2026-09-25)
 
 

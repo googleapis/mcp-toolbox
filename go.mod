@@ -15,12 +15,14 @@ require (
 	cloud.google.com/go/dataplex v1.35.0
 	cloud.google.com/go/dataproc/v2 v2.23.0
 	cloud.google.com/go/firestore v1.22.0
-	cloud.google.com/go/geminidataanalytics v1.4.0
+	cloud.google.com/go/geminidataanalytics v1.5.0
 	cloud.google.com/go/logging v1.18.0
 	cloud.google.com/go/longrunning v1.2.0
+	cloud.google.com/go/monitoring v1.29.0
 	cloud.google.com/go/resourcemanager v1.15.0
-	cloud.google.com/go/spanner v1.92.0
+	cloud.google.com/go/spanner v1.95.1
 	cloud.google.com/go/storage v1.62.3
+	cloud.google.com/go/trace v1.16.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/FalkorDB/falkordb-go/v2 v2.1.0
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0
@@ -85,6 +87,7 @@ require (
 	google.golang.org/api v0.287.1
 	google.golang.org/genai v1.61.0
 	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94
+	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.52.0
@@ -112,8 +115,6 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.11.0 // indirect
-	cloud.google.com/go/monitoring v1.29.0 // indirect
-	cloud.google.com/go/trace v1.16.0 // indirect
 	dario.cat/mergo v1.0.2 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
@@ -292,7 +293,6 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect

@@ -204,8 +204,45 @@ func ValidateQueryAgainstAllowedDatasets(
 		}
 	}
 
+	// 1) Direct lexically visible violating datasets - unconditionally reject before dry run.
+	// A query naming a disallowed dataset that does not exist (or that the caller cannot read)
+	// would otherwise fail in DryRunQuery with a BigQuery 404/403 instead of the allowlist error.
+	//
+	// parseErr is intentionally not returned here: when the dry run succeeds, the StatementType
+	// gate below must run first so restricted statements keep their specific error messages.
+	// parseErr is still enforced if the dry run fails, and again right after that gate.
+	parsed, parseErr := TableParserDetailed(sql, projectID)
+	if parseErr == nil {
+		var parsedViolatingDatasets []string
+		seenParsedDatasets := make(map[string]struct{})
+		for _, tableID := range parsed.TableIDs {
+			parts := strings.Split(tableID, ".")
+			if len(parts) == 4 && strings.Contains(parts[1], ":") {
+				parts = []string{parts[0] + "." + parts[1], parts[2], parts[3]}
+			}
+			if len(parts) == 3 {
+				if IsSystemResource(parts[1], parts[2]) {
+					continue
+				}
+				if !validator.IsDatasetAllowed(parts[0], parts[1]) {
+					datasetFQN := fmt.Sprintf("%s.%s", parts[0], parts[1])
+					if _, seen := seenParsedDatasets[datasetFQN]; !seen {
+						parsedViolatingDatasets = append(parsedViolatingDatasets, datasetFQN)
+						seenParsedDatasets[datasetFQN] = struct{}{}
+					}
+				}
+			}
+		}
+		if len(parsedViolatingDatasets) > 0 {
+			return nil, notAllowedDatasetsErr(parsedViolatingDatasets)
+		}
+	}
+
 	dryRunJob, err := DryRunQuery(ctx, restService, projectID, location, sql, params, connProps, maximumBytesBilled, createSession)
 	if err != nil {
+		if parseErr != nil {
+			return nil, util.NewAgentError("could not safely analyze query with dataset restrictions", parseErr)
+		}
 		var gErr *googleapi.Error
 		if errors.As(err, &gErr) {
 			return nil, util.ProcessGcpError(err)
@@ -220,8 +257,8 @@ func ValidateQueryAgainstAllowedDatasets(
 	queryStats := dryRunJob.Statistics.Query
 
 	// Statement types whose accessed objects cannot be determined statically must be
-	// rejected outright. The dry run reports these reliably; the lexical fallback in
-	// TableParser does not (e.g. it cannot see CREATE TABLE FUNCTION).
+	// rejected outright. The dry run reports these reliably and yields statement-specific
+	// error messages; the lexical analysis error (parseErr) is enforced right after.
 	switch queryStats.StatementType {
 	case "CREATE_SCHEMA", "DROP_SCHEMA", "ALTER_SCHEMA":
 		return nil, util.NewAgentError(fmt.Sprintf(
@@ -239,6 +276,13 @@ func ValidateQueryAgainstAllowedDatasets(
 		return nil, util.NewAgentError(
 			"session variable assignment ('SET') is not allowed when dataset restrictions are in place, "+
 				"as it can change how unqualified table names are resolved", nil)
+	}
+
+	// The deferred lexical analysis error is the only guard for statements the analyzer
+	// rejects but the dry run accepts with a statement type not gated above, e.g.
+	// EXECUTE IMMEDIATE (SCRIPT), EXTERNAL_QUERY, or non-dataset-level INFORMATION_SCHEMA views.
+	if parseErr != nil {
+		return nil, util.NewAgentError("could not safely analyze query with dataset restrictions", parseErr)
 	}
 
 	// Use a structured map to avoid duplicate table names from the dry run result.
@@ -285,36 +329,6 @@ func ValidateQueryAgainstAllowedDatasets(
 			violatingTables = append(violatingTables, fmt.Sprintf("%s.%s.%s", ref.ProjectID, ref.DatasetID, ref.TableID))
 			violatingRefs = append(violatingRefs, ref)
 		}
-	}
-
-	parsed, parseErr := TableParserDetailed(sql, projectID)
-	if parseErr != nil {
-		return nil, util.NewAgentError("could not safely analyze query with dataset restrictions", parseErr)
-	}
-
-	// 1) Direct lexically visible violating datasets - unconditionally reject (consistent with main)
-	var parsedViolatingDatasets []string
-	seenParsedDatasets := make(map[string]struct{})
-	for _, tableID := range parsed.TableIDs {
-		parts := strings.Split(tableID, ".")
-		if len(parts) == 4 && strings.Contains(parts[1], ":") {
-			parts = []string{parts[0] + "." + parts[1], parts[2], parts[3]}
-		}
-		if len(parts) == 3 {
-			if IsSystemResource(parts[1], parts[2]) {
-				continue
-			}
-			if !validator.IsDatasetAllowed(parts[0], parts[1]) {
-				datasetFQN := fmt.Sprintf("%s.%s", parts[0], parts[1])
-				if _, seen := seenParsedDatasets[datasetFQN]; !seen {
-					parsedViolatingDatasets = append(parsedViolatingDatasets, datasetFQN)
-					seenParsedDatasets[datasetFQN] = struct{}{}
-				}
-			}
-		}
-	}
-	if len(parsedViolatingDatasets) > 0 {
-		return nil, notAllowedDatasetsErr(parsedViolatingDatasets)
 	}
 
 	// 2) Dry run violating tables

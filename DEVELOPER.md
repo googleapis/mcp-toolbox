@@ -256,7 +256,7 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
   [`tools.BaseTool[Config]`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)**.
   `BaseTool` provides default implementations of most of the `Tool` interface —
   `GetName`, `GetDescription`, `GetAuthRequired`, `GetScopesRequired`,
-  `GetAnnotations`, `Manifest`, `GetParameters`, `Authorized`,
+  `GetAnnotations`, `Manifest`, `GetParameters`,
   `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, and `EmbedParams`.
   **Do not re-declare these** — eliminating that boilerplate is the entire point
   of embedding `BaseTool`.
