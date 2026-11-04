@@ -136,6 +136,23 @@ func InvokeMCPTool(t *testing.T, toolName string, arguments map[string]any, requ
 	return resp.StatusCode, &mcpResp, nil
 }
 
+// GetMCPResultJSON flattens an MCP tool result into the same JSON array string
+// the /api endpoint returns in its "result" field, so a source-specific test
+// helper outside this package can compare one expected value against both
+// endpoints. An empty result is "[]", matching /api, rather than "null".
+func GetMCPResultJSON(t *testing.T, resp *MCPCallToolResponse) string {
+	t.Helper()
+	rows := getMCPResultText(t, resp)
+	if len(rows) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatalf("error marshalling mcp result: %v", err)
+	}
+	return string(b)
+}
+
 // getMCPResultText safely extracts the text from content blocks, unmarshaling them if they are valid JSON.
 //
 // TODO: For tests that need to strictly validate the exact schema or structure of the output,
