@@ -41,6 +41,10 @@ description: |
     that can be used directly as filters for that dimension.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a dimension includes a `value_format` or `value_format_name` field, it
+    describes how the dimension's values should be displayed (for example as a
+    currency amount or a percentage). Format any values returned for that
+    dimension accordingly instead of reporting the raw number.
 
 ```
 
@@ -57,9 +61,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 

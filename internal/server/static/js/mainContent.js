@@ -29,7 +29,7 @@ function renderMainContent(containerId, idString, instructionContent) {
         <div class="main-content-area">
         <div class="top-bar">
         </div>
-        <main class="content" ${idAttribute}">
+        <main class="content" ${idAttribute}>
             ${instructionContent}
         </main>
     </div>

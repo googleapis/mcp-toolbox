@@ -45,10 +45,26 @@ description: |
   This tool retrieves a list of explores defined within a specific LookML model.
   Explores represent a curated view of your data, typically joining several
   tables together to allow for focused analysis on a particular subject area.
-  The output provides details like the explore's `name` and `label`.
+  The output provides details like the explore's `name`, `label`, and whether it is `hidden`.
 
   Parameters:
   - model_name (required): The name of the LookML model, obtained from `get_models`.
+---
+kind: tool
+name: get_explore
+type: looker-get-explore
+source: looker-source
+description: |
+  This tool retrieves detailed metadata about a specific Looker explore, including its
+  constraints and rules (e.g., `always_filter`, `conditionally_filter`, `tags`).
+
+  CRITICAL: You MUST use this tool to inspect the explore's metadata BEFORE generating
+  or running a query. If an explore has mandatory filters defined (like `always_filter`
+  or `conditionally_filter`), your query will fail unless you include them.
+
+  Parameters:
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 ---
 kind: tool
 name: get_dimensions
@@ -70,6 +86,11 @@ description: |
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
   - If a dimension includes `"suggestable": true`, you can retrieve its valid value suggestions by calling the 'get_field_value_suggestions' tool, passing the dimension's 'name' as the 'field' parameter, alongside the explore and model names.
+  - If a dimension includes a `value_format` (an Excel style format string) or a
+    `value_format_name` (a named format such as `usd` or `percent_2`), it defines
+    how that dimension's values should be displayed. Format any values you report
+    for that dimension accordingly rather than showing the raw number, and use the
+    format to reason about the field's units.
 ---
 kind: tool
 name: get_measures
@@ -89,6 +110,11 @@ description: |
     that can be used directly as filters for that measure.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a measure includes a `value_format` (an Excel style format string) or a
+    `value_format_name` (a named format such as `usd` or `percent_2`), it defines
+    how that measure's values should be displayed. Format any values you report
+    for that measure accordingly rather than showing the raw number, and use the
+    format to reason about the measure's units when comparing or combining metrics.
 ---
 kind: tool
 name: get_filters
@@ -147,12 +173,13 @@ name: query
 type: looker-query
 source: looker-source
 description: |
-  This tool runs a query against a LookML model and returns the results in JSON format.
+  This tool runs a query against a LookML model or executes a saved query by ID/slug and returns the results in JSON format.
 
-  Required Parameters:
-  - model_name: The name of the LookML model (from `get_models`).
-  - explore_name: The name of the explore (from `get_explores`).
-  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query.
+  Parameters (provide either `query_id` OR `model` + `explore` + `fields`):
+  - query_id (optional): The unique identifier (numeric ID or slug) of a saved Looker query to execute. If provided, `model`, `explore`, and `fields` are not required.
+  - model: The name of the LookML model (from `get_models`). Required if `query_id` is not provided.
+  - explore: The name of the explore (from `get_explores`). Required if `query_id` is not provided.
+  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query. Required if `query_id` is not provided.
 
   Optional Parameters:
   - pivots: A list of fields to pivot the results by. These fields must also be included in the `fields` list.
@@ -183,7 +210,10 @@ description: |
       - Custom Measure: `[{"measure": "sum_of_revenue", "label": "Sum of Revenue", "based_on": "training.revenue", "type": "sum", "_type_hint": "number"}]`
   - sorts: A list of fields to sort by, optionally including direction (e.g., `["view.field desc"]`).
   - limit: Row limit (default 500). Use "-1" for unlimited.
-  - query_timezone: specific timezone for the query (e.g. `America/Los_Angeles`).
+  - tz: Specific timezone for the query (e.g. `America/Los_Angeles`).
+  - result_format: Output format (`'json'` or `'json_detail'`, default `'json'`).
+  - vis_config: Optional visualization configuration JSON string to associate with the query response.
+  - generate_drill_links: Optional flag indicating whether to generate drill links in the query result.
 
   Note: Use `get_dimensions`, `get_measures`, `get_filters`, and `get_parameters` to find valid fields.
 ---
@@ -665,7 +695,7 @@ type: looker-get-looks
 source: looker-source
 description: |
   This tool searches for saved Looks (pre-defined queries and visualizations)
-  in a Looker instance. It returns a list of JSON objects, each representing a Look.
+  in a Looker instance. It returns a list of JSON objects, each representing a Look, including its id, title, description, model_id, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by Look title (supports wildcards).
@@ -729,7 +759,7 @@ name: get_dashboards
 type: looker-get-dashboards
 source: looker-source
 description: |
-  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard.
+  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard, including its id, title, description, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by dashboard title (supports wildcards).
@@ -784,12 +814,33 @@ description: |
   `add_dashboard_filter` and `add_dashboard_element`.
 ---
 kind: tool
+name: import_dashboard_from_lookml
+type: looker-import-dashboard-from-lookml
+source: looker-source
+description: |
+  This tool imports a LookML dashboard YAML definition to create or overwrite a
+  user-defined dashboard in Looker.
+
+  If a dashboard already exists with the YAML-defined `preferred_slug`, it will
+  be overwritten. Otherwise, a new dashboard will be created.
+
+  Required Parameters:
+  - lookml (required): Valid LookML dashboard YAML string defining the dashboard, filters, and elements.
+
+  Optional Parameters:
+  - folder (optional): Destination folder ID. If omitted, new dashboards are placed in the user's personal folder and overwritten dashboards remain in their existing folder.
+
+  Output:
+  A JSON object containing a link (`url`) to the imported dashboard and its unique `id`.
+---
+kind: tool
 name: add_dashboard_element
 type: looker-add-dashboard-element
 source: looker-source
 description: |
   This tool creates a new tile (element) within an existing Looker dashboard.
   Tiles are added in the order this tool is called for a given `dashboard_id`.
+  It supports query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
 
   CRITICAL ORDER OF OPERATIONS:
   1. Create the dashboard using `make_dashboard`.
@@ -798,20 +849,28 @@ description: |
 
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
-  - model_name, explore_name, fields: These query parameters are inherited
-    from the `query` tool and are required to define the data for the tile.
+  - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` are required to define the query for the tile.
 
   Optional Parameters:
-  - title: An optional title for the dashboard tile.
-  - pivots, filters, sorts, limit, query_timezone: These query parameters are
-    inherited from the `query` tool and can be used to customize the tile's query.
+  - type: The type of dashboard element (`'vis'`, `'data'`, or `'text'`). If omitted, `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
+  - title: An optional title for query-based dashboard tiles.
+  - title_text: The header title text for `'text'` tiles.
+  - subtitle_text: The subtitle text displayed below the title.
+  - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
+  - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `'{"format":"slate"}'`).
+  - note_text: Note text attached to the tile.
+  - note_display: Where the note appears on the tile (`'above'`, `'below'`, or `'hover'`).
+  - note_state: The display state of the note (`'expanded'` or `'collapsed'`).
+  - title_hidden: Whether to hide the tile title (`true`/`false`).
+  - refresh_interval: Auto-refresh interval for the tile (e.g., `'1 hour'`).
+  - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters inherited from the `query` tool to customize a query tile.
   - vis_config: A JSON object defining the visualization settings for this tile.
     The structure and options are the same as for the `query_url` tool's `vis_config`.
 
   Connecting to Dashboard Filters:
   A dashboard element can be connected to one or more dashboard filters (created with
-  `add_dashboard_filter`). To do this, specify the `name` of the dashboard filter
-  and the `field` from the element's query that the filter should apply to.
+  `add_dashboard_filter`). To do this, specify the `dashboard_filter_name` of the dashboard filter
+  and the `field` from the element's query that the filter should apply to in `dashboard_filters`.
   The format for specifying the field is `view_name.field_name`.
 ---
 kind: tool
@@ -852,7 +911,8 @@ description: |
   - type (required): The type of content to embed. Common values include:
     - `dashboards`
     - `looks`
-    - `explore`
+    - `query-visualizations`
+    - `explores`
   - id (required): The unique identifier for the content.
     - For dashboards and looks, use the numeric ID (e.g., "123").
     - For explores, use the format "model_name/explore_name".
@@ -863,7 +923,7 @@ type: looker-get-dashboard
 source: looker-source
 description: |
   This tool retrieves the JSON design of a Looker dashboard by its ID.
-  The output is trimmed to essential fields, excluding alerts and scheduled plans,
+  The output is trimmed to essential fields (including certification_metadata), excluding alerts and scheduled plans,
   making it suitable for replicating or analyzing the dashboard structure.
 
   Parameters:
@@ -874,18 +934,27 @@ name: update_dashboard_element
 type: looker-update-dashboard-element
 source: looker-source
 description: |
-  This tool updates an existing query element (tile) in a Looker dashboard.
-  It reconstructs the query for the element using the provided parameters
-  and updates its title and visualization configuration.
+  This tool updates an existing element (tile) in a Looker dashboard.
+  It supports updating query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
 
   Required Parameters:
   - dashboard_id: The ID of the dashboard containing the element.
   - dashboard_element_id: The ID of the element to update.
-  - model, explore, fields: These query parameters define the data for the tile.
+  - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` define the data for the tile.
 
   Optional Parameters:
-  - title: The new title for the dashboard tile.
-  - pivots, filters, sorts, limit, tz: These query parameters customize the tile's query.
+  - type: The type of dashboard element (`'vis'`, `'data'`, or `'text'`).
+  - title: The new title for query-based dashboard tiles.
+  - title_text: The header title text for `'text'` tiles.
+  - subtitle_text: The subtitle text displayed below the title.
+  - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
+  - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `'{"format":"slate"}'`).
+  - note_text: Note text attached to the tile.
+  - note_display: Where the note appears on the tile (`'above'`, `'below'`, or `'hover'`).
+  - note_state: The display state of the note (`'expanded'` or `'collapsed'`).
+  - title_hidden: Whether to hide the tile title (`true`/`false`).
+  - refresh_interval: Auto-refresh interval for the tile (e.g., `'1 hour'`).
+  - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters that customize a query tile.
   - vis_config: A JSON object defining the visualization settings.
   - dashboard_filters: An array of dashboard filters to connect to this element.
 ---
@@ -925,6 +994,7 @@ description: These skills are designed for data discovery and business intellige
 tools:
 - get_models
 - get_explores
+- get_explore
 - get_dimensions
 - get_measures
 - get_filters
@@ -939,6 +1009,7 @@ tools:
 - get_dashboards
 - run_dashboard
 - make_dashboard
+- import_dashboard_from_lookml
 - add_dashboard_element
 - add_dashboard_filter
 - generate_embed_url

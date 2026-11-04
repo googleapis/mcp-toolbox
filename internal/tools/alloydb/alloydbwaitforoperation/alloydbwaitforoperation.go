@@ -99,11 +99,10 @@ type Config struct {
 	Source           string `yaml:"source" validate:"required"`
 
 	// Polling configuration
-	Delay       string                 `yaml:"delay"`
-	MaxDelay    string                 `yaml:"maxDelay"`
-	Multiplier  float64                `yaml:"multiplier"`
-	MaxRetries  int                    `yaml:"maxRetries"`
-	Annotations *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Delay      string  `yaml:"delay"`
+	MaxDelay   string  `yaml:"maxDelay"`
+	Multiplier float64 `yaml:"multiplier"`
+	MaxRetries int     `yaml:"maxRetries"`
 }
 
 // validate interface
@@ -249,11 +248,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		retries++
 	}
 	return nil, util.NewAgentError("exceeded max retries waiting for operation", nil)
-}
-
-// Authorized checks if the tool is authorized.
-func (t Tool) Authorized(verifiedAuthServices []string) bool {
-	return true
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
