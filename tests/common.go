@@ -734,7 +734,7 @@ func SetupMsSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStat
 
 	return func(t *testing.T) {
 		// tear down test
-		_, err = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE %s;", tableName))
+		_, err = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName))
 		if err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
@@ -763,7 +763,7 @@ func SetupMySQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStat
 
 	return func(t *testing.T) {
 		// tear down test
-		_, err = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE %s;", tableName))
+		_, err = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName))
 		if err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
@@ -1066,15 +1066,28 @@ func CleanupPostgresTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	}
 }
 
-// Finds and drops all tables in a mysql database.
-func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
+// Finds and drops all tables matching uniqueID (plus stale leaked test tables older than 1 hour) in a mysql database.
+func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueID string) {
 	query := `
 	SELECT table_name FROM information_schema.tables
-	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE';`
+	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'
+	AND (
+		table_name LIKE ?
+		OR (
+			create_time < NOW() - INTERVAL 1 HOUR
+			AND (
+				table_name LIKE 'param\_table\_%'
+				OR table_name LIKE 'auth\_table\_%'
+				OR table_name LIKE 'template\_param\_table\_%'
+				OR table_name LIKE 'test\_list\_table\_stats\_%'
+				OR table_name LIKE 't0%'
+			)
+		)
+	);`
 
-	rows, err := pool.QueryContext(ctx, query)
+	rows, err := pool.QueryContext(ctx, query, "%\\_"+uniqueID)
 	if err != nil {
-		t.Fatalf("Failed to query for all MySQL tables: %v", err)
+		t.Fatalf("Failed to query for MySQL tables for uniqueID %s: %v", uniqueID, err)
 	}
 	defer rows.Close()
 
@@ -1089,43 +1102,82 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	}
 
 	if len(tablesToDrop) == 0 {
+		t.Logf("INTEGRATION CLEANUP: No MySQL tables found for uniqueID: %s", uniqueID)
 		return
 	}
 
-	// Disable foreign key checks, drop all tables and re-enable
-	if _, err := pool.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0;"); err != nil {
+	t.Logf("INTEGRATION CLEANUP: Dropping %d isolated MySQL tables: %v", len(tablesToDrop), tablesToDrop)
+
+	conn, err := pool.Conn(ctx)
+	if err != nil {
+		t.Fatalf("Failed to acquire MySQL connection for cleanup: %v", err)
+	}
+	defer conn.Close()
+
+	// Disable foreign key checks on this session connection, drop matching tables, and re-enable.
+	if _, err := conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0;"); err != nil {
 		t.Fatalf("Failed to disable MySQL foreign key checks: %v", err)
 	}
 
 	dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s;", strings.Join(tablesToDrop, ", "))
 
-	if _, err := pool.ExecContext(ctx, dropQuery); err != nil {
-		// Try to re-enable checks even if drop fails
-		if _, err := pool.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1;"); err != nil {
-			t.Logf("Also failed to re-enable foreign key checks: %v", err)
+	if _, err := conn.ExecContext(ctx, dropQuery); err != nil {
+		if _, fkErr := conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1;"); fkErr != nil {
+			t.Logf("Also failed to re-enable foreign key checks: %v", fkErr)
 		}
-		t.Fatalf("Failed to drop all MySQL tables: %v", err)
+		t.Fatalf("Failed to drop MySQL tables for uniqueID %s: %v", uniqueID, err)
 	}
 
-	// Re-enable foreign key checks
-	if _, err := pool.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1;"); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1;"); err != nil {
 		t.Fatalf("Failed to re-enable MySQL foreign key checks: %v", err)
 	}
+	t.Logf("INTEGRATION CLEANUP SUCCESS: Wiped all MySQL tables for uniqueID: %s", uniqueID)
 }
 
-// Finds and drops all tables in an mssql database.
-func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
-	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'"
-	if _, err := pool.ExecContext(ctx, disableConstraintsCmd); err != nil {
-		t.Fatalf("Failed to disable MSSQL constraints: %v", err)
+// Finds and drops all tables matching uniqueID (plus stale leaked test tables older than 1 hour) in an mssql database.
+func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueID string) {
+	query := `
+	SELECT name FROM sys.tables
+	WHERE type = 'U'
+	AND (
+		name LIKE @p1
+		OR (
+			create_date < DATEADD(hour, -1, GETDATE())
+			AND (
+				name LIKE 'param[_]table[_]%'
+				OR name LIKE 'auth[_]table[_]%'
+				OR name LIKE 'template[_]param[_]table[_]%'
+			)
+		)
+	);`
+
+	rows, err := pool.QueryContext(ctx, query, "%[_]"+uniqueID)
+	if err != nil {
+		t.Fatalf("Failed to query for MSSQL tables for uniqueID %s: %v", uniqueID, err)
+	}
+	defer rows.Close()
+
+	var tablesToDrop []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			t.Errorf("Failed to scan MSSQL table name: %v", err)
+			continue
+		}
+		tablesToDrop = append(tablesToDrop, fmt.Sprintf("[dbo].[%s]", strings.ReplaceAll(tableName, "]", "]]")))
 	}
 
-	// drop 'U' (User Tables)
-	dropTablesCmd := "EXEC sp_MSforeachtable 'DROP TABLE ?', @whereand = 'AND O.Type = ''U'''"
-	if _, err := pool.ExecContext(ctx, dropTablesCmd); err != nil {
-		t.Fatalf("Failed to drop all MSSQL tables: %v", err)
+	if len(tablesToDrop) == 0 {
+		t.Logf("INTEGRATION CLEANUP: No MSSQL tables found for uniqueID: %s", uniqueID)
+		return
 	}
 
+	t.Logf("INTEGRATION CLEANUP: Dropping %d isolated MSSQL tables: %v", len(tablesToDrop), tablesToDrop)
+	dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s;", strings.Join(tablesToDrop, ", "))
+	if _, err := pool.ExecContext(ctx, dropQuery); err != nil {
+		t.Fatalf("Failed to drop MSSQL tables for uniqueID %s: %v", uniqueID, err)
+	}
+	t.Logf("INTEGRATION CLEANUP SUCCESS: Wiped all MSSQL tables for uniqueID: %s", uniqueID)
 }
 
 // finds and deletes all tables in a Bigtable instance that match the uniqueID.

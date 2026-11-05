@@ -2099,6 +2099,7 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 	}
 
 	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc1AppName := fmt.Sprintf("test_sleep_tc1_%s", testUUID)
 	tc2AppName := fmt.Sprintf("test_sleep_tc2_%s", testUUID)
 	tc3AppName := fmt.Sprintf("test_sleep_tc3_%s", testUUID)
 
@@ -2123,6 +2124,7 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 			name:                "invoke list_active_queries when the system is idle",
 			toolName:            "list_active_queries",
 			args:                map[string]any{"exclude_application_names": "wal_uploader"},
+			appName:             tc1AppName,
 			clientSleepSecs:     0,
 			waitSecsBeforeCheck: 0,
 			wantStatusCode:      http.StatusOK,
@@ -3184,12 +3186,12 @@ func RunMySQLListTablesTest(t *testing.T, databaseName, tableNameParam, tableNam
 				cmpopts.SortSlices(func(a, b map[string]any) bool { return a["name"].(string) < b["name"].(string) }),
 			}
 
-			// Checking only the current database where the test tables are created to avoid brittle tests.
+			// Checking only the current database and this run's tables to avoid brittle tests.
 			if tc.isAllTables {
 				filteredGot := []objectDetails{}
 				if got != nil {
 					for _, item := range got.([]objectDetails) {
-						if item.SchemaName == databaseName {
+						if item.SchemaName == databaseName && (item.ObjectName == tableNameParam || item.ObjectName == tableNameAuth) {
 							filteredGot = append(filteredGot, item)
 						}
 					}
@@ -3226,6 +3228,7 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 	}
 
 	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc1QueryTag := fmt.Sprintf("test_mysql_sleep_tc1_%s", testUUID)
 	tc2QueryTag := fmt.Sprintf("test_mysql_sleep_tc2_%s", testUUID)
 	tc3QueryTag := fmt.Sprintf("test_mysql_sleep_tc3_%s", testUUID)
 	tc4QueryTag := fmt.Sprintf("test_mysql_sleep_tc4_%s", testUUID)
@@ -3267,7 +3270,7 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 		{
 			name:                "invoke list_active_queries when the system is idle",
 			requestBody:         bytes.NewBufferString(`{}`),
-			queryTag:            "",
+			queryTag:            tc1QueryTag,
 			clientSleepSecs:     0,
 			waitSecsBeforeCheck: 0,
 			wantStatusCode:      http.StatusOK,
@@ -3433,8 +3436,9 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		TableName   string `json:"table_name"`
 	}
 
-	nonUniqueKeyTableName := "t03_non_unqiue_key_table"
-	noKeyTableName := "t04_no_key_table"
+	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	nonUniqueKeyTableName := "t03_non_unqiue_key_table_" + uniqueID
+	noKeyTableName := "t04_no_key_table_" + uniqueID
 	nonUniqueKeyTableWant := listDetails{
 		TableSchema: databaseName,
 		TableName:   nonUniqueKeyTableName,
@@ -3453,6 +3457,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		newTableNonUniqueKey bool
 		wantStatusCode       int
 		want                 any
+		wantCount            int
 	}{
 		{
 			name:                 "invoke list_tables_missing_unique_indexes when nothing to be found",
@@ -3467,7 +3472,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		{
 			name:                 "invoke list_tables_missing_unique_indexes pk table will not show",
 			requestBody:          bytes.NewBufferString(`{}`),
-			newTableName:         "t01",
+			newTableName:         "t01_" + uniqueID,
 			newTablePrimaryKey:   true,
 			newTableUniqueKey:    false,
 			newTableNonUniqueKey: false,
@@ -3477,7 +3482,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		{
 			name:                 "invoke list_tables_missing_unique_indexes uk table will not show",
 			requestBody:          bytes.NewBufferString(`{}`),
-			newTableName:         "t02",
+			newTableName:         "t02_" + uniqueID,
 			newTablePrimaryKey:   false,
 			newTableUniqueKey:    true,
 			newTableNonUniqueKey: false,
@@ -3507,7 +3512,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		{
 			name:                 "invoke list_tables_missing_unique_indexes table w/ both pk & uk will not show",
 			requestBody:          bytes.NewBufferString(`{}`),
-			newTableName:         "t05",
+			newTableName:         "t05_" + uniqueID,
 			newTablePrimaryKey:   true,
 			newTableUniqueKey:    true,
 			newTableNonUniqueKey: false,
@@ -3517,7 +3522,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		{
 			name:                 "invoke list_tables_missing_unique_indexes table w/ uk & nk will not show",
 			requestBody:          bytes.NewBufferString(`{}`),
-			newTableName:         "t06",
+			newTableName:         "t06_" + uniqueID,
 			newTablePrimaryKey:   false,
 			newTableUniqueKey:    true,
 			newTableNonUniqueKey: true,
@@ -3527,7 +3532,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		{
 			name:                 "invoke list_tables_missing_unique_indexes table w/ pk & nk will not show",
 			requestBody:          bytes.NewBufferString(`{}`),
-			newTableName:         "t07",
+			newTableName:         "t07_" + uniqueID,
 			newTablePrimaryKey:   true,
 			newTableUniqueKey:    false,
 			newTableNonUniqueKey: true,
@@ -3562,7 +3567,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 			newTableUniqueKey:    false,
 			newTableNonUniqueKey: false,
 			wantStatusCode:       http.StatusOK,
-			want:                 []listDetails{nonUniqueKeyTableWant},
+			wantCount:            1,
 		},
 	}
 
@@ -3587,7 +3592,7 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 		}
 
 		return func() {
-			if _, err := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE %s", tableName)); err != nil {
+			if _, err := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
 				t.Errorf("failed to drop table %s: %v", tableName, err)
 			}
 		}
@@ -3656,19 +3661,29 @@ func RunMySQLListTablesMissingUniqueIndexes(t *testing.T, ctx context.Context, p
 				}
 			}
 
-			var got any
 			details := []listDetails{}
 			if resultString != "null" {
 				if err := json.Unmarshal([]byte(resultString), &details); err != nil {
 					t.Fatalf("failed to unmarshal nested listDetails string: %v", err)
 				}
 			}
-			got = details
+			if tc.wantCount > 0 {
+				if len(details) != tc.wantCount {
+					t.Errorf("Unexpected result count: got %d (%#v), want %d", len(details), details, tc.wantCount)
+				}
+				return
+			}
+			filtered := []listDetails{}
+			for _, d := range details {
+				if strings.HasSuffix(d.TableName, "_"+uniqueID) {
+					filtered = append(filtered, d)
+				}
+			}
 
-			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b listDetails) bool {
+			if diff := cmp.Diff(tc.want, filtered, cmp.Comparer(func(a, b listDetails) bool {
 				return a.TableSchema == b.TableSchema && a.TableName == b.TableName
 			})); diff != "" {
-				t.Errorf("Unexpected result: got %#v, want: %#v", got, tc.want)
+				t.Errorf("Unexpected result: got %#v, want: %#v", filtered, tc.want)
 			}
 		})
 	}
@@ -3728,16 +3743,20 @@ func RunMySQLListTableStatsTest(t *testing.T, ctx context.Context, pool *sql.DB,
 	}
 
 	invokeTcs := []struct {
-		name           string
-		requestBody    io.Reader
-		wantStatusCode int
-		want           any
+		name                        string
+		requestBody                 io.Reader
+		wantStatusCode              int
+		want                        any
+		filterOwnTables             bool
+		allowDefaultLimitTruncation bool
 	}{
 		{
-			name:           "invoke list_table_stats with no arguments, expected 2 results",
-			requestBody:    bytes.NewBufferString(`{}`),
-			wantStatusCode: http.StatusOK,
-			want:           []tableStatsDetails{paramTableEntryWanted, authTableEntryWanted},
+			name:                        "invoke list_table_stats with no arguments, expected 2 results",
+			requestBody:                 bytes.NewBufferString(`{}`),
+			wantStatusCode:              http.StatusOK,
+			want:                        []tableStatsDetails{paramTableEntryWanted, authTableEntryWanted},
+			filterOwnTables:             true,
+			allowDefaultLimitTruncation: true,
 		},
 		{
 			name:           "invoke list_table_stats with schema other than connected to, expected log error and nil results",
@@ -3746,10 +3765,11 @@ func RunMySQLListTableStatsTest(t *testing.T, ctx context.Context, pool *sql.DB,
 			want:           []tableStatsDetails{},
 		},
 		{
-			name:           "invoke list_table_stats on 1 database and all tables, expected to have 2 result",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"table_schema": "%s"}`, databaseName)),
-			wantStatusCode: http.StatusOK,
-			want:           []tableStatsDetails{paramTableEntryWanted, authTableEntryWanted},
+			name:            "invoke list_table_stats on 1 database and all tables, expected to have 2 result",
+			requestBody:     bytes.NewBufferString(fmt.Sprintf(`{"table_schema": "%s", "limit": 100}`, databaseName)),
+			wantStatusCode:  http.StatusOK,
+			want:            []tableStatsDetails{paramTableEntryWanted, authTableEntryWanted},
+			filterOwnTables: true,
 		},
 		{
 			name:           "invoke list_table_stats on 1 database and 1 specific table name, expected to have 1 result",
@@ -3839,14 +3859,28 @@ func RunMySQLListTableStatsTest(t *testing.T, ctx context.Context, pool *sql.DB,
 				}
 			}
 
-			var got any
 			details := []tableStatsDetails{}
 			if resultString != "null" {
 				if err := json.Unmarshal([]byte(resultString), &details); err != nil {
 					t.Fatalf("failed to unmarshal outer JSON array into []tableInfo: %v", err)
 				}
 			}
-			got = details
+			rawCount := len(details)
+			if tc.filterOwnTables {
+				filtered := []tableStatsDetails{}
+				for _, d := range details {
+					if d.TableName == tableNameParam || d.TableName == tableNameAuth {
+						filtered = append(filtered, d)
+					}
+				}
+				details = filtered
+			}
+			// If default limit (10) truncated results under heavy concurrent CI runs,
+			// tc3 ("limit": 100) still strictly asserts both tables are present.
+			if tc.allowDefaultLimitTruncation && rawCount >= 10 && len(details) < 2 {
+				return
+			}
+			var got any = details
 
 			// The tool sorts on measured total_latency, so which table comes back
 			// first varies between runs. Compare as a set.
@@ -3899,22 +3933,25 @@ func RunMySQLListTableFragmentationTest(t *testing.T, databaseName, tableNamePar
 	}
 
 	invokeTcs := []struct {
-		name           string
-		requestBody    io.Reader
-		wantStatusCode int
-		want           any
+		name            string
+		requestBody     io.Reader
+		wantStatusCode  int
+		want            any
+		filterOwnTables bool
+		wantCount       int
 	}{
 		{
-			name:           "invoke list_table_fragmentation on all, no data_free threshold, expected to have 2 results",
-			requestBody:    bytes.NewBufferString(`{"data_free_threshold_bytes": 0}`),
-			wantStatusCode: http.StatusOK,
-			want:           []tableFragmentationDetails{authTableEntryWanted, paramTableEntryWanted},
+			name:            "invoke list_table_fragmentation on all, no data_free threshold, expected to have 2 results",
+			requestBody:     bytes.NewBufferString(`{"data_free_threshold_bytes": 0, "limit": 100}`),
+			wantStatusCode:  http.StatusOK,
+			want:            []tableFragmentationDetails{authTableEntryWanted, paramTableEntryWanted},
+			filterOwnTables: true,
 		},
 		{
 			name:           "invoke list_table_fragmentation on all, no data_free threshold, limit to 1, expected to have 1 results",
 			requestBody:    bytes.NewBufferString(`{"data_free_threshold_bytes": 0, "limit": 1}`),
 			wantStatusCode: http.StatusOK,
-			want:           []tableFragmentationDetails{authTableEntryWanted},
+			wantCount:      1,
 		},
 		{
 			name:           "invoke list_table_fragmentation on all databases and 1 specific table name, no data_free threshold, expected to have 1 result",
@@ -3998,18 +4035,39 @@ func RunMySQLListTableFragmentationTest(t *testing.T, databaseName, tableNamePar
 				}
 			}
 
-			var got any
 			details := []tableFragmentationDetails{}
 			if resultString != "null" {
 				if err := json.Unmarshal([]byte(resultString), &details); err != nil {
 					t.Fatalf("failed to unmarshal outer JSON array into []tableInfo: %v", err)
 				}
 			}
-			got = details
+			if tc.wantCount > 0 {
+				if len(details) != tc.wantCount {
+					t.Errorf("Unexpected result count: got %d (%#v), want %d", len(details), details, tc.wantCount)
+				}
+				return
+			}
+			if tc.filterOwnTables {
+				filtered := []tableFragmentationDetails{}
+				for _, d := range details {
+					if d.TableName == tableNameParam || d.TableName == tableNameAuth {
+						filtered = append(filtered, d)
+					}
+				}
+				details = filtered
+			}
+			var got any = details
 
-			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b tableFragmentationDetails) bool {
-				return a.TableSchema == b.TableSchema && a.TableName == b.TableName
-			})); diff != "" {
+			if diff := cmp.Diff(tc.want, got,
+				cmpopts.SortSlices(func(a, b tableFragmentationDetails) bool {
+					if a.TableSchema != b.TableSchema {
+						return a.TableSchema < b.TableSchema
+					}
+					return a.TableName < b.TableName
+				}),
+				cmp.Comparer(func(a, b tableFragmentationDetails) bool {
+					return a.TableSchema == b.TableSchema && a.TableName == b.TableName
+				})); diff != "" {
 				t.Errorf("Unexpected result: got %#v, want: %#v", got, tc.want)
 			}
 		})
@@ -4583,12 +4641,13 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string, 
 					itemMap["object_details"] = detailsMap
 				}
 
-				// Checking only the default dbo schema where the test tables are created to avoid brittle tests.
+				// Checking only the default dbo schema and this run's tables to avoid brittle tests.
 				if tc.isAllTables {
 					var filteredGot []any
 					for _, item := range got {
 						if tableMap, ok := item.(map[string]interface{}); ok {
-							if schema, ok := tableMap["schema_name"]; ok && schema == "dbo" {
+							name, _ := tableMap["object_name"].(string)
+							if schema, ok := tableMap["schema_name"]; ok && schema == "dbo" && (name == tableNameParam || name == tableNameAuth) {
 								filteredGot = append(filteredGot, item)
 							}
 						}

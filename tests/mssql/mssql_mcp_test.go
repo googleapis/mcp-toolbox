@@ -41,13 +41,16 @@ func setupMSSQLMCPServer(t *testing.T, ctx context.Context) (string, string, str
 	}
 	t.Cleanup(func() { pool.Close() })
 
-	// cleanup test environment
-	tests.CleanupMSSQLTables(t, ctx, pool)
+	// Generate a unique ID for per-run table isolation
+	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
+	t.Cleanup(func() {
+		tests.CleanupMSSQLTables(t, context.Background(), pool, uniqueID)
+	})
 
 	// create table name with UUID
-	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameParam := "param_table_" + uniqueID
+	tableNameAuth := "auth_table_" + uniqueID
+	tableNameTemplateParam := "template_param_table_" + uniqueID
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMSSQLParamToolInfo(tableNameParam)
@@ -71,13 +74,7 @@ func setupMSSQLMCPServer(t *testing.T, ctx context.Context) (string, string, str
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	// Registered last so it runs first. StartCmd's cleanup only removes the
-	// temporary config file, so Close is what stops the server and closes its
-	// pipes, before the tables it queries are dropped.
-	t.Cleanup(func() {
-		cmd.Close()
-		cleanup()
-	})
+	t.Cleanup(cleanup)
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelWait()

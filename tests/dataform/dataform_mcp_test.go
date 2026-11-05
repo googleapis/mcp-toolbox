@@ -49,13 +49,7 @@ func setupDataformMCPServer(t *testing.T, ctx context.Context) string {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	// Registered last so it runs first. StartCmd's cleanup only removes the
-	// temporary config file, so Close is what stops the server and closes its
-	// pipes.
-	t.Cleanup(func() {
-		cmd.Close()
-		cleanupServer()
-	})
+	t.Cleanup(cleanupServer)
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelWait()
