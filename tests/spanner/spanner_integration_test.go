@@ -258,19 +258,33 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	// Clean up orphaned test tables and graphs older than 2 hours
 	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, 2*time.Hour)
 
-	// Create table and graph names with timestamp and UUID
+	// create table name with timestamp and UUID
 	tableNameParam := newSpannerTestResourceName("param_table")
 	tableNameAuth := newSpannerTestResourceName("auth_table")
 	tableNameTemplateParam := newSpannerTestResourceName("template_param_table")
-	nodeTableName := newSpannerTestResourceName("node_table")
-	edgeTableName := newSpannerTestResourceName("edge_table")
-	graphName := newSpannerTestResourceName("graph")
-	vectorTableName := newSpannerTestResourceName("vector_table")
 
+	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSpannerParamToolInfo(tableNameParam)
+	teardownTable1 := setupSpannerTable(t, ctx, adminClient, dataClient, createParamTableStmt, insertParamTableStmt, tableNameParam, dbString, paramTestParams)
+	defer teardownTable1(t)
+
+	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getSpannerAuthToolInfo(tableNameAuth)
+	teardownTable2 := setupSpannerTable(t, ctx, adminClient, dataClient, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, dbString, authTestParams)
+	defer teardownTable2(t)
+
+	// set up data for template param tool
 	createStatementTmpl := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING(MAX), age INT64) PRIMARY KEY (id)", tableNameTemplateParam)
+	teardownTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createStatementTmpl, "", tableNameTemplateParam, dbString, nil)
+	defer teardownTableTmpl(t)
+
+	// set up for graph tool
+	nodeTableName := newSpannerTestResourceName("node_table")
 	createNodeStatementTmpl := fmt.Sprintf("CREATE TABLE %s (id INT64 NOT NULL) PRIMARY KEY (id)", nodeTableName)
+	teardownNodeTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createNodeStatementTmpl, "", nodeTableName, dbString, nil)
+	defer teardownNodeTableTmpl(t)
+
+	edgeTableName := newSpannerTestResourceName("edge_table")
 	createEdgeStatementTmpl := fmt.Sprintf(`
 	CREATE TABLE %[1]s (
 		id INT64 NOT NULL,
@@ -279,6 +293,10 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	) PRIMARY KEY (id, target_id),
 	 INTERLEAVE IN PARENT %[2]s ON DELETE CASCADE
 	`, edgeTableName, nodeTableName)
+	teardownEdgeTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createEdgeStatementTmpl, "", edgeTableName, dbString, nil)
+	defer teardownEdgeTableTmpl(t)
+
+	graphName := newSpannerTestResourceName("graph")
 	createGraphStmt := fmt.Sprintf(`
 	CREATE PROPERTY GRAPH %[3]s
 		NODE TABLES (
@@ -291,68 +309,8 @@ func TestSpannerToolEndpoints(t *testing.T) {
 				LABEL EDGE
 		)
 	`, nodeTableName, edgeTableName, graphName)
-	createVectorTableStmt := fmt.Sprintf(`CREATE TABLE %s (
-		id INT64,
-		content STRING(MAX),
-		embedding ARRAY<FLOAT32>
-	) PRIMARY KEY (id)`, vectorTableName)
-
-	// Register atomic batched teardown before executing DDL
-	defer func() {
-		teardownCtx := context.WithoutCancel(ctx)
-		dropStatements := []string{
-			fmt.Sprintf("DROP PROPERTY GRAPH IF EXISTS %s", graphName),
-			fmt.Sprintf("DROP TABLE IF EXISTS %s", edgeTableName),
-			fmt.Sprintf("DROP TABLE IF EXISTS %s", nodeTableName),
-			fmt.Sprintf("DROP TABLE IF EXISTS %s", vectorTableName),
-			fmt.Sprintf("DROP TABLE IF EXISTS %s", tableNameTemplateParam),
-			fmt.Sprintf("DROP TABLE IF EXISTS %s", tableNameAuth),
-			fmt.Sprintf("DROP TABLE IF EXISTS %s", tableNameParam),
-		}
-		op, err := adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
-			Database:   dbString,
-			Statements: dropStatements,
-		})
-		if err != nil {
-			t.Errorf("unable to start batched teardown DDL operation: %s", err)
-			return
-		}
-		if opErr := op.Wait(teardownCtx); opErr != nil {
-			t.Errorf("Teardown failed: %s", opErr)
-		}
-	}()
-
-	// Create all test tables and property graph in a single batched DDL operation
-	createOp, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database: dbString,
-		Statements: []string{
-			createParamTableStmt,
-			createAuthTableStmt,
-			createStatementTmpl,
-			createNodeStatementTmpl,
-			createEdgeStatementTmpl,
-			createGraphStmt,
-			createVectorTableStmt,
-		},
-	})
-	if err != nil {
-		t.Fatalf("unable to start batched create DDL operation: %s", err)
-	}
-	if err := createOp.Wait(ctx); err != nil {
-		t.Fatalf("unable to create test tables and graph: %s", err)
-	}
-
-	// Insert initial test data in a single transaction
-	_, err = dataClient.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		if _, err := txn.Update(ctx, spanner.Statement{SQL: insertParamTableStmt, Params: paramTestParams}); err != nil {
-			return err
-		}
-		_, err := txn.Update(ctx, spanner.Statement{SQL: insertAuthTableStmt, Params: authTestParams})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("unable to insert test data: %s", err)
-	}
+	teardownGraph := setupSpannerGraph(t, ctx, adminClient, createGraphStmt, graphName, dbString)
+	defer teardownGraph(t)
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, SpannerToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -362,6 +320,10 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	toolsFile = addSpannerListTablesConfig(t, toolsFile)
 	toolsFile = addSpannerListGraphsConfig(t, toolsFile)
 	toolsFile = addSpannerSearchCatalogConfig(t, toolsFile)
+
+	// Set up table for semantic search
+	vectorTableName, tearDownVectorTable := setupSpannerVectorTable(t, ctx, adminClient, dbString)
+	defer tearDownVectorTable(t)
 
 	// Add semantic search tool config
 	insertStmt, searchStmt := getSpannerVectorSearchStmts(vectorTableName)
