@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Agent Skills on MCP Toolbox for Databases</title><link>https://mcp-toolbox.dev/v1.16.0/documentation/configuration/skills/</link><description>Recent content in Agent Skills on MCP Toolbox for Databases</description><generator>Hugo</generator><language>en-us</language><atom:link href="https://mcp-toolbox.dev/v1.16.0/documentation/configuration/skills/index.xml" rel="self" type="application/rss+xml"/><item><title>Generating Skills</title><link>https://mcp-toolbox.dev/v1.16.0/documentation/configuration/skills/generating/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.16.0/documentation/configuration/skills/generating/</guid><description>&lt;p&gt;The &lt;code&gt;skills-generate&lt;/code&gt; command allows you to convert a &lt;strong&gt;toolset&lt;/strong&gt; or a &lt;strong&gt;&lt;a href="https://mcp-toolbox.dev/v1.16.0/documentation/configuration/groups/"&gt;group&lt;/a&gt;&lt;/strong&gt; into an &lt;strong&gt;Agent Skill&lt;/strong&gt;. The generated skill contains metadata and execution scripts for all tools in the collection, complying with the &lt;a href="https://agentskills.io/specification"&gt;Agent Skill specification&lt;/a&gt;.&lt;/p&gt;
+&lt;h2 id="before-you-begin"&gt;Before you begin&lt;/h2&gt;
+&lt;ol&gt;
+&lt;li&gt;Make sure you have the &lt;code&gt;toolbox&lt;/code&gt; executable in your PATH.&lt;/li&gt;
+&lt;li&gt;Make sure you have &lt;a href="https://nodejs.org/"&gt;Node.js&lt;/a&gt; installed on your system.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2 id="generating-a-skill-from-a-toolset"&gt;Generating a Skill from a Toolset&lt;/h2&gt;
+&lt;p&gt;A skill package consists of a &lt;code&gt;SKILL.md&lt;/code&gt; file (with required YAML frontmatter) and a set of Node.js scripts. Each tool defined in your toolset maps to a corresponding script in the generated Node.js scripts (&lt;code&gt;.js&lt;/code&gt;) that work across different platforms (Linux, macOS, Windows).&lt;/p&gt;</description></item><item><title>Serving Skills over MCP</title><link>https://mcp-toolbox.dev/v1.16.0/documentation/configuration/skills/serving/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/v1.16.0/documentation/configuration/skills/serving/</guid><description>&lt;h2 id="overview"&gt;Overview&lt;/h2&gt;
+&lt;p&gt;Toolbox serves an Agent Skill as a set of ordinary &lt;a href="https://mcp-toolbox.dev/v1.16.0/documentation/configuration/resources/"&gt;resources&lt;/a&gt;. The
+&lt;code&gt;io.modelcontextprotocol/skills&lt;/code&gt; extension adds two methods on top of them:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;skills/list&lt;/code&gt; returns every skill the server declares.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;skills/get&lt;/code&gt; returns one skill, addressed by the URI of its &lt;code&gt;SKILL.md&lt;/code&gt;. An
+unknown URI returns error code &lt;code&gt;-32602&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Both methods return metadata only. Each entry carries the &lt;code&gt;SKILL.md&lt;/code&gt; frontmatter,
+and the URI, &lt;code&gt;sha256:&lt;/code&gt; digest, and byte size of every file in the skill. The client
+reads the content of a file with &lt;code&gt;resources/read&lt;/code&gt;, and compares the bytes against
+the digest.&lt;/p&gt;</description></item></channel></rss>

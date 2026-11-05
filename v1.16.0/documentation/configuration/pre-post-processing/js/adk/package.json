@@ -1,0 +1,16 @@
+{
+  "name": "adk",
+  "version": "1.0.0",
+  "description": "ADK.js sample for pre/post processing",
+  "type": "module",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/adk": "^1.2.0",
+    "@toolbox-sdk/adk": "^0.3.0"
+  }
+}
