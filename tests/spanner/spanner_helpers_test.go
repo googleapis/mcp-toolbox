@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -36,6 +37,12 @@ var (
 	SpannerSourceType = "spanner"
 	SpannerToolType   = "spanner-sql"
 )
+
+// newSpannerTestResourceName returns a Spanner table or graph name prefixed
+// with the current Unix timestamp and a random UUID.
+func newSpannerTestResourceName(prefix string) string {
+	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", ""))
+}
 
 // getSpannerToolInfo returns statements and param for my-tool for spanner-sql type
 func getSpannerParamToolInfo(tableName string) (string, string, string, string, string, string, map[string]any) {
@@ -681,7 +688,7 @@ func runSpannerListGraphsTest(t *testing.T, graphName string) {
 
 // setupSpannerVectorTable creates a vector table in Spanner for semantic search testing
 func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string) (string, func(*testing.T)) {
-	tableName := "vector_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableName := newSpannerTestResourceName("vector_table")
 	createStatement := fmt.Sprintf(`CREATE TABLE %s (
 		id INT64,
 		content STRING(MAX),
@@ -701,7 +708,7 @@ func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *dat
 	}
 
 	return tableName, func(t *testing.T) {
-		op, err = adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		op, err = adminClient.UpdateDatabaseDdl(context.WithoutCancel(ctx), &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
 		})
@@ -709,7 +716,7 @@ func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *dat
 			t.Errorf("unable to start drop %s operation: %s", tableName, err)
 			return
 		}
-		opErr := op.Wait(ctx)
+		opErr := op.Wait(context.WithoutCancel(ctx))
 		if opErr != nil {
 			t.Errorf("Teardown failed: %s", opErr)
 		}
