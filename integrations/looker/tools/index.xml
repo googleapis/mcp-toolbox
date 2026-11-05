@@ -382,7 +382,8 @@ of a LookML project.&lt;/p&gt;
 	&lt;/tbody&gt;
 &lt;/table&gt;</description></item><item><title>looker-add-dashboard-element</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-add-dashboard-element/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-add-dashboard-element/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;The &lt;code&gt;looker-add-dashboard-element&lt;/code&gt; tool creates a new tile (element) within an existing Looker dashboard.
-Tiles are added in the order this tool is called for a given &lt;code&gt;dashboard_id&lt;/code&gt;.&lt;/p&gt;
+Tiles are added in the order this tool is called for a given &lt;code&gt;dashboard_id&lt;/code&gt;.
+It supports query-based tiles (&lt;code&gt;vis&lt;/code&gt;, &lt;code&gt;data&lt;/code&gt;) as well as text, Markdown/HTML, and Slate rich-text tiles (&lt;code&gt;text&lt;/code&gt;).&lt;/p&gt;
 &lt;p&gt;CRITICAL ORDER OF OPERATIONS:&lt;/p&gt;
 &lt;ol&gt;
 &lt;li&gt;Create the dashboard using &lt;code&gt;make_dashboard&lt;/code&gt;.&lt;/li&gt;
@@ -396,92 +397,7 @@ Tiles are added in the order this tool is called for a given &lt;code&gt;dashboa
 
 
 &lt;div class="compatibility-section"&gt;
- &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;
-
- &lt;table&gt;
- &lt;thead&gt;
- &lt;tr&gt;
- &lt;th&gt;Source Name&lt;/th&gt;
- &lt;/tr&gt;
- &lt;/thead&gt;
- &lt;tbody&gt;
- 
- 
- &lt;tr&gt;
- &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/looker/source/"&gt;Looker Source&lt;/a&gt;&lt;/td&gt;
- &lt;/tr&gt;
- 
-
- 
-
- 
- 
- &lt;/tbody&gt;
- &lt;/table&gt;
-&lt;/div&gt;
-
-&lt;h2 id="example"&gt;Example&lt;/h2&gt;
-&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;kind&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;tool&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;add_dashboard_element&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;looker-add-dashboard-element&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;looker-source&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;|&lt;/span&gt;&lt;span class="sd"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; This tool creates a new tile (element) within an existing Looker dashboard.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; Tiles are added in the order this tool is called for a given `dashboard_id`.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; CRITICAL ORDER OF OPERATIONS:
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; 1. Create the dashboard using `make_dashboard`.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; 2. Add any dashboard-level filters using `add_dashboard_filter`.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; 3. Then, add elements (tiles) using this tool.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; Required Parameters:
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - model_name, explore_name, fields: These query parameters are inherited
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; from the `query` tool and are required to define the data for the tile.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; Optional Parameters:
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - title: An optional title for the dashboard tile.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - pivots, filters, sorts, limit, query_timezone: These query parameters are
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; inherited from the `query` tool and can be used to customize the tile&amp;#39;s query.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - vis_config: A JSON object defining the visualization settings for this tile.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; The structure and options are the same as for the `query_url` tool&amp;#39;s `vis_config`.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; Connecting to Dashboard Filters:
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; A dashboard element can be connected to one or more dashboard filters (created with
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; `add_dashboard_filter`). To do this, specify the `name` of the dashboard filter
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; and the `field` from the element&amp;#39;s query that the filter should apply to.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; The format for specifying the field is `view_name.field_name`.&lt;/span&gt;&lt;span class="w"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;
-&lt;table&gt;
-	&lt;thead&gt;
-			&lt;tr&gt;
-					&lt;th style="text-align: left"&gt;&lt;strong&gt;field&lt;/strong&gt;&lt;/th&gt;
-					&lt;th style="text-align: center"&gt;&lt;strong&gt;type&lt;/strong&gt;&lt;/th&gt;
-					&lt;th style="text-align: center"&gt;&lt;strong&gt;required&lt;/strong&gt;&lt;/th&gt;
-					&lt;th&gt;&lt;strong&gt;description&lt;/strong&gt;&lt;/th&gt;
-			&lt;/tr&gt;
-	&lt;/thead&gt;
-	&lt;tbody&gt;
-			&lt;tr&gt;
-					&lt;td style="text-align: left"&gt;type&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
-					&lt;td&gt;Must be &amp;ldquo;looker-add-dashboard-element&amp;rdquo;.&lt;/td&gt;
-			&lt;/tr&gt;
-			&lt;tr&gt;
-					&lt;td style="text-align: left"&gt;source&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
-					&lt;td&gt;Name of the source the SQL should execute on.&lt;/td&gt;
-			&lt;/tr&gt;
-			&lt;tr&gt;
-					&lt;td style="text-align: left"&gt;description&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;string&lt;/td&gt;
-					&lt;td style="text-align: center"&gt;true&lt;/td&gt;
-					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
-			&lt;/tr&gt;
-	&lt;/tbody&gt;
-&lt;/table&gt;</description></item><item><title>looker-add-dashboard-filter</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-add-dashboard-filter/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-add-dashboard-filter/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>looker-add-dashboard-filter</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-add-dashboard-filter/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-add-dashboard-filter/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;The &lt;code&gt;looker-add-dashboard-filter&lt;/code&gt; tool adds a filter to a specified Looker dashboard.&lt;/p&gt;
 &lt;p&gt;CRITICAL ORDER OF OPERATIONS:&lt;/p&gt;
 &lt;ol&gt;
@@ -2922,7 +2838,24 @@ vacuum to perform:&lt;/p&gt;
 &lt;/table&gt;
 &lt;h2 id="example"&gt;Example&lt;/h2&gt;
 &lt;p&gt;Identify unnused fields (&lt;em&gt;in this case, less than 1 query in the last 20 days&lt;/em&gt;)
-and joins in the &lt;code&gt;order_items&lt;/code&gt; explore and &lt;code&gt;thelook&lt;/code&gt; model&lt;/p&gt;</description></item><item><title>looker-list-agents Tool</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-list-agents/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-list-agents/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+and joins in the &lt;code&gt;order_items&lt;/code&gt; explore and &lt;code&gt;thelook&lt;/code&gt; model&lt;/p&gt;</description></item><item><title>looker-import-dashboard-from-lookml</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-import-dashboard-from-lookml/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-import-dashboard-from-lookml/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;looker-import-dashboard-from-lookml&lt;/code&gt; tool imports a LookML dashboard YAML
+definition to create or overwrite a user-defined dashboard in Looker.&lt;/p&gt;
+&lt;p&gt;If a dashboard already exists with the YAML-defined &lt;code&gt;preferred_slug&lt;/code&gt;, it will be
+overwritten. Otherwise, a new dashboard will be created.&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;looker-import-dashboard-from-lookml&lt;/code&gt; takes two parameters:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;lookml&lt;/code&gt; (required): The LookML YAML definition of the dashboard to import.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;folder&lt;/code&gt; (optional): The folder ID where the dashboard will be created. If not provided, the user&amp;rsquo;s personal folder will be used for new dashboards, and existing folders are preserved when overwriting via &lt;code&gt;preferred_slug&lt;/code&gt;.&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>looker-list-agents Tool</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-list-agents/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-list-agents/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;The &lt;code&gt;looker-list-agents&lt;/code&gt; tool allows LLMs to list Looker Agents using the Looker Go SDK.&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-json" data-lang="json"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="p"&gt;{&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; &lt;span class="nt"&gt;&amp;#34;name&amp;#34;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="s2"&gt;&amp;#34;looker-list-agents&amp;#34;&lt;/span&gt;
@@ -3420,7 +3353,7 @@ saved Look.&lt;/p&gt;
 			&lt;/tr&gt;
 	&lt;/tbody&gt;
 &lt;/table&gt;</description></item><item><title>looker-update-dashboard-element</title><link>https://mcp-toolbox.dev/integrations/looker/tools/looker-update-dashboard-element/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/looker/tools/looker-update-dashboard-element/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
-&lt;p&gt;The &lt;code&gt;looker-update-dashboard-element&lt;/code&gt; tool updates an existing query element (tile) in a Looker dashboard. It reconstructs the query for the element using the provided parameters and updates its title and visualization configuration.&lt;/p&gt;
+&lt;p&gt;The &lt;code&gt;looker-update-dashboard-element&lt;/code&gt; tool updates an existing element (tile) in a Looker dashboard. It supports updating query-based tiles (&lt;code&gt;vis&lt;/code&gt;, &lt;code&gt;data&lt;/code&gt;) as well as text, Markdown/HTML, and Slate rich-text tiles (&lt;code&gt;text&lt;/code&gt;), including notes, subtitles, title visibility, and refresh intervals.&lt;/p&gt;
 &lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
 
 
@@ -3458,18 +3391,27 @@ saved Look.&lt;/p&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;type&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;looker-update-dashboard-element&lt;/span&gt;&lt;span class="w"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;looker-source&lt;/span&gt;&lt;span class="w"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;description&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;|&lt;/span&gt;&lt;span class="sd"&gt;
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; This tool updates an existing query element (tile) in a Looker dashboard.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; It reconstructs the query for the element using the provided parameters
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; and updates its title and visualization configuration.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; This tool updates an existing element (tile) in a Looker dashboard.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; It supports updating query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; Required Parameters:
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - dashboard_id: The ID of the dashboard containing the element.
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - dashboard_element_id: The ID of the element to update.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - model, explore, fields: These query parameters define the data for the tile.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - For query tiles (`type` omitted, `&amp;#39;vis&amp;#39;`, or `&amp;#39;data&amp;#39;`): `model`, `explore`, and `fields` define the data for the tile.
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; Optional Parameters:
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - title: The new title for the dashboard tile.
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - pivots, filters, sorts, limit, tz: These query parameters customize the tile&amp;#39;s query.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - type: The type of dashboard element (`&amp;#39;vis&amp;#39;`, `&amp;#39;data&amp;#39;`, or `&amp;#39;text&amp;#39;`).
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - title: The new title for query-based dashboard tiles.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - title_text: The header title text for `&amp;#39;text&amp;#39;` tiles.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - subtitle_text: The subtitle text displayed below the title.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - body_text: The text, Markdown, HTML, or Slate JSON body content for `&amp;#39;text&amp;#39;` tiles.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `&amp;#39;{&amp;#34;format&amp;#34;:&amp;#34;slate&amp;#34;}&amp;#39;`).
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - note_text: Note text attached to the tile.
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - note_display: Where the note appears on the tile (`&amp;#39;above&amp;#39;`, `&amp;#39;below&amp;#39;`, or `&amp;#39;hover&amp;#39;`).
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - note_state: The display state of the note (`&amp;#39;expanded&amp;#39;` or `&amp;#39;collapsed&amp;#39;`).
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - title_hidden: Whether to hide the tile title (`true`/`false`).
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - refresh_interval: Auto-refresh interval for the tile (e.g., `&amp;#39;1 hour&amp;#39;`).
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters that customize a query tile.
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - vis_config: A JSON object defining the visualization settings.
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="sd"&gt; - dashboard_filters: An array of dashboard filters to connect to this element.&lt;/span&gt;&lt;span class="w"&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;h2 id="reference"&gt;Reference&lt;/h2&gt;

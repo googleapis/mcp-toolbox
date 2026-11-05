@@ -20,6 +20,7 @@ execute queries.&lt;/li&gt;
 &lt;ul&gt;
 &lt;li&gt;&lt;code&gt;execute_sql&lt;/code&gt;: Executes a SQL query.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;list_tables&lt;/code&gt;: Lists tables in the database.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;get_database_object_source_code&lt;/code&gt;: Retrieves source code or metadata for database objects.&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
 &lt;/ul&gt;</description></item></channel></rss>

@@ -228,6 +228,10 @@ in the cloud, on GCP, or on premises.&lt;/p&gt;
  
  
  
+ 
+ 
+ 
+ 
 
 
 
@@ -483,6 +487,12 @@ in the cloud, on GCP, or on premises.&lt;/p&gt;
  &lt;tr&gt;
  &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/looker/tools/looker-health-vacuum/"&gt;&lt;strong&gt;looker-health-vacuum&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
  &lt;td&gt;&amp;#34;looker-health-vacuum&amp;#34; provides a set of commands to audit and identify unused LookML objects in a Looker instance.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/looker/tools/looker-import-dashboard-from-lookml/"&gt;&lt;strong&gt;looker-import-dashboard-from-lookml&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;&amp;#34;looker-import-dashboard-from-lookml&amp;#34; imports a LookML dashboard YAML definition to create or overwrite a user-defined dashboard in Looker.
 &lt;/td&gt;
  &lt;/tr&gt;
  

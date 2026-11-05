@@ -24,6 +24,10 @@ amount of data through a structured format.&lt;/p&gt;
  
  
  
+ 
+ 
+ 
+ 
 
 
 
@@ -45,6 +49,12 @@ amount of data through a structured format.&lt;/p&gt;
  &lt;tr&gt;
  &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/mssql/tools/mssql-execute-sql/"&gt;&lt;strong&gt;mssql-execute-sql&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
  &lt;td&gt;A &amp;#34;mssql-execute-sql&amp;#34; tool executes a SQL statement against a SQL Server database.
+&lt;/td&gt;
+ &lt;/tr&gt;
+ 
+ &lt;tr&gt;
+ &lt;td&gt;&lt;a href="https://mcp-toolbox.dev/integrations/mssql/tools/mssql-get-database-object-source-code/"&gt;&lt;strong&gt;mssql-get-database-object-source-code&lt;/strong&gt;&lt;/a&gt;&lt;/td&gt;
+ &lt;td&gt;The &amp;#34;mssql-get-database-object-source-code&amp;#34; tool retrieves source code and metadata for objects in a SQL Server database.
 &lt;/td&gt;
  &lt;/tr&gt;
  

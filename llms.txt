@@ -1,9 +1,9 @@
 # MCP Toolbox for Databases - Documentation Index
 > MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
 
-**DOCUMENTATION VERSION:** v1.15.0
+**DOCUMENTATION VERSION:** v1.16.0
 **BASE URL:** https://mcp-toolbox.dev/
-**GENERATED ON:** 2026-10-23T00:21:14Z
+**GENERATED ON:** 2026-11-05T20:03:54Z
 
 ---
 ### System Directives for AI Models
@@ -149,7 +149,13 @@ This documentation is structured following the Diátaxis framework to assist in 
     - [Toolbox UI](https://mcp-toolbox.dev/documentation/configuration/toolbox-ui/): How to effectively use Toolbox UI.
 
 
-    - [Agent Skills](https://mcp-toolbox.dev/documentation/configuration/skills/): How to generate agent skills from a toolset.
+    - [Agent Skills](https://mcp-toolbox.dev/documentation/configuration/skills/): Generate an Agent Skill from a toolset, and serve an Agent Skill over MCP.
+
+
+      - [Generating Skills](https://mcp-toolbox.dev/documentation/configuration/skills/generating/): Convert a toolset or a group into a skill package: a SKILL.md and one Node.js script for each tool.
+
+
+      - [Serving Skills over MCP](https://mcp-toolbox.dev/documentation/configuration/skills/serving/): Publish an Agent Skill you already have through skills/list and skills/get, on the same connection that serves your tools.
 
 
     - [Pre- and Post- Processing](https://mcp-toolbox.dev/documentation/configuration/pre-post-processing/): Intercept and modify interactions between the agent and its tools either before or after a tool is executed.
@@ -1237,6 +1243,9 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-health-vacuum](https://mcp-toolbox.dev/integrations/looker/tools/looker-health-vacuum/): "looker-health-vacuum" provides a set of commands to audit and identify unused LookML objects in a Looker instance.
 
 
+      - [looker-import-dashboard-from-lookml](https://mcp-toolbox.dev/integrations/looker/tools/looker-import-dashboard-from-lookml/): "looker-import-dashboard-from-lookml" imports a LookML dashboard YAML definition to create or overwrite a user-defined dashboard in Looker.
+
+
       - [looker-list-agents Tool](https://mcp-toolbox.dev/integrations/looker/tools/looker-list-agents/): "looker-list-agents" retrieves the list of Looker Conversation Analytics agents.
 
 
@@ -1674,6 +1683,9 @@ This documentation is structured following the Diátaxis framework to assist in 
     - [Tools](https://mcp-toolbox.dev/integrations/mssql/tools/): No description provided.
 
       - [mssql-execute-sql](https://mcp-toolbox.dev/integrations/mssql/tools/mssql-execute-sql/): A "mssql-execute-sql" tool executes a SQL statement against a SQL Server database.
+
+
+      - [mssql-get-database-object-source-code](https://mcp-toolbox.dev/integrations/mssql/tools/mssql-get-database-object-source-code/): The "mssql-get-database-object-source-code" tool retrieves source code and metadata for objects in a SQL Server database.
 
 
       - [mssql-list-tables](https://mcp-toolbox.dev/integrations/mssql/tools/mssql-list-tables/): The "mssql-list-tables" tool lists schema information for all or specified tables in a SQL server database.

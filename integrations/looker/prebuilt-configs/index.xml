@@ -39,6 +39,7 @@ explores, and data is required.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;get_dashboards&lt;/code&gt;: Searches for saved dashboards.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;run_dashboard&lt;/code&gt;: Runs the queries associated with a dashboard.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;make_dashboard&lt;/code&gt;: Creates a new dashboard.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;import_dashboard_from_lookml&lt;/code&gt;: Imports a dashboard from a LookML YAML definition.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;add_dashboard_element&lt;/code&gt;: Adds a tile to a dashboard.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;add_dashboard_filter&lt;/code&gt;: Adds a filter to a dashboard.&lt;/li&gt;
 &lt;li&gt;&lt;code&gt;generate_embed_url&lt;/code&gt;: Generate an embed url for content.&lt;/li&gt;

@@ -86,7 +86,27 @@ human-in-the-loop and shouldn&amp;rsquo;t be used for production agents.&lt;/p&g
 					&lt;td&gt;Description of the tool that is passed to the LLM.&lt;/td&gt;
 			&lt;/tr&gt;
 	&lt;/tbody&gt;
-&lt;/table&gt;</description></item><item><title>mssql-list-tables</title><link>https://mcp-toolbox.dev/integrations/mssql/tools/mssql-list-tables/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/mssql/tools/mssql-list-tables/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;/table&gt;</description></item><item><title>mssql-get-database-object-source-code</title><link>https://mcp-toolbox.dev/integrations/mssql/tools/mssql-get-database-object-source-code/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/mssql/tools/mssql-get-database-object-source-code/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
+&lt;p&gt;The &lt;code&gt;mssql-get-database-object-source-code&lt;/code&gt; tool retrieves source code and
+metadata for database objects in a SQL Server database, including stored
+procedures, views, functions, triggers, linked servers, tables, and user-defined
+assemblies.&lt;/p&gt;
+&lt;p&gt;The tool takes the following input parameters:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;namesOnly&lt;/code&gt;&lt;/strong&gt; (boolean, optional): Set to &lt;code&gt;true&lt;/code&gt; to return only object names
+instead of full object source code or metadata. Default: &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;object_type&lt;/code&gt;&lt;/strong&gt; (string, optional): Specify the database object type to
+retrieve. Allowed values: &lt;code&gt;all&lt;/code&gt;, &lt;code&gt;functions&lt;/code&gt;, &lt;code&gt;tables&lt;/code&gt;, &lt;code&gt;procedures&lt;/code&gt;, &lt;code&gt;views&lt;/code&gt;,
+&lt;code&gt;triggers&lt;/code&gt;, &lt;code&gt;linked_servers&lt;/code&gt;, &lt;code&gt;assemblies&lt;/code&gt;. Default: &lt;code&gt;all&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id="compatible-sources"&gt;Compatible Sources&lt;/h2&gt;
+
+
+
+
+
+&lt;div class="compatibility-section"&gt;
+ &lt;p&gt;This tool can be used with the following database sources:&lt;/p&gt;</description></item><item><title>mssql-list-tables</title><link>https://mcp-toolbox.dev/integrations/mssql/tools/mssql-list-tables/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://mcp-toolbox.dev/integrations/mssql/tools/mssql-list-tables/</guid><description>&lt;h2 id="about"&gt;About&lt;/h2&gt;
 &lt;p&gt;The &lt;code&gt;mssql-list-tables&lt;/code&gt; tool retrieves schema information for all or specified
 tables in a SQL server database.&lt;/p&gt;
 &lt;p&gt;&lt;code&gt;mssql-list-tables&lt;/code&gt; lists detailed schema information (object type, columns,
