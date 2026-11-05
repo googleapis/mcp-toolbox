@@ -1,0 +1,35 @@
+{
+  "scenarios": [
+    {
+      "id": "alloydbpg-observability-01",
+      "starting_prompt": "Our AlloyDB instance 'primary-instance' in cluster 'analytics-cluster' (region us-central1) seems overloaded. What are the current CPU and memory utilization levels?",
+      "conversation_plan": "The user wants to check CPU and memory utilization for the instance. Accept a short summary of the metrics and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_system_metrics"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    },
+    {
+      "id": "alloydbpg-observability-02",
+      "starting_prompt": "We are experiencing performance issues on database 'ecommerce_db' on AlloyDB instance 'primary-instance' in cluster 'analytics-cluster' (region us-central1). What are the top queries by execution time over the past hour?",
+      "conversation_plan": "Turn 2: After the top queries are identified, ask what wait classes or wait events are causing the biggest bottlenecks for that instance. Then accept the summary and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_advanced_aggregated_query_stats",
+        "toolbox__get_advanced_aggregated_wait_event_stats"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "alloydbpg-observability-03",
+      "starting_prompt": "Are there any index recommendations to improve query performance on our AlloyDB instance 'primary-instance' in cluster 'analytics-cluster' (region us-central1) for database 'ecommerce_db'?",
+      "conversation_plan": "The user wants index recommendations from the index advisor for the database. Accept the recommended indexes and predicted improvements, then end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_index_recommendations"
+      ],
+      "kind": "tools",
+      "max_turns": 1
+    }
+  ]
+}
