@@ -62,7 +62,11 @@ annotations:
 			if annotations == nil || annotations.ReadOnlyHint == nil || !*annotations.ReadOnlyHint {
 				t.Fatal("explicit read-only annotation was lost")
 			}
-			if tool.Authorized(nil) || !tool.Authorized([]string{"my-auth-service"}) {
+			authRequired := tool.GetAuthRequired()
+			if len(authRequired) != 1 || authRequired[0] != "my-auth-service" {
+				t.Fatalf("authRequired = %v, want [my-auth-service]", authRequired)
+			}
+			if tools.IsAuthorized(authRequired, nil) || !tools.IsAuthorized(authRequired, []string{"my-auth-service"}) {
 				t.Fatal("configured authorization requirement was not preserved")
 			}
 			if got := tool.GetScopesRequired(); len(got) != 1 || got[0] != "read" {

@@ -97,19 +97,28 @@ var _ tools.ToolConfig = MockToolConfig{}
 // MockTool is used to mock tools in tests
 type MockTool struct {
 	tools.BaseTool[MockToolConfig]
-	unauthorized               bool
 	requireClientAuthorization bool
 	ReturnParamsInInvoke       bool
 }
 
 var _ tools.Tool = MockTool{}
 
+// mockAuthRequired returns the authRequired list for a mock tool. Unauthorized
+// mock tools require an auth service that test requests never provide.
+func mockAuthRequired(unauthorized bool) []string {
+	if unauthorized {
+		return []string{"mock-auth-service"}
+	}
+	return nil
+}
+
 // NewMockToolWithUI creates a new mock tool with UI metadata for testing.
 func NewMockToolWithUI(name, desc, source string, params []parameters.Parameter, unauthorized, reqClientAutho bool, uiResource string) MockTool {
 	mockConfig := MockToolConfig{
 		ConfigBase: tools.ConfigBase{
-			Name:        name,
-			Description: desc,
+			Name:         name,
+			Description:  desc,
+			AuthRequired: mockAuthRequired(unauthorized),
 			UI: &tools.ToolUIMetadata{
 				Resource: uiResource,
 			},
@@ -121,7 +130,6 @@ func NewMockToolWithUI(name, desc, source string, params []parameters.Parameter,
 	ctx := context.Background()
 	t, _ := mockConfig.Initialize(ctx)
 	mt := t.(MockTool)
-	mt.unauthorized = unauthorized
 	mt.requireClientAuthorization = reqClientAutho
 	return mt
 }
@@ -130,8 +138,9 @@ func NewMockToolWithUI(name, desc, source string, params []parameters.Parameter,
 func NewMockTool(name, desc, source string, params []parameters.Parameter, unauthorized, reqClientAutho bool) MockTool {
 	mockConfig := MockToolConfig{
 		ConfigBase: tools.ConfigBase{
-			Name:        name,
-			Description: desc,
+			Name:         name,
+			Description:  desc,
+			AuthRequired: mockAuthRequired(unauthorized),
 		},
 		Source:     source,
 		Type:       "mock-tool",
@@ -140,7 +149,6 @@ func NewMockTool(name, desc, source string, params []parameters.Parameter, unaut
 	ctx := context.Background()
 	t, _ := mockConfig.Initialize(ctx)
 	mt := t.(MockTool)
-	mt.unauthorized = unauthorized
 	mt.requireClientAuthorization = reqClientAutho
 	return mt
 }
@@ -166,11 +174,6 @@ func (t MockTool) Invoke(ctx context.Context, s sources.Source, params parameter
 		}
 	}
 	return mock, nil
-}
-
-func (t MockTool) Authorized(verifiedAuthServices []string) bool {
-	// default to true
-	return !t.unauthorized
 }
 
 func (t MockTool) ValidateSource(src sources.Source) error {
@@ -285,6 +288,8 @@ func RegisterMockResource() {
 type MockResourceConfig struct {
 	resources.ResourceConfigBase `yaml:",inline"`
 	Size                         *int64 `yaml:"-"`
+	// Content is what Read returns. Empty means "mock resource data".
+	Content string `yaml:"-"`
 }
 
 func (m *MockResourceConfig) ResourceConfigType() string {
@@ -308,6 +313,9 @@ func (m MockResource) GetSize() *int64                                { return m
 func (m MockResource) GetAnnotations() *resources.ResourceAnnotations { return m.config.Annotations }
 
 func (m MockResource) Read(ctx context.Context, params map[string]any) (any, error) {
+	if m.config.Content != "" {
+		return m.config.Content, nil
+	}
 	return "mock resource data", nil
 }
 
@@ -321,6 +329,7 @@ func (m MockResource) GetName() string {
 
 func (m MockResource) GetResourceUIMetadata() any { return m.config.GetResourceUIMetadata() }
 func (m MockResource) IsUI() bool                 { return m.config.IsUI() }
+func (m MockResource) IsDynamic() bool            { return m.config.IsDynamic() }
 
 // MockResourceTemplateConfig is a mock implementation of resources.ResourceTemplateConfig
 type MockResourceTemplateConfig struct {
@@ -386,6 +395,22 @@ func NewMockResource(name, uri, title, description, mimeType string, size *int64
 			Size:               size,
 		},
 	}
+}
+
+// NewMockTextResource creates a text/markdown mock resource whose Read
+// returns content.
+func NewMockTextResource(name, uri, content string) MockResource {
+	res := NewMockResource(name, uri, "", "", "text/markdown", nil, nil)
+	res.config.Content = content
+	return res
+}
+
+// NewMockDynamicTextResource creates a text/markdown mock resource whose skill
+// publishes the "dynamic" marker in place of a file list.
+func NewMockDynamicTextResource(name, uri, content string) MockResource {
+	res := NewMockTextResource(name, uri, content)
+	res.config.Dynamic = true
+	return res
 }
 
 func NewMockResourceTemplate(name, uriTemplate, title, description, mimeType string, annotations *resources.ResourceAnnotations) MockResourceTemplate {
