@@ -243,7 +243,15 @@ func RunDataTypeInvokeTest(t *testing.T, wants map[string][]any) {
 		return v
 	}
 
-	for toolName, want := range wants {
+	// Sort the tool names so subtests run in a deterministic order.
+	toolNames := make([]string, 0, len(wants))
+	for toolName := range wants {
+		toolNames = append(toolNames, toolName)
+	}
+	sort.Strings(toolNames)
+
+	for _, toolName := range toolNames {
+		want := wants[toolName]
 		t.Run(fmt.Sprintf("invoke %s", toolName), func(t *testing.T) {
 			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
 			resp, respBody := RunRequest(t, http.MethodPost, api, bytes.NewBufferString("{}"), nil)
