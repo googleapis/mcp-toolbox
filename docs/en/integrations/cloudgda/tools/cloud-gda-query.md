@@ -140,8 +140,36 @@ configuration error.
 | databaseTableReferences | list of object |    false     | all                                     | Restricts the query to these tables, with optional schema. Each entry takes `tableId` (required) and `schema`. Richer alternative to `tableIds`. |
 | priority                |     string     |    false     | `spannerReference`                      | Spanner request priority: `LOW`, `MEDIUM`, or `HIGH`. Unsupported values are ignored.                                              |
 | requestTag              |     string     |    false     | `spannerReference`                      | Tag attached to all Spanner queries, for identifying and monitoring traffic from this tool.                                        |
+| graphIds                | list of string |    false     | `spannerReference`                      | [Spanner Graph](https://cloud.google.com/spanner/docs/graph/overview) property graphs to query. When set, the API generates GQL queries over these graphs. GoogleSQL-dialect databases only. See [Spanner Graph](#spanner-graph). |
 
 ## Advanced Usage
+
+### Spanner Graph
+
+To query [Spanner Graph](https://cloud.google.com/spanner/docs/graph/overview)
+data, list the property graphs in `graphIds`. The API then generates GQL
+(`GRAPH <graph> MATCH ...`) queries over those graphs.
+
+```yaml
+kind: tool
+name: my-gda-graph-query-tool
+type: cloud-gemini-data-analytics-query
+source: my-gda-source
+description: "Answer questions about the financial transactions graph."
+location: ${your_database_location}
+context:
+  datasourceReferences:
+    spannerReference:
+      databaseReference:
+        projectId: "${your_project_id}"
+        instanceId: "${your_instance_id}"
+        databaseId: "${your_database_name}"
+        engine: "GOOGLE_SQL"
+        graphIds: ["${your_property_graph_name}"]
+generationOptions:
+  generateQueryResult: true
+  generateNaturalLanguageAnswer: true
+```
 
 ### Parameterized Secure Views (PSV)
 

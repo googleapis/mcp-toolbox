@@ -100,6 +100,62 @@ func TestParseFromYaml(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "spanner graph example",
+			in: `
+			kind: tool
+			name: my-gda-graph-query-tool
+			type: cloud-gemini-data-analytics-query
+			source: gda-api-source
+			description: Test Description
+			location: us-central1
+			context:
+				datasourceReferences:
+					spannerReference:
+						databaseReference:
+							projectId:  "cloud-db-nl2sql"
+							instanceId: "evalbench"
+							databaseId: "finance"
+							engine:     "GOOGLE_SQL"
+							graphIds:   ["FinGraph"]
+			generationOptions:
+				generateQueryResult: true
+			`,
+			want: map[string]tools.ToolConfig{
+				"my-gda-graph-query-tool": cloudgdatool.Config{
+					ConfigBase: tools.ConfigBase{
+						Name:         "my-gda-graph-query-tool",
+						Description:  "Test Description",
+						AuthRequired: []string{},
+					},
+					Type:     "cloud-gemini-data-analytics-query",
+					Source:   "gda-api-source",
+					Location: "us-central1",
+					Context: &cloudgdatool.QueryDataContext{
+						QueryDataContext: &geminidataanalyticspb.QueryDataContext{
+							DatasourceReferences: &geminidataanalyticspb.DatasourceReferences{
+								References: &geminidataanalyticspb.DatasourceReferences_SpannerReference{
+									SpannerReference: &geminidataanalyticspb.SpannerReference{
+										DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
+											ProjectId:  "cloud-db-nl2sql",
+											InstanceId: "evalbench",
+											DatabaseId: "finance",
+											Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,
+											GraphIds:   []string{"FinGraph"},
+										},
+									},
+								},
+							},
+						},
+					},
+					GenerationOptions: &cloudgdatool.GenerationOptions{
+						GenerationOptions: &geminidataanalyticspb.GenerationOptions{
+							GenerateQueryResult: true,
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		tc := tc
