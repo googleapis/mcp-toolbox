@@ -19,6 +19,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -40,6 +42,8 @@ updates:
       - "/docs/**/*"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -57,6 +61,8 @@ updates:
     directory: "/.hugo"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -75,6 +81,8 @@ updates:
       - "/docs/**/*"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -92,6 +100,8 @@ updates:
     directory: "/.hugo"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -110,6 +120,8 @@ updates:
       - "/docs/**/*"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -127,6 +139,8 @@ updates:
     directory: "/pypi"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -144,6 +158,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
@@ -161,6 +177,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     labels:
       - "type: process"
