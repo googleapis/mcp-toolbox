@@ -58,7 +58,9 @@ func toolsetHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 
 	toolsetName := chi.URLParam(r, "toolsetName")
 	s.logger.DebugContext(ctx, fmt.Sprintf("toolset name: %s", toolsetName))
-	span.SetAttributes(attribute.String("toolset.name", toolsetName))
+	// Validate before attaching to telemetry: a raw URL segment would mint a
+	// new metric stream per distinct value (see #4273).
+	span.SetAttributes(attribute.String("toolset.name", s.telemetryToolsetName(toolsetName)))
 	var err error
 	defer func() {
 		if err != nil {
