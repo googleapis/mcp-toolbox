@@ -313,7 +313,9 @@ func TestServerlessSparkToolEndpoints(t *testing.T) {
 	t.Run("parallel-tool-tests", func(t *testing.T) {
 		t.Run("get-batch", func(t *testing.T) {
 			t.Parallel()
-			fullName := listBatchesRpc(t, batchClient, ctx, "", 1, true)[0].Name
+			// Only use a batch in a terminal state; non-terminal batches (possibly created by
+			// concurrent CI runs in the same project) can change state mid-test.
+			fullName := listBatchesRpc(t, batchClient, ctx, "state = SUCCEEDED", 1, true)[0].Name
 			t.Run("success", func(t *testing.T) {
 				t.Parallel()
 				runGetBatchTest(t, batchClient, ctx, fullName)
@@ -1018,40 +1020,37 @@ func runAuthTest(t *testing.T, toolName string, request map[string]any, wantStat
 }
 
 func runGetBatchTest(t *testing.T, client *dataproc.BatchControllerClient, ctx context.Context, fullName string) {
-	// First get the batch details directly from the Go proto API.
-	req := &dataprocpb.GetBatchRequest{
-		Name: fullName,
-	}
-	rawWantBatchPb, err := client.GetBatch(ctx, req)
-	if err != nil {
-		t.Fatalf("failed to get batch: %s", err)
-	}
-
-	// Trim unknown fields from the proto by marshalling and unmarshalling.
-	jsonBytes, err := protojson.Marshal(rawWantBatchPb)
-	if err != nil {
-		t.Fatalf("failed to marshal batch to JSON: %s", err)
-	}
-	var wantBatchPb dataprocpb.Batch
-	if err := protojson.Unmarshal(jsonBytes, &wantBatchPb); err != nil {
-		t.Fatalf("error unmarshalling result: %s", err)
-	}
-
 	tcs := []struct {
 		name      string
 		batchName string
-		want      *dataprocpb.Batch
 	}{
 		{
 			name:      "found batch",
 			batchName: shortName(fullName),
-			want:      &wantBatchPb,
 		},
 	}
 
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			// Get the expected batch details directly from the Go proto API. This is done inside the
+			// parallel subtest, immediately before invoking the tool, so that the expected snapshot
+			// isn't taken minutes earlier while this subtest waits for a parallel slot.
+			rawWantBatchPb, err := client.GetBatch(ctx, &dataprocpb.GetBatchRequest{Name: fullName})
+			if err != nil {
+				t.Fatalf("failed to get batch: %s", err)
+			}
+
+			// Trim unknown fields from the proto by marshalling and unmarshalling.
+			jsonBytes, err := protojson.Marshal(rawWantBatchPb)
+			if err != nil {
+				t.Fatalf("failed to marshal batch to JSON: %s", err)
+			}
+			var want dataprocpb.Batch
+			if err := protojson.Unmarshal(jsonBytes, &want); err != nil {
+				t.Fatalf("error unmarshalling result: %s", err)
+			}
+
 			request := map[string]any{"name": tc.batchName}
 			resp, err := invokeTool("get-batch", request, nil)
 			if err != nil {
@@ -1094,8 +1093,8 @@ func runGetBatchTest(t *testing.T, client *dataproc.BatchControllerClient, ctx c
 			}
 
 			ignoreFields := protocmp.IgnoreFields(&dataprocpb.RuntimeInfo{}, "approximate_usage")
-			if !cmp.Equal(&batch, tc.want, protocmp.Transform(), ignoreFields) {
-				diff := cmp.Diff(&batch, tc.want, protocmp.Transform(), ignoreFields)
+			if !cmp.Equal(&batch, &want, protocmp.Transform(), ignoreFields) {
+				diff := cmp.Diff(&batch, &want, protocmp.Transform(), ignoreFields)
 				t.Errorf("GetBatch() returned diff (-got +want):\n%s", diff)
 			}
 		})
