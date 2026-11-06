@@ -369,7 +369,6 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 		return nil, nil, fmt.Errorf("failed to get logger from context: %w", err)
 	}
 
-	// Apply the same source and tool type restrictions as InitializeConfigs.
 	if err := checkRestrictions(ctx, cfg, l); err != nil {
 		return nil, nil, err
 	}
