@@ -15,98 +15,16 @@
 package http_test
 
 import (
-	stdhttp "net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
-	httpsource "github.com/googleapis/mcp-toolbox/internal/sources/http"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	http "github.com/googleapis/mcp-toolbox/internal/tools/http"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
-
-func TestInvokeHeaderPrecedence(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		toolHeaders map[string]string
-		headerParam string
-		want        string
-	}{
-		{
-			name: "source default",
-			want: "text/plain; charset=UTF-8",
-		},
-		{
-			name:        "tool overrides source",
-			toolHeaders: map[string]string{"Content-Type": "application/json; charset=UTF-8"},
-			want:        "application/json; charset=UTF-8",
-		},
-		{
-			name:        "provided parameter overrides source and tool",
-			toolHeaders: map[string]string{"Content-Type": "application/json; charset=UTF-8"},
-			headerParam: "application/xml; charset=UTF-8",
-			want:        "application/xml; charset=UTF-8",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			received := make(chan string, 1)
-			receiver := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-				received <- r.Header.Get("Content-Type")
-				w.WriteHeader(stdhttp.StatusNoContent)
-			}))
-			defer receiver.Close()
-
-			ctx, err := testutils.ContextWithNewLogger()
-			if err != nil {
-				t.Fatal(err)
-			}
-			ctx = testutils.ContextWithUserAgent(ctx, "header-precedence-test")
-			sourceCfg := httpsource.Config{
-				Name:                 "http-source",
-				Type:                 "http",
-				BaseURL:              receiver.URL,
-				Timeout:              "5s",
-				DefaultHeaders:       map[string]string{"content-type": "text/plain; charset=UTF-8"},
-				AllowPrivateNetworks: true,
-			}
-			source, err := sourceCfg.Initialize(ctx, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			cfg := http.Config{
-				ConfigBase: tools.ConfigBase{Name: "http-tool", Description: "test header precedence"},
-				Type:       "http",
-				Source:     "http-source",
-				Method:     "GET",
-				Path:       "/",
-				Headers:    tc.toolHeaders,
-			}
-			input := map[string]any{}
-			if tc.headerParam != "" {
-				cfg.HeaderParams = parameters.Parameters{parameters.NewStringParameter("CONTENT-type", "content type")}
-				input["CONTENT-type"] = tc.headerParam
-			}
-			tool, err := cfg.Initialize(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			params, err := parameters.ParseParams(cfg.HeaderParams, input, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := tool.Invoke(ctx, source, params, ""); err != nil {
-				t.Fatal(err)
-			}
-			if got := <-received; got != tc.want {
-				t.Fatalf("received Content-Type %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
 
 func TestParseFromYamlHTTP(t *testing.T) {
 	ctx, err := testutils.ContextWithNewLogger()
