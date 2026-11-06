@@ -223,7 +223,7 @@ func TestAlloyDBPgPrebuiltStatementTools(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	args := []string{"--prebuilt", "alloydb-postgres", "--enable-api"}
+	args := []string{"--prebuilt", "alloydb-postgres,alloydb-postgres-advisor", "--enable-api"}
 
 	cmd, cleanup, err := tests.StartCmd(ctx, map[string]any{}, args...)
 	if err != nil {
@@ -246,6 +246,7 @@ func TestAlloyDBPgPrebuiltStatementTools(t *testing.T) {
 		"list_replication_slots":         `{}`,
 		"list_invalid_indexes":           `{}`,
 		"get_query_plan":                 `{"query": "SELECT 1"}`,
+		"get_index_recommendations":      `{}`,
 	}
 
 	tests.RunStatementToolsTest(t, toolsToTest)

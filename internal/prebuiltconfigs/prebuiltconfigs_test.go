@@ -24,6 +24,7 @@ import (
 var expectedToolSources = []string{
 	"alloydb-omni",
 	"alloydb-postgres-admin",
+	"alloydb-postgres-advisor",
 	"alloydb-postgres-observability",
 	"alloydb-postgres",
 	"conversational-analytics-with-data-agent",
@@ -114,6 +115,7 @@ func TestLoadPrebuiltToolYAMLs(t *testing.T) {
 func TestGetPrebuiltTool(t *testing.T) {
 	alloydb_omni_config := getOrFatal(t, "alloydb-omni")
 	alloydb_admin_config := getOrFatal(t, "alloydb-postgres-admin")
+	alloydb_advisor_config := getOrFatal(t, "alloydb-postgres-advisor")
 	alloydb_observability_config := getOrFatal(t, "alloydb-postgres-observability")
 	alloydb_config := getOrFatal(t, "alloydb-postgres")
 	bigquery_config := getOrFatal(t, "bigquery")
@@ -154,6 +156,9 @@ func TestGetPrebuiltTool(t *testing.T) {
 	}
 	if len(alloydb_admin_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch alloydb admin prebuilt tools yaml")
+	}
+	if len(alloydb_advisor_config) <= 0 {
+		t.Fatalf("unexpected error: could not fetch alloydb advisor prebuilt tools yaml")
 	}
 	if len(alloydb_config) <= 0 {
 		t.Fatalf("unexpected error: could not fetch alloydb prebuilt tools yaml")
