@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -70,6 +71,24 @@ func getPromptsConfig() map[string]any {
 					},
 				},
 			},
+			"typed_prompt": map[string]any{
+				"arguments": []any{
+					map[string]any{"name": "count", "type": "integer", "description": "A count"},
+					map[string]any{"name": "ratio", "type": "float", "description": "A ratio"},
+					map[string]any{"name": "enabled", "type": "boolean", "description": "Whether enabled"},
+					map[string]any{
+						"name": "tags", "type": "array", "description": "Numeric tags",
+						"items": map[string]any{"name": "item", "type": "integer", "description": "A tag"},
+					},
+					map[string]any{"name": "limits", "type": "map", "valueType": "integer", "description": "Numeric limits"},
+					map[string]any{"name": "literal", "description": "Literal text"},
+				},
+				"messages": []any{
+					map[string]any{
+						"content": `count={{.count}} ratio={{.ratio}} enabled={{.enabled}} tags={{range .tags}}[{{.}}]{{end}} limit={{index .limits "max"}} literal={{.literal}}`,
+					},
+				},
+			},
 		},
 	}
 }
@@ -85,6 +104,15 @@ func TestMCPPromptsIntegration(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %v", err)
 	}
 	defer cleanup()
+	defer func() {
+		cmd.Stop()
+		cmd.Close()
+		stopCtx, cancelStop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelStop()
+		if err := cmd.Wait(stopCtx); err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("toolbox shutdown failed: %v", err)
+		}
+	}()
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelWait()
@@ -96,6 +124,7 @@ func TestMCPPromptsIntegration(t *testing.T) {
 
 	runMCPListPromptsTest(t)
 	runMCPGetPromptTest(t)
+	runMCPGetTypedPromptTest(t)
 }
 
 func runMCPListPromptsTest(t *testing.T) {
@@ -127,8 +156,8 @@ func runMCPListPromptsTest(t *testing.T) {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 
-		if len(result.Result.Prompts) != 2 {
-			t.Errorf("expected 2 prompts, got %d", len(result.Result.Prompts))
+		if len(result.Result.Prompts) != 3 {
+			t.Errorf("expected 3 prompts, got %d", len(result.Result.Prompts))
 		}
 	})
 }
@@ -185,6 +214,61 @@ func runMCPGetPromptTest(t *testing.T) {
 		expectedContent2 := "value1"
 		if content2 != expectedContent2 {
 			t.Errorf("unexpected content in message 2.\nGot: %q\nWant: %q", content2, expectedContent2)
+		}
+	})
+}
+
+func runMCPGetTypedPromptTest(t *testing.T) {
+	t.Run("MCP_prompts/get_typed_arguments", func(t *testing.T) {
+		reqBody := jsonrpc.JSONRPCRequest{
+			Jsonrpc: "2.0",
+			Id:      "get-typed-prompt",
+			Request: jsonrpc.Request{Method: "prompts/get"},
+			Params: map[string]any{
+				"name": "typed_prompt",
+				"arguments": map[string]string{
+					"count": "0", "ratio": "1.5", "enabled": "false",
+					"tags": "[0,3]", "limits": `{"max":5}`, "literal": `{"x":true}`,
+				},
+			},
+		}
+		jsonBody, _ := json.Marshal(reqBody)
+		resp, err := http.Post("http://127.0.0.1:5000/mcp", "application/json", bytes.NewBuffer(jsonBody))
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("failed to read response: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status OK; got %s, body: %s", resp.Status, body)
+		}
+		var result struct {
+			Result struct {
+				Messages []struct {
+					Content struct{ Text string }
+				}
+			}
+			Error *struct {
+				Code    int
+				Message string
+			}
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if result.Error != nil {
+			t.Fatalf("prompts/get returned an error: %+v", result.Error)
+		}
+		if len(result.Result.Messages) != 1 {
+			t.Fatalf("expected one prompt message, got %s", body)
+		}
+		want := `count=0 ratio=1.5 enabled=false tags=[0][3] limit=5 literal={"x":true}`
+		if got := result.Result.Messages[0].Content.Text; got != want {
+			t.Errorf("unexpected typed prompt content:\nGot: %q\nWant: %q", got, want)
 		}
 	})
 }
