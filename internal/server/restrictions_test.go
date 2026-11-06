@@ -84,12 +84,12 @@ func TestCheckRestrictions(t *testing.T) {
 			name:           "gcp-sources preset alone",
 			allowedSources: []string{"gcp-sources"},
 			wantErr:        true,
-			wantContains:   []string{`source "bq"`, `source "local"`},
-			wantMissing:    []string{`source "pg"`},
+			wantContains:   []string{`source "local" has type "sqlite"`},
+			wantMissing:    []string{`source "pg"`, `source "bq"`},
 		},
 		{
 			name:           "gcp-sources preset combined with other sources",
-			allowedSources: []string{" GCP-Sources ", "bigquery", "sqlite"},
+			allowedSources: []string{" GCP-Sources ", "sqlite"},
 		},
 		{
 			name:            "gcp-sources is treated literally in disallowedTools",

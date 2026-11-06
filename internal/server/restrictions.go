@@ -28,10 +28,26 @@ const gcpSourcesPreset = "gcp-sources"
 
 // gcpSourceTypes lists the source types allowed by the gcp-sources preset.
 var gcpSourceTypes = []string{
+	"alloydb-admin",
 	"alloydb-postgres",
+	"bigquery",
+	"bigtable",
+	"cloud-gemini-data-analytics",
+	"cloud-healthcare",
+	"cloud-logging-admin",
+	"cloud-monitoring",
+	"cloud-sql-admin",
 	"cloud-sql-mssql",
 	"cloud-sql-mysql",
 	"cloud-sql-postgres",
+	"cloud-storage",
+	"databaseinsights",
+	"datalineage",
+	"dataplex",
+	"dataproc",
+	"firestore",
+	"looker",
+	"serverless-spark",
 	"spanner",
 }
 
