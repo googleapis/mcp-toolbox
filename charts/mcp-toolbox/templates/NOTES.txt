@@ -1,0 +1,19 @@
+MCP Toolbox is running. The MCP endpoint is served at /mcp on port {{ .Values.service.port }}.
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/mcp
+{{- end }}
+{{- else }}
+
+To reach it from your machine:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "mcp-toolbox.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/healthz
+{{- end }}
+{{- if and (not .Values.server.allowedHosts) (or .Values.ingress.enabled (ne .Values.service.type "ClusterIP")) }}
+
+WARNING: server.allowedHosts is empty, so any Host header is accepted. Set it
+to the hostnames clients use before exposing Toolbox outside the cluster.
+{{- end }}
