@@ -5011,11 +5011,29 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 		t.Fatalf("unable to run ANALYZE: %s", err)
 	}
 
+	// Inheritance parent with a child table: pg_stats holds two rows per
+	// column for the parent (inherited = false and inherited = true).
+	parentTableName := "parent_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	childTableName := "child_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	inheritanceStmts := []string{
+		fmt.Sprintf(`CREATE TABLE %s.%s (id INT, category TEXT)`, schemaName, parentTableName),
+		fmt.Sprintf(`CREATE TABLE %s.%s () INHERITS (%s.%s)`, schemaName, childTableName, schemaName, parentTableName),
+		fmt.Sprintf(`INSERT INTO %s.%s SELECT g, 'p' || (g %% 3) FROM generate_series(1, 100) g`, schemaName, parentTableName),
+		fmt.Sprintf(`INSERT INTO %s.%s SELECT g, 'c' || (g %% 50) FROM generate_series(1, 900) g`, schemaName, childTableName),
+		fmt.Sprintf(`ANALYZE %s.%s`, schemaName, parentTableName),
+	}
+	for _, stmt := range inheritanceStmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("unable to set up inheritance tables: %s", err)
+		}
+	}
+
 	invokeTcs := []struct {
 		name           string
 		requestBody    io.Reader
 		wantStatusCode int
-		shouldHaveData bool // Whether we expect data in the response
+		shouldHaveData bool     // Whether we expect data in the response
+		wantColumns    []string // If set, the exact sorted column names expected (one row per column)
 	}{
 		{
 			name:           "get cardinality for a specific column",
@@ -5040,6 +5058,13 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "non_existent_schema", "table_name": "%s"}`, tableName)),
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
+		},
+		{
+			name:           "get cardinality for an inheritance parent returns one row per column",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s"}`, schemaName, parentTableName)),
+			wantStatusCode: http.StatusOK,
+			shouldHaveData: true,
+			wantColumns:    []string{"category", "id"},
 		},
 	}
 
@@ -5069,6 +5094,18 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 			var got []map[string]any
 			if err := json.Unmarshal([]byte(resultString), &got); err != nil {
 				t.Fatalf("failed to unmarshal nested result string: %v", err)
+			}
+
+			if tc.wantColumns != nil {
+				gotColumns := []string{}
+				for _, row := range got {
+					columnName, _ := row["column_name"].(string)
+					gotColumns = append(gotColumns, columnName)
+				}
+				sort.Strings(gotColumns)
+				if !reflect.DeepEqual(gotColumns, tc.wantColumns) {
+					t.Fatalf("unexpected columns: got %v, want %v", gotColumns, tc.wantColumns)
+				}
 			}
 
 			// Verify that we got the expected data presence
