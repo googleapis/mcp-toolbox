@@ -823,6 +823,9 @@ func processMcpMessage(ctx context.Context, body []byte, s *Server, protocolVers
 	ctx = util.WithToolboxVersionKey(ctx, s.version)
 	ctx = util.WithEnableDraftSpecs(ctx, s.enableDraftSpecs)
 	ctx = util.WithDisableExtensionCheck(ctx, s.disableExtensionCheck)
+	if header != nil {
+		ctx = util.WithRequestHeader(ctx, header)
+	}
 	// Process the method
 	switch baseMessage.Method {
 	// This is only used for <v2026

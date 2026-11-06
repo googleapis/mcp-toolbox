@@ -69,7 +69,7 @@ RUN --mount=type=secret,id=airlock_token \
     rm -f ~/.netrc
 
 # Final Stage
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot
 
 WORKDIR /app
 COPY --from=build --chown=nonroot /go/src/mcp-toolbox/mcp-toolbox /toolbox

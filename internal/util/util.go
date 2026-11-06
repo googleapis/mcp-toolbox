@@ -416,3 +416,21 @@ func DisableExtensionCheckFromContext(ctx context.Context) bool {
 	}
 	return false
 }
+
+const requestHeaderKey contextKey = "requestHeader"
+
+// WithRequestHeader attaches a cloned read-only copy of the inbound HTTP request headers to ctx.
+func WithRequestHeader(ctx context.Context, header http.Header) context.Context {
+	if header == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, requestHeaderKey, header.Clone())
+}
+
+// RequestHeaderFromContext retrieves the inbound HTTP request headers from ctx, if present.
+func RequestHeaderFromContext(ctx context.Context) http.Header {
+	if header, ok := ctx.Value(requestHeaderKey).(http.Header); ok && header != nil {
+		return header.Clone()
+	}
+	return nil
+}

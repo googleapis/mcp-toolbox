@@ -22,7 +22,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"text/template"
+	"text/template" // NOLINT: renders URL paths, not YAML
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"

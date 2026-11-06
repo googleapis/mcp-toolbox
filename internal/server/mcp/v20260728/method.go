@@ -638,6 +638,12 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 		}
 	}
 
+	var structuredContent map[string]any
+	if structuredRes, ok := results.(tools.StructuredToolResult); ok {
+		structuredContent = structuredRes.StructuredContent
+		results = structuredRes.Content
+	}
+
 	content := make([]TextContent, 0)
 
 	sliceRes, ok := results.([]any)
@@ -666,7 +672,8 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 					Meta: meta,
 				},
 			},
-			Content: content,
+			Content:           content,
+			StructuredContent: structuredContent,
 		},
 	}, nil
 }
@@ -1081,6 +1088,9 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 	validateErr, err := validateMetadata(id, req.Params.RequestParams, header == nil)
 	if err != nil {
 		return validateErr, err
+	}
+	if header != nil {
+		ctx = util.WithRequestHeader(ctx, header)
 	}
 
 	uri := req.Params.Uri
