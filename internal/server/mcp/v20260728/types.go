@@ -148,6 +148,7 @@ type DiscoverRequest struct {
 // The result returned by the server for a {@link DiscoverRequest | server/discover} request.
 type DiscoverResult struct {
 	Result
+	CacheableResult
 	/**
 	 * MCP Protocol Versions this server supports. The client should choose a
 	 * version from this list for use in subsequent requests.

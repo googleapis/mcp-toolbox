@@ -2403,7 +2403,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"data": group.GroupConfig{
 					Name:      "data",
-					ToolNames: []string{"execute_sql", "list_tables"},
+					ToolNames: []string{"execute_sql", "list_tables", "get_database_object_source_code"},
 				},
 			},
 		},
