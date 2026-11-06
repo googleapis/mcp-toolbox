@@ -607,7 +607,7 @@ steps:
           .ci/test_with_coverage.sh \
             "Spanner" \
             spanner \
-            spanner || echo "Integration tests failed."
+            spanner
         else
           echo "No relevant changes for Spanner. Skipping shard."
           exit 0
