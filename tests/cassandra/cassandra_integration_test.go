@@ -17,7 +17,6 @@ package cassandra
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strings"
@@ -28,16 +27,110 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+// If CASSANDRA_HOST is set, use that cluster; otherwise start an ephemeral container.
 var (
 	CassandraSourceType = "cassandra"
 	CassandraToolType   = "cassandra-cql"
 	Hosts               = os.Getenv("CASSANDRA_HOST")
-	Keyspace            = "example_keyspace"
-	Username            = os.Getenv("CASSANDRA_USER")
-	Password            = os.Getenv("CASSANDRA_PASS")
+	// Per-run keyspace (dropped on cleanup) so runs never share or leak one.
+	Keyspace = "toolbox_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	Username = os.Getenv("CASSANDRA_USER")
+	Password = os.Getenv("CASSANDRA_PASS")
 )
+
+const (
+	cassandraImage         = "cassandra:5.0.9"
+	cassandraContainerUser = "toolbox"
+	// Enable password auth (default is AllowAllAuthenticator); grep aborts startup if the sed stops matching.
+	cassandraStartCmd = `sed -i 's/^authenticator: AllowAllAuthenticator$/authenticator: PasswordAuthenticator/' /etc/cassandra/cassandra.yaml && ` +
+		`grep -q '^authenticator: PasswordAuthenticator$' /etc/cassandra/cassandra.yaml && ` +
+		`exec docker-entrypoint.sh cassandra -f`
+)
+
+// setupCassandraContainer starts an ephemeral Cassandra container and returns its connection details.
+func setupCassandraContainer(ctx context.Context, t *testing.T) (hosts, user, pass string) {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image:        cassandraImage,
+		Entrypoint:   []string{"sh", "-c"},
+		Cmd:          []string{cassandraStartCmd},
+		ExposedPorts: []string{"9042/tcp"},
+		// Keep the JVM small enough for CI workers.
+		Env: map[string]string{"MAX_HEAP_SIZE": "512M", "HEAP_NEWSIZE": "128M"},
+		// Cassandra can take over a minute to start, past each strategy's 60s default.
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("9042/tcp").WithStartupTimeout(4*time.Minute),
+			wait.ForLog("Created default superuser role 'cassandra'").WithStartupTimeout(4*time.Minute),
+		).WithDeadline(4 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	// Register before checking err: a container can be returned alongside an error.
+	testcontainers.CleanupContainer(t, container)
+	if err != nil {
+		t.Fatalf("failed to start Cassandra container: %s", err)
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get Cassandra container host: %s", err)
+	}
+	mappedPort, err := container.MappedPort(ctx, "9042/tcp")
+	if err != nil {
+		t.Fatalf("failed to get Cassandra container mapped port: %s", err)
+	}
+	hosts = fmt.Sprintf("%s:%s", host, mappedPort.Port())
+
+	// Log in as the default superuser, create the test role, then rotate the superuser's password.
+	cluster := gocql.NewCluster(hosts)
+	cluster.ProtoVersion = 4
+	cluster.DisableInitialHostLookup = true
+	cluster.ConnectTimeout = 10 * time.Second
+	cluster.Authenticator = gocql.PasswordAuthenticator{Username: "cassandra", Password: "cassandra"}
+	admin, err := cluster.CreateSession()
+	if err != nil {
+		t.Fatalf("unable to connect to Cassandra container as superuser: %s", err)
+	}
+	defer admin.Close()
+
+	user = cassandraContainerUser
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	superPass := strings.ReplaceAll(uuid.New().String(), "-", "")
+	// Values are constants or hex UUIDs, so Sprintf is safe here.
+	bootstrapStmts := []string{
+		fmt.Sprintf("CREATE ROLE %s WITH PASSWORD = '%s' AND LOGIN = true", user, pass),
+		fmt.Sprintf("ALTER ROLE cassandra WITH PASSWORD = '%s'", superPass),
+	}
+	for _, stmt := range bootstrapStmts {
+		if err := admin.Query(stmt).Exec(); err != nil {
+			t.Fatalf("failed to bootstrap Cassandra container: %s", err)
+		}
+	}
+
+	return hosts, user, pass
+}
+
+// useCassandra points the connection globals at an ephemeral container unless CASSANDRA_HOST is set.
+func useCassandra(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if Hosts != "" {
+		return
+	}
+	t.Logf("CASSANDRA_HOST not set; starting ephemeral %s container", cassandraImage)
+	hosts, user, pass := setupCassandraContainer(ctx, t)
+	// Restore globals so repeated runs (-count>1) start a fresh container.
+	origHosts, origUser, origPass := Hosts, Username, Password
+	t.Cleanup(func() { Hosts, Username, Password = origHosts, origUser, origPass })
+	Hosts, Username, Password = hosts, user, pass
+}
 
 func getCassandraVars(t *testing.T) map[string]any {
 	switch "" {
@@ -163,44 +256,53 @@ func initTable(tableName string, session *gocql.Session) error {
 	return nil
 }
 
-func dropTable(session *gocql.Session, tableName string) {
-	err := session.Query(fmt.Sprintf("drop table %s.%s", Keyspace, tableName)).Exec()
+func dropTable(t *testing.T, session *gocql.Session, tableName string) {
+	t.Helper()
+	err := session.Query(fmt.Sprintf("DROP TABLE IF EXISTS %s.%s", Keyspace, tableName)).Exec()
 	if err != nil {
-		log.Printf("Failed to drop table %s: %v", tableName, err)
+		t.Errorf("failed to drop table %s: %v", tableName, err)
+	}
+}
+
+// setupTable registers the drop before creating the table, so a failed insert can't leak it.
+func setupTable(t *testing.T, session *gocql.Session, tableName string) {
+	t.Helper()
+	t.Cleanup(func() { dropTable(t, session, tableName) })
+	if err := initTable(tableName, session); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dropKeyspace(t *testing.T, session *gocql.Session) {
+	t.Helper()
+	if err := session.Query(fmt.Sprintf("DROP KEYSPACE IF EXISTS %s", Keyspace)).Exec(); err != nil {
+		t.Errorf("failed to drop keyspace %s: %v", Keyspace, err)
 	}
 }
 
 func TestCassandra(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	useCassandra(ctx, t)
+
 	session, err := initCassandraSession()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer session.Close()
+	// t.Cleanup, not defer: the table drops below run as cleanups and need the session.
+	t.Cleanup(session.Close)
+	// Runs after the table drops and before the session closes (cleanups are LIFO).
+	t.Cleanup(func() { dropKeyspace(t, session) })
 	sourceConfig := getCassandraVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
 
 	args := []string{"--enable-api"}
 	paramTableName := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	err = initTable(paramTableName, session)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dropTable(session, paramTableName)
-
-	err = initTable(tableNameAuth, session)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dropTable(session, tableNameAuth)
-
-	err = initTable(tableNameTemplateParam, session)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dropTable(session, tableNameTemplateParam)
+	setupTable(t, session, paramTableName)
+	setupTable(t, session, tableNameAuth)
+	setupTable(t, session, tableNameTemplateParam)
 
 	paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt := createParamToolInfo(paramTableName)
 	_, _, authToolStmt := getCassandraAuthToolInfo(tableNameAuth)
