@@ -708,7 +708,9 @@ func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *dat
 	}
 
 	return tableName, func(t *testing.T) {
-		op, err = adminClient.UpdateDatabaseDdl(context.WithoutCancel(ctx), &databasepb.UpdateDatabaseDdlRequest{
+		teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		op, err = adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
 		})
@@ -716,7 +718,7 @@ func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *dat
 			t.Errorf("unable to start drop %s operation: %s", tableName, err)
 			return
 		}
-		opErr := op.Wait(context.WithoutCancel(ctx))
+		opErr := op.Wait(teardownCtx)
 		if opErr != nil {
 			t.Errorf("Teardown failed: %s", opErr)
 		}
