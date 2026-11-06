@@ -65,7 +65,7 @@ func initSpannerClients(ctx context.Context, project, instance, dbname string) (
 	db := fmt.Sprintf("projects/%s/instances/%s/databases/%s", project, instance, dbname)
 
 	// Create Spanner client (for queries)
-	dataClient, err := spanner.NewClient(ctx, db)
+	dataClient, err := spanner.NewClient(context.Background(), db)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create new Spanner client: %w", err)
 	}
