@@ -55,6 +55,7 @@ The Looker MCP server provides a wide range of tools. Here are some of the key c
 | `get_explore`           | Retrieves detailed metadata and filters for an explore.   |
 | `query`                 | Run a query against the LookML model.                     |
 | `query_sql`             | Generate the SQL that Looker would run.                   |
+| `render_visualization`  | Renders an interactive Looker visualization via MCP Apps. |
 | `run_look`              | Runs a saved look.                                        |
 | `run_dashboard`         | Runs all tiles in a dashboard.                            |
 | `make_dashboard`        | Creates a new dashboard.                                  |
