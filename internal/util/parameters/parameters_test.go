@@ -1890,6 +1890,67 @@ func TestParamMcpManifest(t *testing.T) {
 			},
 			wantAuthParam: []string{},
 		},
+		{
+			name: "string with literal allowedValues",
+			in:   parameters.NewStringParameter("foo-string", "bar", parameters.WithStringAllowedValues([]any{"orders", "customers"})),
+			want: parameters.ParameterMcpManifest{
+				Type:        "string",
+				Description: "bar",
+				Enum:        []any{"orders", "customers"},
+			},
+			wantAuthParam: []string{},
+		},
+		{
+			name:          "string with regex allowedValues omits enum",
+			in:            parameters.NewStringParameter("foo-string", "bar", parameters.WithStringAllowedValues([]any{"^order_.*$"})),
+			want:          parameters.ParameterMcpManifest{Type: "string", Description: "bar"},
+			wantAuthParam: []string{},
+		},
+		{
+			name:          "string with mixed literal and regex allowedValues omits enum",
+			in:            parameters.NewStringParameter("foo-string", "bar", parameters.WithStringAllowedValues([]any{"orders", "^order_.*$"})),
+			want:          parameters.ParameterMcpManifest{Type: "string", Description: "bar"},
+			wantAuthParam: []string{},
+		},
+		{
+			name:          "int with allowedValues omits enum",
+			in:            parameters.NewIntParameter("foo-int", "bar", parameters.WithIntAllowedValues([]any{1, 2})),
+			want:          parameters.ParameterMcpManifest{Type: "integer", Description: "bar"},
+			wantAuthParam: []string{},
+		},
+		{
+			name:          "float with allowedValues omits enum",
+			in:            parameters.NewFloatParameter("foo-float", "bar", parameters.WithFloatAllowedValues([]any{1.5, 2.5})),
+			want:          parameters.ParameterMcpManifest{Type: "number", Description: "bar"},
+			wantAuthParam: []string{},
+		},
+		{
+			name:          "boolean with allowedValues omits enum",
+			in:            parameters.NewBooleanParameter("foo-bool", "bar", parameters.WithBooleanAllowedValues([]any{true})),
+			want:          parameters.ParameterMcpManifest{Type: "boolean", Description: "bar"},
+			wantAuthParam: []string{},
+		},
+		{
+			name: "array with allowedValues omits enum",
+			in: parameters.NewArrayParameter("foo-array", "bar", parameters.NewStringParameter("foo-string", "bar"),
+				parameters.WithArrayAllowedValues([]any{[]any{"a", "b"}})),
+			want: parameters.ParameterMcpManifest{
+				Type:        "array",
+				Description: "bar",
+				Items:       &parameters.ParameterMcpManifest{Type: "string", Description: "bar"},
+			},
+			wantAuthParam: []string{},
+		},
+		{
+			name: "map with allowedValues omits enum",
+			in:   parameters.NewMapParameter("foo-map", "bar", "string", parameters.WithMapAllowedValues([]any{map[string]any{"k": "v"}})),
+			want: parameters.ParameterMcpManifest{
+				Type:                 "object",
+				Description:          "bar",
+				AdditionalProperties: map[string]any{"type": "string"},
+			},
+			wantAuthParam: []string{},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
