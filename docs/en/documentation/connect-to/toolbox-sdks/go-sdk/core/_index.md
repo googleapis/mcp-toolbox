@@ -743,7 +743,7 @@ func main() {
 	}
 
 	// Set up the generative model with the available tool.
-	modelName := "gemini-2.0-flash"
+	modelName := "gemini-3.8-flash"
 
 	query := "Find hotels in Basel with Basel in it's name and share the names with me"
 
@@ -850,7 +850,7 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize the Google AI client (LLM).
-	llm, err := googleai.New(ctx, googleai.WithAPIKey(genaiKey), googleai.WithDefaultModel("gemini-1.5-flash"))
+	llm, err := googleai.New(ctx, googleai.WithAPIKey(genaiKey), googleai.WithDefaultModel("gemini-3.8-flash"))
 	if err != nil {
 		log.Fatalf("Failed to create Google AI client: %v", err)
 	}

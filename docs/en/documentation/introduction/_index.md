@@ -385,7 +385,7 @@ const ai = genkit({
             apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
         })
     ],
-    model: googleAI.model('gemini-2.0-flash'),
+    model: googleAI.model('gemini-3.8-flash'),
 });
 
 // update the url to point to your server
