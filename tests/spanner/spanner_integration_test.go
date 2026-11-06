@@ -459,7 +459,8 @@ func setupSpannerPgVectorTable(t *testing.T, ctx context.Context, adminClient *d
 	}
 
 	return tableName, func(t *testing.T) {
-		teardownCtx := context.WithoutCancel(ctx)
+		teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
 		op, err = adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
