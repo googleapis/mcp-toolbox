@@ -2977,6 +2977,30 @@ func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 			}
 		})
 	}
+
+	// "_" is a LIKE wildcard, so roles such as "pgbouncer" must not be
+	// hidden by the filter that excludes the built-in "pg_" roles.
+	pgPrefixedRole := "pgx" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE ROLE %s NOLOGIN;", pgPrefixedRole)); err != nil {
+		t.Fatalf("unable to create role %s: %v", pgPrefixedRole, err)
+	}
+	defer func() {
+		if _, err := pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", pgPrefixedRole)); err != nil {
+			t.Errorf("unable to drop role %s: %v", pgPrefixedRole, err)
+		}
+	}()
+
+	t.Run("list_roles includes roles starting with pg but not pg_", func(t *testing.T) {
+		const api = "http://127.0.0.1:5000/api/tool/list_roles/invoke"
+		requestBody := bytes.NewBufferString(fmt.Sprintf(`{"role_name": "%s"}`, pgPrefixedRole))
+		resp, respBody := RunRequest(t, http.MethodPost, api, requestBody, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, http.StatusOK, string(respBody))
+		}
+		if !strings.Contains(string(respBody), pgPrefixedRole) {
+			t.Errorf("expected role %q in the response, got: %s", pgPrefixedRole, string(respBody))
+		}
+	})
 }
 
 // RunMySQLListTablesTest run tests against the mysql-list-tables tool
