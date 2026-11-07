@@ -136,6 +136,46 @@ func invokeCommandWithContext(ctx context.Context, args []string) (*cobra.Comman
 	return c, opts, buf.String(), err
 }
 
+func TestShutdownTelemetry(t *testing.T) {
+	type contextKey struct{}
+	for _, expired := range []bool{false, true} {
+		t.Run(fmt.Sprintf("expired=%t", expired), func(t *testing.T) {
+			parent := context.WithValue(context.Background(), contextKey{}, "logger value")
+			var ctx context.Context
+			var cancel context.CancelFunc
+			if expired {
+				ctx, cancel = context.WithDeadline(parent, time.Now().Add(-time.Second))
+			} else {
+				ctx, cancel = context.WithCancel(parent)
+			}
+			cancel()
+
+			started := time.Now()
+			var received context.Context
+			shutdownTelemetry(ctx, func(shutdownCtx context.Context) error {
+				received = shutdownCtx
+				if err := shutdownCtx.Err(); err != nil {
+					t.Errorf("shutdown context already done: %v", err)
+				}
+				if got := shutdownCtx.Value(contextKey{}); got != "logger value" {
+					t.Errorf("context value = %v, want logger value", got)
+				}
+				deadline, ok := shutdownCtx.Deadline()
+				if !ok || deadline.Before(started.Add(10*time.Second)) || deadline.After(time.Now().Add(10*time.Second)) {
+					t.Errorf("shutdown deadline = %v (present: %t), want 10-second timeout", deadline, ok)
+				}
+				return nil
+			})
+			if received == nil {
+				t.Fatal("shutdown was not called")
+			}
+			if received.Err() != context.Canceled {
+				t.Errorf("shutdown context was not canceled after cleanup: %v", received.Err())
+			}
+		})
+	}
+}
+
 func TestVersion(t *testing.T) {
 	data, err := os.ReadFile("version.txt")
 	if err != nil {
