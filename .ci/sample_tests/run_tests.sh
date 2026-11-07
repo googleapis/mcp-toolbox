@@ -95,24 +95,27 @@ run_python_test() {
   local name=$(basename "$dir")
   echo "--- Running Python Test: $name ---"
   (
-    cd "$dir"
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -q -r requirements.txt pytest
+    cd "$dir" || exit 1
+    rm -rf .venv
+    python3 -m venv .venv || exit 1
+    source .venv/bin/activate || exit 1
+    pip install -q -r requirements.txt pytest || exit 1
     
-    cd ..
+    cd .. || exit 1
     local test_file=$(find . -maxdepth 1 -name "*test.py" | head -n 1)
+    local rc=0
     if [ -n "$test_file" ]; then
         echo "Found native test: $test_file. Running pytest..."
         export ORCH_NAME="$name"
         export PYTHONPATH="../"
-        pytest "$test_file"
+        pytest "$test_file" || rc=$?
     else
         echo "No native test found. running agent directly..."
         export PYTHONPATH="../"
-        python3 "${name}/${AGENT_FILE_PATTERN}"
+        python3 "${name}/${AGENT_FILE_PATTERN}" || rc=$?
     fi
     rm -rf "${name}/.venv"
+    exit "$rc"
   )
 }
 
@@ -121,21 +124,23 @@ run_js_test() {
   local name=$(basename "$dir")
   echo "--- Running JS Test: $name ---"
   (
-    cd "$dir"
-    if [ -f "package-lock.json" ]; then npm ci -q; else npm install -q; fi
+    cd "$dir" || exit 1
+    if [ -f "package-lock.json" ]; then npm ci -q || exit 1; else npm install -q || exit 1; fi
     
-    cd ..
+    cd .. || exit 1
     # Looking for a JS test file in the parent directory
     local test_file=$(find . -maxdepth 1 -name "*test.js" | head -n 1)
+    local rc=0
     if [ -n "$test_file" ]; then
         echo "Found native test: $test_file. Running node --test..."
         export ORCH_NAME="$name"
-        node --test "$test_file"
+        node --test "$test_file" || rc=$?
     else
         echo "No native test found. running agent directly..."
-        node "${name}/${AGENT_FILE_PATTERN}"
+        node "${name}/${AGENT_FILE_PATTERN}" || rc=$?
     fi
     rm -rf "${name}/node_modules"
+    exit "$rc"
   )
 }
 
@@ -146,28 +151,70 @@ run_go_test() {
   # TODO: Re-enable 'langchain' Go test once tmc/langchaingo supports thought_signature on Gemini 3+ (#1464)
   if [ "$name" == "openAI" ] || [ "$name" == "langchain" ]; then
       echo -e "\nSkipping framework '${name}': Temporarily excluded."
-      return
+      return 0
   fi
 
   echo "--- Running Go Test: $name ---"
   (
-    cd "$dir"
+    cd "$dir" || exit 1
     if [ -f "go.mod" ]; then
-      go mod tidy
+      go mod tidy || exit 1
     fi
     
-    cd ..
+    cd .. || exit 1
     local test_file=$(find . -maxdepth 1 -name "*test.go" | head -n 1)
+    local rc=0
     if [ -n "$test_file" ]; then
         echo "Found native test: $test_file. Running go test..."
         export ORCH_NAME="$name"
-        go test -v ./...
+        export SAMPLE_TEST_MAX_ATTEMPTS=1
+        go test -v ./... || rc=$?
     else
         echo "No native test found. running agent directly..."
-        cd "$name"
-        go run "."
+        cd "$name" || exit 1
+        go run "." || rc=$?
     fi
+    exit "$rc"
   )
+}
+
+is_transient_llm_error() {
+  local log_file=$1
+  grep -qiE '(Error 503|503 Service Unavailable|Status: UNAVAILABLE|"status":[[:space:]]*"UNAVAILABLE"|experiencing high demand|Error 429|429 Too Many Requests|RESOURCE_EXHAUSTED|overloaded)' "$log_file"
+}
+
+run_with_retry() {
+  local max_attempts=3
+  local delay=10
+  local attempt=1
+  local log_file
+  log_file=$(mktemp)
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    local rc=0
+    set +e
+    "$@" 2>&1 | tee "$log_file"
+    rc=${PIPESTATUS[0]}
+    set -e
+
+    if [ "$rc" -eq 0 ]; then
+      rm -f "$log_file"
+      return 0
+    fi
+
+    if [ "$attempt" -lt "$max_attempts" ] && is_transient_llm_error "$log_file"; then
+      echo "WARN: Transient upstream LLM error detected (attempt ${attempt}/${max_attempts}). Resetting DB table and retrying in ${delay}s..."
+      setup_db_table
+      sleep "$delay"
+      delay=$((delay * 2))
+      attempt=$((attempt + 1))
+      : > "$log_file"
+      continue
+    fi
+
+    rm -f "$log_file"
+    return "$rc"
+  done
 }
 
 cleanup() {
@@ -191,13 +238,13 @@ setup_db_table
 
 echo "Scanning $TARGET_ROOT for tests with pattern $AGENT_FILE_PATTERN..."
 
-find "$TARGET_ROOT" -name "$AGENT_FILE_PATTERN" | while read -r agent_file; do
+while read -r agent_file; do
     sample_dir=$(dirname "$agent_file")
     if [[ "$TARGET_LANG" == "python" ]]; then
-        run_python_test "$sample_dir"
+        run_with_retry run_python_test "$sample_dir"
     elif [[ "$TARGET_LANG" == "js" ]]; then
-        run_js_test "$sample_dir"
+        run_with_retry run_js_test "$sample_dir"
     elif [[ "$TARGET_LANG" == "go" ]]; then
-        run_go_test "$sample_dir"
+        run_with_retry run_go_test "$sample_dir"
     fi
-done
+done < <(find "$TARGET_ROOT" -name "$AGENT_FILE_PATTERN" | sort)
