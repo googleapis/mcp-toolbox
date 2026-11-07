@@ -35,14 +35,10 @@ import (
 // original error stays wrapped.
 func WithServerErrorDetails(err error) error {
 	var serverErr mssql.ServerError
-	if !errors.As(err, &serverErr) {
+	var sqlErr mssql.Error
+	if !errors.As(err, &serverErr) || !errors.As(err, &sqlErr) {
 		return err
 	}
-	// mssql.ServerError always unwraps to an mssql.Error. If it ever did not,
-	// sqlErr would stay empty, formatErrorChain would return "", and err would
-	// come back unchanged.
-	var sqlErr mssql.Error
-	errors.As(err, &sqlErr)
 	details := formatErrorChain(sqlErr)
 	if details == "" {
 		return err
