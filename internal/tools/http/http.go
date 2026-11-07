@@ -265,7 +265,9 @@ func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]st
 	allHeaders := mergeHeaders(defaultHeaders)
 	for _, p := range headerParams {
 		headerValue, ok := paramsMap[p.GetName()]
-		if ok {
+		// An optional header param that was not provided is present in
+		// paramsMap with a nil value; omit it, as is done for query params.
+		if ok && headerValue != nil {
 			if strValue, ok := headerValue.(string); ok {
 				allHeaders[http.CanonicalHeaderKey(p.GetName())] = strValue
 			} else {
