@@ -93,13 +93,16 @@ func TestMySQLToolEndpoints(t *testing.T) {
 		t.Fatalf("unable to create MySQL connection pool: %s", err)
 	}
 
-	// cleanup test environment
-	tests.CleanupMySQLTables(t, ctx, pool)
+	// Generate a unique ID for per-run table isolation
+	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
+	t.Cleanup(func() {
+		tests.CleanupMySQLTables(t, context.Background(), pool, uniqueID)
+	})
 
 	// create table name with UUID
-	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameParam := "param_table_" + uniqueID
+	tableNameAuth := "auth_table_" + uniqueID
+	tableNameTemplateParam := "template_param_table_" + uniqueID
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMySQLParamToolInfo(tableNameParam)
@@ -313,12 +316,12 @@ func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNa
 				cmpopts.SortSlices(func(a, b map[string]any) bool { return a["name"].(string) < b["name"].(string) }),
 			}
 
-			// Checking only the current database where the test tables are created to avoid brittle tests.
+			// Checking only the current database and this run's tables to avoid brittle tests.
 			if tc.isAllTables {
 				filteredGot := []objectDetails{}
 				if got != nil {
 					for _, item := range got.([]objectDetails) {
-						if item.SchemaName == databaseName {
+						if item.SchemaName == databaseName && (item.ObjectName == tableNameParam || item.ObjectName == tableNameAuth) {
 							filteredGot = append(filteredGot, item)
 						}
 					}
