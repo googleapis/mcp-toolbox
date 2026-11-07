@@ -19,11 +19,39 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 var goldenKeywords = []string{"Hilton Basel", "Hyatt Regency", "book"}
+
+func isTransientLLMError(output string) bool {
+	lower := strings.ToLower(output)
+	for _, marker := range []string{
+		"error 503",
+		"status: unavailable",
+		"experiencing high demand",
+		"error 429",
+		"resource_exhausted",
+		"overloaded",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func maxSampleAttempts() int {
+	if raw := os.Getenv("SAMPLE_TEST_MAX_ATTEMPTS"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 1 {
+			return n
+		}
+	}
+	return 3
+}
 
 func TestQuickstartSample(t *testing.T) {
 	framework := os.Getenv("ORCH_NAME")
@@ -48,13 +76,30 @@ func TestQuickstartSample(t *testing.T) {
 		t.Fatalf("Test setup failed: directory for framework '%s' not found.", framework)
 	}
 
-	cmd := exec.Command("go", "run", ".")
-	cmd.Dir = sampleDir
+	maxAttempts := maxSampleAttempts()
+	backoff := 5 * time.Second
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		stdout.Reset()
+		stderr.Reset()
+		cmd := exec.Command("go", "run", ".")
+		cmd.Dir = sampleDir
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
-	err := cmd.Run()
+		err = cmd.Run()
+		if err == nil {
+			break
+		}
+		if attempt < maxAttempts && isTransientLLMError(stderr.String()+"\n"+stdout.String()) {
+			t.Logf("Transient upstream LLM error on attempt %d/%d; retrying in %s...\n%s", attempt, maxAttempts, backoff, stderr.String())
+			time.Sleep(backoff)
+			backoff *= 2
+			continue
+		}
+		break
+	}
 	actualOutput := stdout.String()
 
 	if err != nil {
