@@ -31,9 +31,13 @@ func isTransientLLMError(output string) bool {
 	lower := strings.ToLower(output)
 	for _, marker := range []string{
 		"error 503",
+		"503 service unavailable",
 		"status: unavailable",
+		"\"status\":\"unavailable\"",
+		"\"status\": \"unavailable\"",
 		"experiencing high demand",
 		"error 429",
+		"429 too many requests",
 		"resource_exhausted",
 		"overloaded",
 	} {
