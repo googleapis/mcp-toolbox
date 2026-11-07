@@ -15,11 +15,9 @@
 package serverlessspark
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"os"
@@ -70,10 +68,11 @@ func getServerlessSparkVars(t *testing.T) map[string]any {
 	}
 }
 
-func TestServerlessSparkToolEndpoints(t *testing.T) {
+func setupServerlessSparkTest(t *testing.T) context.Context {
+	t.Helper()
 	sourceConfig := getServerlessSparkVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
@@ -191,12 +190,20 @@ func TestServerlessSparkToolEndpoints(t *testing.T) {
 		},
 	}
 
-	args := []string{"--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("stop toolbox: %v", err)
+		}
+		cmd.Close()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -206,6 +213,10 @@ func TestServerlessSparkToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
+	return ctx
+}
+
+func runServerlessSparkCallTests(t *testing.T, ctx context.Context) {
 	endpoint := fmt.Sprintf("%s-dataproc.googleapis.com:443", serverlessSparkLocation)
 	batchClient, err := dataproc.NewBatchControllerClient(ctx, option.WithEndpoint(endpoint))
 	if err != nil {
@@ -534,7 +545,7 @@ func TestServerlessSparkToolEndpoints(t *testing.T) {
 					{
 						name:    "missing main file",
 						request: map[string]any{},
-						wantMsg: `{"error":"parameter \"mainFile\" is required"}`,
+						wantMsg: `parameter "mainFile" is required`,
 					},
 				}
 				for _, tc := range tcs {
@@ -712,7 +723,7 @@ func TestServerlessSparkToolEndpoints(t *testing.T) {
 						toolName: "cancel-batch",
 						request:  map[string]any{},
 						wantCode: http.StatusOK,
-						wantMsg:  `{"error":"parameter \"operation\" is required"}`,
+						wantMsg:  `parameter "operation" is required`,
 					},
 					{
 						name:     "nonexistent op",
@@ -830,15 +841,9 @@ func runCancelBatchTest(t *testing.T, client *dataproc.BatchControllerClient, ct
 	}
 
 	request := map[string]any{"operation": shortName(batch.Operation)}
-	resp, err := invokeTool("cancel-batch", request, nil)
-	if err != nil {
-		t.Fatalf("invokeTool failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+	result := invokeMCPResult(t, "cancel-batch", request, nil)
+	if want := fmt.Sprintf("Cancelled [%s].", shortName(batch.Operation)); result != want {
+		t.Fatalf("cancellation result = %q, want %q", result, want)
 	}
 
 	if batch.State != dataprocpb.Batch_SUCCEEDED {
@@ -894,26 +899,7 @@ func runListBatchesTest(t *testing.T, client *dataproc.BatchControllerClient, ct
 					request["pageSize"] = tc.pageSize
 				}
 
-				resp, err := invokeTool("list-batches", request, nil)
-				if err != nil {
-					t.Fatalf("invokeTool failed: %v", err)
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode != http.StatusOK {
-					bodyBytes, _ := io.ReadAll(resp.Body)
-					t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-				}
-
-				var body map[string]any
-				if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-					t.Fatalf("error parsing response body: %v", err)
-				}
-
-				result, ok := body["result"].(string)
-				if !ok {
-					t.Fatalf("unable to find result in response body")
-				}
+				result := invokeMCPResult(t, "list-batches", request, nil)
 
 				var listResponse serverlessspark.ListBatchesResponse
 				if err := json.Unmarshal([]byte(result), &listResponse); err != nil {
@@ -1003,15 +989,24 @@ func runAuthTest(t *testing.T, toolName string, request map[string]any, wantStat
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			resp, err := invokeTool(toolName, request, tc.headers)
-			if err != nil {
-				t.Fatalf("invokeTool failed: %v", err)
+			status, response, err := tests.InvokeMCPTool(t, toolName, request, tc.headers)
+			if status != tc.wantStatus {
+				t.Fatalf("tools/call status = %d, want %d: %v", status, tc.wantStatus, err)
 			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tc.wantStatus {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not %d, got %d: %s", tc.wantStatus, resp.StatusCode, string(bodyBytes))
+			if status == http.StatusOK {
+				if err != nil || response == nil || response.Error != nil {
+					t.Fatalf("authenticated tools/call failed: response=%+v, error=%v", response, err)
+				}
+				// A nonexistent cancellation operation still verifies valid auth, but must
+				// report the expected tool error rather than silently passing any error.
+				if toolName == "cancel-batch-with-auth" {
+					if !response.Result.IsError {
+						t.Fatal("expected cancellation error")
+					}
+					tests.AssertMCPError(t, response, "Operation not found")
+				} else if response.Result.IsError {
+					t.Fatalf("authenticated tool returned an error: %+v", response.Result)
+				}
 			}
 		})
 	}
@@ -1053,23 +1048,7 @@ func runGetBatchTest(t *testing.T, client *dataproc.BatchControllerClient, ctx c
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			request := map[string]any{"name": tc.batchName}
-			resp, err := invokeTool("get-batch", request, nil)
-			if err != nil {
-				t.Fatalf("invokeTool failed: %v", err)
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-			var body map[string]any
-			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-				t.Fatalf("error parsing response body: %v", err)
-			}
-			result, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
+			result := invokeMCPResult(t, "get-batch", request, nil)
 			var wrappedResult map[string]any
 			if err := json.Unmarshal([]byte(result), &wrappedResult); err != nil {
 				t.Fatalf("error unmarshalling result: %s", err)
@@ -1120,26 +1099,7 @@ func runCreateSparkBatchTest(
 	waitForSuccess bool,
 	validate func(t *testing.T, b *dataprocpb.Batch),
 ) {
-	resp, err := invokeTool(toolName, request, nil)
-	if err != nil {
-		t.Fatalf("invokeTool failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var body map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("error parsing response body: %v", err)
-	}
-
-	result, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("unable to find result in response body")
-	}
+	result := invokeMCPResult(t, toolName, request, nil)
 
 	var resultMap map[string]any
 	if err := json.Unmarshal([]byte(result), &resultMap); err != nil {
@@ -1180,58 +1140,43 @@ func runCreateSparkBatchTest(
 }
 
 func testError(t *testing.T, toolName string, request map[string]any, wantCode int, wantMsg string) {
-	resp, err := invokeTool(toolName, request, nil)
-	if err != nil {
-		t.Fatalf("invokeTool failed: %v", err)
+	t.Helper()
+	status, response, err := tests.InvokeMCPTool(t, toolName, request, nil)
+	if err != nil || status != wantCode {
+		t.Fatalf("tools/call status = %d, want %d: %v", status, wantCode, err)
 	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("failed to read response body: %v", err)
+	if response.Error != nil || !response.Result.IsError {
+		t.Fatalf("expected a tool error, got %+v", response)
 	}
 
-	if resp.StatusCode != wantCode {
-		t.Fatalf("response status code is not %d, got %d: %s", wantCode, resp.StatusCode, string(bodyBytes))
-	}
-
-	var body map[string]any
-	if err := json.Unmarshal(bodyBytes, &body); err != nil {
-		t.Fatalf("failed to unmarshal outer response: %v", err)
-	}
-
-	var resultStr string
-	if res, ok := body["result"].(string); ok {
-		resultStr = res
-	} else if errMsg, ok := body["error"].(string); ok {
-		resultStr = errMsg
-	} else {
-		// If neither exists, check the raw bytes as a last resort
-		resultStr = string(bodyBytes)
-	}
-
-	if !strings.Contains(resultStr, wantMsg) {
-		t.Fatalf("result string %q does not contain expected message %q", resultStr, wantMsg)
-	}
+	tests.AssertMCPError(t, response, wantMsg)
 }
 
-func invokeTool(toolName string, request map[string]any, headers map[string]string) (*http.Response, error) {
-	requestBytes, err := json.Marshal(request)
+func invokeMCPResult(t *testing.T, toolName string, request map[string]any, headers map[string]string) string {
+	t.Helper()
+	status, response, err := tests.InvokeMCPTool(t, toolName, request, headers)
+	if err != nil || status != http.StatusOK {
+		t.Fatalf("tools/call status = %d: %v", status, err)
+	}
+	text, err := mcpResultText(response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		t.Fatalf("tools/call result: %v", err)
 	}
+	return text
+}
 
-	url := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(requestBytes))
-	if err != nil {
-		return nil, fmt.Errorf("unable to create request: %w", err)
+func mcpResultText(response *tests.MCPCallToolResponse) (string, error) {
+	if response == nil {
+		return "", fmt.Errorf("missing response")
 	}
-	req.Header.Add("Content-type", "application/json")
-	for k, v := range headers {
-		req.Header.Add(k, v)
+	if response.Error != nil || response.Result.IsError {
+		return "", fmt.Errorf("tool returned an error: %+v", response)
 	}
-
-	return http.DefaultClient.Do(req)
+	content := response.Result.Content
+	if len(content) != 1 || content[0].Type != "text" {
+		return "", fmt.Errorf("unexpected content: %+v", content)
+	}
+	return content[0].Text, nil
 }
 
 func shortName(fullName string) string {
@@ -1245,26 +1190,7 @@ func runListSessionsTest(t *testing.T, client *dataproc.SessionControllerClient,
 	request := map[string]any{
 		"pageSize": 20,
 	}
-	resp, err := invokeTool("list-sessions", request, nil)
-	if err != nil {
-		t.Fatalf("invokeTool failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var body map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("error parsing response body: %v", err)
-	}
-
-	result, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("unable to find result in response body")
-	}
+	result := invokeMCPResult(t, "list-sessions", request, nil)
 
 	var listResponse serverlessspark.ListSessionsResponse
 	if err := json.Unmarshal([]byte(result), &listResponse); err != nil {
@@ -1342,23 +1268,7 @@ func runGetSessionTest(t *testing.T, client *dataproc.SessionControllerClient, c
 	}
 
 	request := map[string]any{"name": shortName(fullName)}
-	resp, err := invokeTool("get-session", request, nil)
-	if err != nil {
-		t.Fatalf("invokeTool failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	var body map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("error parsing response body: %v", err)
-	}
-	result, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("unable to find result in response body")
-	}
+	result := invokeMCPResult(t, "get-session", request, nil)
 	var wrappedResult map[string]any
 	if err := json.Unmarshal([]byte(result), &wrappedResult); err != nil {
 		t.Fatalf("error unmarshalling result: %s", err)
@@ -1430,23 +1340,7 @@ func runGetSessionTemplateTest(t *testing.T, client *dataproc.SessionTemplateCon
 	}
 
 	request := map[string]any{"name": shortName(fullName)}
-	resp, err := invokeTool("get-session-template", request, nil)
-	if err != nil {
-		t.Fatalf("invokeTool failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	var body map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("error parsing response body: %v", err)
-	}
-	result, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("unable to find result in response body")
-	}
+	result := invokeMCPResult(t, "get-session-template", request, nil)
 	var wrappedResult map[string]any
 	if err := json.Unmarshal([]byte(result), &wrappedResult); err != nil {
 		t.Fatalf("error unmarshalling result: %s", err)
