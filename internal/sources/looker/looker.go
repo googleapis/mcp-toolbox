@@ -15,10 +15,12 @@ package looker
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +127,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		ApiSettings:         &cfg,
 		TokenSource:         tokenSource,
 		AuthTokenHeaderName: "Authorization",
+		exploreCache:        make(map[string]exploreCacheEntry),
 	}
 
 	if strings.ToLower(r.UseClientOAuth) == "false" {
@@ -163,6 +166,20 @@ type Source struct {
 	lastFetchFailed bool
 	lastFetchErr    error
 	hostURLGroup    singleflight.Group
+
+	exploreCacheMu sync.RWMutex
+	exploreCache   map[string]exploreCacheEntry
+	exploreGroup   singleflight.Group
+}
+
+const (
+	exploreCacheTTL        = 5 * time.Minute
+	exploreCacheMaxEntries = 512
+)
+
+type exploreCacheEntry struct {
+	resp      v4.LookmlModelExplore
+	fetchedAt time.Time
 }
 
 func (s *Source) IsReadOnly() bool {
@@ -399,4 +416,69 @@ func (s *Source) GetHostURL(ctx context.Context, sdk *v4.LookerSDK) (string, err
 	}
 
 	return res.(string), nil
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func derefBool(b *bool) string {
+	if b == nil {
+		return ""
+	}
+	return strconv.FormatBool(*b)
+}
+
+// GetLookmlModelExplore retrieves LookML explore metadata via a short-TTL, singleflight-deduped cache.
+// The returned struct is a shallow copy: its nested pointers and slices are shared across cache hits.
+// Callers MUST treat the returned struct and all its fields as read-only.
+func (s *Source) GetLookmlModelExplore(ctx context.Context, sdk *v4.LookerSDK, req v4.RequestLookmlModelExplore, identity string) (v4.LookmlModelExplore, error) {
+	identityHash := sha256.Sum256([]byte(identity))
+	key := req.LookmlModelName + "\x00" + req.ExploreName + "\x00" + derefString(req.Fields) + "\x00" + derefBool(req.AddDrillsMetadata) + "\x00" + fmt.Sprintf("%x", identityHash)[:16]
+
+	s.exploreCacheMu.RLock()
+	if entry, ok := s.exploreCache[key]; ok && time.Since(entry.fetchedAt) < exploreCacheTTL {
+		s.exploreCacheMu.RUnlock()
+		return entry.resp, nil
+	}
+	s.exploreCacheMu.RUnlock()
+
+	res, err, _ := s.exploreGroup.Do(key, func() (any, error) {
+		// Double check within singleflight callback if another thread updated cache just before us
+		s.exploreCacheMu.RLock()
+		if entry, ok := s.exploreCache[key]; ok && time.Since(entry.fetchedAt) < exploreCacheTTL {
+			s.exploreCacheMu.RUnlock()
+			return entry.resp, nil
+		}
+		s.exploreCacheMu.RUnlock()
+
+		resp, err := sdk.LookmlModelExplore(req, s.ApiSettings)
+		if err != nil {
+			return v4.LookmlModelExplore{}, err
+		}
+
+		s.exploreCacheMu.Lock()
+		if len(s.exploreCache) >= exploreCacheMaxEntries {
+			for k, e := range s.exploreCache {
+				if time.Since(e.fetchedAt) >= exploreCacheTTL {
+					delete(s.exploreCache, k)
+				}
+			}
+			if len(s.exploreCache) >= exploreCacheMaxEntries {
+				s.exploreCache = make(map[string]exploreCacheEntry, exploreCacheMaxEntries)
+			}
+		}
+		s.exploreCache[key] = exploreCacheEntry{resp: resp, fetchedAt: time.Now()}
+		s.exploreCacheMu.Unlock()
+
+		return resp, nil
+	})
+	if err != nil {
+		return v4.LookmlModelExplore{}, err
+	}
+
+	return res.(v4.LookmlModelExplore), nil
 }
