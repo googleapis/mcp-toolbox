@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.16.1](https://github.com/googleapis/mcp-toolbox/compare/v1.16.0...v1.16.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **http:** Preserve case-insensitive header precedence ([#4417](https://github.com/googleapis/mcp-toolbox/issues/4417)) ([8d54da0](https://github.com/googleapis/mcp-toolbox/commit/8d54da0d2c4069937f62654f3262f3f46fae850d))
+* **server/mcp:** Include ttlMs and cacheScope in server/discover result ([#4428](https://github.com/googleapis/mcp-toolbox/issues/4428)) ([d373dc1](https://github.com/googleapis/mcp-toolbox/commit/d373dc1e91a35b8d20fa29247a297004498e0feb))
+
 ## [1.16.0](https://github.com/googleapis/mcp-toolbox/compare/v1.15.0...v1.16.0) (2026-11-05)
 
 
