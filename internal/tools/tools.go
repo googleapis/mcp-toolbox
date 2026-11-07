@@ -115,8 +115,11 @@ func GetAnnotationsOrDefault(annotations *ToolAnnotations, defaultFn func() *Too
 type AccessToken string
 
 func (token AccessToken) ParseBearerToken() (string, error) {
-	headerParts := strings.Split(string(token), " ")
-	if len(headerParts) != 2 || strings.ToLower(headerParts[0]) != "bearer" {
+	// Per RFC 7235 §2.1 the scheme and credential are separated by one or more
+	// spaces and may carry surrounding whitespace; Fields tolerates both and
+	// never yields empty parts, so an empty credential is rejected as well.
+	headerParts := strings.Fields(string(token))
+	if len(headerParts) != 2 || !strings.EqualFold(headerParts[0], "bearer") {
 		return "", util.NewClientServerError("authorization header must be in the format 'Bearer <token>'", http.StatusUnauthorized, nil)
 	}
 	return headerParts[1], nil
