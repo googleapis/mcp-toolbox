@@ -49,6 +49,47 @@ func GetStringValue(val any) string {
 	return fmt.Sprintf("%v", val)
 }
 
+// ParseAPOCRelationshipRecord converts the values of a single record returned by
+// the apoc-relationships query (relType, startNode, endNode, properties, count)
+// into a types.Relationship. The node-label fields are read with GetStringValue
+// rather than a bare string type assertion: the query derives them from
+// labels(n)[0], which is null for a label-less node, so the value can arrive as
+// nil. A bare values[i].(string) on that nil panics, and because the query runs
+// inside a goroutine with no recover, the panic takes the whole process down
+// instead of failing a single request. It returns ok=false when the record is
+// structurally unusable so the caller can skip it.
+func ParseAPOCRelationshipRecord(values []any) (types.Relationship, bool) {
+	if len(values) < 5 {
+		return types.Relationship{}, false
+	}
+	count, ok := values[4].(int64)
+	if !ok {
+		return types.Relationship{}, false
+	}
+	rel := types.Relationship{
+		Type:       GetStringValue(values[0]),
+		StartNode:  GetStringValue(values[1]),
+		EndNode:    GetStringValue(values[2]),
+		Count:      count,
+		Properties: []types.PropertyInfo{},
+	}
+	if properties, ok := values[3].(map[string]any); ok {
+		for prop, propType := range properties {
+			rel.Properties = append(rel.Properties, types.PropertyInfo{
+				Name:  prop,
+				Types: []string{GetStringValue(propType)},
+			})
+		}
+		// Sort by name so the extracted schema is deterministic across runs
+		// (Go map iteration order is unspecified), matching the other schema
+		// helpers.
+		sort.Slice(rel.Properties, func(i, j int) bool {
+			return rel.Properties[i].Name < rel.Properties[j].Name
+		})
+	}
+	return rel, true
+}
+
 // MapToAPOCSchema converts a raw map from a Cypher query into a structured
 // APOCSchemaResult. This is a workaround for database drivers that may return
 // complex nested structures as `map[string]any` instead of unmarshalling
