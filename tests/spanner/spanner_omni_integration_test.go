@@ -289,11 +289,26 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 	}
 }
 
-func runSpannerOmniSearchCatalogTest(t *testing.T) {
+func runSpannerOmniSearchCatalogTest(t *testing.T, opts ...tests.ToolExecOption) {
+	config := &tests.ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
 	t.Run("search catalog is not supported", func(t *testing.T) {
+		want := "search catalog is not supported for Spanner Omni sources"
+
+		if config.IsMCP() {
+			_, mcpResp, err := tests.InvokeMCPTool(t, "my-search-catalog-tool", map[string]any{"prompt": "table"}, nil)
+			if err != nil {
+				t.Fatalf("unable to send request: %s", err)
+			}
+			tests.AssertMCPError(t, mcpResp, want)
+			return
+		}
+
 		api := "http://127.0.0.1:5000/api/tool/my-search-catalog-tool/invoke"
 		resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(`{"prompt":"table"}`)), nil)
-		want := "search catalog is not supported for Spanner Omni sources"
 		if !strings.Contains(string(respBody), want) {
 			t.Fatalf("expected %q, got %d: %s", want, resp.StatusCode, respBody)
 		}
