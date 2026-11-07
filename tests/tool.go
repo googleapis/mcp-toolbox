@@ -588,6 +588,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 	}{
 		{
 			name:          "invoke create-table-templateParams-tool",
+			enabled:       true,
 			ddl:           true,
 			toolName:      "create-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -597,6 +598,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke insert-table-templateParams-tool",
+			enabled:       true,
 			insert:        true,
 			toolName:      "insert-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -606,6 +608,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke insert-table-templateParams-tool",
+			enabled:       true,
 			insert:        true,
 			toolName:      "insert-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -615,6 +618,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-tool",
+			enabled:       true,
 			toolName:      "select-templateParams-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"tableName": tableName},
@@ -623,6 +627,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-combined-tool",
+			enabled:       true,
 			toolName:      "select-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"id": 1, "tableName": tableName},
@@ -631,6 +636,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-templateParams-combined-tool with no results",
+			enabled:       true,
 			toolName:      "select-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"id": 999, "tableName": tableName},
@@ -648,6 +654,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke select-filter-templateParams-combined-tool",
+			enabled:       true,
 			toolName:      "select-filter-templateParams-combined-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"name": "Alex", "tableName": tableName, "columnFilter": configs.nameColFilter},
@@ -656,6 +663,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 		},
 		{
 			name:          "invoke drop-table-templateParams-tool",
+			enabled:       true,
 			ddl:           true,
 			toolName:      "drop-table-templateParams-tool",
 			requestHeader: map[string]string{},
@@ -667,7 +675,7 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
 			if !tc.enabled {
-				return
+				t.Skip("template case disabled for this source")
 			}
 			// if test case is DDL and source support ddl test cases
 			ddlAllow := !tc.ddl || (tc.ddl && configs.supportDdl)
@@ -778,12 +786,6 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		option(configs)
 	}
 
-	// Get ID token
-	idToken, err := GetGoogleIdToken(t)
-	if err != nil {
-		t.Fatalf("error getting Google ID token: %s", err)
-	}
-
 	// Test tool invoke endpoint
 	invokeTcs := []struct {
 		name          string
@@ -793,6 +795,8 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		want          string
 		isErr         bool
 		isAgentErr    bool
+		validAuth     bool
+		wantError     string
 	}{
 		{
 			name:          "invoke my-exec-sql-tool",
@@ -828,6 +832,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		},
 		{
 			name:          "invoke my-exec-sql-tool without body",
+			wantError:     `parameter "sql" is required`,
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{},
@@ -835,8 +840,9 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with auth token",
+			validAuth:     true,
 			toolName:      "my-auth-exec-sql-tool",
-			requestHeader: map[string]string{"my-google-auth_token": idToken},
+			requestHeader: map[string]string{},
 			args:          map[string]any{"sql": strings.Trim(configs.select1Statement, "\"")},
 			isErr:         false,
 			want:          select1Want,
@@ -857,6 +863,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		},
 		{
 			name:          "invoke my-exec-sql-tool with invalid SELECT SQL",
+			wantError:     "non_existent_table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
 			args:          map[string]any{"sql": "SELECT * FROM non_existent_table"},
@@ -872,6 +879,13 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 	}
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.validAuth {
+				idToken, err := GetGoogleIdToken(t)
+				if err != nil {
+					t.Fatalf("error getting Google ID token: %s", err)
+				}
+				tc.requestHeader["my-google-auth_token"] = idToken
+			}
 			if configs.isMCP {
 				toolName := tc.toolName
 				args := tc.args
@@ -880,21 +894,40 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 				}
 
 				statusCode, mcpResp, err := InvokeMCPTool(t, toolName, args, tc.requestHeader)
-				if statusCode != http.StatusOK {
-					if tc.isErr || tc.isAgentErr {
-						return
-					}
-					t.Fatalf("response status code is not 200, got %d: %v", statusCode, err)
+				wantStatus := http.StatusOK
+				if tc.isErr {
+					wantStatus = http.StatusUnauthorized
 				}
-				if tc.isAgentErr {
+				if statusCode != wantStatus {
+					t.Fatalf("response status = %d, want %d: %v", statusCode, wantStatus, err)
+				}
+				if err != nil || mcpResp == nil {
+					t.Fatalf("invalid MCP response: %v", err)
+				}
+				if tc.isErr {
+					if mcpResp.Error == nil || mcpResp.Error.Code != jsonrpc.INVALID_REQUEST || !strings.Contains(mcpResp.Error.Message, "unauthorized Tool call") {
+						t.Fatalf("expected unauthorized Tool call, got %+v", mcpResp)
+					}
 					return
 				}
-
-				if mcpResp.Result.IsError {
-					if tc.isAgentErr || tc.isErr {
-						return
+				if mcpResp.Error != nil {
+					t.Fatalf("unexpected JSON-RPC error: %+v", mcpResp.Error)
+				}
+				if mcpResp.Result.IsError != tc.isAgentErr {
+					t.Fatalf("isError = %t, want %t: %+v", mcpResp.Result.IsError, tc.isAgentErr, mcpResp.Result)
+				}
+				if tc.isAgentErr {
+					var message strings.Builder
+					for _, content := range mcpResp.Result.Content {
+						if content.Type != "text" {
+							t.Fatalf("unexpected error content type: %q", content.Type)
+						}
+						message.WriteString(content.Text)
 					}
-					t.Fatalf("%s returned error result: %v", tc.toolName, mcpResp.Result)
+					if strings.TrimSpace(message.String()) == "" || !strings.Contains(strings.ToLower(message.String()), strings.ToLower(tc.wantError)) {
+						t.Fatalf("expected tool error containing %q, got %q", tc.wantError, message.String())
+					}
+					return
 				}
 
 				gotObj := getMCPResultText(t, mcpResp)
@@ -3309,10 +3342,13 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
 			var wg sync.WaitGroup
-			defer wg.Wait()
 
 			queryCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
+			// Let the queries finish before cancelling their connections. MariaDB
+			// can keep running a query after the client disconnects, which leaks
+			// active queries into the next API or MCP test.
+			defer wg.Wait()
 
 			if tc.clientSleepSecs > 0 {
 				numClients := tc.numClients
@@ -4028,6 +4064,7 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 		name           string
 		requestBody    io.Reader
 		wantStatusCode int
+		wantError      string
 		checkResult    func(t *testing.T, result any)
 	}{
 		{
@@ -4048,7 +4085,7 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 			name:           "invoke get_query_plan with invalid query",
 			requestBody:    bytes.NewBufferString(`{"sql_statement": "SELECT * FROM non_existent_table"}`),
 			wantStatusCode: http.StatusOK,
-			checkResult:    nil,
+			wantError:      "Error 1146",
 		},
 	}
 
@@ -4071,6 +4108,17 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 					t.Fatalf("wrong status code: got %d, want %d, err: %v", statusCode, tc.wantStatusCode, err)
 				}
 				if tc.wantStatusCode != http.StatusOK {
+					return
+				}
+
+				if mcpResp.Error != nil {
+					t.Fatalf("unexpected JSON-RPC error: %v", mcpResp.Error)
+				}
+				if tc.wantError != "" {
+					if !mcpResp.Result.IsError {
+						t.Fatal("expected a tool error")
+					}
+					AssertMCPError(t, mcpResp, tc.wantError)
 					return
 				}
 
