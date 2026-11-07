@@ -175,6 +175,8 @@ source: looker-source
 description: |
   This tool runs a query against a LookML model or executes a saved query by ID/slug and returns the results in JSON format.
 
+  IMPORTANT: When the user asks for a chart, graph, plot, or visualization, call `render_visualization` directly instead of calling `query` first. `render_visualization` executes the query and renders the interactive visualization in a single step.
+
   Parameters (provide either `query_id` OR `model` + `explore` + `fields`):
   - query_id (optional): The unique identifier (numeric ID or slug) of a saved Looker query to execute. If provided, `model`, `explore`, and `fields` are not required.
   - model: The name of the LookML model (from `get_models`). Required if `query_id` is not provided.
@@ -260,7 +262,7 @@ description: |
   These chart types share a large number of configuration options.
 
   **General**
-  *   `type`: The type of visualization (`looker_area`, `looker_bar`, `looker_column`, `looker_line`, `looker_scatter`).
+  *   `type`: The type of visualization (`looker_area`, `looker_bar` for horizontal bars, `looker_column` for vertical columns, `looker_line`, `looker_scatter`). Use `looker_column` for standard vertical bar/column charts and `looker_bar` only when horizontal bars are requested.
   *   `series_types`: Override the chart type for individual series.
   *   `show_view_names`: Display view names in labels and tooltips (`true`/`false`).
   *   `series_labels`: Provide custom names for series.
@@ -761,6 +763,8 @@ source: looker-source
 description: |
   This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard, including its id, title, description, and certification_metadata (when certified or revoked).
 
+  IMPORTANT: After locating a dashboard with `get_dashboards`, if the user asked to view, open, show, or display the dashboard—even if they also asked a question about its metrics—always call `render_dashboard` so the interactive dashboard UI renders for the user.
+
   Search Parameters:
   - title (optional): Filter by dashboard title (supports wildcards).
   - folder_id (optional): Filter by the ID of the folder where the dashboard is saved.
@@ -786,6 +790,8 @@ source: looker-source
 description: |
   This tool executes the queries associated with each tile in a specified dashboard
   and returns the aggregated data in a JSON structure.
+
+  IMPORTANT: If the user asks to view, open, show, or display a dashboard (including when they ask to open a dashboard AND answer a question about its metrics), you MUST also call `render_dashboard` so the interactive dashboard UI is rendered for the user.
 
   Parameters:
   - dashboard_id (required): The unique identifier of the dashboard to run,
@@ -988,6 +994,58 @@ description: |
   - width (optional): The new width.
   - height (optional): The new height.
 ---
+kind: tool
+name: render_visualization
+type: looker-render-visualization
+source: looker-source
+ui:
+  resource: looker_render_visualization_ui
+  visibility:
+  - model
+  - app
+description: |
+  This tool executes a query against a LookML model or fetches a saved query by ID/slug and returns an interactive UI visualization response adhering to the MCP Apps specification.
+
+  IMPORTANT:
+  - If `query_id` is not provided and `model`, `explore`, or valid field names are not yet known, first discover them using `get_models`, `get_explores`, `get_explore`, `get_dimensions`, and `get_measures`.
+  - Once `model`, `explore`, and `fields` (or `query_id`) are known, call `render_visualization` directly when the user asks for a chart, graph, plot, or visualization—do NOT call the `query` tool first, as `render_visualization` already executes the query and renders the interactive visualization in a single step.
+  - For charts comparing a metric across categories or time (such as bar, column, line, area, pie, or scatter charts), `fields` MUST include BOTH the grouping dimension(s) AND the measure(s) in a single call (for example, `["products.department", "order_items.count"]`). Passing only a single field to a bar/column/line chart will fail with 'Not Enough Fields'. Include all dimensions and measures for a chart in a single `render_visualization` call rather than making separate calls per field.
+  - Because the interactive UI already renders the chart and data table for the user, do NOT output duplicate markdown tables or raw data dumps in your text response. Provide only a concise summary or key insight.
+
+  Parameters (provide `query_id` OR `model` + `explore` + `fields`):
+  - query_id (optional): Looker query ID (integer) or slug string to fetch and render a saved query visualization directly. If provided, `model`, `explore`, and `fields` are not required.
+  - model: The name of the LookML model (from `get_models`). Required if `query_id` is not provided.
+  - explore: The name of the explore (from `get_explores`). Required if `query_id` is not provided.
+  - fields: A list of field names (dimensions, measures, filters, or parameters from `get_dimensions`, `get_measures`, `get_filters`, or `get_parameters`) to include in the query. Required if `query_id` is not provided.
+  - pivots (optional): A list of fields to pivot the results by. Any pivot field omitted from `fields` is automatically appended to `fields`.
+  - filters (optional): A map of filter expressions, e.g., `{"view_name.field_name": "value"}`.
+  - filter_expression (optional): A Looker expression filter string (custom filter).
+  - dynamic_fields (optional): An optional array of dynamic fields (table calculations, custom measures, custom dimensions).
+  - sorts (optional): A list of fields to sort by (e.g. `["users.created_date desc"]`).
+  - limit (optional): Maximum number of rows to return (default: 500).
+  - tz (optional): Timezone for the query.
+  - vis_config (optional): Optional JSON string specifying the visualization configuration (e.g. chart type, legend, colors). Note: use `"type": "looker_column"` for vertical column/bar charts and `"type": "looker_bar"` for horizontal bar charts.
+---
+kind: tool
+name: render_dashboard
+type: looker-render-dashboard
+source: looker-source
+ui:
+  resource: looker_render_dashboard_ui
+  visibility:
+  - model
+  - app
+description: |
+  This tool retrieves a Looker dashboard definition by ID and returns an interactive dashboard UI response adhering to the MCP Apps specification, allowing dashboard tiles to load and execute queries asynchronously.
+
+  IMPORTANT:
+  - Whenever the user asks to view, open, show, or display a dashboard—even if they also ask a specific question about its metrics or tiles in the same prompt—always call `render_dashboard` so the interactive dashboard UI renders for the user (you may also call `run_dashboard` if you need tile data to answer their specific question).
+  - Because the interactive UI already displays the dashboard tiles and visualizations, do NOT output duplicate markdown tables or raw data dumps in your text response. Provide only a concise summary or answer to the user's question.
+
+  Parameters:
+  - dashboard_id (required): The unique identifier of the dashboard to render.
+  - filters (optional): Optional dashboard filter overrides as key-value pairs.
+---
 kind: group
 name: looker_tools
 description: These skills are designed for data discovery and business intelligence.
@@ -1003,6 +1061,8 @@ tools:
 - query
 - query_sql
 - query_url
+- render_visualization
+- render_dashboard
 - get_looks
 - run_look
 - make_look
