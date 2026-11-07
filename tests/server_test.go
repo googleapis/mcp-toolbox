@@ -55,6 +55,7 @@ func TestStartCmdSequentialKeepAliveCleanup(t *testing.T) {
 		},
 	}
 	invokeURL := fmt.Sprintf("http://127.0.0.1:%s/api/tool/quick-wait/invoke", port)
+	readyRegexp := regexp.MustCompile("Server ready to serve")
 
 	for i := range 10 {
 		func() {
@@ -69,7 +70,7 @@ func TestStartCmdSequentialKeepAliveCleanup(t *testing.T) {
 
 			waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 			defer waitCancel()
-			out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+			out, err := testutils.WaitForString(waitCtx, readyRegexp, cmd.Out)
 			if err != nil {
 				t.Logf("iteration %d toolbox logs:\n%s", i, out)
 				t.Fatalf("iteration %d: server did not become ready: %v", i, err)
