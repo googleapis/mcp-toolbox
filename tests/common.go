@@ -1066,24 +1066,12 @@ func CleanupPostgresTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	}
 }
 
-// Finds and drops all tables matching uniqueID (plus stale leaked test tables older than 1 hour) in a mysql database.
+// Finds and drops all tables matching uniqueID in a mysql database.
 func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueID string) {
 	query := `
 	SELECT table_name FROM information_schema.tables
 	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'
-	AND (
-		table_name LIKE ?
-		OR (
-			create_time < NOW() - INTERVAL 1 HOUR
-			AND (
-				table_name LIKE 'param\_table\_%'
-				OR table_name LIKE 'auth\_table\_%'
-				OR table_name LIKE 'template\_param\_table\_%'
-				OR table_name LIKE 'test\_list\_table\_stats\_%'
-				OR table_name LIKE 't0%'
-			)
-		)
-	);`
+	AND table_name LIKE ?;`
 
 	rows, err := pool.QueryContext(ctx, query, "%\\_"+uniqueID)
 	if err != nil {
@@ -1134,22 +1122,12 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 	t.Logf("INTEGRATION CLEANUP SUCCESS: Wiped all MySQL tables for uniqueID: %s", uniqueID)
 }
 
-// Finds and drops all tables matching uniqueID (plus stale leaked test tables older than 1 hour) in an mssql database.
+// Finds and drops all tables matching uniqueID in an mssql database.
 func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueID string) {
 	query := `
 	SELECT name FROM sys.tables
 	WHERE type = 'U'
-	AND (
-		name LIKE @p1
-		OR (
-			create_date < DATEADD(hour, -1, GETDATE())
-			AND (
-				name LIKE 'param[_]table[_]%'
-				OR name LIKE 'auth[_]table[_]%'
-				OR name LIKE 'template[_]param[_]table[_]%'
-			)
-		)
-	);`
+	AND name LIKE @p1;`
 
 	rows, err := pool.QueryContext(ctx, query, "%[_]"+uniqueID)
 	if err != nil {
