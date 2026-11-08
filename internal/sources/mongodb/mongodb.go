@@ -244,23 +244,26 @@ func pipelineCollections(stages []any, database string) ([]collectionRef, error)
 
 // subPipelineCollections returns the collection named by key in a $lookup, $graphLookup or $unionWith spec, plus those
 // reached by its sub-pipeline. The key is optional because a sub-pipeline that starts with $documents names no collection.
+// The sub-pipeline runs against the referenced collection, so it is checked in that collection's database.
 func subPipelineCollections(spec any, key, database string) ([]collectionRef, error) {
 	doc, err := asDocument(spec)
 	if err != nil {
 		return nil, err
 	}
 	var refs []collectionRef
+	subDatabase := database
 	if v, ok := doc[key]; ok {
 		if refs, err = appendCollectionRef(refs, v, database); err != nil {
 			return nil, err
 		}
+		subDatabase = refs[len(refs)-1].database
 	}
 	if v, ok := doc["pipeline"]; ok {
 		stages, err := asArray(v)
 		if err != nil {
 			return nil, err
 		}
-		sub, err := pipelineCollections(stages, database)
+		sub, err := pipelineCollections(stages, subDatabase)
 		if err != nil {
 			return nil, err
 		}
