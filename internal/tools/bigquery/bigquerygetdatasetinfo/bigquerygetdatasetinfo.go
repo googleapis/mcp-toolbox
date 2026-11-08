@@ -134,6 +134,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewAgentError(fmt.Sprintf("access denied to dataset '%s' because it is not in the configured list of allowed datasets for project '%s'", datasetId, projectId), nil)
 	}
 
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool for dataset `%s.%s`", resourceType, projectId, datasetId))
+
 	dsHandle := bqClient.DatasetInProject(projectId, datasetId)
 
 	metadata, err := dsHandle.Metadata(ctx)

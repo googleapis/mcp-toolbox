@@ -24,7 +24,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"text/template"
+	"text/template" // NOLINT: renders statement templates, not YAML
 
 	embeddingmodels "github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -711,8 +711,12 @@ type StringParameter struct {
 
 // Parse casts the value "v" as a "string".
 func (p *StringParameter) Parse(v any) (any, error) {
-	newV, ok := v.(string)
-	if !ok {
+	var newV string
+	if str, ok := v.(string); ok {
+		newV = str
+	} else if bytes, err := json.Marshal(v); err == nil && len(bytes) > 0 && (bytes[0] == '{' || bytes[0] == '[') {
+		newV = string(bytes)
+	} else {
 		return nil, &ParseTypeError{p.Name, p.Type, v}
 	}
 	if !p.IsAllowedValues(newV) {
