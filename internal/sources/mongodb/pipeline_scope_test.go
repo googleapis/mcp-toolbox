@@ -27,6 +27,20 @@ func TestCheckPipelineScope(t *testing.T) {
 			"archive": {"orders": {}},
 		},
 	}
+	// crossDBOuterAllowed allows "audit" only in the outer database; crossDBRefAllowed allows it only in the referenced one.
+	crossDBOuterAllowed := &Source{
+		AllowedCollections: map[string]map[string]struct{}{
+			"crm":      {"orders": {}, "audit": {}},
+			"other_db": {"public": {}},
+		},
+	}
+	crossDBRefAllowed := &Source{
+		AllowedCollections: map[string]map[string]struct{}{
+			"crm":      {"orders": {}},
+			"other_db": {"public": {}, "audit": {}},
+		},
+	}
+	crossDBNestedLookup := `[{"$lookup": {"from": {"db": "other_db", "coll": "public"}, "as": "x", "pipeline": [{"$lookup": {"from": "audit", "as": "y", "pipeline": []}}]}}]`
 	tcs := []struct {
 		desc     string
 		source   *Source
@@ -59,6 +73,8 @@ func TestCheckPipelineScope(t *testing.T) {
 		{"out document without coll", scoped, `[{"$out": {"db": "archive"}}]`, true},
 		{"merge document without into", scoped, `[{"$merge": {"on": "_id"}}]`, true},
 		{"facet with a sub-pipeline that is not an array", scoped, `[{"$facet": {"a": {"$match": {}}}}]`, true},
+		{"cross-database lookup checks its sub-pipeline in the referenced database", crossDBOuterAllowed, crossDBNestedLookup, true},
+		{"cross-database lookup sub-pipeline allowed in the referenced database", crossDBRefAllowed, crossDBNestedLookup, false},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
