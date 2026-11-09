@@ -15,11 +15,47 @@
 package http
 
 import (
+	"maps"
 	"net/url"
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
+
+func TestGetHeadersCaseInsensitiveOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		params    map[string]any
+		want      map[string]string
+		wantError bool
+	}{
+		{
+			name:   "provided parameter overrides static header",
+			params: map[string]any{"CONTENT-type": "application/json; charset=UTF-8"},
+			want:   map[string]string{"Content-Type": "application/json; charset=UTF-8"},
+		},
+		{
+			name: "omitted parameter retains static header",
+			want: map[string]string{"Content-Type": "text/plain; charset=UTF-8"},
+		},
+		{
+			name:      "nil parameter retains existing error behavior",
+			params:    map[string]any{"CONTENT-type": nil},
+			wantError: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headerParams := parameters.Parameters{parameters.NewStringParameter("CONTENT-type", "content type", parameters.WithStringRequired(false))}
+			got, err := getHeaders(headerParams, map[string]string{"content-type": "text/plain; charset=UTF-8"}, tc.params)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("getHeaders() error = %v, wantError %v", err, tc.wantError)
+			}
+			if !tc.wantError && !maps.Equal(got, tc.want) {
+				t.Fatalf("getHeaders() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestGetURLHostOverride(t *testing.T) {
 	testCases := []struct {
