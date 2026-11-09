@@ -533,6 +533,7 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 
 	return nil
 }
+
 // shutdownTelemetry lets pending telemetry exports finish after the server context
 // is canceled, while bounding the time spent waiting for exporters.
 func shutdownTelemetry(ctx context.Context, shutdown func(context.Context) error) {

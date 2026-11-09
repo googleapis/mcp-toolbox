@@ -176,7 +176,6 @@ func TestShutdownTelemetry(t *testing.T) {
 	}
 }
 
-
 func TestVersion(t *testing.T) {
 	data, err := os.ReadFile("version.txt")
 	if err != nil {
