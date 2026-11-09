@@ -283,6 +283,11 @@ func TestInvokeOptionalHeaderParams(t *testing.T) {
 			in:   map[string]any{"X-Trace-Id": "abc123"},
 			want: map[string]string{"Content-Type": "application/json", "X-Trace-Id": "abc123"},
 		},
+		{
+			desc: "empty string header provided",
+			in:   map[string]any{"X-Trace-Id": ""},
+			want: map[string]string{"Content-Type": "application/json", "X-Trace-Id": ""},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
