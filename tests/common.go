@@ -1142,10 +1142,32 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 		return
 	}
 
-	for _, tableName := range tablesToDrop {
-		disableCmd := fmt.Sprintf("ALTER TABLE %s NOCHECK CONSTRAINT ALL;", tableName)
-		if _, err := pool.ExecContext(ctx, disableCmd); err != nil {
-			t.Logf("Failed to disable MSSQL constraints on %s: %v", tableName, err)
+	fkQuery := `
+	SELECT 'ALTER TABLE ' + QUOTENAME(SCHEMA_NAME(t.schema_id)) + '.' + QUOTENAME(t.name) + ' DROP CONSTRAINT ' + QUOTENAME(fk.name) + ';'
+	FROM sys.foreign_keys fk
+	INNER JOIN sys.tables t ON fk.parent_object_id = t.object_id
+	WHERE fk.parent_object_id IN (SELECT object_id FROM sys.tables WHERE is_ms_shipped = 0 AND create_date < DATEADD(HOUR, -2, GETDATE()))
+	   OR fk.referenced_object_id IN (SELECT object_id FROM sys.tables WHERE is_ms_shipped = 0 AND create_date < DATEADD(HOUR, -2, GETDATE()));`
+
+	fkRows, err := pool.QueryContext(ctx, fkQuery)
+	if err != nil {
+		t.Fatalf("Failed to query for old MSSQL foreign keys: %v", err)
+	}
+	defer fkRows.Close()
+
+	var dropFkCmds []string
+	for fkRows.Next() {
+		var dropFkCmd string
+		if err := fkRows.Scan(&dropFkCmd); err != nil {
+			t.Errorf("Failed to scan MSSQL foreign key drop command: %v", err)
+			continue
+		}
+		dropFkCmds = append(dropFkCmds, dropFkCmd)
+	}
+
+	for _, dropFkCmd := range dropFkCmds {
+		if _, err := pool.ExecContext(ctx, dropFkCmd); err != nil {
+			t.Logf("Failed to drop MSSQL foreign key constraint: %v", err)
 		}
 	}
 
