@@ -1465,13 +1465,16 @@ steps:
           # Install the C compiler and Oracle SDK headers needed for cgo
           dnf install -y gcc oracle-instantclient-devel
           # Install Go
-          curl -L -o go.tar.gz "https://go.dev/dl/go1.25.1.linux-amd64.tar.gz"
+          curl -L -o go.tar.gz "https://go.dev/dl/go1.27.3.linux-amd64.tar.gz"
           tar -C /usr/local -xzf go.tar.gz
           export PATH="/usr/local/go/bin:$$PATH"
 
-          go test -v ./tests/oracle/... \
+          if ! go test -v ./tests/oracle/... \
             -coverprofile=oracle_coverage.out \
-            -coverpkg=./internal/sources/oracle/...,./internal/tools/oracle/...
+            -coverpkg=./internal/sources/oracle/...,./internal/tools/oracle/...; then
+            echo "Error: Oracle tests failed. Exiting."
+            exit 1
+          fi
 
           # Coverage check
           total_coverage=$(go tool cover -func=oracle_coverage.out | grep "total:" | awk '{print $3}')
