@@ -12,6 +12,24 @@
 # limitations under the License.
 
 steps:
+  - id: "secure_content_scan"
+    name: "us-central1-docker.pkg.dev/louhi-prod-1/louhi-helper/louhi-helper-v2"
+    waitFor: ["-"]
+    args:
+    - "secure_content_scan"
+    - "--allowed_prefixes"
+    - "gcr.io/distroless/"
+    - "golang:"
+    - "https://us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://us-go.pkg.dev/${_AIRLOCK_AR_PROJECT}/"
+    - "https://us-apt.pkg.dev/projects/${_AIRLOCK_AR_PROJECT}/"
+    - "https://storage.googleapis.com/${_ASSETS_BUCKET}/"
+    - "gcr.io/cloud-builders/"
+    results:
+      - name: "allowed_uri_prefix"
+        attestationContent: "allowed_uri_prefix"
+        attestationType: "https://bcid.corp.google.com/build-content-restrictions/v0.1"
+
   - id: "setup-airlock-auth"
     name: "gcr.io/cloud-builders/gcloud:latest"
     waitFor: ["-"]
@@ -27,18 +45,11 @@ steps:
       
       # Write auth files to the persistent /workspace directory
       echo "machine us-go.pkg.dev login oauth2accesstoken password $TOKEN" > /workspace/.netrc
-      echo "machine us-python.pkg.dev login oauth2accesstoken password $TOKEN" >> /workspace/.netrc
-      
-      cat > /workspace/.npmrc <<EOL
-      registry=https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/
-      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:always-auth=true
-      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:_authToken=$TOKEN
-      EOL
 
       echo "$TOKEN" > /workspace/.airlock_token
 
   - id: "install-dependencies"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor: 
       - "setup-airlock-auth"
     env:
@@ -53,7 +64,7 @@ steps:
       go get -d ./...
 
   - id: "run-tests"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "install-dependencies"
     env:
@@ -112,7 +123,7 @@ steps:
       # Build OCI archive for Cloud Build artifacts.oci upload
       docker buildx build \
         --platform linux/amd64,linux/arm64 \
-        --build-arg BASE_IMAGE="us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1" \
+        --build-arg BASE_IMAGE="us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b" \
         --build-arg BUILD_TYPE=container.release \
         --build-arg GOPROXY=${GOPROXY} \
         --build-arg GONOSUMDB=${GONOSUMDB} \
@@ -139,7 +150,7 @@ steps:
       tar -xf sdk.tar.xz -C /macos-sdk/MacOSX14.5.sdk --strip-components=1
 
   - id: "build-linux-amd64"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -169,7 +180,7 @@ steps:
       gcloud storage cp toolbox.linux.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/linux/amd64/toolbox
 
   - id: "build-linux-amd64-geminicli"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -199,7 +210,7 @@ steps:
       gcloud storage cp toolbox.geminicli.linux.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/linux/amd64/toolbox
 
   - id: "build-darwin-arm64"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -236,7 +247,7 @@ steps:
       gcloud storage cp toolbox.darwin.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-arm64-geminicli"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -273,7 +284,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.arm64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/arm64/toolbox
 
   - id: "build-darwin-amd64"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -310,7 +321,7 @@ steps:
       gcloud storage cp toolbox.darwin.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/darwin/amd64/toolbox
 
   - id: "build-darwin-amd64-geminicli"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -347,7 +358,7 @@ steps:
       gcloud storage cp toolbox.geminicli.darwin.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/darwin/amd64/toolbox
 
   - id: "build-windows-amd64"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -377,7 +388,7 @@ steps:
       gcloud storage cp toolbox.windows.amd64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-amd64-geminicli"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -407,7 +418,7 @@ steps:
       gcloud storage cp toolbox.geminicli.windows.amd64 gs://$_BUCKET_NAME/geminicli/$VERSION/windows/amd64/toolbox.exe
 
   - id: "build-windows-arm64"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"
@@ -437,7 +448,7 @@ steps:
       gcloud storage cp toolbox.windows.arm64 gs://$_UNSIGNED_BUCKET_NAME/$VERSION/windows/arm64/toolbox.exe
 
   - id: "build-windows-arm64-geminicli"
-    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/golang@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"
     waitFor:
       - "run-tests"
       - "install-zig"

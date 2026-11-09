@@ -86,9 +86,18 @@ func initializeHandler(ctx context.Context, id jsonrpc.RequestId, body []byte) (
 
 	toolsListChanged := false
 	promptsListChanged := false
+
+	var serverExts map[string]any
+	if util.DisableExtensionCheckFromContext(ctx) || mcputil.CheckUISupport(req.Params.Capabilities.Extensions) {
+		serverExts = map[string]any{
+			mcputil.UIExtensionURI: map[string]any{},
+		}
+	}
+
 	result := InitializeResult{
 		ProtocolVersion: PROTOCOL_VERSION,
 		Capabilities: ServerCapabilities{
+			Extensions: serverExts,
 			Tools: &ListChanged{
 				ListChanged: &toolsListChanged,
 			},
@@ -130,7 +139,8 @@ func toolsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 	}
 
 	urlParams, _ := util.UrlParamsFromContext(ctx)
-	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams)
+	supportsUI := util.DisableExtensionCheckFromContext(ctx) || mcputil.CheckUISupportFromRequest(body)
+	listToolsResult, err := GenerateListToolsResult(primitiveMgr, g, urlParams, supportsUI)
 	if err != nil {
 		err = fmt.Errorf("error generating manifest: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
@@ -428,6 +438,12 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 		}
 	}
 
+	var structuredContent map[string]any
+	if structuredRes, ok := results.(tools.StructuredToolResult); ok {
+		structuredContent = structuredRes.StructuredContent
+		results = structuredRes.Content
+	}
+
 	content := make([]TextContent, 0)
 
 	sliceRes, ok := results.([]any)
@@ -449,7 +465,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	return jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
 		Id:      id,
-		Result:  CallToolResult{Content: content},
+		Result:  CallToolResult{Content: content, StructuredContent: structuredContent},
 	}, nil
 }
 
@@ -656,6 +672,15 @@ func getResourceOrTemplateByURI(uri string, g group.Group, primitiveMgr *primiti
 			}
 		}
 	}
+	// UI resources and templates are globally accessible and not limited to specific groups.
+	if res, ok := primitiveMgr.GetUIResourceFromURI(uri); ok {
+		return res, nil, nil, nil
+	}
+
+	if rt, params, ok := primitiveMgr.GetUIResourceTemplateByURI(uri); ok {
+		return nil, rt, params, nil
+	}
+
 	return nil, nil, nil, fmt.Errorf("no resource or template found for URI: %s", uri)
 }
 
@@ -721,12 +746,28 @@ func resourcesReadHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMg
 	}
 	logger.DebugContext(ctx, "read resource successfully")
 
+	var contentMeta map[string]any
+	var uiMeta any
+	if res != nil && res.IsUI() {
+		if meta := res.GetResourceUIMetadata(); meta != nil {
+			uiMeta = meta
+		}
+	} else if resTmpl != nil && resTmpl.IsUI() {
+		if meta := resTmpl.GetResourceUIMetadata(); meta != nil {
+			uiMeta = meta
+		}
+	}
+	if uiMeta != nil {
+		contentMeta = map[string]any{"ui": uiMeta}
+	}
+
 	result := &ReadResourceResult{
 		Contents: []TextResourceContents{
 			{
 				ResourceContents: ResourceContents{
 					Uri:      uri,
 					MimeType: mimeType,
+					Metadata: contentMeta,
 				},
 				Text: textContent,
 			},
