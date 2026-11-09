@@ -1066,15 +1066,17 @@ func CleanupPostgresTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	}
 }
 
-// Finds and drops all tables in a mysql database.
+// Finds and drops tables older than 2 hours in a mysql database.
 func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	query := `
 	SELECT table_name FROM information_schema.tables
-	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE';`
+	WHERE table_schema = DATABASE()
+	  AND table_type = 'BASE TABLE'
+	  AND create_time < NOW() - INTERVAL 2 HOUR;`
 
 	rows, err := pool.QueryContext(ctx, query)
 	if err != nil {
-		t.Fatalf("Failed to query for all MySQL tables: %v", err)
+		t.Fatalf("Failed to query for old MySQL tables: %v", err)
 	}
 	defer rows.Close()
 
@@ -1092,7 +1094,7 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 		return
 	}
 
-	// Disable foreign key checks, drop all tables and re-enable
+	// Disable foreign key checks, drop old tables and re-enable
 	if _, err := pool.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0;"); err != nil {
 		t.Fatalf("Failed to disable MySQL foreign key checks: %v", err)
 	}
@@ -1104,7 +1106,7 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 		if _, err := pool.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1;"); err != nil {
 			t.Logf("Also failed to re-enable foreign key checks: %v", err)
 		}
-		t.Fatalf("Failed to drop all MySQL tables: %v", err)
+		t.Fatalf("Failed to drop old MySQL tables: %v", err)
 	}
 
 	// Re-enable foreign key checks
@@ -1113,19 +1115,44 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	}
 }
 
-// Finds and drops all tables in an mssql database.
+// Finds and drops user tables older than 2 hours in an mssql database.
 func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
-	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'"
-	if _, err := pool.ExecContext(ctx, disableConstraintsCmd); err != nil {
-		t.Fatalf("Failed to disable MSSQL constraints: %v", err)
+	query := `
+	SELECT QUOTENAME(SCHEMA_NAME(schema_id)) + '.' + QUOTENAME(name)
+	FROM sys.tables
+	WHERE is_ms_shipped = 0 AND create_date < DATEADD(HOUR, -2, GETDATE());`
+
+	rows, err := pool.QueryContext(ctx, query)
+	if err != nil {
+		t.Fatalf("Failed to query for old MSSQL tables: %v", err)
+	}
+	defer rows.Close()
+
+	var tablesToDrop []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			t.Errorf("Failed to scan MSSQL table name: %v", err)
+			continue
+		}
+		tablesToDrop = append(tablesToDrop, tableName)
 	}
 
-	// drop 'U' (User Tables)
-	dropTablesCmd := "EXEC sp_MSforeachtable 'DROP TABLE ?', @whereand = 'AND O.Type = ''U'''"
-	if _, err := pool.ExecContext(ctx, dropTablesCmd); err != nil {
-		t.Fatalf("Failed to drop all MSSQL tables: %v", err)
+	if len(tablesToDrop) == 0 {
+		return
 	}
 
+	for _, tableName := range tablesToDrop {
+		disableCmd := fmt.Sprintf("ALTER TABLE %s NOCHECK CONSTRAINT ALL;", tableName)
+		if _, err := pool.ExecContext(ctx, disableCmd); err != nil {
+			t.Logf("Failed to disable MSSQL constraints on %s: %v", tableName, err)
+		}
+	}
+
+	dropQuery := fmt.Sprintf("DROP TABLE IF EXISTS %s;", strings.Join(tablesToDrop, ", "))
+	if _, err := pool.ExecContext(ctx, dropQuery); err != nil {
+		t.Fatalf("Failed to drop old MSSQL tables: %v", err)
+	}
 }
 
 // finds and deletes all tables in a Bigtable instance that match the uniqueID.

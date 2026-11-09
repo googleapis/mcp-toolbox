@@ -313,12 +313,12 @@ func RunMariDBListTablesTest(t *testing.T, databaseName, tableNameParam, tableNa
 				cmpopts.SortSlices(func(a, b map[string]any) bool { return a["name"].(string) < b["name"].(string) }),
 			}
 
-			// Checking only the current database where the test tables are created to avoid brittle tests.
+			// Checking only the current test tables in the current database to avoid brittle tests.
 			if tc.isAllTables {
 				filteredGot := []objectDetails{}
 				if got != nil {
 					for _, item := range got.([]objectDetails) {
-						if item.SchemaName == databaseName {
+						if item.SchemaName == databaseName && (item.ObjectName == tableNameParam || item.ObjectName == tableNameAuth) {
 							filteredGot = append(filteredGot, item)
 						}
 					}
