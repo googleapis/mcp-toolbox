@@ -51,6 +51,8 @@ var integrationTablePrefixes = []string{
 	"auth_table_",
 	"param_table_",
 	"tmpl_param_table_",
+	"test_table_",
+	"test_",
 }
 
 func TestMain(m *testing.M) {
@@ -59,7 +61,13 @@ func TestMain(m *testing.M) {
 		cleanupOrphanedBigtableResources(ctx)
 		cancel()
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if BigtableProject != "" && BigtableInstance != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		cleanupOrphanedBigtableResources(ctx)
+		cancel()
+	}
+	os.Exit(code)
 }
 
 func cleanupOrphanedBigtableResources(ctx context.Context) {
@@ -85,7 +93,7 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable logical views: %v", err)
 	} else {
 		for _, view := range views {
-			if shouldCleanupBigtableResource(view.LogicalViewID, now, "admin_test_view_") {
+			if shouldCleanupBigtableResource(view.LogicalViewID, now, "admin_test_view_", "test_view_") {
 				log.Printf("INTEGRATION CLEANUP: Deleting orphaned logical view %s", view.LogicalViewID)
 				if err := instanceAdminClient.DeleteLogicalView(ctx, BigtableInstance, view.LogicalViewID); err != nil {
 					log.Printf("INTEGRATION CLEANUP: Failed to delete logical view %s: %v", view.LogicalViewID, err)
@@ -117,7 +125,7 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 		if idx := strings.LastIndex(instanceID, "/"); idx >= 0 {
 			instanceID = instanceID[idx+1:]
 		}
-		if shouldCleanupBigtableResource(instanceID, now, "testi-") {
+		if shouldCleanupBigtableResource(instanceID, now, "testi-", "test_inst_") {
 			log.Printf("INTEGRATION CLEANUP: Deleting orphaned instance %s", instanceID)
 			if err := instanceAdminClient.DeleteInstance(ctx, instanceID); err != nil {
 				log.Printf("INTEGRATION CLEANUP: Failed to delete instance %s: %v", instanceID, err)
