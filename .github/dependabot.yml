@@ -25,7 +25,7 @@ updates:
     labels:
       - "type: process"
     commit-message:
-      prefix: "chore"
+      prefix: "fix"
       include: "scope"
     groups:
       go-security:
@@ -164,7 +164,7 @@ updates:
     labels:
       - "type: process"
     commit-message:
-      prefix: "chore"
+      prefix: "fix"
       include: "scope"
     groups:
       docker-security:
