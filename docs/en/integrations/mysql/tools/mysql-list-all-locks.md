@@ -30,7 +30,7 @@ This tool takes 3 optional input parameters:
 ## Example
 
 ```yaml
-kind: tools
+kind: tool
 name: list_all_locks
 type: mysql-list-all-locks
 source: my-mysql-instance

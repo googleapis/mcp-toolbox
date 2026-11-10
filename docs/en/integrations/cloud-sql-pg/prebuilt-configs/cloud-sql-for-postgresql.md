@@ -18,6 +18,7 @@ description: "Details of the Cloud SQL for PostgreSQL prebuilt configuration."
         user. Defaults to IAM authentication if unspecified.
     *   `CLOUD_SQL_POSTGRES_IP_TYPE`: (Optional) The IP type i.e. "Public" or
         "Private" (Default: Public).
+    *   `CLOUD_SQL_POSTGRES_READONLY`: (Optional) When set to `true`, enforces read-only execution at the database session level (`cloudsql_session_read_only=locked`) and suppresses write-capable tools. Default: `false`.
 *   **Permissions:**
     *   **Cloud SQL Client** (`roles/cloudsql.client`) to connect to the
         instance.

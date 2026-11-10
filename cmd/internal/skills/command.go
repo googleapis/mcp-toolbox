@@ -279,7 +279,7 @@ func (c *skillsCmd) collectContents(ctx context.Context, opts *internal.ToolboxO
 // be generated with. In group mode, a group's own description takes precedence
 // over the --description flag, which acts as a fallback.
 func (c *skillsCmd) buildSkillContents(toolsMap map[string]tools.Tool, groupsMap map[string]group.Group) (map[string]skillContent, error) {
-	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, groupsMap)
+	primitiveMgr := primitives.NewPrimitiveManager(nil, nil, nil, toolsMap, nil, nil, nil, groupsMap)
 
 	skillsToContents := make(map[string]skillContent)
 

@@ -16,8 +16,10 @@ package util
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/log"
@@ -38,6 +40,7 @@ func (m mockParameter) GetRequired() bool                              { return 
 func (m mockParameter) GetAuthServices() []parameters.ParamAuthService { return nil }
 func (m mockParameter) GetEmbeddedBy() string                          { return "" }
 func (m mockParameter) GetValueFromParam() string                      { return "" }
+func (m mockParameter) GetSecure() bool                                { return false }
 func (m mockParameter) Parse(any) (any, error)                         { return nil, nil }
 func (m mockParameter) Manifest() parameters.ParameterManifest         { return parameters.ParameterManifest{} }
 func (m mockParameter) McpManifest() (parameters.ParameterMcpManifest, []string) {
@@ -120,6 +123,8 @@ func TestPopulateUrlParams(t *testing.T) {
 		toolParams   parameters.Parameters
 		expected     map[string]any
 		expectedLogs []logEntry
+		wantErr      bool
+		errContains  string
 	}{
 		{
 			name: "no URL params in context",
@@ -136,7 +141,7 @@ func TestPopulateUrlParams(t *testing.T) {
 			expectedLogs: nil,
 		},
 		{
-			name: "URL params present but key already exists in data",
+			name: "URL params present and key already exists in data - returns error",
 			setupCtx: func(ctx context.Context, logger log.Logger) context.Context {
 				ctx = util.WithLogger(ctx, logger)
 				return util.WithUrlParams(ctx, map[string]string{
@@ -149,10 +154,10 @@ func TestPopulateUrlParams(t *testing.T) {
 			toolParams: parameters.Parameters{
 				mockParameter{name: "param1", typ: "string"},
 			},
-			expected: map[string]any{
-				"param1": "existingValue",
-			},
+			expected:     nil,
 			expectedLogs: nil,
+			wantErr:      true,
+			errContains:  `parameter "param1" is bound by URL and cannot be provided in client arguments`,
 		},
 		{
 			name: "URL params present and key not in data - string type",
@@ -336,7 +341,7 @@ func TestPopulateUrlParams(t *testing.T) {
 				mockParameter{name: "param1", typ: "array"},
 			},
 			expected: map[string]any{
-				"param1": []any{"foo", "bar", float64(123)},
+				"param1": []any{"foo", "bar", json.Number("123")},
 			},
 			expectedLogs: nil,
 		},
@@ -382,7 +387,7 @@ func TestPopulateUrlParams(t *testing.T) {
 			expected: map[string]any{
 				"param1": map[string]any{
 					"nested": "value",
-					"num":    float64(123),
+					"num":    json.Number("123"),
 				},
 			},
 			expectedLogs: nil,
@@ -460,7 +465,13 @@ func TestPopulateUrlParams(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			logger := &mockLogger{}
 			ctx := tc.setupCtx(context.Background(), logger)
-			actual := PopulateUrlParams(ctx, tc.initial, tc.toolParams)
+			actual, err := PopulateUrlParams(ctx, tc.initial, tc.toolParams)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("PopulateUrlParams() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantErr && tc.errContains != "" && (err == nil || !strings.Contains(err.Error(), tc.errContains)) {
+				t.Errorf("PopulateUrlParams() error = %v, want error containing %q", err, tc.errContains)
+			}
 			if !reflect.DeepEqual(actual, tc.expected) {
 				t.Errorf("PopulateUrlParams() = %v, want %v", actual, tc.expected)
 			}

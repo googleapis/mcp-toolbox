@@ -104,6 +104,15 @@ func (s *Source) validateBucket(bucket string) error {
 	return fmt.Errorf("bucket %q is not allowed by source %q configuration", bucket, s.Name)
 }
 
+// validateLocalPath enforces allowedLocalRoots. The path must sit under an
+// allowed root both as written and after symlinks are resolved: the first check
+// keeps the rejection message tied to what the caller actually asked for, and
+// the second is what makes the root a real boundary, since a symlink planted
+// under a root can otherwise point anywhere on the filesystem.
+//
+// The resolved comparison uses resolved roots as well, so an allowed root that
+// is itself reached through a symlink (/tmp on macOS, a symlinked workspace)
+// still matches.
 func (s *Source) validateLocalPath(p string) error {
 	clean, err := cloudstoragecommon.ValidateLocalPath(p)
 	if err != nil {
@@ -112,12 +121,34 @@ func (s *Source) validateLocalPath(p string) error {
 	if len(s.AllowedLocalRoots) == 0 {
 		return nil
 	}
+
+	nameMatched := false
 	for _, root := range s.AllowedLocalRoots {
 		if isUnderRoot(clean, root) {
+			nameMatched = true
+			break
+		}
+	}
+	if !nameMatched {
+		return fmt.Errorf("local path %q is not under any allowed local roots for source %q", p, s.Name)
+	}
+
+	resolved, err := cloudstoragecommon.ResolveSymlinks(clean)
+	if err != nil {
+		return fmt.Errorf("local path %q cannot be resolved for source %q: %w", p, s.Name, err)
+	}
+	for _, root := range s.AllowedLocalRoots {
+		// A root we cannot resolve authorizes nothing; skip it rather than
+		// falling back to the name-level match we already passed.
+		resolvedRoot, err := cloudstoragecommon.ResolveSymlinks(root)
+		if err != nil {
+			continue
+		}
+		if isUnderRoot(resolved, resolvedRoot) {
 			return nil
 		}
 	}
-	return fmt.Errorf("local path %q is not under any allowed local roots for source %q", p, s.Name)
+	return fmt.Errorf("local path %q resolves through a symbolic link to a target outside the allowed local roots for source %q", p, s.Name)
 }
 
 func isUnderRoot(target, root string) bool {
@@ -134,6 +165,10 @@ func isUnderRoot(target, root string) bool {
 		root += sep
 	}
 	return strings.HasPrefix(target, root)
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {

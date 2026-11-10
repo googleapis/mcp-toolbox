@@ -10,6 +10,11 @@ description: "Details of the BigQuery prebuilt configuration."
 *   **Environment Variables:**
     *   `BIGQUERY_PROJECT`: The GCP project ID.
     *   `BIGQUERY_LOCATION`: (Optional) The dataset location.
+    *   `BIGQUERY_READONLY`: (Optional) When set to `true`, enforces read-only
+        mode across all tools (defaults `BIGQUERY_WRITE_MODE` to `blocked`).
+        Defaults to `false`.
+    *   `BIGQUERY_WRITE_MODE`: (Optional) Controls write behavior: `allowed`,
+        `blocked` (strict read-only), or `protected` (session scratchpad).
     *   `BIGQUERY_USE_CLIENT_OAUTH`: (Optional) If `true`, forwards the client's
         OAuth access token for authentication. Defaults to `false`.
     *   `BIGQUERY_SCOPES`: (Optional) A comma-separated list of OAuth scopes to
@@ -21,6 +26,11 @@ description: "Details of the BigQuery prebuilt configuration."
     *   `BIGQUERY_MAXIMUM_BYTES_BILLED`: (Optional) Per-query bytes scanned cap
         (in bytes). Queries that exceed this limit fail before executing and
         cost nothing.
+    *   `BIGQUERY_ENDPOINT`: (Optional) Override the BigQuery API endpoint to
+        route traffic through a corporate proxy or a local emulator. Both
+        `http://` and `https://` schemes are supported (e.g.,
+        `http://localhost:9050`). When unset, the default Google API endpoint
+        is used.
 *   **Permissions:**
     *   **BigQuery User** (`roles/bigquery.user`) to execute queries and view
         metadata.

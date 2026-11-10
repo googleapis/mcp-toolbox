@@ -1,0 +1,292 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package bigtablelistschemas_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"cloud.google.com/go/bigtable"
+	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/bigtable/bigtablelistschemas"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+)
+
+func TestParseFromYamlBigtable(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tcs := []struct {
+		desc string
+		in   string
+		want server.ToolConfigs
+	}{
+		{
+			desc: "basic example",
+			in: `
+			kind: tool
+			name: example_tool
+			type: bigtable-list-schemas
+			source: my-bt-instance
+			description: some description
+			`,
+			want: server.ToolConfigs{
+				"example_tool": bigtablelistschemas.Config{
+					ConfigBase: tools.ConfigBase{
+						Name:         "example_tool",
+						Description:  "some description",
+						AuthRequired: []string{},
+					},
+					Type:   "bigtable-list-schemas",
+					Source: "my-bt-instance",
+				},
+			},
+		},
+		{
+			desc: "with auth required",
+			in: `
+			kind: tool
+			name: example_tool
+			type: bigtable-list-schemas
+			source: my-bt-instance
+			description: some description
+			authRequired: 
+			- my-google-auth-service
+			- other-auth-service
+			`,
+			want: server.ToolConfigs{
+				"example_tool": bigtablelistschemas.Config{
+					ConfigBase: tools.ConfigBase{
+						Name:         "example_tool",
+						Description:  "some description",
+						AuthRequired: []string{"my-google-auth-service", "other-auth-service"},
+					},
+					Type:   "bigtable-list-schemas",
+					Source: "my-bt-instance",
+				},
+			},
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			if err != nil {
+				t.Fatalf("unable to unmarshal: %s", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Fatalf("incorrect parse: diff %v", diff)
+			}
+		})
+	}
+}
+
+type mockSource struct {
+	sources.Source
+	err error
+}
+
+func (m *mockSource) InstanceID() string {
+	return "test-instance"
+}
+
+func (m *mockSource) ListTables(ctx context.Context) (any, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return []string{"t1", "t2"}, nil
+}
+
+func (m *mockSource) GetTable(ctx context.Context, tableId string) (any, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &bigtable.TableInfo{
+		FamilyInfos: []bigtable.FamilyInfo{
+			{Name: "cf1"},
+		},
+	}, nil
+}
+
+func (m *mockSource) ListLogicalViews(ctx context.Context, instanceId string) (any, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return []bigtable.LogicalViewInfo{
+		{
+			LogicalViewID: "view1",
+			Query:         "SELECT _key, CAST(cf1['name'] AS STRING) AS name FROM t1",
+		},
+	}, nil
+}
+
+func (m *mockSource) ListMaterializedViews(ctx context.Context, instanceId string) (any, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return []bigtable.MaterializedViewInfo{
+		{
+			MaterializedViewID: "mview1",
+			Query:              "SELECT _key FROM t1",
+		},
+	}, nil
+}
+
+func TestInvoke(t *testing.T) {
+	cfg := bigtablelistschemas.Config{
+		ConfigBase: tools.ConfigBase{Name: "test_tool"},
+		Type:       "bigtable-list-schemas",
+		Source:     "test-source",
+	}
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	t.Run("success", func(t *testing.T) {
+		src := &mockSource{}
+		params := parameters.ParamValues{}
+		got, err := tool.Invoke(context.Background(), src, params, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		want := bigtablelistschemas.SchemaList{
+			Tables: []bigtablelistschemas.TableSchema{
+				{
+					TableName: "t1",
+					Info: &bigtable.TableInfo{
+						FamilyInfos: []bigtable.FamilyInfo{
+							{Name: "cf1"},
+						},
+					},
+				},
+				{
+					TableName: "t2",
+					Info: &bigtable.TableInfo{
+						FamilyInfos: []bigtable.FamilyInfo{
+							{Name: "cf1"},
+						},
+					},
+				},
+			},
+			LogicalViews: []bigtablelistschemas.LogicalViewSchema{
+				{
+					LogicalViewInfo: bigtable.LogicalViewInfo{
+						LogicalViewID: "view1",
+						Query:         "SELECT _key, CAST(cf1['name'] AS STRING) AS name FROM t1",
+					},
+					Columns: []bigtablelistschemas.Column{
+						{Name: "_key", Type: "BYTES"},
+						{Name: "name", Type: "STRING"},
+					},
+				},
+			},
+			MaterializedViews: []bigtablelistschemas.MaterializedViewSchema{
+				{
+					MaterializedViewInfo: bigtable.MaterializedViewInfo{
+						MaterializedViewID: "mview1",
+						Query:              "SELECT _key FROM t1",
+					},
+					Columns: []bigtablelistschemas.Column{
+						{Name: "_key", Type: "BYTES"},
+					},
+				},
+			},
+		}
+
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("unexpected output (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("success_with_limit", func(t *testing.T) {
+		src := &mockSource{}
+		params := parameters.ParamValues{
+			{Name: "limit", Value: 1},
+		}
+		got, err := tool.Invoke(context.Background(), src, params, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		want := bigtablelistschemas.SchemaList{
+			Tables: []bigtablelistschemas.TableSchema{
+				{
+					TableName: "t1",
+					Info: &bigtable.TableInfo{
+						FamilyInfos: []bigtable.FamilyInfo{
+							{Name: "cf1"},
+						},
+					},
+				},
+			},
+			LogicalViews: []bigtablelistschemas.LogicalViewSchema{
+				{
+					LogicalViewInfo: bigtable.LogicalViewInfo{
+						LogicalViewID: "view1",
+						Query:         "SELECT _key, CAST(cf1['name'] AS STRING) AS name FROM t1",
+					},
+					Columns: []bigtablelistschemas.Column{
+						{Name: "_key", Type: "BYTES"},
+						{Name: "name", Type: "STRING"},
+					},
+				},
+			},
+			MaterializedViews: []bigtablelistschemas.MaterializedViewSchema{
+				{
+					MaterializedViewInfo: bigtable.MaterializedViewInfo{
+						MaterializedViewID: "mview1",
+						Query:              "SELECT _key FROM t1",
+					},
+					Columns: []bigtablelistschemas.Column{
+						{Name: "_key", Type: "BYTES"},
+					},
+				},
+			},
+		}
+
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("unexpected output (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		src := &mockSource{err: errors.New("gcp error")}
+		params := parameters.ParamValues{}
+		_, err := tool.Invoke(context.Background(), src, params, "")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+
+	t.Run("incompatible_source", func(t *testing.T) {
+		src := &incompatibleMockSource{}
+		params := parameters.ParamValues{}
+		_, err := tool.Invoke(context.Background(), src, params, "")
+		if err == nil {
+			t.Fatalf("expected error for incompatible source, got nil")
+		}
+	})
+}
+
+type incompatibleMockSource struct {
+	sources.Source
+}

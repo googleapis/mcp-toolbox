@@ -94,6 +94,7 @@ export CLOUD_SQL_POSTGRES_DATABASE="<your-database-name>"
 export CLOUD_SQL_POSTGRES_USER="<your-database-user>"  # Optional
 export CLOUD_SQL_POSTGRES_PASSWORD="<your-database-password>"  # Optional
 export CLOUD_SQL_POSTGRES_IP_TYPE="PUBLIC"  # Optional: `PUBLIC`, `PRIVATE`, `PSC`. Defaults to `PUBLIC`.
+export CLOUD_SQL_POSTGRES_READONLY="true"  # Optional: Restricts tools and enforces read-only session locking on the database connection. Defaults to `false`.
 ```
 
 Add the following configuration to your MCP client (e.g., `settings.json` for Gemini CLI, `mcp_config.json` for Antigravity):

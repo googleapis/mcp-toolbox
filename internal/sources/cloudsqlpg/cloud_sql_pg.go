@@ -58,6 +58,7 @@ type Config struct {
 	Database     string         `yaml:"database" validate:"required"`
 	User         string         `yaml:"user"`
 	Password     string         `yaml:"password"`
+	ReadOnly     bool           `yaml:"readOnly"`
 	SQLCommenter *bool          `yaml:"sqlCommenter"`
 }
 
@@ -66,7 +67,7 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initCloudSQLPgConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database)
+	pool, err := initCloudSQLPgConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
@@ -98,6 +99,10 @@ type Source struct {
 	Pool *pgxpool.Pool
 }
 
+func (s *Source) IsReadOnly() bool {
+	return s.ReadOnly
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }
@@ -127,7 +132,8 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 		}
 		row := orderedmap.Row{}
 		for i, f := range fields {
-			row.Add(f.Name, values[i])
+			val := sources.NormalizeValue(values[i], f.DataTypeOID)
+			row.Add(f.Name, val)
 		}
 		out = append(out, row)
 	}
@@ -138,23 +144,21 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
-func getConnectionConfig(ctx context.Context, user, pass, dbname string) (string, bool, error) {
+func getConnectionConfig(ctx context.Context, user, pass, dbname string, readOnly bool) (string, bool, error) {
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		userAgent = "genai-toolbox"
 	}
 	useIAM := true
 
+	var dsn string
 	// If username and password both provided, use password authentication
 	if user != "" && pass != "" {
-		dsn := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=disable application_name=%s", user, pass, dbname, userAgent)
+		dsn = fmt.Sprintf("user=%s password=%s dbname=%s sslmode=disable application_name=%s", user, pass, dbname, userAgent)
 		useIAM = false
-		return dsn, useIAM, nil
-	}
-
-	// If username is empty, fetch email from ADC
-	// otherwise, use username as IAM email
-	if user == "" {
+	} else if user == "" {
+		// If username is empty, fetch email from ADC
+		// otherwise, use username as IAM email
 		if pass != "" {
 			// If password is provided without an username, raise an error
 			return "", useIAM, fmt.Errorf("password is provided without a username. Please provide both a username and password, or leave both fields empty")
@@ -164,20 +168,29 @@ func getConnectionConfig(ctx context.Context, user, pass, dbname string) (string
 			return "", useIAM, fmt.Errorf("error getting email from ADC: %v", err)
 		}
 		user = email
+		dsn = fmt.Sprintf("user=%s dbname=%s sslmode=disable application_name=%s", user, dbname, userAgent)
+	} else {
+		// Construct IAM connection string with username
+		dsn = fmt.Sprintf("user=%s dbname=%s sslmode=disable application_name=%s", user, dbname, userAgent)
 	}
 
-	// Construct IAM connection string with username
-	dsn := fmt.Sprintf("user=%s dbname=%s sslmode=disable application_name=%s", user, dbname, userAgent)
+	if readOnly {
+		// IMPORTANT: Must use underscore ('cloudsql_session_read_only'), NOT a dot.
+		// PostgreSQL treats dotted GUCs (e.g. 'cloudsql.session_read_only') as custom placeholders
+		// and silently ignores them at connection time, leaving the session in read-write mode.
+		dsn += " options='-c cloudsql_session_read_only=locked'"
+	}
+
 	return dsn, useIAM, nil
 }
 
-func initCloudSQLPgConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, instance, ipType, user, pass, dbname string) (*pgxpool.Pool, error) {
+func initCloudSQLPgConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, error) {
 	//nolint:all // Reassigned ctx
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
 	defer span.End()
 
 	// Configure the driver to connect to the database
-	dsn, useIAM, err := getConnectionConfig(ctx, user, pass, dbname)
+	dsn, useIAM, err := getConnectionConfig(ctx, user, pass, dbname, readOnly)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get Cloud SQL connection config: %w", err)
 	}

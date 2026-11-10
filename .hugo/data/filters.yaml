@@ -15,6 +15,7 @@
 data_sources:
   - AlloyDB
   - BigQuery
+  - FalkorDB
   - Looker
   - Neo4j
   - Snowflake

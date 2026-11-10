@@ -20,7 +20,6 @@ import (
 	"net/http"
 
 	dataprocpb "cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
-	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -112,8 +111,8 @@ func (t *Tool) ToConfig() tools.ToolConfig {
 	return t.originalConfig
 }
 
-func (t Tool) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, embeddingModelsMap map[string]embeddingmodels.EmbeddingModel) (parameters.ParamValues, error) {
-	newParamValues, err := parameters.EmbedParams(ctx, t.StaticParameters, paramValues, embeddingModelsMap, nil)
+func (t Tool) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, pMgr tools.PrimitiveManagerI) (parameters.ParamValues, error) {
+	newParamValues, err := parameters.EmbedParams(ctx, t.StaticParameters, paramValues, pMgr, nil)
 	if err != nil {
 		return nil, util.NewClientServerError(fmt.Sprintf("error embedding parameters: %v", err), http.StatusInternalServerError, err)
 	}

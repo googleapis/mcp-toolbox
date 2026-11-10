@@ -85,9 +85,13 @@ during initialization (e.g., `tbadk.NewToolboxClient(URL, core.WithHTTPClient(my
 `ToolboxClient` *will not* close it.
 {{< /notice >}}
 
+{{< notice note >}}
+If your connection URL contains query parameters (e.g., `http://localhost:5000?foo=bar`), the client automatically preserves them across API requests for parameter binding.
+{{< /notice >}}
+
 ## Transport Protocols
 
-The SDK supports multiple transport protocols for communicating with the Toolbox server. By default, the client uses the `v2025-06-18` version of the **Model Context Protocol (MCP)**.
+The SDK supports multiple transport protocols for communicating with the Toolbox server. By default, the client uses the `2026-07-28` version of the **Model Context Protocol (MCP)**.
 
 You can explicitly select a protocol using the `core.WithProtocol` option during client initialization. This is useful if you need to pin the client to a specific legacy version of MCP.
 
@@ -101,9 +105,10 @@ We currently support different versions of the MCP protocol.
 
 | Constant | Description |
 | :--- | :--- |
-| `core.MCP` | **(Default)** Alias for the default MCP version (currently `v2025-11-25`). |
-| `core.MCPLatest` | Alias for the latest stable MCP version (currently `v2025-11-25`). |
-| `core.MCPDraft` | Alias for the upcoming draft MCP version (currently `v2026-draft`). |
+| `core.MCP` | **(Default)** Alias for the default MCP version (currently `2026-07-28`). |
+| `core.MCPLatest` | Alias for the latest stable MCP version (currently `2026-07-28`). |
+| `core.MCPDraft` | Alias for the upcoming draft MCP version (currently `2026-07-28`). |
+| `core.MCPv20260728` | MCP Protocol version 2026-07-28. |
 | `core.MCPv20251125` | MCP Protocol version 2025-11-25. |
 | `core.MCPv20250618` | MCP Protocol version 2025-06-18. |
 | `core.MCPv20250326` | MCP Protocol version 2025-03-26. |
@@ -117,7 +122,7 @@ import (
     "github.com/googleapis/mcp-toolbox-sdk-go/tbadk"
 )
 
-// Initialize with the default MCP protocol (2025-06-18)
+// Initialize with the default MCP protocol (2026-07-28)
 client, err := tbadk.NewToolboxClient(
     "http://localhost:5000",
 )
@@ -520,6 +525,65 @@ dynamicBoundTool, err := tool.ToolFrom(core.WithBindParamStringFunc("param", get
 {{< notice info >}} 
 You don't need to modify tool configurations to bind parameter values.
 {{< /notice >}}
+
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in [`github.com/googleapis/mcp-toolbox-sdk-go/tbadk`](https://github.com/googleapis/mcp-toolbox-sdk-go/tree/main/tbadk) version `v1.2.0` (with `core` >= `v1.2.0`) and require MCP [protocol version `2026-07-28`](#supported-protocols) or newer with the [`com.google.cloud/toolbox.v1` extension](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md). For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime values (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see, control, or hallucinate.
+
+* **Schema Isolation:** When `ToolboxTool` is converted to an ADK tool or registered with an ADK agent, secure parameters are completely stripped from `tool.Declaration()`. The model never sees them, preventing credential exposure and prompt leakage.
+* **Prompt Injection Defense:** If a model attempts to supply arguments containing a secure parameter name, execution fails immediately.
+* **Fast-Fail Validation:** Missing required secure parameters are validated locally before invocation, preventing unwanted network calls.
+* **Binding Methods:** Secure parameters can be set as client defaults, bound when loading tools, or bound on existing tool instances using `core.WithBindSecureParam*` options:
+
+```go
+import (
+    "context"
+    "github.com/googleapis/mcp-toolbox-sdk-go/core"
+    "github.com/googleapis/mcp-toolbox-sdk-go/tbadk"
+)
+
+ctx := context.Background()
+
+// Option A: Set default secure parameters across all tools loaded by the client
+client, err := tbadk.NewToolboxClient("http://127.0.0.1:5000",
+    core.WithDefaultToolOptions(
+        core.WithBindSecureParamString("customer_id", "cust_12345"),
+    ),
+)
+
+// Option B: Bind secure parameters when loading a tool or toolset
+boundTool, err := client.LoadTool("search_secure_data", ctx,
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+)
+tools, err := client.LoadToolset("my-toolset", ctx,
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+)
+
+// Option C: Bind to an un-bound loaded tool (returns a new immutable tool)
+rawTool, err := client.LoadTool("search_secure_data", ctx)
+postBoundTool, err := rawTool.ToolFrom(
+    core.WithBindSecureParamString("customer_id", "cust_12345"),
+)
+
+// Option D: Dynamic runtime resolution
+dynamicTool, err := rawTool.ToolFrom(
+    core.WithBindSecureParamStringFunc("auth_token", func() (string, error) {
+        return fetchSessionToken(), nil
+    }),
+)
+```
+
+### Cross-Binding Guidance & Mutual Exclusivity
+
+* Passing `core.WithBindParam*` for a parameter configured with `secure: true` returns:  
+  `parameter "<name>" is a secure parameter; use WithBindSecureParam* instead`
+* Passing `core.WithBindSecureParam*` for a regular parameter returns:  
+  `parameter "<name>" is a regular parameter; use WithBindParam* instead`
+
 
 ## Default Parameters
 

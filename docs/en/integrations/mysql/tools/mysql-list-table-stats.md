@@ -39,7 +39,7 @@ This tool takes 4 optional input parameters:
 ## Example
 
 ```yaml
-kind: tools
+kind: tool
 name: list_table_stats
 type: mysql-list-table-stats
 source: my-mysql-instance

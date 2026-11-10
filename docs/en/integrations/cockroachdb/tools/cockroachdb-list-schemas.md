@@ -34,22 +34,22 @@ To query objects within schemas, the user needs:
 ## Example
 
 ```yaml
-sources:
-  my_cockroachdb:
-    type: cockroachdb
-    host: your-cluster.cockroachlabs.cloud
-    port: "26257"
-    user: myuser
-    password: mypassword
-    database: defaultdb
-    queryParams:
-      sslmode: require
-
-tools:
-  list_schemas:
-    type: cockroachdb-list-schemas
-    source: my_cockroachdb
-    description: List all schemas in the database
+kind: source
+name: my_cockroachdb
+type: cockroachdb
+host: your-cluster.cockroachlabs.cloud
+port: "26257"
+user: myuser
+password: mypassword
+database: defaultdb
+queryParams:
+  sslmode: require
+---
+kind: tool
+name: list_schemas
+type: cockroachdb-list-schemas
+source: my_cockroachdb
+description: List all schemas in the database
 ```
 ### Usage Example
 
@@ -169,13 +169,13 @@ CREATE TABLE tenant_globex.orders (...);
 The `cockroachdb-list-schemas` tool helps discover all tenant schemas:
 
 ```yaml
-tools:
-  list_tenants:
-    type: cockroachdb-list-schemas
-    source: my_cockroachdb
-    description: |
-      List all tenant schemas in the database.
-      Each schema represents a separate tenant's data namespace.
+kind: tool
+name: list_tenants
+type: cockroachdb-list-schemas
+source: my_cockroachdb
+description: |
+  List all tenant schemas in the database.
+  Each schema represents a separate tenant's data namespace.
 ```
 
 ### Best Practices
@@ -220,18 +220,19 @@ REVOKE ALL ON SCHEMA hr FROM public;
 #### Combined with List Tables
 
 ```yaml
-tools:
-  list_schemas:
-    type: cockroachdb-list-schemas
-    source: my_cockroachdb
-    description: List all schemas first
-    
-  list_tables:
-    type: cockroachdb-list-tables
-    source: my_cockroachdb
-    description: |
-      List tables in the database.
-      Use list_schemas first to understand schema organization.
+kind: tool
+name: list_schemas
+type: cockroachdb-list-schemas
+source: my_cockroachdb
+description: List all schemas first
+---
+kind: tool
+name: list_tables
+type: cockroachdb-list-tables
+source: my_cockroachdb
+description: |
+  List tables in the database.
+  Use list_schemas first to understand schema organization.
 ```
 
 #### Schema Discovery Workflow
@@ -245,37 +246,37 @@ tools:
 #### Discover Database Structure
 
 ```yaml
-tools:
-  discover_schemas:
-    type: cockroachdb-list-schemas
-    source: my_cockroachdb
-    description: |
-      Discover how the database is organized into schemas.
-      Use this to understand the logical grouping of tables.
+kind: tool
+name: discover_schemas
+type: cockroachdb-list-schemas
+source: my_cockroachdb
+description: |
+  Discover how the database is organized into schemas.
+  Use this to understand the logical grouping of tables.
 ```
 
 #### Multi-Tenant Analysis
 
 ```yaml
-tools:
-  list_tenant_schemas:
-    type: cockroachdb-list-schemas
-    source: my_cockroachdb
-    description: |
-      List all tenant schemas (each tenant has their own schema).
-      Schema names follow the pattern: tenant_<company_name>
+kind: tool
+name: list_tenant_schemas
+type: cockroachdb-list-schemas
+source: my_cockroachdb
+description: |
+  List all tenant schemas (each tenant has their own schema).
+  Schema names follow the pattern: tenant_<company_name>
 ```
 
 #### Schema Migration Planning
 
 ```yaml
-tools:
-  audit_schemas:
-    type: cockroachdb-list-schemas
-    source: my_cockroachdb
-    description: |
-      Audit existing schemas before migration.
-      Identifies all schemas that need to be migrated.
+kind: tool
+name: audit_schemas
+type: cockroachdb-list-schemas
+source: my_cockroachdb
+description: |
+  Audit existing schemas before migration.
+  Identifies all schemas that need to be migrated.
 ```
 
 ### CockroachDB-Specific Features

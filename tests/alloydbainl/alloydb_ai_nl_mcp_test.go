@@ -132,15 +132,17 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 		args           map[string]any
 		requestHeader  map[string]string
 		want           string
+		wantRe         string
 		isErr          bool
 		wantStatusCode int
 	}{
 		{
 			name:     "invoke my-simple-tool",
 			toolName: "my-simple-tool",
-			args:     map[string]any{"question": "return the number 1"},
-			want:     "{\"execute_nl_query\":{\"number_one\":1}}",
-			isErr:    false,
+			args:     map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
+			// The model picks the column alias, so match any single column set to 1.
+			wantRe: `^\{"execute_nl_query":\{"[^"]+":1\}\}$`,
+			isErr:  false,
 		},
 		{
 			name:          "Invoke my-auth-tool with auth token",
@@ -153,28 +155,28 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 		{
 			name:          "Invoke my-auth-tool with invalid auth token",
 			toolName:      "my-auth-tool",
-			args:          map[string]any{"question": "return the number 1"},
+			args:          map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
 			isErr:         true,
 		},
 		{
 			name:     "Invoke my-auth-tool without auth token",
 			toolName: "my-auth-tool",
-			args:     map[string]any{"question": "return the number 1"},
+			args:     map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			isErr:    true,
 		},
 		{
 			name:          "Invoke my-auth-required-tool with auth token",
 			toolName:      "my-auth-required-tool",
-			args:          map[string]any{"question": "return the number 1"},
+			args:          map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
 			isErr:         false,
-			want:          "{\"execute_nl_query\":{\"number_one\":1}}",
+			wantRe:        `^\{"execute_nl_query":\{"[^"]+":1\}\}$`,
 		},
 		{
 			name:           "Invoke my-auth-required-tool with invalid auth token",
 			toolName:       "my-auth-required-tool",
-			args:           map[string]any{"question": "return the number 1"},
+			args:           map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			requestHeader:  map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
 			isErr:          true,
 			wantStatusCode: 401,
@@ -182,7 +184,7 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 		{
 			name:           "Invoke my-auth-required-tool without auth token",
 			toolName:       "my-auth-required-tool",
-			args:           map[string]any{"question": "return the number 1"},
+			args:           map[string]any{"question": "SELECT the integer 1 and explicitly alias the output column as 'number_one'"},
 			isErr:          true,
 			wantStatusCode: 401,
 		},
@@ -230,7 +232,11 @@ func TestAlloyDBAINLCallTool(t *testing.T) {
 					t.Fatalf("expected at least one content item, got none")
 				}
 				got := mcpResp.Result.Content[0].Text
-				if got != tc.want {
+				if tc.wantRe != "" {
+					if !regexp.MustCompile(tc.wantRe).MatchString(got) {
+						t.Fatalf("unexpected value: got %q, want match for %q", got, tc.wantRe)
+					}
+				} else if got != tc.want {
 					t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
 				}
 			}

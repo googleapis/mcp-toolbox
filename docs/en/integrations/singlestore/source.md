@@ -58,7 +58,7 @@ queryTimeout: 30s # Optional: query timeout duration
 ### With SSL required
 
 ```yaml
-kind: sources
+kind: source
 name: my-singlestore-source
 type: singlestore
 host: svc-abc123.svc.singlestore.com
@@ -73,7 +73,7 @@ connectionParams:
 ### With SSL verification disabled
 
 ```yaml
-kind: sources
+kind: source
 name: my-singlestore-source
 type: singlestore
 host: svc-abc123.svc.singlestore.com
@@ -88,7 +88,7 @@ connectionParams:
 ### Without SSL
 
 ```yaml
-kind: sources
+kind: source
 name: my-singlestore-source
 type: singlestore
 host: 127.0.0.1

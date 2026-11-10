@@ -122,6 +122,10 @@ type Source struct {
 	Pool *pgxpool.Pool
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }
@@ -501,6 +505,10 @@ func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tr
 
 		if err == nil {
 			return pool, nil
+		}
+
+		if pool != nil {
+			pool.Close()
 		}
 
 		if attempt < maxRetries {

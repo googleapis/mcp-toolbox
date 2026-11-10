@@ -16,6 +16,7 @@ kind: source
 name: cloud-sql-admin-source
 type: cloud-sql-admin
 defaultProject: ${CLOUD_SQL_POSTGRES_PROJECT:}
+readOnly: ${CLOUD_SQL_POSTGRES_READONLY:false}
 ---
 kind: tool
 name: create_instance

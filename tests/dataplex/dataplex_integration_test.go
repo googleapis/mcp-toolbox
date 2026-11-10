@@ -281,6 +281,56 @@ func cleanupOldDataProducts(t *testing.T, ctx context.Context, client *dataplex.
 	}
 }
 
+// cleanupOldDataScans Deletes DataScans older than the specified duration.
+func cleanupOldDataScans(t *testing.T, ctx context.Context, client *dataplex.DataScanClient, oldThreshold time.Duration) {
+	parent := fmt.Sprintf("projects/%s/locations/us-central1", DataplexProject)
+	olderThanTime := time.Now().Add(-oldThreshold)
+
+	listReq := &dataplexpb.ListDataScansRequest{
+		Parent: parent,
+	}
+
+	const maxDeletes = 50
+	it := client.ListDataScans(ctx, listReq)
+	var dataScansToDelete []string
+	for len(dataScansToDelete) < maxDeletes {
+		scan, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			t.Logf("Warning: Failed to list data scans during cleanup: %v", err)
+			return
+		}
+		if scan.CreateTime != nil && strings.HasPrefix(path.Base(scan.GetName()), "param-data-scan-") {
+			createTime := scan.CreateTime.AsTime()
+			if createTime.Before(olderThanTime) {
+				dataScansToDelete = append(dataScansToDelete, scan.GetName())
+			}
+		}
+	}
+	if len(dataScansToDelete) == 0 {
+		t.Logf("cleanupOldDataScans: No data scans found older than %s to delete.", oldThreshold.String())
+		return
+	}
+
+	for _, scanName := range dataScansToDelete {
+		deleteReq := &dataplexpb.DeleteDataScanRequest{Name: scanName}
+		op, err := client.DeleteDataScan(ctx, deleteReq)
+		if err != nil {
+			t.Logf("Warning: Failed to delete data scan %s: %v", scanName, err)
+			continue
+		}
+
+		err = op.Wait(ctx)
+		if err != nil {
+			t.Logf("Warning: Failed to wait for DeleteDataScan %s: %v", scanName, err)
+		} else {
+			t.Logf("cleanupOldDataScans: Successfully deleted data scan %s", scanName)
+		}
+	}
+}
+
 func setupDataplexSearchDataQualityScan(t *testing.T, ctx context.Context, client *dataplex.DataScanClient, dataScanId string, datasetName string, tableName string) func(*testing.T) {
 	parent := fmt.Sprintf("projects/%s/locations/us-central1", DataplexProject)
 	tableResource := fmt.Sprintf("//bigquery.googleapis.com/projects/%s/datasets/%s/tables/%s", DataplexProject, datasetName, tableName)
@@ -390,8 +440,10 @@ func TestDataplexToolEndpoints(t *testing.T) {
 	}
 
 	// Cleanup older aspect types and data products that may have leaked due to aborted tests
-	cleanupOldAspectTypes(t, ctx, dataplexClient, 1*time.Hour)
-	cleanupOldDataProducts(t, ctx, dataplexDataProductClient, 1*time.Hour)
+	const cleanupThresholdTime = 30 * time.Minute
+	cleanupOldAspectTypes(t, ctx, dataplexClient, cleanupThresholdTime)
+	cleanupOldDataProducts(t, ctx, dataplexDataProductClient, cleanupThresholdTime)
+	cleanupOldDataScans(t, ctx, dataplexDataScanClient, cleanupThresholdTime)
 
 	datasetName1 := fmt.Sprintf("temp_toolbox_test_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	datasetName2 := fmt.Sprintf("temp_toolbox_test_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
@@ -693,7 +745,7 @@ func setupGcsBucket(t *testing.T, ctx context.Context, project string, bucketNam
 	}
 
 	return func(t *testing.T) {
-		if err := bucket.Delete(ctx); err != nil {
+		if err := bucket.Delete(context.WithoutCancel(ctx)); err != nil {
 			t.Logf("cleanup: failed to delete bucket %s: %v", bucketName, err)
 		}
 	}
@@ -1443,7 +1495,7 @@ func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId strin
 			name:           "Success - Aspect Type Found",
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-search-aspect-types-tool/invoke",
 			requestHeader:  map[string]string{},
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s_aspectType\"}", aspectTypeId))),
+			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s\"}", aspectTypeId))),
 			wantStatusCode: 200,
 			expectResult:   true,
 			wantContentKey: "metadata_template",
@@ -1452,7 +1504,7 @@ func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId strin
 			name:           "Success - Aspect Type Found with Authorization",
 			api:            "http://127.0.0.1:5000/api/tool/my-auth-dataplex-search-aspect-types-tool/invoke",
 			requestHeader:  map[string]string{"my-google-auth_token": idToken},
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s_aspectType\"}", aspectTypeId))),
+			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s\"}", aspectTypeId))),
 			wantStatusCode: 200,
 			expectResult:   true,
 			wantContentKey: "metadata_template",
@@ -1461,15 +1513,15 @@ func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId strin
 			name:           "Failure - Aspect Type Not Found",
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-search-aspect-types-tool/invoke",
 			requestHeader:  map[string]string{},
-			requestBody:    bytes.NewBuffer([]byte(`"{\"query\":\"name:_aspectType\"}"`)),
-			wantStatusCode: 400,
+			requestBody:    bytes.NewBuffer([]byte(`{"query":"name:non-existent-aspect-type"}`)),
+			wantStatusCode: 200,
 			expectResult:   false,
 		},
 		{
 			name:           "Failure - Invalid Authorization Token",
 			api:            "http://127.0.0.1:5000/api/tool/my-auth-dataplex-search-aspect-types-tool/invoke",
 			requestHeader:  map[string]string{"my-google-auth_token": "invalid_token"},
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s_aspectType\"}", aspectTypeId))),
+			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s\"}", aspectTypeId))),
 			wantStatusCode: 401,
 			expectResult:   false,
 		},
@@ -1477,7 +1529,7 @@ func runDataplexSearchAspectTypesToolInvokeTest(t *testing.T, aspectTypeId strin
 			name:           "Failure - No Authorization Token",
 			api:            "http://127.0.0.1:5000/api/tool/my-auth-dataplex-search-aspect-types-tool/invoke",
 			requestHeader:  map[string]string{},
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s_aspectType\"}", aspectTypeId))),
+			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"query\":\"name:%s\"}", aspectTypeId))),
 			wantStatusCode: 401,
 			expectResult:   false,
 		},

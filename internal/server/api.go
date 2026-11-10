@@ -205,7 +205,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	// Tool authentication
 	// claimsFromAuth maps the name of the authservice to the claims retrieved from it.
 	claimsFromAuth := make(map[string]map[string]any)
-	for _, aS := range s.PrimitiveMgr.GetAuthServiceMap() {
+	for _, aS := range s.PrimitiveMgr.AuthServices() {
 		var claims map[string]any
 		var err error
 
@@ -236,7 +236,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if any of the specified auth services is verified
-	isAuthorized := tool.Authorized(verifiedAuthServices)
+	isAuthorized := tools.IsAuthorized(tool.GetAuthRequired(), verifiedAuthServices)
 	if !isAuthorized {
 		err = fmt.Errorf("tool invocation not authorized. Please make sure you specify correct auth headers")
 		s.logger.DebugContext(ctx, err.Error())
@@ -299,7 +299,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.DebugContext(ctx, fmt.Sprintf("invocation params: %s", params))
 
-	params, err = tool.EmbedParams(ctx, params, s.PrimitiveMgr.GetEmbeddingModelMap())
+	params, err = tool.EmbedParams(ctx, params, s.PrimitiveMgr)
 	if err != nil {
 		err = fmt.Errorf("error embedding parameters: %w", err)
 		s.logger.DebugContext(ctx, err.Error())
@@ -354,6 +354,14 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 			s.logger.ErrorContext(ctx, fmt.Sprintf("Tool invocation unknown error: %v", err))
 			_ = render.Render(w, r, newErrResponse(err, http.StatusInternalServerError))
 			return
+		}
+	}
+
+	if structuredRes, ok := res.(tools.StructuredToolResult); ok {
+		if structuredRes.StructuredContent != nil {
+			res = structuredRes.StructuredContent
+		} else {
+			res = structuredRes.Content
 		}
 	}
 

@@ -22,6 +22,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mongodb/mongodbcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -49,19 +50,19 @@ type compatibleSource interface {
 }
 
 type Config struct {
-	tools.ConfigBase `yaml:",inline"`
-	Type             string                `yaml:"type" validate:"required"`
-	Source           string                `yaml:"source" validate:"required"`
-	Database         string                `yaml:"database" validate:"required"`
-	Collection       string                `yaml:"collection" validate:"required"`
-	FilterPayload    string                `yaml:"filterPayload" validate:"required"`
-	FilterParams     parameters.Parameters `yaml:"filterParams"`
-	UpdatePayload    string                `yaml:"updatePayload" validate:"required"`
-	UpdateParams     parameters.Parameters `yaml:"updateParams" validate:"required"`
+	tools.ConfigBase        `yaml:",inline"`
+	Type                    string                `yaml:"type" validate:"required"`
+	Source                  string                `yaml:"source" validate:"required"`
+	Database                string                `yaml:"database" validate:"required"`
+	Collection              string                `yaml:"collection"`
+	CollectionAllowedValues []string              `yaml:"collectionAllowedValues"`
+	FilterPayload           string                `yaml:"filterPayload" validate:"required"`
+	FilterParams            parameters.Parameters `yaml:"filterParams"`
+	UpdatePayload           string                `yaml:"updatePayload" validate:"required"`
+	UpdateParams            parameters.Parameters `yaml:"updateParams" validate:"required"`
 
-	Canonical   bool                   `yaml:"canonical"`
-	Upsert      bool                   `yaml:"upsert"`
-	Annotations *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Canonical bool `yaml:"canonical"`
+	Upsert    bool `yaml:"upsert"`
 }
 
 // validate interface
@@ -77,6 +78,11 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	}
 
 	allParameters := slices.Concat(cfg.FilterParams, cfg.UpdateParams)
+
+	if err := mongodbcommon.ValidateCollectionConfig(cfg.Collection, cfg.CollectionAllowedValues); err != nil {
+		return nil, err
+	}
+	allParameters = mongodbcommon.WithRuntimeCollectionParam(cfg.Collection, cfg.CollectionAllowedValues, allParameters)
 
 	if err := parameters.CheckDuplicateParameters(allParameters); err != nil {
 		return nil, err
@@ -126,6 +132,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
 	}
 	paramsMap := params.AsMap()
+
+	collection, tbErr := mongodbcommon.ResolveCollection(t.Cfg.Collection, paramsMap)
+	if tbErr != nil {
+		return nil, tbErr
+	}
+
 	filterString, err := parameters.PopulateTemplateWithJSON("MongoDBUpdateOneFilter", t.Cfg.FilterPayload, paramsMap)
 	if err != nil {
 		return nil, util.NewAgentError("error populating filter", err)
@@ -134,7 +146,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewAgentError("unable to get update", err)
 	}
-	resp, err := source.UpdateOne(ctx, filterString, t.Cfg.Canonical, updateString, t.Cfg.Database, t.Cfg.Collection, t.Cfg.Upsert)
+	resp, err := source.UpdateOne(ctx, filterString, t.Cfg.Canonical, updateString, t.Cfg.Database, collection, t.Cfg.Upsert)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}

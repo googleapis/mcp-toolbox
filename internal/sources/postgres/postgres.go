@@ -79,6 +79,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 
 	err = pool.Ping(ctx)
 	if err != nil {
+		pool.Close()
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -94,6 +95,10 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	Pool *pgxpool.Pool
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {
@@ -125,7 +130,8 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 		}
 		row := orderedmap.Row{}
 		for i, f := range fields {
-			row.Add(f.Name, values[i])
+			val := sources.NormalizeValue(values[i], f.DataTypeOID)
+			row.Add(f.Name, val)
 		}
 		out = append(out, row)
 	}

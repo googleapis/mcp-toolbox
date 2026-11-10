@@ -31,22 +31,22 @@ The tool accepts a single runtime parameter:
 ## Example
 
 ```yaml
-sources:
-  my_cockroachdb:
-    type: cockroachdb
-    host: your-cluster.cockroachlabs.cloud
-    port: "26257"
-    user: myuser
-    password: mypassword
-    database: defaultdb
-    queryParams:
-      sslmode: require
-
-tools:
-  execute_sql:
-    type: cockroachdb-execute-sql
-    source: my_cockroachdb
-    description: Execute any SQL statement against the CockroachDB database
+kind: source
+name: my_cockroachdb
+type: cockroachdb
+host: your-cluster.cockroachlabs.cloud
+port: "26257"
+user: myuser
+password: mypassword
+database: defaultdb
+queryParams:
+  sslmode: require
+---
+kind: tool
+name: execute_sql
+type: cockroachdb-execute-sql
+source: my_cockroachdb
+description: Execute any SQL statement against the CockroachDB database
 ```
 
 ### Usage Examples
@@ -205,13 +205,13 @@ Never expose this tool directly to end users without proper authorization contro
 Configure the `authRequired` field to restrict access:
 
 ```yaml
-tools:
-  execute_sql:
-    type: cockroachdb-execute-sql
-    source: my_cockroachdb
-    description: Execute SQL statements
-    authRequired:
-      - my-auth-service
+kind: tool
+name: execute_sql
+type: cockroachdb-execute-sql
+source: my_cockroachdb
+description: Execute SQL statements
+authRequired:
+  - my-auth-service
 ```
 
 #### Read-Only Users

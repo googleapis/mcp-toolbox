@@ -32,8 +32,8 @@ draft comment when one adds value.
 
 **Read source-of-truth live, not from memory** (labels/routing drift):
 - `gh label list --repo googleapis/mcp-toolbox --limit 200`: the only valid label names. Never propose one not listed.
-- `.github/blunderbuss.yml`: which `product:` labels route to which team.
-- `.github/ISSUE_TEMPLATE/bug_report.yml`: required bug fields (for the completeness check).
+- [`.github/blunderbuss.yml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/blunderbuss.yml): which `product:` labels route to which team.
+- [`.github/ISSUE_TEMPLATE/bug_report.yml`](https://github.com/googleapis/mcp-toolbox/blob/main/.github/ISSUE_TEMPLATE/bug_report.yml): required bug fields (for the completeness check).
 - [references/maintainer-playbook.md](references/maintainer-playbook.md): the **authoritative**
   taxonomy, priority/status definitions, SLO targets, and comment templates. Read it to classify;
   this skill only adds how to apply them in a propose-only workflow.
@@ -75,7 +75,10 @@ with distinctive terms (tool name, error string). If it's a known issue, propose
 close: link and reference the original, and thank the reporter (template below).
 
 **Investigate before deferring (bugs).** Before proposing `waiting for response`, try to reproduce
-by tracing the code, and check `git log`/`git blame` for a fix that already landed silently. If
+by tracing the code, and check `git log`/`git blame` for a fix that already landed silently. When
+the call hinges on whether the bug is real, hand off to the `reproduce-bug` skill, which runs the
+cheap discriminators (wrong tool type, version skew, client-side) and can reproduce most reports on
+SQLite with no credentials; its verdict sharpens both `priority:` and `status:`. If
 it's already fixed, propose `duplicate` + close referencing the commit rather than asking for info.
 If you can root-cause it, include the `file:line` — it sharpens the priority call. Only fall back to
 `waiting for response` when reproduction genuinely isn't possible, and then ask *specific*,

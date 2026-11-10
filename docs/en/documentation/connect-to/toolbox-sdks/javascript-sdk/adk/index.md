@@ -89,14 +89,14 @@ The SDK supports multiple transport protocols to communicate with the Toolbox se
 
 We currently support different versions of the MCP protocol.
 
-- `Protocol.MCP`: The default protocol version (currently aliases to `MCP_v20251125`).
-- `Protocol.MCP_LATEST`: Alias for the latest stable MCP version (currently aliases to `MCP_v20251125`).
-- `Protocol.MCP_DRAFT`: Alias for the upcoming draft MCP version (currently aliases to `MCP_v2026_DRAFT`).
-- `Protocol.MCP_v2026_DRAFT`: Draft version 2026.
-- `Protocol.MCP_v20241105`: Use this for compatibility with older MCP servers (November 2024 version).
-- `Protocol.MCP_v20250326`: March 2025 version.
-- `Protocol.MCP_v20250618`: June 2025 version.
+- `Protocol.MCP`: The default protocol version (currently aliases to `MCP_v20260728`).
+- `Protocol.MCP_LATEST`: Alias for the latest stable MCP version (currently aliases to `MCP_v20260728`).
+- `Protocol.MCP_DRAFT`: Alias for the upcoming draft MCP version (currently aliases to `MCP_v20260728`).
+- `Protocol.MCP_v20260728`: July 2026 version (2026-07-28).
 - `Protocol.MCP_v20251125`: November 2025 version.
+- `Protocol.MCP_v20250618`: June 2025 version.
+- `Protocol.MCP_v20250326`: March 2025 version.
+- `Protocol.MCP_v20241105`: Use this for compatibility with older MCP servers (November 2024 version).
 
 ### Specifying a Protocol
 
@@ -424,6 +424,64 @@ const dynamicBoundTool = tool.bindParam("param", getDynamicValue)
 {{< notice note>}}
 You don't need to modify tool configurations to bind parameter values.
 {{< /notice >}}
+
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in `@toolbox-sdk/adk` version `1.2.0` (with `@toolbox-sdk/core` >= `1.2.0`) and require MCP protocol version `2026-07-28` or newer with the `com.google.cloud/toolbox.v1` extension. For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime values (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see or control.
+
+* **Schema Isolation:** When loaded tools are passed to an ADK `LlmAgent`, secure parameters are completely omitted from the tool parameter declarations (`tool.declaration`), ensuring the LLM never prompts for or hallucinates them.
+* **Prompt Injection Defense:** If an agent attempts to call a tool with a secure parameter supplied in standard arguments, execution fails immediately.
+* **Fast-Fail Validation:** Missing required secure parameters are validated locally before invocation, preventing unwanted network calls.
+* **Binding Methods:** Secure parameters can be pre-bound when loading tools or bound to tool instances:
+
+```javascript
+import { ToolboxClient } from '@toolbox-sdk/adk';
+
+const client = new ToolboxClient("http://127.0.0.1:5000");
+
+// Option A: Pre-bind secure parameters during loadTool / loadToolset
+const boundTool = await client.loadTool(
+    "search_secure_data",
+    null, // authTokenGetters
+    null, // boundParams
+    { customer_id: "cust_12345" } // secureParams
+);
+
+const tools = await client.loadToolset(
+    "my-toolset",
+    null, // authTokenGetters
+    null, // boundParams
+    false, // strict (set to true to error if any tool lacks the bound params)
+    { customer_id: "cust_12345" } // secureParams
+);
+
+// Option B: Bind on an un-bound loaded tool (returns a new immutable tool instance)
+const rawTool = await client.loadTool("search_secure_data");
+const singleBound = rawTool.bindSecureParam("customer_id", "cust_12345");
+const multiBound = rawTool.bindSecureParams({
+    customer_id: "cust_12345",
+    session_token: "token-xyz",
+});
+
+// Option C: Dynamic callable (evaluated per invocation)
+const dynamicTool = rawTool.bindSecureParam("auth_token", async () => fetchAuthToken());
+```
+
+### Cross-Binding Guidance & Mutual Exclusivity
+
+* Calling `tool.bindParam()` on a secure parameter throws an error:  
+  `Error: parameter '<name>' is a secure parameter; use bindSecureParam/bindSecureParams instead`
+* Calling `tool.bindSecureParam()` on a regular parameter throws an error:  
+  `Error: parameter '<name>' is a regular parameter; use bindParam/bindParams instead`
+
+### Accessing Core Tool
+
+To inspect or manipulate the underlying `@toolbox-sdk/core` tool instance from an ADK tool, call `tool.getCoreTool()`.
+
 
 # Using with ADK
 

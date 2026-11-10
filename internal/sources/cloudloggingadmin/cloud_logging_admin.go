@@ -113,6 +113,10 @@ type Source struct {
 	logadminClientCache *sources.Cache
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	// Returns logadmin source type
 	return SourceType

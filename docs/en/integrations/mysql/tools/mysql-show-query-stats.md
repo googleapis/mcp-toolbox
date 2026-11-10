@@ -29,7 +29,7 @@ This tool takes 2 optional input parameters:
 ## Example
 
 ```yaml
-kind: tools
+kind: tool
 name: show_query_stats
 type: mysql-show-query-stats
 source: my-mysql-instance

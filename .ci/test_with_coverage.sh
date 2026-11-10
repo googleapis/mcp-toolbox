@@ -6,6 +6,10 @@
 # $3, $4, ...: Tool package names for grep (e.g., postgressql), if the
 # integration test specifically check a separate package inside a folder, please
 # specify the full path instead (e.g., postgressql/postgresexecutesql)
+#
+# Environment:
+# COVERAGE_THRESHOLD: minimum coverage percentage (default 50)
+# EXTRA_TEST_ARGS: extra flags passed to the test binary
 
 DISPLAY_NAME="$1"
 SOURCE_PACKAGE_NAME="$2"
@@ -22,6 +26,8 @@ TOOL_PACKAGE_NAMES=("$@")
 
 COVERAGE_FILE="${TEST_BINARY%.test}_coverage.out"
 FILTERED_COVERAGE_FILE="${TEST_BINARY%.test}_filtered_coverage.out"
+
+COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-50}"
 
 export path="github.com/googleapis/mcp-toolbox/internal/"
 
@@ -54,8 +60,8 @@ echo "${DISPLAY_NAME} total coverage: $total_coverage"
 coverage_numeric=$(echo "$total_coverage" | sed 's/%//')
 
 # Check coverage threshold
-if awk -v coverage="$coverage_numeric" 'BEGIN {exit !(coverage < 50)}'; then
-    echo "Coverage failure: ${DISPLAY_NAME} total coverage($total_coverage) is below 50%."
+if awk -v coverage="$coverage_numeric" -v threshold="$COVERAGE_THRESHOLD" 'BEGIN {exit !(coverage < threshold)}'; then
+    echo "Coverage failure: ${DISPLAY_NAME} total coverage($total_coverage) is below ${COVERAGE_THRESHOLD}%."
     exit 1
 else
     echo "Coverage for ${DISPLAY_NAME} is sufficient."

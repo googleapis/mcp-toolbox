@@ -78,6 +78,10 @@ type Source struct {
 	Client *lineage.Client
 }
 
+func (s *Source) IsReadOnly() bool {
+	return false
+}
+
 func (s *Source) SourceType() string {
 	return SourceType
 }

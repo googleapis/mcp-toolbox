@@ -28,10 +28,10 @@ import (
 func TestToolsetConfig_Initialize(t *testing.T) {
 	t.Parallel()
 
-	var tool1 = testutils.NewMockTool("tool1", "some description", []parameters.Parameter{}, false, false)
+	var tool1 = testutils.NewMockTool("tool1", "some description", "", []parameters.Parameter{}, false, false)
 	var tool2 = testutils.NewMockTool(
 		"tool2",
-		"some description",
+		"some description", "",
 		parameters.Parameters{
 			parameters.NewIntParameter("param1", "This is the first parameter."),
 			parameters.NewIntParameter("param2", "This is the second parameter."),
@@ -167,7 +167,7 @@ func TestToolsetConfig_Initialize(t *testing.T) {
 					t.Errorf("Initialize() error mismatch:\n  want to contain: %q\n  got: %q", tc.wantErr, err.Error())
 				}
 				// Also check that the partially populated struct matches
-				if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(testutils.MockTool{}), cmpopts.IgnoreUnexported(tools.Toolset{})); diff != "" {
+				if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(testutils.MockTool{}), cmp.AllowUnexported(tools.BaseTool[testutils.MockToolConfig]{}), cmpopts.IgnoreUnexported(tools.Toolset{})); diff != "" {
 					t.Errorf("Initialize() partial result on error mismatch (-want +got):\n%s", diff)
 				}
 			} else {
@@ -175,7 +175,7 @@ func TestToolsetConfig_Initialize(t *testing.T) {
 					t.Fatalf("Initialize() returned unexpected error: %v", err)
 				}
 				// Using cmp.AllowUnexported because MockTool is unexported
-				if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(testutils.MockTool{}), cmpopts.IgnoreUnexported(tools.Toolset{})); diff != "" {
+				if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(testutils.MockTool{}), cmp.AllowUnexported(tools.BaseTool[testutils.MockToolConfig]{}), cmpopts.IgnoreUnexported(tools.Toolset{})); diff != "" {
 					t.Errorf("Initialize() result mismatch (-want +got):\n%s", diff)
 				}
 			}

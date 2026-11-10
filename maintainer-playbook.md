@@ -107,7 +107,7 @@ Once you have identified a bug, assess it and provide it with an **initial ackno
     * Feature requests that are open for contribution can be labeled P3.
       * Example: a request to add a new, non-critical feature to an existing extension.
 * Product
-  * Each product should have a label. Add labels in [`labels.yaml`](.github/labels.yaml) if one is missing.
+  * Each product should have a label. Add labels in [`labels.yaml`](.github/labels.yaml) if one is missing. For every Google Cloud database, there must be a product label in [`.github/labels.yaml`](.github/labels.yaml) and routing configured in [`.github/blunderbuss.yml`](.github/blunderbuss.yml). These GitHub teams should be team-synced from MDB groups and have write access to the repo.
 * Status
   * help wanted \- Unplanned work open for contributions from the community.
   * feedback wanted \- Waiting for feedback from community or issue author. If the contributor did not respond for \>60 days, we should just close the PR.
@@ -181,6 +181,23 @@ for security reasons, so a maintainer must deploy the preview:
 1. **Deploy Preview:** Apply the `docs: deploy-preview` label to the PR to
    deploy a documentation preview.
 
+#### Running Prebuilt Config Evals
+
+Evals are not part of the pull request gate — they call real models against live
+databases, so they run on a schedule and otherwise on request.
+
+Apply the `evals: run` label to a PR that changes a prebuilt config, its
+evalset, or the eval CI, then comment `/gcbrun` to start a build. Only the
+configs that PR touched are evaluated. The label stays on, so later pushes
+re-run them; remove it when you are done.
+
+Unlike a docs preview, a run compiles and executes the PR's code against live
+test infrastructure — review the diff first on anything from a fork. On a fork
+PR `/gcbrun` also releases the integration test triggers waiting on it.
+
+See [Adding Prebuilt Config Evals](./DEVELOPER.md#adding-prebuilt-config-evals)
+for what the evalsets cover.
+
 ### Release Communication & Tracking
 
 > For release mechanics — release types, the version-cut steps, supported binaries, and npm/PyPI publishing — see [Releasing](#releasing).
@@ -216,8 +233,14 @@ Toolbox has two types of releases: versioned and continuous. It uses Google
 Cloud project, `database-toolbox`.
 
 * **Versioned Release:** Official, supported distributions tagged as `latest`.
-  The release process is defined in
-  [versioned.release.cloudbuild.yaml](.ci/versioned.release.cloudbuild.yaml).
+  The release process is split into two stages:
+  * **Stage 1 ([versioned.release.cloudbuild.yaml](.ci/versioned.release.cloudbuild.yaml)):**
+    Builds and pushes container images to the staging Artifact Registry and
+    unsigned binaries to the unsigned GCS bucket (for Rapid/signing).
+  * **Stage 2 ([promote.cloudbuild.yaml](.ci/promote.cloudbuild.yaml)):**
+    Verifies BCID attestations (VSA) on the staging image, promotes it to the
+    production Artifact Registry, and publishes the signed binaries to npm and
+    PyPI via the OSS Exit Gate.
 * **Continuous Release:** Used for early testing of features between official
   releases and for end-to-end testing. The release process is defined in
   [continuous.release.cloudbuild.yaml](.ci/continuous.release.cloudbuild.yaml).
@@ -242,11 +265,16 @@ Cloud project, `database-toolbox`.
       20,000 files per deployment.
 1. Approve and merge the PR with the title “[chore(main): release
    x.x.x](https://github.com/googleapis/mcp-toolbox/pull/16)”
-1. The
+1. The Stage 1
    [trigger](https://pantheon.corp.google.com/cloud-build/triggers;region=us-central1/edit/27bd0d21-264a-4446-b2d7-0df4e9915fb3?e=13802955&inv=1&invt=AbhU8A&mods=logs_tg_staging&project=database-toolbox)
    should automatically run when a new tag is pushed. You can view [triggered
    builds here to check the
    status](https://pantheon.corp.google.com/cloud-build/builds;region=us-central1?query=trigger_id%3D%2227bd0d21-264a-4446-b2d7-0df4e9915fb3%22&e=13802955&inv=1&invt=AbhU8A&mods=logs_tg_staging&project=database-toolbox)
+1. Once Stage 1 completes and the signed binaries are available in the
+   `database-toolbox` GCS bucket, run the Stage 2 promotion trigger
+   ([promote.cloudbuild.yaml](.ci/promote.cloudbuild.yaml)) for the release tag
+   `vX.Y.Z` to verify the staging image VSA, promote the container image to the
+   production Artifact Registry, and publish to npm and PyPI via the OSS Exit Gate.
 1. Update the Github release notes to include the following table:
     1. Run the following command (from the root directory):
 
@@ -283,9 +311,10 @@ MCP Toolbox is available as an npm package: [@toolbox-sdk/server](https://www.np
 
 > [!NOTE]
 > npm releases are automated through the **OSS Exit Gate** via the
-> `publish-npm-to-ar` and `trigger-exit-gate` steps in
-> [.ci/versioned.release.cloudbuild.yaml](.ci/versioned.release.cloudbuild.yaml).
-> The versioned release pipeline pushes all six packages to the Exit Gate
+> `publish-npm-to-ar` and `trigger-exit-gate` steps in the Stage 2 promotion
+> pipeline ([.ci/promote.cloudbuild.yaml](.ci/promote.cloudbuild.yaml)).
+> After `fetch-binaries` downloads the signed Go binaries from GCS, the
+> promotion pipeline pushes all six packages to the Exit Gate
 > Artifact Registry (`us-npm.pkg.dev/oss-exit-gate-prod/mcp-toolbox--npm`) and
 > uploads a `publish_all: true` manifest to
 > `gs://oss-exit-gate-prod-projects-bucket/mcp-toolbox/npm/manifests/`, which
@@ -426,7 +455,11 @@ settings:
 ## Repo Setup & Automation
 
 * .github/blunderbuss.yml - Auto-assign issues and PRs from GitHub teams. Use a
-  product label to assign to a product-specific team member.
+  product label to assign to a product-specific team member. For every Google Cloud
+  database, ensure a corresponding product label exists in `.github/labels.yaml`
+  and is added to `.github/blunderbuss.yml` (under both `assign_issues_by` and
+  `assign_prs_by`). These GitHub teams should be team-synced from MDB groups and
+  have write access to the repo.
 * .github/renovate.json5 - Tooling for dependency updates. Dependabot is built
   into the GitHub repo for GitHub security warnings
 * go/github-issue-mirror - GitHub issues are automatically mirrored into buganizer

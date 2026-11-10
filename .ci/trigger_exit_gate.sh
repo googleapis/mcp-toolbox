@@ -35,13 +35,19 @@ case "${REGISTRY}" in
     ;;
 esac
 
+PUSH_TO_EXIT_GATES="${PUSH_TO_EXIT_GATES:-false}"
+if [[ "${PUSH_TO_EXIT_GATES}" != "true" ]]; then
+  echo "Skipping exit gates for ${REGISTRY} (PUSH_TO_EXIT_GATES != true)"
+  exit 0
+fi
+
 # OSS Exit Gate constants — owned by Exit Gate, not build configuration.
-readonly EXIT_GATE_PROJECT="mcp-toolbox"
-readonly MANIFEST_BUCKET="oss-exit-gate-prod-projects-bucket"
+readonly EXIT_GATE_PROJECT="${EXIT_GATE_PROJECT:?EXIT_GATE_PROJECT must be set}"
+readonly EXIT_GATE_MANIFEST_BUCKET="${EXIT_GATE_MANIFEST_BUCKET:?EXIT_GATE_MANIFEST_BUCKET must be set}"
 
 VERSION="v$(cat ./cmd/version.txt)"
 MANIFEST="${VERSION}-${BUILD_ID}.json"
-MANIFEST_PATH="gs://${MANIFEST_BUCKET}/${EXIT_GATE_PROJECT}/${REGISTRY}/manifests/${MANIFEST}"
+MANIFEST_PATH="gs://${EXIT_GATE_MANIFEST_BUCKET}/${EXIT_GATE_PROJECT}/${REGISTRY}/manifests/${MANIFEST}"
 
 echo '{"publish_all": true}' > "${MANIFEST}"
 

@@ -27,7 +27,7 @@ import (
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	resourcemanager "cloud.google.com/go/resourcemanager/apiv3"
 	resourcemanagerpb "cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
-	"github.com/cenkalti/backoff/v6"
+	"github.com/cenkalti/backoff/v7"
 	"github.com/goccy/go-yaml"
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -137,6 +137,10 @@ type Source struct {
 	dataProductClient *dataplexapi.DataProductClient
 	projectsClient    *resourcemanager.ProjectsClient
 	projectNumber     int64
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {

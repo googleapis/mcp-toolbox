@@ -120,16 +120,86 @@ func TestParseFromYamlAlloyDBPg(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "readOnly set to true",
+			in: `
+			kind: source
+			name: my-pg-instance
+			type: alloydb-postgres
+			project: my-project
+			region: my-region
+			cluster: my-cluster
+			instance: my-instance
+			database: my_db
+			user: my_user
+			password: my_pass
+			readOnly: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-pg-instance": alloydbpg.Config{
+					Name:     "my-pg-instance",
+					Type:     alloydbpg.SourceType,
+					Project:  "my-project",
+					Region:   "my-region",
+					Cluster:  "my-cluster",
+					Instance: "my-instance",
+					IPType:   "public",
+					Database: "my_db",
+					User:     "my_user",
+					Password: "my_pass",
+					ReadOnly: true,
+				},
+			},
+		},
+		{
+			desc: "readOnly set to false",
+			in: `
+			kind: source
+			name: my-pg-instance
+			type: alloydb-postgres
+			project: my-project
+			region: my-region
+			cluster: my-cluster
+			instance: my-instance
+			database: my_db
+			user: my_user
+			password: my_pass
+			readOnly: false
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-pg-instance": alloydbpg.Config{
+					Name:     "my-pg-instance",
+					Type:     alloydbpg.SourceType,
+					Project:  "my-project",
+					Region:   "my-region",
+					Cluster:  "my-cluster",
+					Instance: "my-instance",
+					IPType:   "public",
+					Database: "my_db",
+					User:     "my_user",
+					Password: "my_pass",
+					ReadOnly: false,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			// Parse contents
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
 			if !cmp.Equal(tc.want, got) {
 				t.Fatalf("incorrect parse: want %v, got %v", tc.want, got)
+			}
+			for _, sc := range got {
+				if cfg, ok := sc.(alloydbpg.Config); ok {
+					src := &alloydbpg.Source{Config: cfg}
+					if src.IsReadOnly() != cfg.ReadOnly {
+						t.Errorf("IsReadOnly() = %v, want %v", src.IsReadOnly(), cfg.ReadOnly)
+					}
+				}
 			}
 		})
 	}
@@ -193,7 +263,7 @@ func TestFailParseFromYaml(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err == nil {
 				t.Fatalf("expect parsing to fail")
 			}

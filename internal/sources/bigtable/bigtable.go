@@ -63,9 +63,24 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		return nil, fmt.Errorf("unable to create client: %w", err)
 	}
 
+	instanceAdminClient, err := initBigtableInstanceAdminClient(ctx, tracer, r.Name, r.Project)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("unable to create instance admin client: %w", err)
+	}
+
+	adminClient, err := initBigtableAdminClient(ctx, tracer, r.Name, r.Project, r.Instance)
+	if err != nil {
+		client.Close()
+		instanceAdminClient.Close()
+		return nil, fmt.Errorf("unable to create admin client: %w", err)
+	}
+
 	s := &Source{
-		Config: r,
-		Client: client,
+		Config:        r,
+		Client:        client,
+		InstanceAdmin: instanceAdminClient,
+		Admin:         adminClient,
 	}
 	return s, nil
 }
@@ -74,7 +89,13 @@ var _ sources.Source = &Source{}
 
 type Source struct {
 	Config
-	Client *bigtable.Client
+	Client        *bigtable.Client
+	InstanceAdmin *bigtable.InstanceAdminClient
+	Admin         *bigtable.AdminClient
+}
+
+func (s *Source) IsReadOnly() bool {
+	return false
 }
 
 func (s *Source) SourceType() string {
@@ -87,6 +108,22 @@ func (s *Source) ToConfig() sources.SourceConfig {
 
 func (s *Source) BigtableClient() *bigtable.Client {
 	return s.Client
+}
+
+func (s *Source) BigtableInstanceAdminClient() *bigtable.InstanceAdminClient {
+	return s.InstanceAdmin
+}
+
+func (s *Source) BigtableAdminClient() *bigtable.AdminClient {
+	return s.Admin
+}
+
+func (s *Source) ProjectID() string {
+	return s.Project
+}
+
+func (s *Source) InstanceID() string {
+	return s.Instance
 }
 
 func getBigtableType(paramType string) (bigtable.SQLType, error) {
@@ -193,6 +230,42 @@ func initBigtableClient(ctx context.Context, tracer trace.Tracer, name, project,
 
 	if err != nil {
 		return nil, fmt.Errorf("unable to create bigtable.NewClient: %w", err)
+	}
+
+	return client, nil
+}
+
+func initBigtableInstanceAdminClient(ctx context.Context, tracer trace.Tracer, name, project string) (*bigtable.InstanceAdminClient, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
+	userAgent, err := util.UserAgentFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := bigtable.NewInstanceAdminClient(ctx, project, option.WithUserAgent(userAgent))
+	if err != nil {
+		return nil, fmt.Errorf("unable to create bigtable.NewInstanceAdminClient: %w", err)
+	}
+
+	return client, nil
+}
+
+func initBigtableAdminClient(ctx context.Context, tracer trace.Tracer, name, project, instance string) (*bigtable.AdminClient, error) {
+	//nolint:all // Reassigned ctx
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	defer span.End()
+
+	userAgent, err := util.UserAgentFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := bigtable.NewAdminClient(ctx, project, instance, option.WithUserAgent(userAgent))
+	if err != nil {
+		return nil, fmt.Errorf("unable to create bigtable.NewAdminClient: %w", err)
 	}
 
 	return client, nil

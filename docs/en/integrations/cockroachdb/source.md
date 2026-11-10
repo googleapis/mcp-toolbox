@@ -40,49 +40,51 @@ CockroachDB Cloud clusters require SSL/TLS connections. Use the `queryParams` se
 ## Example
 
 ```yaml
-sources:
-  my_cockroachdb:
-    type: cockroachdb
-    host: your-cluster.cockroachlabs.cloud
-    port: "26257"
-    user: myuser
-    password: mypassword
-    database: defaultdb
-    maxRetries: 5
-    retryBaseDelay: 500ms
-    queryParams:
-      sslmode: require
-      application_name: my-app
-    
-    # MCP Security Settings (recommended for production)
-    readOnlyMode: true          # Read-only by default (MCP best practice)
-    enableWriteMode: false      # Set to true to allow write operations
-    maxRowLimit: 1000           # Limit query results
-    queryTimeoutSec: 30         # Prevent long-running queries
-    enableTelemetry: true       # Enable observability
-    telemetryVerbose: false     # Set true for detailed logs
-    clusterID: "my-cluster"     # Optional identifier
+kind: source
+name: my_cockroachdb
+type: cockroachdb
+host: your-cluster.cockroachlabs.cloud
+port: "26257"
+user: myuser
+password: mypassword
+database: defaultdb
+maxRetries: 5
+retryBaseDelay: 500ms
+queryParams:
+  sslmode: require
+  application_name: my-app
 
-tools:
-  list_expenses:
-    type: cockroachdb-sql
-    source: my_cockroachdb
-    description: List all expenses
-    statement: SELECT id, description, amount, category FROM expenses WHERE user_id = $1
-    parameters:
-      - name: user_id
-        type: string
-        description: The user's ID
-  
-  describe_expenses:
-    type: cockroachdb-describe-table
-    source: my_cockroachdb
-    description: Describe the expenses table schema
-  
-  list_expenses_indexes:
-    type: cockroachdb-list-indexes
-    source: my_cockroachdb
-    description: List indexes on the expenses table
+# MCP Security Settings (recommended for production)
+readOnlyMode: true          # Read-only by default (MCP best practice)
+enableWriteMode: false      # Set to true to allow write operations
+maxRowLimit: 1000           # Limit query results
+queryTimeoutSec: 30         # Prevent long-running queries
+enableTelemetry: true       # Enable observability
+telemetryVerbose: false     # Set true for detailed logs
+clusterID: "my-cluster"     # Optional identifier
+---
+kind: tool
+name: list_expenses
+type: cockroachdb-sql
+source: my_cockroachdb
+description: List all expenses
+statement: SELECT id, description, amount, category FROM expenses WHERE user_id = $1
+parameters:
+  - name: user_id
+    type: string
+    description: The user's ID
+---
+kind: tool
+name: describe_expenses
+type: cockroachdb-describe-table
+source: my_cockroachdb
+description: Describe the expenses table schema
+---
+kind: tool
+name: list_expenses_indexes
+type: cockroachdb-list-indexes
+source: my_cockroachdb
+description: List indexes on the expenses table
 ```
 
 ## Reference
@@ -139,19 +141,19 @@ Common query parameters for CockroachDB connections:
 **Read-Only by Default**: The integration follows MCP best practices by defaulting to read-only mode. This prevents accidental data modifications:
 
 ```yaml
-sources:
-  my_cockroachdb:
-    readOnlyMode: true        # Default behavior
-    enableWriteMode: false    # Explicit write opt-in required
+kind: source
+name: my_cockroachdb
+readOnlyMode: true        # Default behavior
+enableWriteMode: false    # Explicit write opt-in required
 ```
 
 To enable write operations:
 
 ```yaml
-sources:
-  my_cockroachdb:
-    readOnlyMode: false       # Disable read-only protection
-    enableWriteMode: true     # Explicitly allow writes
+kind: source
+name: my_cockroachdb
+readOnlyMode: false       # Disable read-only protection
+enableWriteMode: true     # Explicitly allow writes
 ```
 
 **Query Limits**: Automatic row limits prevent excessive data retrieval:

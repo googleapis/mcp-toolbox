@@ -143,7 +143,8 @@ run_go_test() {
   local dir=$1
   local name=$(basename "$dir")
 
-  if [ "$name" == "openAI" ]; then
+  # TODO: Re-enable 'langchain' Go test once tmc/langchaingo supports thought_signature on Gemini 3+ (#1464)
+  if [ "$name" == "openAI" ] || [ "$name" == "langchain" ]; then
       echo -e "\nSkipping framework '${name}': Temporarily excluded."
       return
   fi

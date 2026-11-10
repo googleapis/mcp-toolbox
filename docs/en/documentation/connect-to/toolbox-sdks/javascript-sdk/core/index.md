@@ -81,6 +81,10 @@ Closing the `ToolboxClient` also closes the underlying network session shared by
 For advanced use cases, you can provide an external `AxiosInstance` during initialization (e.g., `ToolboxClient(url, my_session)`).
 {{< /notice >}}
 
+{{< notice note >}}
+If your connection URL contains query parameters (e.g., `http://localhost:5000?foo=bar`), the client automatically preserves them across API requests for parameter binding.
+{{< /notice >}}
+
 ## Transport Protocols
 
 The SDK supports multiple transport protocols to communicate with the Toolbox server. You can specify the protocol version during client initialization.
@@ -90,14 +94,14 @@ The SDK supports multiple transport protocols to communicate with the Toolbox se
 We currently support different versions of the MCP protocol. For a complete and up-to-date list, see the [`Protocol` enum definition on GitHub](https://github.com/googleapis/mcp-toolbox-sdk-js/blob/main/packages/toolbox-core/src/toolbox_core/protocol.ts).
 
 
-- `Protocol.MCP`: The default protocol version (currently aliases to `MCP_v20251125`).
-- `Protocol.MCP_LATEST`: Alias for the latest stable MCP version (currently aliases to `MCP_v20251125`).
-- `Protocol.MCP_DRAFT`: Alias for the upcoming draft MCP version (currently aliases to `MCP_v2026_DRAFT`).
-- `Protocol.MCP_v2026_DRAFT`: Draft version 2026.
-- `Protocol.MCP_v20241105`: Use this for compatibility with older MCP servers (November 2024 version).
-- `Protocol.MCP_v20250326`: March 2025 version.
-- `Protocol.MCP_v20250618`: June 2025 version.
+- `Protocol.MCP`: The default protocol version (currently aliases to `MCP_v20260728`).
+- `Protocol.MCP_LATEST`: Alias for the latest stable MCP version (currently aliases to `MCP_v20260728`).
+- `Protocol.MCP_DRAFT`: Alias for the upcoming draft MCP version (currently aliases to `MCP_v20260728`).
+- `Protocol.MCP_v20260728`: July 2026 version (2026-07-28).
 - `Protocol.MCP_v20251125`: November 2025 version.
+- `Protocol.MCP_v20250618`: June 2025 version.
+- `Protocol.MCP_v20250326`: March 2025 version.
+- `Protocol.MCP_v20241105`: Use this for compatibility with older MCP servers (November 2024 version).
 
 ### Specifying a Protocol
 
@@ -440,6 +444,102 @@ const dynamicBoundTool = tool.bindParam("param", getDynamicValue)
 {{< notice note>}}
 You don't need to modify tool configurations to bind parameter values.
 {{< /notice >}}
+
+## Secure Parameters
+
+{{< notice note >}}
+Secure parameters are supported starting in `@toolbox-sdk/core` version `1.2.0` and require MCP protocol version `2026-07-28` or newer with the [`com.google.cloud/toolbox.v1` extension](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md). For server configuration details, see [Secure Parameters](../../../../configuration/tools/_index.md#secure-parameters).
+{{< /notice >}}
+
+Secure parameters are designed for sensitive runtime context (such as an end-user `customer_id`, tenant identifier, or secret tokens) that LLMs must not see, control, or hallucinate.
+
+Unlike standard parameters, parameters marked as `secure: true` in your Toolbox server configuration:
+* **Schema Isolation:** The SDK completely strips secure parameters from the public tool declaration and parameter schema (`tool.getParamSchema()`). The LLM is never aware of these parameters, keeping your model's context window clean and preventing credential exposure.
+* **Prompt Injection Defense:** If a model or caller attempts to provide a value for a secure parameter in standard arguments, the SDK rejects execution immediately.
+* **Fast-Fail Validation:** The SDK verifies all required secure parameters locally before sending a request over the wire. If any required secure parameter is missing, execution throws an immediate error (e.g., `Missing required secure parameter(s) ... for tool "..."`).
+* **Wire Protocol Separation:** Secure parameters are transmitted out-of-band in the `secureArguments` field of the MCP 2026-07-28 `tools/call` JSON-RPC payload, isolated from regular arguments.
+
+### Option A: Binding Secure Parameters to a Loaded Tool
+
+Bind secure values to a tool object *after* it has been loaded. Each binding method returns a **new, immutable tool instance**, leaving the original unmodified.
+
+```javascript
+import { ToolboxClient } from '@toolbox-sdk/core';
+
+const client = new ToolboxClient("http://127.0.0.1:5000");
+const tool = await client.loadTool("search_secure_data");
+
+// Bind a single secure parameter
+const boundTool = tool.bindSecureParam("customer_id", "cust_12345");
+
+// OR bind multiple secure parameters at once
+const multiBoundTool = tool.bindSecureParams({
+    customer_id: "cust_12345",
+    session_token: "token-xyz"
+});
+```
+
+### Option B: Binding Secure Parameters While Loading Tools
+
+Pre-bind secure parameters directly when loading a tool or toolset. The SDK validates that all supplied keys exist as secure parameters on the target tools.
+
+```javascript
+import { ToolboxClient } from '@toolbox-sdk/core';
+
+const client = new ToolboxClient("http://127.0.0.1:5000");
+
+// Load a single tool with secure parameters
+const tool = await client.loadTool(
+    "search_secure_data",
+    null, // authTokenGetters
+    null, // boundParams
+    { customer_id: "cust_12345" } // secureParams
+);
+
+// Load an entire toolset with secure parameters
+const tools = await client.loadToolset(
+    "my-toolset",
+    null, // authTokenGetters
+    null, // boundParams
+    false, // strict (set to true to error if any tool lacks the bound params)
+    { customer_id: "cust_12345" } // secureParams
+);
+```
+
+### Binding Dynamic Secure Values
+
+You can also bind a secure parameter to a synchronous or asynchronous function. The function is evaluated at execution time each time the tool is invoked:
+
+```javascript
+async function getSessionToken() {
+    // Dynamically fetch session token or user identifier
+    return "session-token-xyz";
+}
+
+const secureTool = tool.bindSecureParam("auth_token", getSessionToken);
+```
+
+### Inspecting Secure Parameters
+
+You can inspect the tool's configured and bound secure parameters:
+
+```javascript
+// Returns an array of Parameter objects declared with secure: true that remain unbound
+const unboundSecureParams = tool.getSecureParams();
+
+// Returns a record of secure parameters that have already been bound to this tool instance
+const boundSecureParams = tool.getBoundSecureParams();
+```
+
+### Cross-Binding Guidance & Mutual Exclusivity
+
+To prevent accidental misconfigurations and enforce strict separation between model arguments and application arguments:
+
+* Calling `bindParam()` or `bindParams()` on a secure parameter throws:  
+  `Error: parameter '<name>' is a secure parameter; use bindSecureParam/bindSecureParams instead`
+* Calling `bindSecureParam()` or `bindSecureParams()` on a regular parameter throws:  
+  `Error: parameter '<name>' is a regular parameter; use bindParam/bindParams instead`
+
 
 # Using with Orchestration Frameworks
 

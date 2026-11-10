@@ -34,22 +34,22 @@ The tool accepts optional runtime parameters:
 ## Example
 
 ```yaml
-sources:
-  my_cockroachdb:
-    type: cockroachdb
-    host: your-cluster.cockroachlabs.cloud
-    port: "26257"
-    user: myuser
-    password: mypassword
-    database: defaultdb
-    queryParams:
-      sslmode: require
-
-tools:
-  list_all_tables:
-    type: cockroachdb-list-tables
-    source: my_cockroachdb
-    description: List all user tables in the database with their structure
+kind: source
+name: my_cockroachdb
+type: cockroachdb
+host: your-cluster.cockroachlabs.cloud
+port: "26257"
+user: myuser
+password: mypassword
+database: defaultdb
+queryParams:
+  sslmode: require
+---
+kind: tool
+name: list_all_tables
+type: cockroachdb-list-tables
+source: my_cockroachdb
+description: List all user tables in the database with their structure
 ```
 
 ### Usage Examples
@@ -235,13 +235,13 @@ Returns comprehensive table information:
 The tool is ideal for helping AI assistants understand your database structure:
 
 ```yaml
-tools:
-  discover_schema:
-    type: cockroachdb-list-tables
-    source: my_cockroachdb
-    description: |
-      Use this tool first to understand the database schema before generating queries.
-      It shows all tables, their columns, data types, and relationships.
+kind: tool
+name: discover_schema
+type: cockroachdb-list-tables
+source: my_cockroachdb
+description: |
+  Use this tool first to understand the database schema before generating queries.
+  It shows all tables, their columns, data types, and relationships.
 ```
 
 #### Filter Large Schemas
@@ -280,21 +280,21 @@ Only user-created tables in the public schema (and other user schemas) are retur
 #### Prompt Example
 
 ```yaml
-tools:
-  list_tables:
-    type: cockroachdb-list-tables
-    source: my_cockroachdb
-    description: |
-      Lists all tables in the database with detailed schema information.
-      Use this tool to understand:
-      - What tables exist
-      - What columns each table has
-      - Data types and constraints
-      - Relationships between tables (foreign keys)
-      - Available indexes
-      
-      Always call this tool before generating SQL queries to ensure
-      you use correct table and column names.
+kind: tool
+name: list_tables
+type: cockroachdb-list-tables
+source: my_cockroachdb
+description: |
+  Lists all tables in the database with detailed schema information.
+  Use this tool to understand:
+  - What tables exist
+  - What columns each table has
+  - Data types and constraints
+  - Relationships between tables (foreign keys)
+  - Available indexes
+
+  Always call this tool before generating SQL queries to ensure
+  you use correct table and column names.
 ```
 
 ### Common Use Cases

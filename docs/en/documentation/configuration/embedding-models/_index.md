@@ -83,6 +83,7 @@ parameters:
     description: The raw text content to be stored in the database.
   - name: vector_string
     type: string
+    description: A hidden parameter holding a copy of 'content' to be embedded as a vector.
     # This parameter is hidden from the LLM.
     # It automatically copies the value from 'content' and embeds it.
     valueFromParam: content

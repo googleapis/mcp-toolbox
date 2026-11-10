@@ -19,7 +19,7 @@ const (
 	VERSION_20250326 = "2025-03-26"
 	VERSION_20250618 = "2025-06-18"
 	VERSION_20251125 = "2025-11-25"
-	VERSION_DRAFT    = "DRAFT-2026-v1"
+	VERSION_20260728 = "2026-07-28"
 )
 
 // LATEST_PROTOCOL_VERSION is the latest version of the MCP protocol supported.
@@ -28,7 +28,7 @@ const LATEST_PROTOCOL_VERSION = VERSION_20251125
 
 // LATEST_PROTOCOL_VERSION_NONSTABLE is the latest version of the MCP protocol
 // supported that includes non-stable version
-const LATEST_PROTOCOL_VERSION_NONSTABLE = VERSION_DRAFT
+const LATEST_PROTOCOL_VERSION_NONSTABLE = VERSION_20260728
 
 // SUPPORTED_PROTOCOL_VERSIONS is the MCP protocol versions that are supported.
 var SUPPORTED_PROTOCOL_VERSIONS = []string{
@@ -36,11 +36,10 @@ var SUPPORTED_PROTOCOL_VERSIONS = []string{
 	VERSION_20250326,
 	VERSION_20250618,
 	VERSION_20251125,
+	VERSION_20260728,
 }
 
-var SUPPORTED_PROTOCOL_VERSIONS_NONSTABLE = []string{
-	VERSION_DRAFT,
-}
+var SUPPORTED_PROTOCOL_VERSIONS_NONSTABLE = []string{}
 
 func GetSupportedVersions(enableDraft bool) []string {
 	if enableDraft {

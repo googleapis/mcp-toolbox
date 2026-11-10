@@ -60,6 +60,7 @@ type Config struct {
 	User         string         `yaml:"user"`
 	Password     string         `yaml:"password"`
 	Database     string         `yaml:"database" validate:"required"`
+	ReadOnly     bool           `yaml:"readOnly"`
 	SQLCommenter *bool          `yaml:"sqlCommenter"`
 }
 
@@ -68,13 +69,19 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	pool, err := initAlloyDBPgConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Cluster, r.Instance, r.IPType.String(), r.User, r.Password, r.Database)
+	pool, err := initAlloyDBPgConnectionPool(ctx, tracer, r.Name, r.Project, r.Region, r.Cluster, r.Instance, r.IPType.String(), r.User, r.Password, r.Database, r.ReadOnly)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
 
 	err = pool.Ping(ctx)
 	if err != nil {
+		pool.Close()
+		if r.ReadOnly &&
+			strings.Contains(err.Error(), "unrecognized configuration parameter") &&
+			strings.Contains(err.Error(), "alloydb_session_read_only") {
+			return nil, fmt.Errorf("failed to initialize AlloyDB source in read-only mode: 'alloydb_session_read_only' is not supported on this instance version. See documentation for details: https://mcp-toolbox.dev/integrations/alloydb/source/#reference: %w", err)
+		}
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -90,6 +97,10 @@ var _ sources.Source = &Source{}
 type Source struct {
 	Config
 	Pool *pgxpool.Pool
+}
+
+func (s *Source) IsReadOnly() bool {
+	return s.ReadOnly
 }
 
 func (s *Source) SourceType() string {
@@ -121,7 +132,8 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 		}
 		row := orderedmap.Row{}
 		for i, f := range fields {
-			row.Add(f.Name, v[i])
+			val := sources.NormalizeValue(v[i], f.DataTypeOID)
+			row.Add(f.Name, val)
 		}
 		out = append(out, row)
 	}
@@ -151,23 +163,26 @@ func getOpts(ipType, userAgent string, useIAM bool) ([]alloydbconn.Option, error
 	return opts, nil
 }
 
-func getConnectionConfig(ctx context.Context, user, pass, dbname string) (string, bool, error) {
+const (
+	passwordDSNFormat = "user=%s password=%s dbname=%s sslmode=disable application_name=%s"
+	iamDSNFormat      = "user=%s dbname=%s sslmode=disable application_name=%s"
+)
+
+func getConnectionConfig(ctx context.Context, user, pass, dbname string, readOnly bool) (string, bool, error) {
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		userAgent = "genai-toolbox"
 	}
 	useIAM := true
 
+	var dsn string
 	// If username and password both provided, use password authentication
 	if user != "" && pass != "" {
-		dsn := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=disable application_name=%s", user, pass, dbname, userAgent)
+		dsn = fmt.Sprintf(passwordDSNFormat, user, pass, dbname, userAgent)
 		useIAM = false
-		return dsn, useIAM, nil
-	}
-
-	// If username is empty, fetch email from ADC
-	// otherwise, use username as IAM email
-	if user == "" {
+	} else if user == "" {
+		// If username is empty, fetch email from ADC
+		// otherwise, use username as IAM email
 		if pass != "" {
 			// If password is provided without an username, raise an error
 			return "", useIAM, fmt.Errorf("password is provided without a username. Please provide both a username and password, or leave both fields empty")
@@ -177,19 +192,28 @@ func getConnectionConfig(ctx context.Context, user, pass, dbname string) (string
 			return "", useIAM, fmt.Errorf("error getting email from ADC: %v", err)
 		}
 		user = email
+		dsn = fmt.Sprintf(iamDSNFormat, user, dbname, userAgent)
+	} else {
+		// Construct IAM connection string with username
+		dsn = fmt.Sprintf(iamDSNFormat, user, dbname, userAgent)
 	}
 
-	// Construct IAM connection string with username
-	dsn := fmt.Sprintf("user=%s dbname=%s sslmode=disable application_name=%s", user, dbname, userAgent)
+	if readOnly {
+		// IMPORTANT: Must use underscore ('alloydb_session_read_only'), NOT a dot.
+		// PostgreSQL treats dotted GUCs (e.g. 'alloydb.session_read_only') as custom placeholders
+		// and silently ignores them at connection time, leaving the session in read-write mode.
+		dsn += " options='-c alloydb_session_read_only=locked'"
+	}
+
 	return dsn, useIAM, nil
 }
 
-func initAlloyDBPgConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, cluster, instance, ipType, user, pass, dbname string) (*pgxpool.Pool, error) {
+func initAlloyDBPgConnectionPool(ctx context.Context, tracer trace.Tracer, name, project, region, cluster, instance, ipType, user, pass, dbname string, readOnly bool) (*pgxpool.Pool, error) {
 	//nolint:all // Reassigned ctx
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
 	defer span.End()
 
-	dsn, useIAM, err := getConnectionConfig(ctx, user, pass, dbname)
+	dsn, useIAM, err := getConnectionConfig(ctx, user, pass, dbname, readOnly)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get AlloyDB connection config: %w", err)
 	}

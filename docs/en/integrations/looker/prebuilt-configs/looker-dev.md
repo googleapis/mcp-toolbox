@@ -48,5 +48,8 @@ description: "Details of the Looker Dev prebuilt configuration."
     *   `create_git_branch`: Create a new git branch for a LookML project.
     *   `switch_git_branch`: Switch the git branch of a LookML project.
     *   `delete_git_branch`: Delete a git branch of a LookML project.
+    *   `deploy_to_production`: Deploy the current revision of the dev branch to production.
+    *   `reset_to_production`: Reset the local dev branch to the commit of production.
+    *   `reset_to_remote`: Reset the current dev branch to the state of the last commit pushed to the remote git server.
     *   `project_commit`: Commit changes in a LookML project.
     *   `push_branch`: Push the current dev branch to the remote git repository for a LookML project.

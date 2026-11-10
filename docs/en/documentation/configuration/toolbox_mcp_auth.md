@@ -31,9 +31,9 @@ When `mcpEnabled` is true, Toolbox also provisions the `/.well-known/oauth-prote
 
 ## Step 2: Deployment
 
-Deploying Toolbox with MCP auth requires defining the `TOOLBOX_URL` that the deployed service will use, as this URL must be included as the `resource` field in the PRM returned to the client.
+Deploying Toolbox with MCP auth requires defining an absolute `TOOLBOX_URL` (including scheme and host, e.g., `https://my-toolbox.example.com`) that the deployed service will use, as this URL must be included as the `resource` field in the PRM returned to the client.
 
-You can set this either through the `TOOLBOX_URL` environment variable or the `--toolbox-url` command-line flag during deployment.
+You can set this absolute URL either through the `TOOLBOX_URL` environment variable or the `--toolbox-url` command-line flag during deployment.
 
 ### Local Deployment
 

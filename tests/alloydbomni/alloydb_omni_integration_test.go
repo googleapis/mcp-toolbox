@@ -68,38 +68,12 @@ func setupAlloyDBContainer(ctx context.Context, t *testing.T) (string, string, f
 		},
 		WaitingFor: wait.ForAll(
 			wait.ForLog("database system was shut down at"),
-			wait.ForLog("database system is ready to accept connections"),
+			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
 			wait.ForExposedPort(),
 		),
 	}
 
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("failed to start alloydb container: %s", err)
-	}
-
-	cleanup := func() {
-		if err := container.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate container: %s", err)
-		}
-	}
-
-	host, err := container.Host(ctx)
-	if err != nil {
-		cleanup()
-		t.Fatalf("failed to get container host: %s", err)
-	}
-
-	mappedPort, err := container.MappedPort(ctx, "5432")
-	if err != nil {
-		cleanup()
-		t.Fatalf("failed to get container mapped port: %s", err)
-	}
-
-	return host, mappedPort.Port(), cleanup
+	return tests.SetupGenericPostgresTestContainer(ctx, t, req)
 }
 
 func TestAlloyDBOmni(t *testing.T) {

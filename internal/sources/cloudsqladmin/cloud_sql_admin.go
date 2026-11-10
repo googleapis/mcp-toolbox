@@ -21,7 +21,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"text/template"
+	"text/template" // NOLINT: renders connection message, not YAML
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -64,6 +64,7 @@ type Config struct {
 	Type           string `yaml:"type" validate:"required"`
 	DefaultProject string `yaml:"defaultProject"`
 	UseClientOAuth bool   `yaml:"useClientOAuth"`
+	ReadOnly       bool   `yaml:"readOnly"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -112,6 +113,10 @@ type Source struct {
 	Config
 	BaseURL string
 	Service *sqladmin.Service
+}
+
+func (s *Source) IsReadOnly() bool {
+	return s.ReadOnly
 }
 
 func (s *Source) SourceType() string {

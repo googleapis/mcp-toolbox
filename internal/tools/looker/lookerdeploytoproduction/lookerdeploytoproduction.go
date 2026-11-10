@@ -22,6 +22,7 @@ import (
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
@@ -54,9 +55,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -71,20 +71,13 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
 	}
 
-	projectIdParameter := parameters.NewStringParameter("project_id", "The project_id")
+	projectIdParameter := parameters.NewStringParameter("project_id", lookercommon.ProjectIdParameterDescription)
 	params := parameters.Parameters{projectIdParameter}
-
-	annotations := &tools.ToolAnnotations{}
-	if cfg.Annotations != nil {
-		*annotations = *cfg.Annotations
-	}
-	readOnlyHint := false
-	annotations.ReadOnlyHint = &readOnlyHint
 
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			annotations,
+			lookercommon.DestructiveAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: params.Manifest(), AuthRequired: cfg.AuthRequired},
 			params,
 		),
@@ -126,7 +119,10 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 
 	mapParams := params.AsMap()
-	projectId := mapParams["project_id"].(string)
+	projectId, ok := mapParams["project_id"].(string)
+	if !ok {
+		return nil, util.NewAgentError(fmt.Sprintf("'project_id' must be a string, got %T", mapParams["project_id"]), nil)
+	}
 
 	resp, err := sdk.DeployToProduction(projectId, source.LookerApiSettings())
 	if err != nil {

@@ -17,12 +17,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
-	"text/template"
+	"text/template" // NOLINT: renders URL paths, not YAML
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -56,17 +55,16 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Path             string                 `yaml:"path" validate:"required"`
-	Method           tools.HTTPMethod       `yaml:"method" validate:"required"`
-	Headers          map[string]string      `yaml:"headers"`
-	RequestBody      string                 `yaml:"requestBody"`
-	PathParams       parameters.Parameters  `yaml:"pathParams"`
-	QueryParams      parameters.Parameters  `yaml:"queryParams"`
-	BodyParams       parameters.Parameters  `yaml:"bodyParams"`
-	HeaderParams     parameters.Parameters  `yaml:"headerParams"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string                `yaml:"type" validate:"required"`
+	Source           string                `yaml:"source" validate:"required"`
+	Path             string                `yaml:"path" validate:"required"`
+	Method           tools.HTTPMethod      `yaml:"method" validate:"required"`
+	Headers          map[string]string     `yaml:"headers"`
+	RequestBody      string                `yaml:"requestBody"`
+	PathParams       parameters.Parameters `yaml:"pathParams"`
+	QueryParams      parameters.Parameters `yaml:"queryParams"`
+	BodyParams       parameters.Parameters `yaml:"bodyParams"`
+	HeaderParams     parameters.Parameters `yaml:"headerParams"`
 }
 
 // validate interface
@@ -250,16 +248,26 @@ func getURL(baseURL, path string, pathParams, queryParams parameters.Parameters,
 	return parsedURL.String(), nil
 }
 
+// Merge headers case-insensitively, with later sets overriding earlier sets.
+func mergeHeaders(headerSets ...map[string]string) map[string]string {
+	headers := make(map[string]string)
+	for _, headerSet := range headerSets {
+		for name, value := range headerSet {
+			headers[http.CanonicalHeaderKey(name)] = value
+		}
+	}
+	return headers
+}
+
 // Helper function to generate the HTTP headers upon Tool invocation.
 func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]string, paramsMap map[string]any) (map[string]string, error) {
 	// Populate header params
-	allHeaders := make(map[string]string)
-	maps.Copy(allHeaders, defaultHeaders)
+	allHeaders := mergeHeaders(defaultHeaders)
 	for _, p := range headerParams {
 		headerValue, ok := paramsMap[p.GetName()]
 		if ok {
 			if strValue, ok := headerValue.(string); ok {
-				allHeaders[p.GetName()] = strValue
+				allHeaders[http.CanonicalHeaderKey(p.GetName())] = strValue
 			} else {
 				return nil, fmt.Errorf("header param %s got value of type %t, not string", p.GetName(), headerValue)
 			}
@@ -275,9 +283,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	// Combine Source and Tool headers.
 	// In case of conflict, Tool header overrides Source header
-	combinedHeaders := make(map[string]string)
-	maps.Copy(combinedHeaders, source.HttpDefaultHeaders())
-	maps.Copy(combinedHeaders, t.Cfg.Headers)
+	combinedHeaders := mergeHeaders(source.HttpDefaultHeaders(), t.Cfg.Headers)
 
 	paramsMap := params.AsMap()
 
