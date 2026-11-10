@@ -86,13 +86,13 @@ func SetupYugabyteDBSQLTable(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	}
 
 	// Create table
-	_, err = pool.Query(ctx, create_statement)
+	_, err = pool.Exec(ctx, create_statement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
 	// Insert test data
-	_, err = pool.Query(ctx, insert_statement, params...)
+	_, err = pool.Exec(ctx, insert_statement, params...)
 	if err != nil {
 		t.Fatalf("unable to insert test data: %s", err)
 	}
