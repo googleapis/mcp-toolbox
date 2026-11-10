@@ -55,6 +55,15 @@
       ],
     },
     {
+      matchManagers: [
+        'gomod',
+      ],
+      matchPackageNames: [
+        'github.com/gocql/gocql',
+      ],
+      allowedVersions: '< 2.0.0',
+    },
+    {
       groupName: 'Go Samples',
       matchManagers: [
         'gomod',
