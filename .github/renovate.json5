@@ -10,9 +10,18 @@
   ],
   minimumReleaseAge: '3 days',
   rebaseWhen: 'conflicted',
+  labels: [
+    'type: process',
+  ],
   dependencyDashboardLabels: [
     'type: process',
   ],
+  ignorePaths: [
+    'npm/**',
+  ],
+  vulnerabilityAlerts: {
+    enabled: false,
+  },
   postUpdateOptions: [
     'gomodTidy',
   ],
@@ -49,10 +58,19 @@
       matchManagers: [
         'gomod',
       ],
-      ignorePaths: [
-        'docs/**',
-        '.hugo/**',
+      matchFileNames: [
+        '!docs/**',
+        '!.hugo/**',
       ],
+    },
+    {
+      matchManagers: [
+        'gomod',
+      ],
+      matchPackageNames: [
+        'github.com/gocql/gocql',
+      ],
+      allowedVersions: '< 2.0.0',
     },
     {
       groupName: 'Go Samples',
@@ -73,8 +91,8 @@
         'minor',
         'patch',
       ],
-      ignorePaths: [
-        'docs/**',
+      matchFileNames: [
+        '!docs/**',
       ],
     },
     {
@@ -90,10 +108,11 @@
     {
       groupName: 'Pip',
       matchManagers: [
+        'pep621',
         'pip_requirements',
       ],
-      ignorePaths: [
-        'docs/**',
+      matchFileNames: [
+        '!docs/**',
       ],
     },
     {
