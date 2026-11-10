@@ -86,6 +86,7 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create MySQL connection pool: %s", err)
 	}
+	defer pool.Close()
 
 	// cleanup test environment
 	tests.CleanupMySQLTables(t, ctx, pool)
@@ -117,7 +118,10 @@ func TestMySQLToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	defer func() {
+		cmd.Close()
+		cleanup()
+	}()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
