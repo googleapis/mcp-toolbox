@@ -10,9 +10,18 @@
   ],
   minimumReleaseAge: '3 days',
   rebaseWhen: 'conflicted',
+  labels: [
+    'type: process',
+  ],
   dependencyDashboardLabels: [
     'type: process',
   ],
+  ignorePaths: [
+    'npm/**',
+  ],
+  vulnerabilityAlerts: {
+    enabled: false,
+  },
   postUpdateOptions: [
     'gomodTidy',
   ],
@@ -49,9 +58,9 @@
       matchManagers: [
         'gomod',
       ],
-      ignorePaths: [
-        'docs/**',
-        '.hugo/**',
+      matchFileNames: [
+        '!docs/**',
+        '!.hugo/**',
       ],
     },
     {
@@ -82,8 +91,8 @@
         'minor',
         'patch',
       ],
-      ignorePaths: [
-        'docs/**',
+      matchFileNames: [
+        '!docs/**',
       ],
     },
     {
@@ -99,10 +108,11 @@
     {
       groupName: 'Pip',
       matchManagers: [
+        'pep621',
         'pip_requirements',
       ],
-      ignorePaths: [
-        'docs/**',
+      matchFileNames: [
+        '!docs/**',
       ],
     },
     {
