@@ -269,7 +269,11 @@ func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]st
 		// paramsMap with a nil value; omit it, as is done for query params.
 		if ok && headerValue != nil {
 			if strValue, ok := headerValue.(string); ok {
-				allHeaders[http.CanonicalHeaderKey(p.GetName())] = strValue
+				// An empty string carries no header value; omit it so any
+				// source or tool header with the same name is kept.
+				if strValue != "" {
+					allHeaders[http.CanonicalHeaderKey(p.GetName())] = strValue
+				}
 			} else {
 				return nil, fmt.Errorf("header param %s got value of type %t, not string", p.GetName(), headerValue)
 			}
