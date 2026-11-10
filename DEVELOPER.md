@@ -595,6 +595,9 @@ variables for each source.
 * SQL Server - setup in the test project using a Cloud SQL instance
 * SQLite -  setup in the integration test, where we create a temporary database
   file
+* YugabyteDB - ephemeral `yugabytedb/yugabyte` container via testcontainers
+  (set `YUGABYTEDB_HOST`, `YUGABYTEDB_PORT`, `YUGABYTEDB_USER`,
+  `YUGABYTEDB_PASS`, and `YUGABYTEDB_DATABASE` to use an existing instance)
 
 ### Link Checking and Fixing with Lychee
 

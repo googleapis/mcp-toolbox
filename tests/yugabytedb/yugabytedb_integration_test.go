@@ -26,6 +26,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/yugabyte/pgx/v5/pgxpool"
 )
 
@@ -39,6 +42,63 @@ var (
 	YBDB_PASS        = os.Getenv("YUGABYTEDB_PASS")
 	YBDB_LB          = os.Getenv("YUGABYTEDB_LOADBALANCE")
 )
+
+const ybImage = "yugabytedb/yugabyte:2025.2.8.1-b8"
+
+func setupYugabyteDBContainer(ctx context.Context, t *testing.T) (host, port, user, pass, database string) {
+	t.Helper()
+
+	user, database = "yugabyte", "yugabyte"
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	req := testcontainers.ContainerRequest{
+		Image:        ybImage,
+		Cmd:          []string{"bin/yugabyted", "start", "--background=false", "--ui=false", "--callhome=false"},
+		ExposedPorts: []string{"5433/tcp"},
+		Env: map[string]string{
+			"YSQL_USER":     user,
+			"YSQL_PASSWORD": pass,
+			"YSQL_DB":       database,
+		},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("5433/tcp"),
+			wait.ForExec([]string{"bash", "-c", `PGPASSWORD="$YSQL_PASSWORD" bin/ysqlsh -h "$(hostname)" -U "$YSQL_USER" -d "$YSQL_DB" -tAc 'SELECT 1'`}),
+		).WithStartupTimeoutDefault(3 * time.Minute).WithDeadline(3 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+	testcontainers.CleanupContainer(t, container)
+	if err != nil {
+		t.Fatalf("failed to start YugabyteDB container: %s", err)
+	}
+
+	host, err = container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get YugabyteDB container host: %s", err)
+	}
+	mappedPort, err := container.MappedPort(ctx, "5433/tcp")
+	if err != nil {
+		t.Fatalf("failed to get YugabyteDB container mapped port: %s", err)
+	}
+	return host, mappedPort.Port(), user, pass, database
+}
+
+func useYugabyteDB(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if YBDB_HOST != "" {
+		return
+	}
+	t.Logf("YUGABYTEDB_HOST not set; starting ephemeral %s container", ybImage)
+	host, port, user, pass, database := setupYugabyteDBContainer(ctx, t)
+	origHost, origPort, origUser, origPass, origDatabase, origLB := YBDB_HOST, YBDB_PORT, YBDB_USER, YBDB_PASS, YBDB_DATABASE, YBDB_LB
+	t.Cleanup(func() {
+		YBDB_HOST, YBDB_PORT, YBDB_USER, YBDB_PASS, YBDB_DATABASE, YBDB_LB = origHost, origPort, origUser, origPass, origDatabase, origLB
+	})
+	YBDB_HOST, YBDB_PORT, YBDB_USER, YBDB_PASS, YBDB_DATABASE, YBDB_LB = host, port, user, pass, database, "false"
+}
 
 func getYBVars(t *testing.T) map[string]any {
 	switch "" {
@@ -114,9 +174,11 @@ func SetupYugabyteDBSQLTable(t *testing.T, ctx context.Context, pool *pgxpool.Po
 }
 
 func TestYugabyteDB(t *testing.T) {
-	sourceConfig := getYBVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	useYugabyteDB(ctx, t)
+	sourceConfig := getYBVars(t)
 
 	args := []string{"--enable-api"}
 
