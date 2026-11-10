@@ -94,6 +94,11 @@ func SetupYugabyteDBSQLTable(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	// Insert test data
 	_, err = pool.Exec(ctx, insert_statement, params...)
 	if err != nil {
+		dropCtx, dropCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer dropCancel()
+		if _, dropErr := pool.Exec(dropCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); dropErr != nil {
+			t.Errorf("unable to drop test table %s: %s", tableName, dropErr)
+		}
 		t.Fatalf("unable to insert test data: %s", err)
 	}
 
