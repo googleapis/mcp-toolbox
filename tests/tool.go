@@ -3366,10 +3366,6 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 					return
 				}
 
-				if tc.checkResult != nil && (mcpResp.Error != nil || mcpResp.Result.IsError) {
-					t.Fatalf("get_query_plan returned error result: %+v", mcpResp.Result.Content)
-				}
-
 				gotObj := getMCPResultText(t, mcpResp)
 				if len(gotObj) == 0 {
 					resultString = "null"
@@ -3971,6 +3967,10 @@ func RunMySQLListTableFragmentationTest(t *testing.T, databaseName, tableNamePar
 				}
 				if tc.wantStatusCode != http.StatusOK {
 					return
+				}
+
+				if tc.checkResult != nil && (mcpResp.Error != nil || mcpResp.Result.IsError) {
+					t.Fatalf("get_query_plan returned error result: %+v", mcpResp.Result.Content)
 				}
 
 				gotObj := getMCPResultText(t, mcpResp)
