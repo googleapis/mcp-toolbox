@@ -13,15 +13,13 @@
 # limitations under the License.
 
 name: conformance
-# zizmor flags pull_request_target, but it is safely gated by the 'tests: run' label manually applied by maintainers.
-on: # zizmor: ignore[dangerous-triggers]
+on:
   pull_request:
 
 permissions: read-all
 
 jobs:
   conformance:
-    if: "${{ github.event_name == 'pull_request' }}"
     name: conformance
     runs-on: ubuntu-latest
     concurrency:
