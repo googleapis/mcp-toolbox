@@ -32,7 +32,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
-	"google.golang.org/api/iterator"
 )
 
 var (
@@ -83,139 +82,47 @@ func newSpannerTestResourceName(prefix string) string {
 	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", ""))
 }
 
-// isOrphanedSpannerResource reports whether a test table or property graph with
-// the given prefix is either a legacy resource without a timestamp or older
-// than maxAge.
-func isOrphanedSpannerResource(name, prefix string, now int64, maxAge time.Duration) bool {
-	if !strings.HasPrefix(name, prefix+"_") {
-		return false
-	}
-	rest := strings.TrimPrefix(name, prefix+"_")
-	parts := strings.SplitN(rest, "_", 2)
-	if len(parts) < 2 {
-		return true
-	}
-	createdAt, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return true
-	}
-	return now-createdAt > int64(maxAge.Seconds())
-}
-
-func runBatchedSpannerDdl(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string, statements []string) {
+func cleanupOldSpannerResources(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dataClient *spanner.Client, dbString, schema string) {
 	t.Helper()
-	if len(statements) == 0 {
-		return
+	cutoff := time.Now().Add(-2 * time.Hour).Unix()
+	isOld := func(name string) bool {
+		parts := strings.Split(name, "_")
+		if len(parts) < 3 {
+			return false
+		}
+		ts, err := strconv.ParseInt(parts[len(parts)-2], 10, 64)
+		return err == nil && ts < cutoff
 	}
-	op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database:   dbString,
-		Statements: statements,
-	})
-	if err != nil {
-		t.Logf("warning: unable to start Spanner cleanup DDL: %v", err)
-		return
-	}
-	if err := op.Wait(ctx); err != nil {
-		t.Logf("warning: Spanner cleanup DDL failed: %v", err)
-	}
-}
-
-// cleanupOldSpannerResources drops leaked test property graphs and tables older
-// than maxAge in dependency order: property graphs first, interleaved/FK edge
-// tables second, and remaining test tables third.
-func cleanupOldSpannerResources(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dataClient *spanner.Client, dbString string, maxAge time.Duration) {
-	t.Helper()
-	now := time.Now().Unix()
-
-	var graphDrops []string
-	graphIter := dataClient.Single().Query(ctx, spanner.Statement{
-		SQL: "SELECT PROPERTY_GRAPH_NAME FROM INFORMATION_SCHEMA.PROPERTY_GRAPHS",
-	})
-	defer graphIter.Stop()
-	for {
-		row, err := graphIter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			t.Logf("warning: failed to query Spanner property graphs for cleanup: %v", err)
-			break
-		}
-		var graphName string
-		if err := row.Columns(&graphName); err != nil {
-			continue
-		}
-		if isOrphanedSpannerResource(graphName, "graph", now, maxAge) {
-			graphDrops = append(graphDrops, fmt.Sprintf("DROP PROPERTY GRAPH IF EXISTS %s", graphName))
-		}
-	}
-
-	var edgeDrops []string
-	var otherDrops []string
-	otherPrefixes := []string{"node_table", "param_table", "auth_table", "template_param_table", "vector_table"}
-
-	tableIter := dataClient.Single().Query(ctx, spanner.Statement{
-		SQL: "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ''",
-	})
-	defer tableIter.Stop()
-	for {
-		row, err := tableIter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			t.Logf("warning: failed to query Spanner tables for cleanup: %v", err)
-			break
-		}
-		var tableName string
-		if err := row.Columns(&tableName); err != nil {
-			continue
-		}
-		if isOrphanedSpannerResource(tableName, "edge_table", now, maxAge) {
-			edgeDrops = append(edgeDrops, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
-			continue
-		}
-		for _, prefix := range otherPrefixes {
-			if isOrphanedSpannerResource(tableName, prefix, now, maxAge) {
-				otherDrops = append(otherDrops, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
-				break
-			}
-		}
-	}
-
-	runBatchedSpannerDdl(t, ctx, adminClient, dbString, graphDrops)
-	runBatchedSpannerDdl(t, ctx, adminClient, dbString, edgeDrops)
-	runBatchedSpannerDdl(t, ctx, adminClient, dbString, otherDrops)
-}
-
-func cleanupOldSpannerPgTables(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dataClient *spanner.Client, dbString string, maxAge time.Duration) {
-	t.Helper()
-	now := time.Now().Unix()
 
 	var drops []string
-	tableIter := dataClient.Single().Query(ctx, spanner.Statement{
-		SQL: "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",
+	if schema == "" {
+		_ = dataClient.Single().Query(ctx, spanner.NewStatement(
+			"SELECT PROPERTY_GRAPH_NAME FROM INFORMATION_SCHEMA.PROPERTY_GRAPHS",
+		)).Do(func(r *spanner.Row) error {
+			var name string
+			if r.Columns(&name) == nil && isOld(name) {
+				drops = append(drops, "DROP PROPERTY GRAPH IF EXISTS "+name)
+			}
+			return nil
+		})
+	}
+	_ = dataClient.Single().Query(ctx, spanner.NewStatement(
+		fmt.Sprintf("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '%s' ORDER BY TABLE_NAME", schema),
+	)).Do(func(r *spanner.Row) error {
+		var name string
+		if r.Columns(&name) == nil && isOld(name) {
+			drops = append(drops, "DROP TABLE IF EXISTS "+name)
+		}
+		return nil
 	})
-	defer tableIter.Stop()
-	for {
-		row, err := tableIter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			t.Logf("warning: failed to query Spanner PG tables for cleanup: %v", err)
-			break
-		}
-		var tableName string
-		if err := row.Columns(&tableName); err != nil {
-			continue
-		}
-		if isOrphanedSpannerResource(tableName, "vector_table", now, maxAge) {
-			drops = append(drops, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+	if len(drops) > 0 {
+		if op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+			Database:   dbString,
+			Statements: drops,
+		}); err == nil {
+			_ = op.Wait(ctx)
 		}
 	}
-
-	runBatchedSpannerDdl(t, ctx, adminClient, dbString, drops)
 }
 
 func TestSpannerToolEndpoints(t *testing.T) {
@@ -246,7 +153,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 		SpannerInstance,
 		SpannerDatabase,
 	)
-	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, 2*time.Hour)
+	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, "")
 	teardownTable1 := setupSpannerTable(t, ctx, adminClient, dataClient, createParamTableStmt, insertParamTableStmt, tableNameParam, dbString, paramTestParams)
 	defer teardownTable1(t)
 
@@ -492,8 +399,7 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 	}
 	defer dataClient.Close()
 
-	// Clean up orphaned PostgreSQL vector tables older than 2 hours before creating new ones.
-	cleanupOldSpannerPgTables(t, ctx, adminClient, dataClient, dbString, 2*time.Hour)
+	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, "public")
 
 	// Set up table for semantic search
 	vectorTableName, tearDownVectorTable := setupSpannerPgVectorTable(t, ctx, adminClient, dbString)
