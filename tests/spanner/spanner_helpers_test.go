@@ -23,12 +23,10 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/googleapis/mcp-toolbox/tests"
 )
@@ -37,12 +35,6 @@ var (
 	SpannerSourceType = "spanner"
 	SpannerToolType   = "spanner-sql"
 )
-
-// newSpannerTestResourceName returns a Spanner table or graph name prefixed
-// with the current Unix timestamp and a random UUID.
-func newSpannerTestResourceName(prefix string) string {
-	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", ""))
-}
 
 // getSpannerToolInfo returns statements and param for my-tool for spanner-sql type
 func getSpannerParamToolInfo(tableName string) (string, string, string, string, string, string, map[string]any) {

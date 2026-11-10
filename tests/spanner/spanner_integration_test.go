@@ -29,6 +29,7 @@ import (
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"google.golang.org/api/iterator"
@@ -78,6 +79,10 @@ func initSpannerClients(ctx context.Context, project, instance, dbname string) (
 	return dataClient, adminClient, nil
 }
 
+func newSpannerTestResourceName(prefix string) string {
+	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", ""))
+}
+
 // isOrphanedSpannerResource reports whether a test table or property graph with
 // the given prefix is either a legacy resource without a timestamp or older
 // than maxAge.
@@ -88,7 +93,6 @@ func isOrphanedSpannerResource(name, prefix string, now int64, maxAge time.Durat
 	rest := strings.TrimPrefix(name, prefix+"_")
 	parts := strings.SplitN(rest, "_", 2)
 	if len(parts) < 2 {
-		// Legacy resource name (<prefix>_<uuid>) without a creation timestamp.
 		return true
 	}
 	createdAt, err := strconv.ParseInt(parts[0], 10, 64)
@@ -103,26 +107,16 @@ func runBatchedSpannerDdl(t *testing.T, ctx context.Context, adminClient *databa
 	if len(statements) == 0 {
 		return
 	}
-	const batchSize = 1000
-	for i := 0; i < len(statements); i += batchSize {
-		end := i + batchSize
-		if end > len(statements) {
-			end = len(statements)
-		}
-		batch := statements[i:end]
-		t.Logf("Spanner cleanup: executing DDL batch (%d statements)...", len(batch))
-		op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-			Database:   dbString,
-			Statements: batch,
-		})
-		if err != nil {
-			t.Logf("warning: unable to start Spanner cleanup DDL batch: %v", err)
-			continue
-		}
-		if err := op.Wait(ctx); err != nil {
-			t.Logf("warning: Spanner cleanup DDL batch failed: %v", err)
-			continue
-		}
+	op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		Database:   dbString,
+		Statements: statements,
+	})
+	if err != nil {
+		t.Logf("warning: unable to start Spanner cleanup DDL: %v", err)
+		return
+	}
+	if err := op.Wait(ctx); err != nil {
+		t.Logf("warning: Spanner cleanup DDL failed: %v", err)
 	}
 }
 
@@ -226,7 +220,7 @@ func cleanupOldSpannerPgTables(t *testing.T, ctx context.Context, adminClient *d
 
 func TestSpannerToolEndpoints(t *testing.T) {
 	sourceConfig := getSpannerVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	args := []string{"--enable-api"}
@@ -239,23 +233,20 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	defer dataClient.Close()
 	defer adminClient.Close()
 
-	dbString := fmt.Sprintf(
-		"projects/%s/instances/%s/databases/%s",
-		SpannerProject,
-		SpannerInstance,
-		SpannerDatabase,
-	)
-
-	// Clean up orphaned test tables and graphs older than 2 hours
-	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, 2*time.Hour)
-
-	// create table name with timestamp and UUID
+	// create table name with UUID
 	tableNameParam := newSpannerTestResourceName("param_table")
 	tableNameAuth := newSpannerTestResourceName("auth_table")
 	tableNameTemplateParam := newSpannerTestResourceName("template_param_table")
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSpannerParamToolInfo(tableNameParam)
+	dbString := fmt.Sprintf(
+		"projects/%s/instances/%s/databases/%s",
+		SpannerProject,
+		SpannerInstance,
+		SpannerDatabase,
+	)
+	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, 2*time.Hour)
 	teardownTable1 := setupSpannerTable(t, ctx, adminClient, dataClient, createParamTableStmt, insertParamTableStmt, tableNameParam, dbString, paramTestParams)
 	defer teardownTable1(t)
 
