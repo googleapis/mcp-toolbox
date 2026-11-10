@@ -27,6 +27,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -38,6 +41,66 @@ var (
 	MySQLUser       = os.Getenv("MYSQL_USER")
 	MySQLPass       = os.Getenv("MYSQL_PASS")
 )
+
+const (
+	mysqlImage             = "mysql:8.4.9"
+	mysqlContainerDatabase = "test_database"
+)
+
+func setupMySQLContainer(ctx context.Context, t *testing.T) (host, port, user, pass, database string) {
+	t.Helper()
+
+	user = "root"
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	database = mysqlContainerDatabase
+	req := testcontainers.ContainerRequest{
+		Image:        mysqlImage,
+		ExposedPorts: []string{"3306/tcp"},
+		Env: map[string]string{
+			"MYSQL_ROOT_PASSWORD": pass,
+			"MYSQL_DATABASE":      database,
+		},
+		Cmd: []string{"--innodb-use-native-aio=0", "--innodb-read-io-threads=4", "--innodb-write-io-threads=4"},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("3306/tcp"),
+			wait.ForLog("port: 3306  MySQL Community Server"),
+		).WithStartupTimeoutDefault(3 * time.Minute).WithDeadline(3 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+	testcontainers.CleanupContainer(t, container)
+	if err != nil {
+		t.Fatalf("failed to start MySQL container: %s", err)
+	}
+
+	host, err = container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get MySQL container host: %s", err)
+	}
+	mappedPort, err := container.MappedPort(ctx, "3306/tcp")
+	if err != nil {
+		t.Fatalf("failed to get MySQL container mapped port: %s", err)
+	}
+	return host, mappedPort.Port(), user, pass, database
+}
+
+func useMySQL(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if MySQLHost != "" {
+		return
+	}
+	t.Logf("MYSQL_HOST not set; starting ephemeral %s container", mysqlImage)
+	host, port, user, pass, database := setupMySQLContainer(ctx, t)
+	origHost, origPort, origUser, origPass, origDatabase := MySQLHost, MySQLPort, MySQLUser, MySQLPass, MySQLDatabase
+	t.Cleanup(func() {
+		MySQLHost, MySQLPort, MySQLUser, MySQLPass, MySQLDatabase = origHost, origPort, origUser, origPass, origDatabase
+	})
+	MySQLHost, MySQLPort, MySQLUser, MySQLPass, MySQLDatabase = host, port, user, pass, database
+}
 
 func getMySQLVars(t *testing.T) map[string]any {
 	switch "" {
@@ -76,9 +139,11 @@ func initMySQLConnectionPool(host, port, user, pass, dbname string) (*sql.DB, er
 }
 
 func TestMySQLToolEndpoints(t *testing.T) {
-	sourceConfig := getMySQLVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	useMySQL(ctx, t)
+	sourceConfig := getMySQLVars(t)
 
 	args := []string{"--enable-api"}
 
