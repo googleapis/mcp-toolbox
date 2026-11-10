@@ -117,6 +117,7 @@ func TestYugabyteDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create YugabyteDB connection pool: %s", err)
 	}
+	defer pool.Close()
 
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -138,7 +139,10 @@ func TestYugabyteDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	defer func() {
+		cmd.Close()
+		cleanup()
+	}()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
