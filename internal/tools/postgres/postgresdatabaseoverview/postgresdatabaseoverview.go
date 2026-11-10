@@ -38,7 +38,7 @@ const databaseOverviewStatement = `
     current_conns AS current_connections,
     active_conns AS active_connections,
     round(
-        (100.0 * current_conns / max_conn),
+        (100.0 * current_conns / NULLIF(max_conn, 0)),
         2
     ) AS pct_connections_used
     FROM (

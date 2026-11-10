@@ -1750,6 +1750,19 @@ func RunPostgresDatabaseOverviewTest(t *testing.T, ctx context.Context, pool *pg
 			t.Errorf("Expected 'pct_connections_used' to be between 0 and 100, got %f", pctUsed)
 		}
 	}
+
+	// Only client backends count towards max_connections; background
+	// processes (checkpointer, walwriter, autovacuum launcher, ...) do not.
+	// The server refuses connections beyond max_connections, so a correct
+	// count can never exceed it.
+	currentConns, _ := resultRow["current_connections"].(float64)
+	activeConns, _ := resultRow["active_connections"].(float64)
+	if maxConn, ok := resultRow["max_connections"].(float64); ok && currentConns > maxConn {
+		t.Errorf("Expected 'current_connections' (%f) to be at most 'max_connections' (%f)", currentConns, maxConn)
+	}
+	if activeConns > currentConns {
+		t.Errorf("Expected 'active_connections' (%f) to be at most 'current_connections' (%f)", activeConns, currentConns)
+	}
 }
 
 func setupPostgresTrigger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schemaName, tableName, functionName, triggerName string) func() {
