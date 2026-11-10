@@ -38,8 +38,7 @@ func setupYugabyteDBMCPServer(t *testing.T, ctx context.Context) string {
 	if err != nil {
 		t.Fatalf("unable to create YugabyteDB connection pool: %s", err)
 	}
-	// Note: Don't close the pool in the teardown - SetupYugabyteDBSQLTable uses
-	// pool.Query without closing rows, so pool.Close() blocks indefinitely.
+	t.Cleanup(pool.Close)
 
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
