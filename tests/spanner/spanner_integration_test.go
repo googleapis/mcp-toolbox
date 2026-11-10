@@ -19,7 +19,6 @@ package spanner
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -77,14 +76,6 @@ func initSpannerClients(ctx context.Context, project, instance, dbname string) (
 	}
 
 	return dataClient, adminClient, nil
-}
-
-func stopSpannerServer(ctx context.Context, cmd *tests.CmdExec) {
-	cmd.Close()
-	exitCtx, exitCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer exitCancel()
-	_ = cmd.Wait(exitCtx)
-	http.DefaultClient.CloseIdleConnections()
 }
 
 // isOrphanedSpannerResource reports whether a test table or property graph with
@@ -334,7 +325,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
-	defer stopSpannerServer(ctx, cmd)
+	defer cmd.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -459,9 +450,7 @@ func setupSpannerPgVectorTable(t *testing.T, ctx context.Context, adminClient *d
 	}
 
 	return tableName, func(t *testing.T) {
-		teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
-		defer cancel()
-		op, err = adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
+		op, err = adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
 		})
@@ -469,7 +458,7 @@ func setupSpannerPgVectorTable(t *testing.T, ctx context.Context, adminClient *d
 			t.Errorf("unable to start drop %s operation: %s", tableName, err)
 			return
 		}
-		opErr := op.Wait(teardownCtx)
+		opErr := op.Wait(ctx)
 		if opErr != nil {
 			t.Errorf("Teardown failed: %s", opErr)
 		}
@@ -542,7 +531,7 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
-	defer stopSpannerServer(ctx, cmd)
+	defer cmd.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
