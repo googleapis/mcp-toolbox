@@ -305,14 +305,18 @@ func TestServerDiscoverHandler(t *testing.T) {
 	ctx = util.WithEnableDraftSpecs(ctx, true)
 	defer cancel()
 	ctxVersion := util.WithToolboxVersionKey(ctx, fakeVersionString)
+	customTTLMs := 60000
 	tests := []struct {
-		name        string
-		body        DiscoverRequest
-		rawBody     []byte
-		header      http.Header
-		context     context.Context
-		wantErr     bool
-		errContains string
+		name           string
+		body           DiscoverRequest
+		rawBody        []byte
+		header         http.Header
+		context        context.Context
+		g              group.Group
+		wantErr        bool
+		errContains    string
+		wantTTLMs      int
+		wantCacheScope cacheScope
 	}{
 		{
 			name: "missing version in context",
@@ -383,9 +387,36 @@ func TestServerDiscoverHandler(t *testing.T) {
 					},
 				},
 			},
-			header:  http.Header{"Mcp-Method": []string{SERVER_DISCOVER}},
-			context: ctxVersion,
-			wantErr: false,
+			header:         http.Header{"Mcp-Method": []string{SERVER_DISCOVER}},
+			context:        ctxVersion,
+			g:              group.NewGroup(group.GroupConfig{Name: ""}),
+			wantErr:        false,
+			wantTTLMs:      group.DefaultTTLMs,
+			wantCacheScope: cacheScopePublic,
+		},
+		{
+			name: "success with group cache hints",
+			body: DiscoverRequest{
+				Request: jsonrpc.Request{
+					Method: "server/discover",
+				},
+				Params: RequestParams{
+					Meta: &RequestMetaObject{
+						ProtocolVersion: PROTOCOL_VERSION,
+						ClientInfo: Implementation{
+							BaseMetadata: BaseMetadata{Name: "TestClient"},
+							Version:      "1.0",
+						},
+						MetaClientCapabilities: &ClientCapabilities{},
+					},
+				},
+			},
+			header:         http.Header{"Mcp-Method": []string{SERVER_DISCOVER}},
+			context:        ctxVersion,
+			g:              group.NewGroup(group.GroupConfig{Name: "custom_group", TTLMs: &customTTLMs, CacheScope: "private"}),
+			wantErr:        false,
+			wantTTLMs:      customTTLMs,
+			wantCacheScope: cacheScopePrivate,
 		},
 	}
 
@@ -399,7 +430,7 @@ func TestServerDiscoverHandler(t *testing.T) {
 					t.Fatalf("unexpected error during marshaling")
 				}
 			}
-			got, err := serverDiscoverHandler(tt.context, dummyID, body, tt.header)
+			got, err := serverDiscoverHandler(tt.context, dummyID, tt.g, body, tt.header)
 
 			if tt.wantErr {
 				if err == nil {
@@ -437,6 +468,13 @@ func TestServerDiscoverHandler(t *testing.T) {
 				}
 				if discoverResult.Capabilities.Extensions == nil || discoverResult.Capabilities.Extensions["io.modelcontextprotocol/ui"] == nil {
 					t.Errorf("expected %s in Extensions capabilities, got %v", "io.modelcontextprotocol/ui", discoverResult.Capabilities.Extensions)
+				}
+				// ttlMs and cacheScope are required on DiscoverResult and must come from the group.
+				if discoverResult.TtlMs != tt.wantTTLMs {
+					t.Errorf("discoverResult.TtlMs = %d, want %d", discoverResult.TtlMs, tt.wantTTLMs)
+				}
+				if discoverResult.CacheScope != tt.wantCacheScope {
+					t.Errorf("discoverResult.CacheScope = %q, want %q", discoverResult.CacheScope, tt.wantCacheScope)
 				}
 			}
 		})

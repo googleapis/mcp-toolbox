@@ -2,7 +2,7 @@ module github.com/googleapis/mcp-toolbox
 
 go 1.27.3
 
-replace github.com/apache/thrift => github.com/apache/thrift v0.25.0
+replace github.com/apache/thrift => github.com/apache/thrift v0.23.0
 
 require (
 	cloud.google.com/go/alloydbconn v1.19.3
@@ -28,14 +28,14 @@ require (
 	github.com/MicahParks/jwkset v0.11.4
 	github.com/MicahParks/keyfunc/v3 v3.9.1
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
-	github.com/cenkalti/backoff/v6 v6.0.1
+	github.com/cenkalti/backoff/v7 v7.0.3
 	github.com/cockroachdb/cockroach-go/v2 v2.4.3
 	github.com/couchbase/gocb/v2 v2.13.0
 	github.com/couchbase/tools-common/http v1.2.0
 	github.com/elastic/elastic-transport-go/v8 v8.11.0
 	github.com/elastic/go-elasticsearch/v9 v9.5.2
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/go-chi/chi/v5 v5.3.0
+	github.com/go-chi/chi/v5 v5.4.0
 	github.com/go-chi/cors v1.2.2
 	github.com/go-chi/httplog/v3 v3.5.0
 	github.com/go-chi/render v1.0.3
@@ -56,7 +56,7 @@ require (
 	github.com/nakagami/firebirdsql v0.9.23
 	github.com/neo4j/neo4j-go-driver/v6 v6.4.0
 	github.com/redis/go-redis/v9 v9.23.0
-	github.com/sijms/go-ora/v2 v2.9.0
+	github.com/sijms/go-ora/v3 v3.0.1
 	github.com/snowflakedb/gosnowflake/v2 v2.3.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -66,7 +66,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/scylladb v0.44.0
 	github.com/thlib/go-timezone-local v0.0.9
-	github.com/trinodb/trino-go-client v0.338.0
+	github.com/trinodb/trino-go-client v1.4.1
 	github.com/valkey-io/valkey-go v1.0.79
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-5
@@ -91,7 +91,7 @@ require (
 	modernc.org/sqlite v1.61.1
 )
 
-replace github.com/gocql/gocql => github.com/scylladb/gocql v1.20.0
+replace github.com/gocql/gocql => github.com/scylladb/gocql v1.18.2
 
 require (
 	cel.dev/expr v0.25.3 // indirect
@@ -194,7 +194,7 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c // indirect
-	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/hashicorp/go-uuid v1.0.4 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -207,7 +207,7 @@ require (
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lib/pq v1.11.2 // indirect
@@ -237,7 +237,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect
-	github.com/pierrec/lz4/v4 v4.1.30 // indirect
+	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
