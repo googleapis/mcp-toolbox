@@ -4074,8 +4074,13 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 					return
 				}
 
-				if tc.checkResult != nil && (mcpResp.Error != nil || mcpResp.Result.IsError) {
-					t.Fatalf("get_query_plan returned error result: %+v", mcpResp.Result.Content)
+				if tc.checkResult != nil {
+					if mcpResp.Error != nil {
+						t.Fatalf("get_query_plan returned RPC error: %v", mcpResp.Error)
+					}
+					if mcpResp.Result.IsError {
+						t.Fatalf("get_query_plan returned error result: %+v", mcpResp.Result.Content)
+					}
 				}
 
 				gotObj := getMCPResultText(t, mcpResp)
