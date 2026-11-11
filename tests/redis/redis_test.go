@@ -19,12 +19,17 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"github.com/redis/go-redis/v9"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -33,6 +38,55 @@ var (
 	RedisAddress    = os.Getenv("REDIS_ADDRESS")
 	RedisPass       = os.Getenv("REDIS_PASS")
 )
+
+const redisImage = "redis:7.2.17-alpine"
+
+func setupRedisContainer(ctx context.Context, t *testing.T) (address, pass string) {
+	t.Helper()
+
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	req := testcontainers.ContainerRequest{
+		Image:        redisImage,
+		Cmd:          []string{"redis-server", "--requirepass", pass},
+		ExposedPorts: []string{"6379/tcp"},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("6379/tcp"),
+			wait.ForLog("Ready to accept connections"),
+		).WithStartupTimeoutDefault(time.Minute).WithDeadline(time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+	testcontainers.CleanupContainer(t, container)
+	if err != nil {
+		t.Fatalf("failed to start Redis container: %s", err)
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get Redis container host: %s", err)
+	}
+	mappedPort, err := container.MappedPort(ctx, "6379/tcp")
+	if err != nil {
+		t.Fatalf("failed to get Redis container mapped port: %s", err)
+	}
+	return fmt.Sprintf("%s:%s", host, mappedPort.Port()), pass
+}
+
+func useRedis(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if RedisAddress != "" {
+		return
+	}
+	t.Logf("REDIS_ADDRESS not set; starting ephemeral %s container", redisImage)
+	address, pass := setupRedisContainer(ctx, t)
+	origAddress, origPass := RedisAddress, RedisPass
+	t.Cleanup(func() { RedisAddress, RedisPass = origAddress, origPass })
+	RedisAddress, RedisPass = address, pass
+}
 
 func getRedisVars(t *testing.T) map[string]any {
 	switch "" {
@@ -65,9 +119,11 @@ func initRedisClient(ctx context.Context, address, pass string) (*redis.Client, 
 }
 
 func TestRedisToolEndpoints(t *testing.T) {
-	sourceConfig := getRedisVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	useRedis(ctx, t)
+	sourceConfig := getRedisVars(t)
 
 	args := []string{"--enable-api"}
 
