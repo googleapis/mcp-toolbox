@@ -27,6 +27,7 @@ import (
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/googleapis/mcp-toolbox/tests"
 )
@@ -680,7 +681,7 @@ func runSpannerListGraphsTest(t *testing.T, graphName string) {
 
 // setupSpannerVectorTable creates a vector table in Spanner for semantic search testing
 func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string) (string, func(*testing.T)) {
-	tableName := newSpannerTestResourceName("vector_table")
+	tableName := "vector_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	createStatement := fmt.Sprintf(`CREATE TABLE %s (
 		id INT64,
 		content STRING(MAX),
