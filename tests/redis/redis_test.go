@@ -75,6 +75,7 @@ func TestRedisToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create Redis connection: %s", err)
 	}
+	t.Cleanup(func() { client.Close() })
 
 	// set up data for param tool
 	teardownDB := setupRedisDB(t, ctx, client)
@@ -87,7 +88,10 @@ func TestRedisToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	defer func() {
+		cmd.Close()
+		cleanup()
+	}()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
