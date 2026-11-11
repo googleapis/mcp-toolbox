@@ -119,14 +119,14 @@ func TestRedisToolEndpoints(t *testing.T) {
 }
 
 func setupRedisDB(t *testing.T, ctx context.Context, client *redis.Client) func(*testing.T) {
-	keys := []string{"row1", "row2", "row3", "row4", "null"}
+	keys := []string{"row1", "row2", "row3", "row4", "null", tests.ServiceAccountEmail}
 	commands := [][]any{
 		{"HSET", keys[0], "id", 1, "name", "Alice"},
 		{"HSET", keys[1], "id", 2, "name", "Jane"},
 		{"HSET", keys[2], "id", 3, "name", "Sid"},
 		{"HSET", keys[3], "id", 4, "name", nil},
 		{"SET", keys[4], "null"},
-		{"HSET", tests.ServiceAccountEmail, "name", "Alice"},
+		{"HSET", keys[5], "name", "Alice"},
 	}
 	for _, c := range commands {
 		resp := client.Do(ctx, c...)
