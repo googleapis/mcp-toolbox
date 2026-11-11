@@ -23,7 +23,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # This shared concurrency group ensures only one docs deployment runs at a time.
     concurrency:
       group: cf-docs-update
