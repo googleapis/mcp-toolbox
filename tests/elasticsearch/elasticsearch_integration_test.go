@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -67,7 +68,7 @@ func setupElasticsearchContainer(ctx context.Context, t *testing.T) (string, fun
 	}
 
 	cleanup := func() {
-		if err := container.Terminate(ctx); err != nil {
+		if err := container.Terminate(context.Background()); err != nil {
 			t.Fatalf("failed to terminate container: %s", err)
 		}
 	}
@@ -96,52 +97,24 @@ func getElasticsearchVars(t *testing.T) map[string]any {
 	}
 }
 
-type ElasticsearchWants struct {
-	Select1               string
-	MyToolId3NameAlice    string
-	MyToolById4           string
-	Null                  string
-	McpMyFailTool         string
-	McpMyToolId3NameAlice string
-	McpSelect1            string
+// setupElasticsearchInstance starts an ephemeral Elasticsearch container and
+// points EsAddress at it. The container is terminated and EsAddress restored
+// on cleanup so each test gets its own container.
+func setupElasticsearchInstance(ctx context.Context, t *testing.T) {
+	t.Helper()
+	origAddress := EsAddress
+	t.Cleanup(func() { EsAddress = origAddress })
+
+	address, containerCleanup := setupElasticsearchContainer(ctx, t)
+	t.Cleanup(containerCleanup)
+	EsAddress = address
 }
 
-func TestElasticsearchToolEndpoints(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	var containerCleanup func()
-	EsAddress, containerCleanup = setupElasticsearchContainer(ctx, t)
-	defer containerCleanup()
-
-	args := []string{"--enable-api"}
-
-	sourceConfig := getElasticsearchVars(t)
-
-	index := "test-index"
-
-	paramToolStatement, idParamToolStatement, nameParamToolStatement, arrayParamToolStatement, authToolStatement := getElasticsearchQueries(index)
-
-	toolsConfig := getElasticsearchToolsConfig(sourceConfig, ElasticsearchToolType, paramToolStatement, idParamToolStatement, nameParamToolStatement, arrayParamToolStatement, authToolStatement)
-
-	searchStmt := fmt.Sprintf(`FROM %s | WHERE KNN(embedding, ?query) | LIMIT 1 | KEEP id, name`, index)
-	insertStmt := fmt.Sprintf("FROM %s | WHERE name == ?content | EVAL dummy = ?text_to_embed | LIMIT 0", index)
-	toolsConfig = tests.AddSemanticSearchConfig(t, toolsConfig, ElasticsearchToolType, insertStmt, searchStmt)
-
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig, args...)
-	if err != nil {
-		t.Fatalf("failed to start cmd: %v", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
-
+// seedElasticsearchIndex creates the test index (with a dense_vector mapping
+// for semantic search) and indexes the sample documents. The index is deleted
+// and the client closed when the test finishes.
+func seedElasticsearchIndex(ctx context.Context, t *testing.T, index string) {
+	t.Helper()
 	esClient, err := elasticsearch.NewBaseClient(elasticsearch.Config{
 		Addresses: []string{EsAddress},
 		Username:  EsUser,
@@ -150,16 +123,27 @@ func TestElasticsearchToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error creating the Elasticsearch client: %s", err)
 	}
+	t.Cleanup(func() {
+		if err := esClient.Close(context.Background()); err != nil {
+			t.Errorf("error closing the Elasticsearch client: %s", err)
+		}
+	})
 
-	// Delete indices if already exists
-	defer func() {
-		_, err = esapi.IndicesDeleteRequest{
+	// Registered before the index is created so a partially failed setup is
+	// still cleaned up. Runs before the client is closed.
+	t.Cleanup(func() {
+		res, err := esapi.IndicesDeleteRequest{
 			Index: []string{index},
-		}.Do(ctx, esClient)
+		}.Do(context.Background(), esClient)
 		if err != nil {
 			t.Errorf("error deleting indices: %s", err)
+			return
 		}
-	}()
+		defer res.Body.Close()
+		if res.IsError() && res.StatusCode != http.StatusNotFound {
+			t.Errorf("error deleting indices: %s", res.String())
+		}
+	})
 
 	alice := fmt.Sprintf(`{
                   "id": 1,
@@ -187,6 +171,7 @@ func TestElasticsearchToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error creating index: %s", err)
 	}
+	defer res.Body.Close()
 	if res.IsError() {
 		t.Logf("Create index response error (might be ignored): %s", res.String())
 	}
@@ -213,17 +198,67 @@ func TestElasticsearchToolEndpoints(t *testing.T) {
 	}
 	for _, doc := range sampleDocs {
 		res, err := esapi.IndexRequest{
-			Index:   "test-index",
+			Index:   index,
 			Body:    strings.NewReader(doc),
 			Refresh: "true",
 		}.Do(ctx, esClient)
-		if res.IsError() {
-			t.Fatalf("error indexing document: %s", res.String())
-		}
 		if err != nil {
 			t.Fatalf("error indexing document: %s", err)
 		}
+		if res.IsError() {
+			res.Body.Close()
+			t.Fatalf("error indexing document: %s", res.String())
+		}
+		res.Body.Close()
 	}
+}
+
+type ElasticsearchWants struct {
+	Select1               string
+	MyToolId3NameAlice    string
+	MyToolById4           string
+	Null                  string
+	McpMyFailTool         string
+	McpMyToolId3NameAlice string
+	McpSelect1            string
+}
+
+func TestElasticsearchToolEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	setupElasticsearchInstance(ctx, t)
+
+	args := []string{"--enable-api"}
+
+	sourceConfig := getElasticsearchVars(t)
+
+	index := "test-index"
+
+	paramToolStatement, idParamToolStatement, nameParamToolStatement, arrayParamToolStatement, authToolStatement := getElasticsearchQueries(index)
+
+	toolsConfig := getElasticsearchToolsConfig(sourceConfig, ElasticsearchToolType, paramToolStatement, idParamToolStatement, nameParamToolStatement, arrayParamToolStatement, authToolStatement)
+
+	searchStmt := fmt.Sprintf(`FROM %s | WHERE KNN(embedding, ?query) | LIMIT 1 | KEEP id, name`, index)
+	insertStmt := fmt.Sprintf("FROM %s | WHERE name == ?content | EVAL dummy = ?text_to_embed | LIMIT 0", index)
+	toolsConfig = tests.AddSemanticSearchConfig(t, toolsConfig, ElasticsearchToolType, insertStmt, searchStmt)
+
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig, args...)
+	if err != nil {
+		t.Fatalf("failed to start cmd: %v", err)
+	}
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	seedElasticsearchIndex(ctx, t, index)
 
 	// Get configs for tests
 	wants := getElasticsearchWants()
@@ -241,7 +276,7 @@ func TestElasticsearchToolEndpoints(t *testing.T) {
 	// Semantic search tests
 	semanticSearchWant := `[{"id":5,"name":"Semantic"}]`
 	tests.RunSemanticSearchToolInvokeTest(t, "[]", "[]", semanticSearchWant)
-	runExecuteEsqlTest(t, index)
+	runExecuteEsqlTest(t, ctx, index)
 }
 
 func getElasticsearchQueries(index string) (string, string, string, string, string) {
@@ -399,19 +434,44 @@ func getElasticsearchToolsConfig(sourceConfig map[string]any, toolType, paramToo
 	return toolsFile
 }
 
-func runExecuteEsqlTest(t *testing.T, index string) {
+// executeEsqlWant is the expected result of running the ES|QL query in
+// executeEsqlQuery against the seeded index.
+const executeEsqlWant = `[{"id":1},{"id":2},{"id":3},{"id":4},{"id":5}]`
+
+// executeEsqlQuery returns the ES|QL query used to exercise my-execute-tool.
+func executeEsqlQuery(index string) string {
+	return fmt.Sprintf("FROM %s | KEEP id | SORT id ASC", index)
+}
+
+func runExecuteEsqlTest(t *testing.T, ctx context.Context, index string) {
 	t.Run("invoke my-execute-tool", func(t *testing.T) {
 		api := "http://127.0.0.1:5000/api/tool/my-execute-tool/invoke"
 		reqBody := map[string]any{
-			"query": fmt.Sprintf("FROM %s | KEEP id | SORT id ASC", index),
+			"query": executeEsqlQuery(index),
 		}
-		bodyBytes, _ := json.Marshal(reqBody)
-		resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer(bodyBytes), nil)
+		bodyBytes, err := json.Marshal(reqBody)
+		if err != nil {
+			t.Fatalf("error marshaling request body: %s", err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			t.Fatalf("error creating request: %s", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("error when sending a request: %s", err)
+		}
+		defer resp.Body.Close()
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("error reading response body: %s", err)
+		}
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
 		}
 		var body map[string]interface{}
-		err := json.Unmarshal(respBody, &body)
+		err = json.Unmarshal(respBody, &body)
 		if err != nil {
 			t.Fatalf("error parsing response body")
 		}
@@ -419,9 +479,8 @@ func runExecuteEsqlTest(t *testing.T, index string) {
 		if !ok {
 			t.Fatalf("unable to find result in response body")
 		}
-		want := `[{"id":1},{"id":2},{"id":3},{"id":4},{"id":5}]`
-		if got != want {
-			t.Fatalf("unexpected value: got %q, want %q", got, want)
+		if got != executeEsqlWant {
+			t.Fatalf("unexpected value: got %q, want %q", got, executeEsqlWant)
 		}
 	})
 }
