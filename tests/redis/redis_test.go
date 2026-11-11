@@ -137,7 +137,7 @@ func setupRedisDB(t *testing.T, ctx context.Context, client *redis.Client) func(
 
 	return func(t *testing.T) {
 		// tear down test
-		_, err := client.Del(ctx, keys...).Result()
+		_, err := client.Del(context.WithoutCancel(ctx), keys...).Result()
 		if err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
