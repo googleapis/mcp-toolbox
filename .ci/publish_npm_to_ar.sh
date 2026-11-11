@@ -20,8 +20,9 @@
 # Required CWD: repo root (so npm/server-*/ paths resolve).
 #
 # Binaries (toolbox.<os>.<arch>) are picked up from the workspace if present
-# (versioned-release pipeline) and otherwise downloaded by each package's own
-# prepack script from GCS by version (retry pipeline).
+# (pre-staged from GCS by fetch-binaries in promote.cloudbuild.yaml) and
+# otherwise downloaded by each package's own prepack script from GCS by version
+# (npm_retry.cloudbuild.yaml).
 #
 # Each publish is gated by an "already in AR?" check so the script is safe to
 # re-run after a partial failure.
@@ -35,7 +36,7 @@ readonly AR_HOST="us-npm.pkg.dev"
 # Write to $HOME so npm finds it as user config from inside any package dir.
 # A .npmrc at /workspace would be ignored — npm's per-project .npmrc must sit
 # next to package.json, and each platform package has its own package.json.
-cat > "$HOME/.npmrc" <<EOF
+cat >> "$HOME/.npmrc" <<EOF
 @toolbox-sdk:registry=${AR_REGISTRY}
 //${AR_HOST}/:always-auth=true
 EOF

@@ -46,6 +46,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboards"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdimensions"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplore"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplores"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfieldvaluesuggestions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfilters"
@@ -62,6 +63,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthanalyze"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthpulse"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthvacuum"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerimportdashboardfromlookml"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistagents"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistgitbranches"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookermakedashboard"
@@ -207,6 +209,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 			wantDestructive: false,
 		},
 		{
+			resourceType:    "looker-get-explore",
+			wantReadOnly:    true,
+			wantDestructive: false,
+		},
+		{
 			resourceType:    "looker-get-explores",
 			wantReadOnly:    true,
 			wantDestructive: false,
@@ -284,6 +291,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 		{
 			resourceType:    "looker-health-vacuum",
 			wantReadOnly:    true,
+			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-import-dashboard-from-lookml",
+			wantReadOnly:    false,
 			wantDestructive: false,
 		},
 		{

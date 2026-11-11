@@ -233,8 +233,14 @@ Toolbox has two types of releases: versioned and continuous. It uses Google
 Cloud project, `database-toolbox`.
 
 * **Versioned Release:** Official, supported distributions tagged as `latest`.
-  The release process is defined in
-  [versioned.release.cloudbuild.yaml](.ci/versioned.release.cloudbuild.yaml).
+  The release process is split into two stages:
+  * **Stage 1 ([versioned.release.cloudbuild.yaml](.ci/versioned.release.cloudbuild.yaml)):**
+    Builds and pushes container images to the staging Artifact Registry and
+    unsigned binaries to the unsigned GCS bucket (for Rapid/signing).
+  * **Stage 2 ([promote.cloudbuild.yaml](.ci/promote.cloudbuild.yaml)):**
+    Verifies BCID attestations (VSA) on the staging image, promotes it to the
+    production Artifact Registry, and publishes the signed binaries to npm and
+    PyPI via the OSS Exit Gate.
 * **Continuous Release:** Used for early testing of features between official
   releases and for end-to-end testing. The release process is defined in
   [continuous.release.cloudbuild.yaml](.ci/continuous.release.cloudbuild.yaml).
@@ -259,11 +265,16 @@ Cloud project, `database-toolbox`.
       20,000 files per deployment.
 1. Approve and merge the PR with the title “[chore(main): release
    x.x.x](https://github.com/googleapis/mcp-toolbox/pull/16)”
-1. The
+1. The Stage 1
    [trigger](https://pantheon.corp.google.com/cloud-build/triggers;region=us-central1/edit/27bd0d21-264a-4446-b2d7-0df4e9915fb3?e=13802955&inv=1&invt=AbhU8A&mods=logs_tg_staging&project=database-toolbox)
    should automatically run when a new tag is pushed. You can view [triggered
    builds here to check the
    status](https://pantheon.corp.google.com/cloud-build/builds;region=us-central1?query=trigger_id%3D%2227bd0d21-264a-4446-b2d7-0df4e9915fb3%22&e=13802955&inv=1&invt=AbhU8A&mods=logs_tg_staging&project=database-toolbox)
+1. Once Stage 1 completes and the signed binaries are available in the
+   `database-toolbox` GCS bucket, run the Stage 2 promotion trigger
+   ([promote.cloudbuild.yaml](.ci/promote.cloudbuild.yaml)) for the release tag
+   `vX.Y.Z` to verify the staging image VSA, promote the container image to the
+   production Artifact Registry, and publish to npm and PyPI via the OSS Exit Gate.
 1. Update the Github release notes to include the following table:
     1. Run the following command (from the root directory):
 
@@ -300,9 +311,10 @@ MCP Toolbox is available as an npm package: [@toolbox-sdk/server](https://www.np
 
 > [!NOTE]
 > npm releases are automated through the **OSS Exit Gate** via the
-> `publish-npm-to-ar` and `trigger-exit-gate` steps in
-> [.ci/versioned.release.cloudbuild.yaml](.ci/versioned.release.cloudbuild.yaml).
-> The versioned release pipeline pushes all six packages to the Exit Gate
+> `publish-npm-to-ar` and `trigger-exit-gate` steps in the Stage 2 promotion
+> pipeline ([.ci/promote.cloudbuild.yaml](.ci/promote.cloudbuild.yaml)).
+> After `fetch-binaries` downloads the signed Go binaries from GCS, the
+> promotion pipeline pushes all six packages to the Exit Gate
 > Artifact Registry (`us-npm.pkg.dev/oss-exit-gate-prod/mcp-toolbox--npm`) and
 > uploads a `publish_all: true` manifest to
 > `gs://oss-exit-gate-prod-projects-bucket/mcp-toolbox/npm/manifests/`, which

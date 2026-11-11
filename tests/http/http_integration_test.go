@@ -117,6 +117,7 @@ func TestHttpToolEndpoints(t *testing.T) {
 func runGenericAuthInvokeTest(t *testing.T, privateKey *rsa.PrivateKey) {
 	// Generate valid token
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss":   "https://example.com",
 		"aud":   "test-audience",
 		"scope": "read:files",
 		"sub":   "test-user",

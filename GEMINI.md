@@ -9,7 +9,7 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 
 ## Tech Stack
 
--   **Language:** Go (1.23+)
+-   **Language:** Go (1.27+)
 -   **Documentation:** Hugo (Extended Edition v0.146.0+)
 -   **Containerization:** Docker
 -   **CI/CD:** GitHub Actions, Google Cloud Build
@@ -35,7 +35,7 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 
 ### Prerequisites
 
--   Go 1.23 or later.
+-   Go 1.27 or later.
 -   Docker (for building container images and running some tests).
 -   Access to necessary Google Cloud resources for integration testing (if applicable).
 
@@ -153,6 +153,17 @@ A concise description of the changes (bug or feature), its impact, and a summary
 **3. Issue Reference**
 Use the format: `Fixes #<issue_number> 🦕`
 
+## Security
+
+Before proposing or making a change, check it for the vulnerability classes most relevant to this codebase:
+
+-   **SQL/query injection:** Never build a query by concatenating or `fmt.Sprintf`-ing a user-supplied tool parameter into a query string. Bind parameters using the source's parameterized-query API instead.
+-   **Credentials and secrets:** Never log, hardcode, or echo back a credential, API key, connection string, or token. Read secrets from config/environment, not from tool parameters.
+-   **Path/command injection:** Treat any user-supplied string used to build a file path or a shell/subprocess argument as untrusted; validate or reject it rather than passing it through unchecked.
+-   **Auth bypass:** The server enforces each tool's `authRequired`/`scopesRequired` (read via `GetAuthRequired`/`GetScopesRequired`) for every invocation. Do not override these getters or add a code path that skips the checks.
+
+If a change touches a `source` or `tool` implementation, call out the relevant point(s) above explicitly in the PR description rather than leaving them implicit.
+
 ## Adding New Features
 
 ### Adding a New Data Source
@@ -169,7 +180,7 @@ Use the format: `Fixes #<issue_number> 🦕`
 
 1.  Create a new directory: `internal/tools/<newdb>/<toolname>`.
 2.  Define a `Config` struct that **embeds `tools.ConfigBase`** (with `yaml:",inline"`). This supplies the shared `name`, `description`, `authRequired`, `scopesRequired`, and `annotations` fields and the applicable getters — add only tool-specific fields and do not redeclare the shared ones.
-3.  Define a `Tool` struct that **embeds `tools.BaseTool[Config]`**. Do *not* re-declare the boilerplate `Tool` methods (`GetName`, `GetDescription`, `Manifest`, `GetParameters`, `Authorized`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, `EmbedParams`, etc.) — they are inherited from `BaseTool`.
+3.  Define a `Tool` struct that **embeds `tools.BaseTool[Config]`**. Do *not* re-declare the boilerplate `Tool` methods (`GetName`, `GetDescription`, `Manifest`, `GetParameters`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, `EmbedParams`, etc.) — they are inherited from `BaseTool`.
 4.  Implement `ToolConfig` interface (`ToolConfigType`, `Initialize`). In `Initialize`, construct the tool via `tools.NewBaseTool(cfg, annotations, manifest, staticParameters)`.
 5.  Implement only the methods `BaseTool` does not provide: `Invoke` and `ToConfig`. Override an inherited method (e.g. `EmbedParams`, `RequiresClientAuthorization`, `GetAuthTokenHeaderName`) **only** when the tool's behavior differs from the default.
 6.  Implement `init()` to register the tool.

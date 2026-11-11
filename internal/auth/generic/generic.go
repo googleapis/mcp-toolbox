@@ -242,6 +242,18 @@ func (a AuthService) GetClaimsFromHeader(ctx context.Context, h http.Header) (ma
 		return nil, fmt.Errorf("invalid JWT claims format")
 	}
 
+	// Validate 'iss' (issuer) claim
+	iss, err := claims.GetIssuer()
+	if err != nil {
+		return nil, fmt.Errorf("could not parse issuer from token: %w", err)
+	}
+	if iss == "" {
+		return nil, fmt.Errorf("missing issuer claim in token")
+	}
+	if iss != a.issuer {
+		return nil, fmt.Errorf("issuer validation failed: expected %s, got %s", a.issuer, iss)
+	}
+
 	// Validate 'aud' (audience) claim
 	aud, err := claims.GetAudience()
 	if err != nil {
