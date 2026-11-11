@@ -14,6 +14,6 @@
     "@genkit-ai/google-genai": "^1.44.0",
     "@toolbox-sdk/core": "^1.0.0",
     "genkit": "^1.44.0",
-    "zod": "^3.25.76"
+    "zod": "^4.0.0"
   }
 }
