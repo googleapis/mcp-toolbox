@@ -35,6 +35,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerdeletegitbranch"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerdeleteprojectdirectory"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerdeleteprojectfile"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerdeploytoproduction"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerdevmode"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergenerateembedurl"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetagent"
@@ -68,9 +69,13 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistgitbranches"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookermakedashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookermakelook"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerprojectcommit"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerpushbranch"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquery"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquerysql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerqueryurl"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerresettoproduction"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerresettoremote"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrundashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrunlook"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrunlookmltests"
@@ -150,6 +155,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 		},
 		{
 			resourceType:    "looker-delete-project-file",
+			wantReadOnly:    false,
+			wantDestructive: true,
+		},
+		{
+			resourceType:    "looker-deploy-to-production",
 			wantReadOnly:    false,
 			wantDestructive: true,
 		},
@@ -319,6 +329,16 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 			wantDestructive: false,
 		},
 		{
+			resourceType:    "looker-project-commit",
+			wantReadOnly:    false,
+			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-push-branch",
+			wantReadOnly:    false,
+			wantDestructive: false,
+		},
+		{
 			resourceType:    "looker-query",
 			wantReadOnly:    true,
 			wantDestructive: false,
@@ -332,6 +352,16 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 			resourceType:    "looker-query-url",
 			wantReadOnly:    true,
 			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-reset-to-production",
+			wantReadOnly:    false,
+			wantDestructive: true,
+		},
+		{
+			resourceType:    "looker-reset-to-remote",
+			wantReadOnly:    false,
+			wantDestructive: true,
 		},
 		{
 			resourceType:    "looker-run-dashboard",

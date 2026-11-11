@@ -464,6 +464,59 @@ description: |
   - project_id (required): The unique ID of the LookML project.
   - branch (required): The branch to delete.
 ---
+kind: tool
+name: deploy_to_production
+type: looker-deploy-to-production
+source: looker-source
+description: |
+  This tool deploys the current revision of the dev branch to production.
+
+  Parameters:
+  - project_id (required): The unique ID of the LookML project.
+---
+kind: tool
+name: reset_to_production
+type: looker-reset-to-production
+source: looker-source
+description: |
+  This tool resets the local dev branch to the commit of production.
+
+  Parameters:
+  - project_id (required): The unique ID of the LookML project.
+---
+kind: tool
+name: reset_to_remote
+type: looker-reset-to-remote
+source: looker-source
+description: |
+  This tool resets the current dev branch to the state of the last commit pushed to the remote git server.
+
+  Parameters:
+  - project_id (required): The unique ID of the LookML project.
+---
+kind: tool
+name: project_commit
+type: looker-project-commit
+source: looker-source
+description: |
+  This tool is used to commit changes in a LookML project. This only works in dev mode.
+
+  Parameters:
+  - project_id (required): The unique ID of the LookML project.
+  - message (optional): The commit message.
+  - files (optional): List of files to commit.
+  - amend (optional): Set to true to amend the last commit.
+---
+kind: tool
+name: push_branch
+type: looker-push-branch
+source: looker-source
+description: |
+  This tool pushes the current dev branch to the remote git repo for a LookML project. This only works in dev mode.
+
+  Parameters:
+  - project_id (required): The unique ID of the LookML project.
+---
 kind: group
 name: looker_dev_tools
 description: These skills are built for LookML developers, data engineers, and administrators who manage the backbone of Looker.
@@ -495,3 +548,8 @@ tools:
 - create_git_branch
 - switch_git_branch
 - delete_git_branch
+- deploy_to_production
+- reset_to_production
+- reset_to_remote
+- project_commit
+- push_branch

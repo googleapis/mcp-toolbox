@@ -333,6 +333,31 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"deploy_to_production": map[string]any{
+				"type":        "looker-deploy-to-production",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"reset_to_production": map[string]any{
+				"type":        "looker-reset-to-production",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"reset_to_remote": map[string]any{
+				"type":        "looker-reset-to-remote",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"project_commit": map[string]any{
+				"type":        "looker-project-commit",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
+			"push_branch": map[string]any{
+				"type":        "looker-push-branch",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"list_agents": map[string]any{
 				"type":        "looker-list-agents",
 				"source":      "my-instance",
@@ -2251,6 +2276,76 @@ func TestLooker(t *testing.T) {
 			},
 		},
 	)
+	for _, singleProjectTool := range []string{
+		"deploy_to_production",
+		"reset_to_production",
+		"reset_to_remote",
+		"push_branch",
+	} {
+		tests.RunToolGetTestByName(t, singleProjectTool,
+			map[string]any{
+				singleProjectTool: map[string]any{
+					"description":  "Simple tool to test end to end functionality.",
+					"authRequired": []any{},
+					"parameters": []any{
+						map[string]any{
+							"authServices": []any{},
+							"description":  "The unique ID of the LookML project.",
+							"name":         "project_id",
+							"required":     true,
+							"type":         "string",
+						},
+					},
+				},
+			},
+		)
+	}
+	tests.RunToolGetTestByName(t, "project_commit",
+		map[string]any{
+			"project_commit": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The unique ID of the LookML project.",
+						"name":         "project_id",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The commit message",
+						"name":         "message",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"default":      []any{},
+						"description":  "List of files to commit",
+						"items": map[string]any{
+							"authServices": []any{},
+							"description":  "File path",
+							"name":         "file",
+							"required":     false,
+							"type":         "string",
+						},
+						"name":     "files",
+						"required": false,
+						"type":     "array",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Amend the last commit",
+						"name":         "amend",
+						"required":     false,
+						"type":         "boolean",
+					},
+				},
+			},
+		},
+	)
 	tests.RunToolGetTestByName(t, "get_dashboard",
 		map[string]any{
 			"get_dashboard": map[string]any{
@@ -2703,6 +2798,8 @@ func TestLooker(t *testing.T) {
 
 	wantResult = "Deleted"
 	tests.RunToolInvokeParametersTest(t, "delete_git_branch", []byte(fmt.Sprintf(`{"project_id": "the_look", "branch": "test_branch_%s"}`, randstr)), wantResult)
+
+	testGitDeployAndResetLifecycle(t, randstr)
 
 	wantResult = "[]"
 	tests.RunToolInvokeParametersTest(t, "get_lookml_tests", []byte(`{"project_id": "the_look"}`), wantResult)
@@ -3375,4 +3472,82 @@ func testImportDashboardFromLookml(t *testing.T, randstr string) func() {
 			t.Fatalf("error deleting imported dashboard: %v", err)
 		}
 	}
+}
+
+func testGitDeployAndResetLifecycle(t *testing.T, randstr string) {
+	t.Helper()
+	branchName := fmt.Sprintf("deploy_branch_%s", randstr)
+	filePath := fmt.Sprintf("temp_deploy_%s.view.lkml", randstr)
+	committedContent := fmt.Sprintf("view: temp_deploy_%s {}", randstr)
+	uncommittedContent := fmt.Sprintf("view: temp_deploy_%s {\n  dimension: id {}\n}", randstr)
+
+	t.Run("TestGitDeployAndResetLifecycle", func(t *testing.T) {
+		// 1. Create a temporary branch in dev mode.
+		tests.RunToolInvokeParametersTest(
+			t,
+			"create_git_branch",
+			[]byte(fmt.Sprintf(`{"project_id": "the_look", "branch": %q}`, branchName)),
+			branchName,
+		)
+		defer func() {
+			tests.RunToolInvokeParametersTest(
+				t,
+				"switch_git_branch",
+				[]byte(`{"project_id": "the_look", "branch": "dev-mike-deangelo-twqb"}`),
+				"dev-mike-deangelo-twqb",
+			)
+			tests.RunToolInvokeParametersTest(
+				t,
+				"delete_git_branch",
+				[]byte(fmt.Sprintf(`{"project_id": "the_look", "branch": %q}`, branchName)),
+				"Deleted",
+			)
+		}()
+
+		time.Sleep(5 * time.Second)
+
+		// 2. Reset the branch to the exact production revision so deploy_to_production
+		// is a safe fast-forward no-op on origin/master and does not pollute master.
+		tests.RunToolInvokeParametersTest(t, "reset_to_production", []byte(`{"project_id": "the_look"}`), "")
+		tests.RunToolInvokeParametersTest(t, "deploy_to_production", []byte(`{"project_id": "the_look"}`), "")
+
+		// 3. Create a valid LookML file, commit it on the temp branch, and push the branch.
+		tests.RunToolInvokeParametersTest(
+			t,
+			"create_project_file",
+			[]byte(fmt.Sprintf(`{"project_id": "the_look", "file_path": %q, "file_content": %q}`, filePath, committedContent)),
+			"created",
+		)
+		tests.RunToolInvokeParametersTest(
+			t,
+			"project_commit",
+			[]byte(fmt.Sprintf(`{"project_id": "the_look", "message": "test commit %s", "files": [%q]}`, randstr, filePath)),
+			"",
+		)
+		tests.RunToolInvokeParametersTest(t, "push_branch", []byte(`{"project_id": "the_look"}`), "")
+
+		// 4. Make an uncommitted edit and verify reset_to_remote discards it.
+		tests.RunToolInvokeParametersTest(
+			t,
+			"update_project_file",
+			[]byte(fmt.Sprintf(`{"project_id": "the_look", "file_path": %q, "file_content": %q}`, filePath, uncommittedContent)),
+			"updated",
+		)
+		tests.RunToolInvokeParametersTest(t, "reset_to_remote", []byte(`{"project_id": "the_look"}`), "")
+
+		// Verify file content reverted to the pushed commit.
+		resp, bodyBytes := tests.RunRequest(
+			t,
+			http.MethodPost,
+			"http://127.0.0.1:5000/api/tool/get_project_file/invoke",
+			bytes.NewBuffer([]byte(fmt.Sprintf(`{"project_id": "the_look", "file_path": %q}`, filePath))),
+			nil,
+		)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("get_project_file failed: %d, body: %s", resp.StatusCode, string(bodyBytes))
+		}
+		if strings.Contains(string(bodyBytes), "dimension: id") {
+			t.Fatalf("expected reset_to_remote to discard uncommitted edit, got: %s", string(bodyBytes))
+		}
+	})
 }

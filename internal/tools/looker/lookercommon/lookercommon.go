@@ -33,6 +33,8 @@ const (
 	FiltersFields    = "fields(filters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
 	MeasuresFields   = "fields(measures(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
 	ParametersFields = "fields(parameters(name,type,label,label_short,description,synonyms,tags,hidden,suggestable,suggestions,suggest_dimension,suggest_explore,value_format,value_format_name))"
+
+	ProjectIdParameterDescription = "The unique ID of the LookML project."
 )
 
 // ExtractLookerFieldProperties extracts common properties from Looker field objects.
@@ -288,7 +290,7 @@ func EscapeFiltersForUnquotedParameters(wq *v4.WriteQuery, unquotedNames map[str
 // LookML type is `unquoted`. Returns an empty map (and no error) when the
 // WriteQuery has no model/view set or no filters at all — the caller has
 // nothing to escape in either case.
-func resolveUnquotedParameterNames(ctx context.Context, sdk *v4.LookerSDK, wq *v4.WriteQuery, opts *rtl.ApiSettings) (map[string]bool, error) {
+func resolveUnquotedParameterNames(_ context.Context, sdk *v4.LookerSDK, wq *v4.WriteQuery, opts *rtl.ApiSettings) (map[string]bool, error) {
 	if wq == nil || wq.Filters == nil || len(*wq.Filters) == 0 || wq.Model == "" || wq.View == "" {
 		return map[string]bool{}, nil
 	}
@@ -739,6 +741,27 @@ func CreateViewsFromTables(ctx context.Context, l *v4.LookerSDK, projectId strin
 	logger, _ := util.LoggerFromContext(ctx)
 	logger.DebugContext(ctx, fmt.Sprintf("generating views with request: query=%v body=%v error=%v", query, reqBody.Tables, err))
 	return err
+}
+
+type ProjectCommitRequest struct {
+	Files   []string `json:"files,omitempty"`   // List of files to commit
+	Message *string  `json:"message,omitempty"` // Commit message
+	Amend   *bool    `json:"amend,omitempty"`   // Amend the last commit
+}
+
+func ProjectCommit(l *v4.LookerSDK, projectId string, request ProjectCommitRequest, options *rtl.ApiSettings) (string, error) {
+	var result string
+	path := fmt.Sprintf("/projects/%s/commit", url.PathEscape(projectId))
+	err := l.AuthSession.Do(&result, "POST", "/4.0", path, nil, request, options)
+	return result, err
+}
+
+func PushBranch(l *v4.LookerSDK, projectId string, options *rtl.ApiSettings) (string, error) {
+	projectId = url.PathEscape(projectId)
+	var result string
+	path := fmt.Sprintf("/projects/%v/push_branch", projectId)
+	err := l.AuthSession.Do(&result, "POST", "/4.0", path, nil, nil, options)
+	return result, err
 }
 
 // SearchLookmlDashboards calls GET /4.0/dashboards/lookml/search and unmarshals
