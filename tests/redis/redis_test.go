@@ -78,8 +78,7 @@ func TestRedisToolEndpoints(t *testing.T) {
 	t.Cleanup(func() { client.Close() })
 
 	// set up data for param tool
-	teardownDB := setupRedisDB(t, ctx, client)
-	defer teardownDB(t)
+	setupRedisDB(t, ctx, client)
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetRedisValkeyToolsConfig(sourceConfig, RedisToolType)
@@ -118,8 +117,15 @@ func TestRedisToolEndpoints(t *testing.T) {
 	)
 }
 
-func setupRedisDB(t *testing.T, ctx context.Context, client *redis.Client) func(*testing.T) {
+func setupRedisDB(t *testing.T, ctx context.Context, client *redis.Client) {
 	keys := []string{"row1", "row2", "row3", "row4", "null", tests.ServiceAccountEmail}
+	t.Cleanup(func() {
+		// tear down test
+		_, err := client.Del(context.WithoutCancel(ctx), keys...).Result()
+		if err != nil {
+			t.Errorf("Teardown failed: %s", err)
+		}
+	})
 	commands := [][]any{
 		{"HSET", keys[0], "id", 1, "name", "Alice"},
 		{"HSET", keys[1], "id", 2, "name", "Jane"},
@@ -134,13 +140,4 @@ func setupRedisDB(t *testing.T, ctx context.Context, client *redis.Client) func(
 			t.Fatalf("unable to insert test data: %s", err)
 		}
 	}
-
-	return func(t *testing.T) {
-		// tear down test
-		_, err := client.Del(context.WithoutCancel(ctx), keys...).Result()
-		if err != nil {
-			t.Errorf("Teardown failed: %s", err)
-		}
-	}
-
 }
