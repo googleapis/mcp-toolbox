@@ -2564,8 +2564,36 @@ func RunPostgresListTableSpacesTest(t *testing.T) {
 				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
 			}
 
-			// Intentionally not adding the output check as output depends on the postgres instance used where the the functional test runs.
-			// Adding the check will make the test flaky.
+			// Intentionally not checking the full output, as it depends on the postgres instance used where the functional test runs.
+			// Only check that the default tablespace pg_default reports its size: pg_tablespace_size allows that for any role
+			// connected to a database whose default tablespace it is, so size_in_bytes must not be NULL even for a non-superuser.
+			var bodyWrapper struct {
+				Result json.RawMessage `json:"result"`
+			}
+			if err := json.Unmarshal(respBody, &bodyWrapper); err != nil {
+				t.Fatalf("error decoding response wrapper: %v", err)
+			}
+			var resultString string
+			if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
+				resultString = string(bodyWrapper.Result)
+			}
+			var got []map[string]any
+			if err := json.Unmarshal([]byte(resultString), &got); err != nil {
+				t.Fatalf("failed to unmarshal result: %v", err)
+			}
+			found := false
+			for _, row := range got {
+				if row["tablespace_name"] != "pg_default" {
+					continue
+				}
+				found = true
+				if row["size_in_bytes"] == nil {
+					t.Errorf("size_in_bytes for pg_default is NULL, want the tablespace size: %v", row)
+				}
+			}
+			if !found {
+				t.Errorf("pg_default tablespace not found in result: %s", resultString)
+			}
 		})
 	}
 }
