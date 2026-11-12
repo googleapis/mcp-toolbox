@@ -64,10 +64,10 @@ export async function main() {
     }];
 
 
-    const genAI = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
+    const genAI = new GoogleGenAI({ apiKey: GOOGLE_API_KEY, apiVersion: "v1beta" });
     
     const chat = genAI.chats.create({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-flash-preview",
         config: {
             systemInstruction: prompt,
             tools: geminiTools,
