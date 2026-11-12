@@ -24,6 +24,13 @@ description: "Details of the Cloud SQL for PostgreSQL prebuilt configuration."
         instance.
     *   Database-level permissions (e.g., `SELECT`, `INSERT`) are required to
         execute queries.
+    *   **Cloud SQL Viewer** (`roles/cloudsql.viewer`), **Cloud SQL Editor**
+        (`roles/cloudsql.editor`), or **Cloud SQL Admin**
+        (`roles/cloudsql.admin`) is required for the instance management
+        tools, depending on the tool. See the Cloud SQL for PostgreSQL Admin
+        prebuilt config for the per-tool breakdown.
+    *   **Monitoring Viewer** (`roles/monitoring.viewer`) is required on the
+        project for `get_system_metrics` and `get_query_metrics`.
 *   **Tools:**
     *   `execute_sql`: Executes a SQL query.
     *   `list_tables`: Lists tables in the database.
@@ -58,3 +65,35 @@ description: "Details of the Cloud SQL for PostgreSQL prebuilt configuration."
         each database in the postgreSQL instance.
     *   `list_roles`: Lists all the user-created roles in PostgreSQL database.
     *   `list_stored_procedure`: Lists stored procedures.
+    *   `list_databases`: Lists all databases for a Cloud SQL instance.
+    *   `create_backup`: Creates a backup on a Cloud SQL instance.
+    *   `postgres_upgrade_precheck`: Performs a precheck for a major version
+        upgrade of a Cloud SQL for PostgreSQL instance.
+    *   `create_instance`: Creates a new Cloud SQL for PostgreSQL instance.
+    *   `wait_for_operation`: Waits for a Cloud SQL operation to complete.
+    *   `get_system_metrics`: Fetches system level cloud monitoring data
+        (timeseries metrics) for a Postgres instance using a PromQL query.
+    *   `restore_backup`: Restores a backup of a Cloud SQL instance.
+    *   `list_instances`: Lists Cloud SQL instances in a project.
+    *   `create_database`: Creates a new database in a Cloud SQL instance.
+    *   `create_user`: Creates a new user in a Cloud SQL instance.
+    *   `get_query_metrics`: Fetches query level cloud monitoring data
+        (timeseries metrics) for queries running in a Postgres instance using a
+        PromQL query.
+    *   `clone_instance`: Creates a clone for an existing Cloud SQL for
+        PostgreSQL instance.
+    *   `get_instance`: Gets information about a Cloud SQL instance.
+    *   `define_spec`: Defines a new vector specification and generates SQL
+        recommendations for setting up embeddings and vector indexes.
+    *   `modify_spec`: Modifies an existing vector specification and
+        recalculates its SQL recommendations.
+    *   `apply_spec`: Executes the SQL recommendations for a vector
+        specification to finalize the vector search setup.
+    *   `generate_query`: Generates an optimized SQL query for vector search
+        based on a vector specification.
+    *   `delete_spec`: Deletes an existing vector specification.
+    *   `list_specs`: Lists the vector specifications defined for a table and
+        column.
+    *   `get_spec`: Gets the details of an existing vector specification.
+    *   `improve_query_recall`: Generates SQL recommendations to improve vector
+        search recall for an existing index.
