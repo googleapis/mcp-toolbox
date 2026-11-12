@@ -357,12 +357,21 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if structuredRes, ok := res.(tools.StructuredToolResult); ok {
-		if structuredRes.StructuredContent != nil {
-			res = structuredRes.StructuredContent
-		} else {
+	// Caps bound the model-facing Content. StructuredContent is the UI payload
+	// and passes through whole.
+	var truncation *tools.Truncation
+	structuredRes, isStructured := res.(tools.StructuredToolResult)
+	if isStructured && structuredRes.StructuredContent != nil {
+		res = structuredRes.StructuredContent
+	} else {
+		if isStructured {
 			res = structuredRes.Content
 		}
+		res, truncation = tools.CapResult(
+			res,
+			tools.ResolveCap(tool.GetMaxRows(), s.maxRows),
+			tools.ResolveCap(tool.GetMaxResponseBytes(), s.maxResponseBytes),
+		)
 	}
 
 	resMarshal, err := json.Marshal(res)
@@ -373,7 +382,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = render.Render(w, r, &resultResponse{Result: string(resMarshal)})
+	_ = render.Render(w, r, &resultResponse{Result: string(resMarshal), Truncation: truncation})
 }
 
 var _ render.Renderer = &resultResponse{} // Renderer interface for managing response payloads.
@@ -381,6 +390,9 @@ var _ render.Renderer = &resultResponse{} // Renderer interface for managing res
 // resultResponse is the response sent back when the tool was invocated successfully.
 type resultResponse struct {
 	Result string `json:"result"` // result of tool invocation
+	// Truncation is set only when the tool's declared result caps
+	// (maxRows / maxResponseBytes) dropped part of the result.
+	Truncation *tools.Truncation `json:"truncation,omitempty"`
 }
 
 // Render renders a single payload and respond to the client request.

@@ -447,6 +447,11 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 		results = structuredRes.Content
 	}
 
+	// Caps bound the model-facing Content. StructuredContent is the UI payload
+	// and passes through whole.
+	defaultRows, defaultBytes := primitiveMgr.ResultCaps()
+	results, truncation := tools.CapResultForTool(tool, results, defaultRows, defaultBytes)
+
 	content := make([]TextContent, 0)
 
 	sliceRes, ok := results.([]any)
@@ -463,6 +468,12 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 			text.Text = string(dM)
 		}
 		content = append(content, text)
+	}
+
+	if truncation != nil {
+		if noticeJSON, err := json.Marshal(map[string]*tools.Truncation{"truncation": truncation}); err == nil {
+			content = append(content, TextContent{Type: "text", Text: string(noticeJSON)})
+		}
 	}
 
 	return jsonrpc.JSONRPCResponse{

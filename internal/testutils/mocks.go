@@ -99,6 +99,9 @@ type MockTool struct {
 	tools.BaseTool[MockToolConfig]
 	requireClientAuthorization bool
 	ReturnParamsInInvoke       bool
+	// InvokeResult, when set, is returned from Invoke as is. It lets a test
+	// exercise result shapes other than the default list of strings.
+	InvokeResult any
 }
 
 var _ tools.Tool = MockTool{}
@@ -167,6 +170,9 @@ func (t MockTool) RequiresClientAuthorization(sources.Source) (bool, error) {
 }
 
 func (t MockTool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, token tools.AccessToken) (any, util.ToolboxError) {
+	if t.InvokeResult != nil {
+		return t.InvokeResult, nil
+	}
 	mock := []any{t.Cfg.Name}
 	if t.ReturnParamsInInvoke && len(params) > 0 {
 		for _, p := range params {

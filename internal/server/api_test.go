@@ -360,3 +360,83 @@ func TestApiRequestBodyLimitOverride(t *testing.T) {
 		t.Fatalf("unexpected error message: got %v, want %s", got["error"], wantError)
 	}
 }
+
+// TestToolInvokeCapsStructuredResult pins how the HTTP API applies result caps
+// to a StructuredToolResult. When the tool supplies StructuredContent, that is
+// what the endpoint returns and it passes through whole. Otherwise the
+// endpoint returns Content, capped like any other result.
+func TestToolInvokeCapsStructuredResult(t *testing.T) {
+	newTool := func(name string, result tools.StructuredToolResult) testutils.MockTool {
+		maxRows := 1
+		cfg := testutils.MockToolConfig{
+			ConfigBase: tools.ConfigBase{Name: name, MaxRows: &maxRows},
+			Type:       "mock-tool",
+		}
+		initialized, err := cfg.Initialize(t.Context())
+		if err != nil {
+			t.Fatalf("unable to initialize mock tool: %s", err)
+		}
+		tool := initialized.(testutils.MockTool)
+		tool.InvokeResult = result
+		return tool
+	}
+	rows := []any{"a", "b", "c"}
+	mockTools := []testutils.MockTool{
+		newTool("with_structured", tools.StructuredToolResult{
+			Content:           rows,
+			StructuredContent: map[string]any{"rows": rows},
+		}),
+		newTool("content_only", tools.StructuredToolResult{Content: rows}),
+	}
+	toolsMap, _, _, _, groups := testutils.SetUpPrimitives(t, mockTools, nil, nil, nil)
+	r, shutdown := setUpServer(t, "api", toolsMap, nil, nil, nil, groups)
+	defer shutdown()
+	ts := runServer(r, false)
+	defer ts.Close()
+
+	testCases := []struct {
+		name          string
+		toolName      string
+		wantResult    string
+		wantTruncated bool
+	}{
+		{
+			name:       "StructuredContent passes through whole",
+			toolName:   "with_structured",
+			wantResult: `{"rows":["a","b","c"]}`,
+		},
+		{
+			name:          "Content is capped when there is no StructuredContent",
+			toolName:      "content_only",
+			wantResult:    `["a"]`,
+			wantTruncated: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, body, err := runRequest(ts, http.MethodPost, fmt.Sprintf("/tool/%s/invoke", tc.toolName), bytes.NewBuffer([]byte(`{}`)), nil)
+			if err != nil {
+				t.Fatalf("unexpected error during request: %s", err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("response status code is not 200, got %d, %s", resp.StatusCode, string(body))
+			}
+			var got struct {
+				Result     string            `json:"result"`
+				Truncation *tools.Truncation `json:"truncation"`
+			}
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatalf("unexpected error unmarshalling body: %s", err)
+			}
+			if got.Result != tc.wantResult {
+				t.Errorf("result = %s, want %s", got.Result, tc.wantResult)
+			}
+			if tc.wantTruncated != (got.Truncation != nil) {
+				t.Fatalf("truncation = %+v, wantTruncated %v", got.Truncation, tc.wantTruncated)
+			}
+			if tc.wantTruncated && (got.Truncation.TotalRows != 3 || got.Truncation.ReturnedRows != 1) {
+				t.Errorf("truncation = %+v, want 1 of 3 rows", got.Truncation)
+			}
+		})
+	}
+}
