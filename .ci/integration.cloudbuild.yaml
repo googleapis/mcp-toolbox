@@ -824,23 +824,30 @@ steps:
           exit 0
         fi
 
-  # - id: "dgraph"
-  #   name: golang:1
-  #   waitFor: ["compile-test-binary", "detect-changes"]
-  #   entrypoint: /bin/bash
-  #   env:
-  #     - "GOPATH=/gopath"
-  #     - "DGRAPH_URL=$_DGRAPHURL"
-  #   volumes:
-  #     - name: "go"
-  #       path: "/gopath"
-  #   args:
-  #     - -c
-  #     - |
-  #       .ci/test_with_coverage.sh \
-  #         "Dgraph" \
-  #         dgraph \
-  #         dgraph
+  - id: "dgraph"
+    name: golang:1
+    waitFor: ["compile-test-binary", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)dgraph/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Dgraph tests..."
+          .ci/test_with_coverage.sh \
+            "Dgraph" \
+            dgraph \
+            dgraph
+        else
+          echo "No relevant changes for Dgraph. Skipping shard."
+          exit 0
+        fi
 
   - id: "http"
     name: golang:1
@@ -1830,7 +1837,6 @@ substitutions:
   _MYSQL_PORT: "3306"
   _MSSQL_HOST: 127.0.0.1
   _MSSQL_PORT: "1433"
-  _DGRAPHURL: "https://play.dgraph.io"
   _LOOKER_LOCATION: "us"
   _LOOKER_PROJECT: "149671255749"
   _LOOKER_VERIFY_SSL: "true"
