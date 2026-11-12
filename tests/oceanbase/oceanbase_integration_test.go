@@ -225,7 +225,9 @@ func setupOceanBaseTable(t *testing.T, ctx context.Context, pool *sql.DB, create
 
 	return func(t *testing.T) {
 		// tear down test
-		_, err = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s;", tableName))
+		dropCtx, dropCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer dropCancel()
+		_, err = pool.ExecContext(dropCtx, fmt.Sprintf("DROP TABLE %s;", tableName))
 		if err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
