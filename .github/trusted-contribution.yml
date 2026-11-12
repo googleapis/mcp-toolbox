@@ -18,6 +18,7 @@
 
 trustedContributors:
   - "dependabot[bot]"
+  - "renovate[bot]"
   - "renovate-bot"
 annotations:
   # Trigger Cloud Build tests
