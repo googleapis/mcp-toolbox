@@ -73,6 +73,18 @@
       allowedVersions: '< 2.0.0',
     },
     {
+      matchManagers: [
+        'pip_requirements',
+      ],
+      matchFileNames: [
+        'docs/en/documentation/configuration/pre-post-processing/python/adk/**',
+      ],
+      matchPackageNames: [
+        'google-genai',
+      ],
+      allowedVersions: '< 3.0.0',
+    },
+    {
       groupName: 'Go Samples',
       matchManagers: [
         'gomod',

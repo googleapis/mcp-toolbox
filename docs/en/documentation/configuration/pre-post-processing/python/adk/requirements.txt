@@ -1,2 +1,2 @@
 google-adk[toolbox]==2.14.0
-google-genai==3.0.0
+google-genai==2.34.0
