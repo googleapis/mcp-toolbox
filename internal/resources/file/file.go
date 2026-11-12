@@ -719,11 +719,6 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 		return nil, fmt.Errorf("security violation: file extension not allowed for resource template %q: %w", r.Name, err)
 	}
 
-	if strings.Contains(resolvedPath, "../") || strings.Contains(resolvedPath, "..\\") {
-		logger.ErrorContext(ctx, fmt.Sprintf("security violation: resolved path %q contains backward traversal components (..) for resource template %q", resolvedPath, r.Name))
-		return nil, fmt.Errorf("security violation: path contains backward traversal components (..) for resource template %q", r.Name)
-	}
-
 	statInfo, err := os.Lstat(resolvedPath)
 	if err != nil {
 		logger.ErrorContext(ctx, fmt.Sprintf("failed to lstat file %q for resource template %q: %v", resolvedPath, r.Name, err))
