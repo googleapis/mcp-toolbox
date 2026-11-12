@@ -190,6 +190,11 @@ func setupOracleTable(t *testing.T, ctx context.Context, pool *sql.DB, createSta
 	// Insert test data
 	_, err = pool.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
+		dropCtx, dropCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer dropCancel()
+		if _, dropErr := pool.ExecContext(dropCtx, fmt.Sprintf("DROP TABLE %s", tableName)); dropErr != nil {
+			t.Errorf("unable to drop test table %s: %s", tableName, dropErr)
+		}
 		t.Fatalf("unable to insert test data: %s", err)
 	}
 
