@@ -16,12 +16,17 @@ package lookercommon_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
@@ -472,6 +477,12 @@ func TestProcessQueryArgsWithFilterExpression(t *testing.T) {
 			wantErr:          false,
 		},
 		{
+			desc:             "filter expression is empty string",
+			filterExpression: "   ",
+			wantVal:          nil,
+			wantErr:          false,
+		},
+		{
 			desc:             "filter expression is valid string",
 			filterExpression: "matches_filter(${order.order_month}, `24 months`)",
 			wantVal:          func() *string { s := "matches_filter(${order.order_month}, `24 months`)"; return &s }(),
@@ -609,6 +620,51 @@ func TestProcessQueryArgsWithDynamicFields(t *testing.T) {
 	}
 }
 
+func TestExtractLookerErrorMessage(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		inErr   error
+		wantMsg string
+	}{
+		{
+			desc:    "extracts message from 400 Bad Request JSON error",
+			inErr:   lookerTestError(`response error. status=400 Bad Request. error={"message":"Missing values were not filled because too many fill rows would be generated. Try filtering to reduce the size of the result.","documentation_url":"https://docs.cloud.google.com/looker/docs/r/err/4.0/400/post/queries/run/:result_format"}`),
+			wantMsg: "Missing values were not filled because too many fill rows would be generated. Try filtering to reduce the size of the result.",
+		},
+		{
+			desc:    "extracts message from nested errors array",
+			inErr:   lookerTestError(`response error. status=422 Unprocessable Entity. error={"errors":[{"message":"Invalid filter expression for users.created_date"}]}`),
+			wantMsg: "Invalid filter expression for users.created_date",
+		},
+		{
+			desc:    "preserves 404 Sinatra::NotFound error unchanged",
+			inErr:   lookerTestError(`response error. status=404 Not Found. error={"message":"Sinatra::NotFound"}`),
+			wantMsg: `response error. status=404 Not Found. error={"message":"Sinatra::NotFound"}`,
+		},
+		{
+			desc:    "preserves plain non-JSON error unchanged",
+			inErr:   lookerTestError("connection refused"),
+			wantMsg: "connection refused",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := lookercommon.ExtractLookerErrorMessage(tc.inErr)
+			if got == nil {
+				t.Fatalf("expected non-nil error")
+			}
+			if got.Error() != tc.wantMsg {
+				t.Errorf("ExtractLookerErrorMessage() = %q, want %q", got.Error(), tc.wantMsg)
+			}
+		})
+	}
+}
+
+type lookerTestError string
+
+func (e lookerTestError) Error() string { return string(e) }
+
 func TestStripDrillLinks(t *testing.T) {
 	detailResp := map[string]any{
 		"sql":             "SELECT * FROM orders",
@@ -717,5 +773,342 @@ func TestStripDrillLinks(t *testing.T) {
 	}
 	if measureField["name"] != "orders.count" || measureField["label"] != "Order Count" {
 		t.Errorf("expected essential field metadata to be preserved, got %v", measureField)
+	}
+}
+
+func TestExceedsMCPPayloadLimit(t *testing.T) {
+	small := map[string]any{"status": "success"}
+	if size, exceeded := lookercommon.ExceedsMCPPayloadLimit(small, 1024); exceeded || size == 0 {
+		t.Errorf("expected small payload not to exceed 1024 bytes, got size=%d exceeded=%v", size, exceeded)
+	}
+	if _, exceeded := lookercommon.ExceedsMCPPayloadLimit(small, 5); !exceeded {
+		t.Errorf("expected small payload to exceed 5 bytes")
+	}
+}
+
+func TestNormalizeFilterKeys(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		filters map[string]any
+		fields  []string
+		hints   []string
+		want    map[string]any
+	}{
+		{
+			desc:    "rewrites underscored key matching field in fields",
+			filters: map[string]any{"order_items_created_date": "12 months"},
+			fields:  []string{"order_items.created_date", "order_items.count"},
+			want:    map[string]any{"order_items.created_date": "12 months"},
+		},
+		{
+			desc:    "rewrites underscored key matching multi-word view prefix from explore or fields",
+			filters: map[string]any{"order_items_created_month": "2024"},
+			fields:  []string{"order_items.count"},
+			hints:   []string{"order_items"},
+			want:    map[string]any{"order_items.created_month": "2024"},
+		},
+		{
+			desc:    "rewrites single-underscore key when view is not in fields",
+			filters: map[string]any{"users_state": "California"},
+			fields:  []string{"order_items.count"},
+			hints:   []string{"order_items"},
+			want:    map[string]any{"users.state": "California"},
+		},
+		{
+			desc:    "strips surrounding square brackets and quotes from keys",
+			filters: map[string]any{"[order_items.status]": "'Complete'"},
+			fields:  []string{"order_items.count"},
+			want:    map[string]any{"order_items.status": "Complete"},
+		},
+		{
+			desc:    "leaves dotted keys untouched",
+			filters: map[string]any{"inventory_items.created_date": "7 days"},
+			fields:  []string{"inventory_items.count"},
+			want:    map[string]any{"inventory_items.created_date": "7 days"},
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := lookercommon.NormalizeFilterKeys(tc.filters, tc.fields, tc.hints...)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("NormalizeFilterKeys() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEnsurePivotsInFieldsAndValidateDetailResponse(t *testing.T) {
+	fields, err := lookercommon.EnsurePivotsInFields([]string{"orders.created_year", "orders.count"}, []string{"orders.status"})
+	if err != nil {
+		t.Fatalf("unexpected error from EnsurePivotsInFields: %v", err)
+	}
+	wantFields := []string{"orders.created_year", "orders.count", "orders.status"}
+	if diff := cmp.Diff(wantFields, fields); diff != "" {
+		t.Errorf("EnsurePivotsInFields() mismatch (-want +got):\n%s", diff)
+	}
+
+	if _, err := lookercommon.EnsurePivotsInFields([]string{"orders.count"}, []string{"invalid_pivot_without_dot"}); err == nil {
+		t.Errorf("expected error for pivot field without dot")
+	}
+
+	// Valid pivot present in fields.pivots
+	validDetail := map[string]any{
+		"fields": map[string]any{
+			"pivots": []any{
+				map[string]any{"name": "orders.status"},
+			},
+		},
+	}
+	if err := lookercommon.ValidatePivotsInDetailResponse([]string{"orders.status"}, validDetail); err != nil {
+		t.Errorf("expected valid pivot to pass, got %v", err)
+	}
+
+	// Invalid pivot dropped by Looker (fields.pivots is empty)
+	droppedDetail := map[string]any{
+		"fields": map[string]any{
+			"pivots": []any{},
+		},
+	}
+	if err := lookercommon.ValidatePivotsInDetailResponse([]string{"order_items.status"}, droppedDetail); err == nil {
+		t.Errorf("expected error when Looker drops invalid pivot and returns empty fields.pivots")
+	}
+}
+
+func TestProcessQueryArgsEmptyAndInvalidTimezone(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wq, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "tz", Value: "  "},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error for empty tz: %v", err)
+	}
+	if wq.QueryTimezone == nil || strings.TrimSpace(*wq.QueryTimezone) == "" {
+		t.Errorf("expected fallback runtime timezone for empty tz, got %v", wq.QueryTimezone)
+	}
+
+	_, err = lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "tz", Value: 123},
+	})
+	if err == nil || !strings.Contains(err.Error(), "'tz' must be a string") {
+		t.Errorf("expected error for non-string tz, got %v", err)
+	}
+}
+
+func TestWriteQueryFromQueryPreservesAndClonesFields(t *testing.T) {
+	fields := []string{"orders.status", "orders.count"}
+	pivots := []string{"orders.created_year"}
+	fillFields := []string{"orders.created_year"}
+	filters := map[string]any{"orders.status": "complete"}
+	sorts := []string{"orders.count desc 0"}
+	limit := "100"
+	colLimit := "50"
+	total := true
+	rowTotal := "right"
+	subtotals := []string{"orders.status"}
+	visConfig := map[string]any{"type": "looker_column"}
+	clientID := "cid123"
+	filterConfig := map[string]any{"orders.status": []any{}}
+
+	q := v4.Query{
+		Model:        "thelook",
+		View:         "orders",
+		Fields:       &fields,
+		Pivots:       &pivots,
+		FillFields:   &fillFields,
+		Filters:      &filters,
+		FilterConfig: &filterConfig,
+		ClientId:     &clientID,
+		Sorts:        &sorts,
+		Limit:        &limit,
+		ColumnLimit:  &colLimit,
+		Total:        &total,
+		RowTotal:     &rowTotal,
+		Subtotals:    &subtotals,
+		VisConfig:    &visConfig,
+	}
+
+	wq := lookercommon.WriteQueryFromQuery(q)
+	if wq.Total == nil || !*wq.Total {
+		t.Errorf("expected Total=true to be preserved, got %v", wq.Total)
+	}
+	if wq.RowTotal == nil || *wq.RowTotal != "right" {
+		t.Errorf("expected RowTotal=right to be preserved, got %v", wq.RowTotal)
+	}
+	if wq.ColumnLimit == nil || *wq.ColumnLimit != "50" {
+		t.Errorf("expected ColumnLimit=50 to be preserved, got %v", wq.ColumnLimit)
+	}
+	if wq.Subtotals == nil || len(*wq.Subtotals) != 1 || (*wq.Subtotals)[0] != "orders.status" {
+		t.Errorf("expected Subtotals to be preserved, got %v", wq.Subtotals)
+	}
+	if wq.FillFields == nil || len(*wq.FillFields) != 1 || (*wq.FillFields)[0] != "orders.created_year" {
+		t.Errorf("expected FillFields to be preserved, got %v", wq.FillFields)
+	}
+	if wq.FilterConfig != nil || wq.ClientId != nil {
+		t.Errorf("expected FilterConfig and ClientId to be nil on WriteQuery")
+	}
+
+	// Mutating cloned maps/slices on wq must not mutate q.
+	(*wq.Filters)["orders.status"] = "cancelled"
+	(*wq.VisConfig)["type"] = "looker_bar"
+	(*wq.Fields)[0] = "orders.id"
+	if (*q.Filters)["orders.status"] != "complete" {
+		t.Errorf("expected q.Filters not to be mutated")
+	}
+	if (*q.VisConfig)["type"] != "looker_column" {
+		t.Errorf("expected q.VisConfig not to be mutated")
+	}
+	if (*q.Fields)[0] != "orders.status" {
+		t.Errorf("expected q.Fields not to be mutated")
+	}
+}
+
+func TestProcessLookerAPIError(t *testing.T) {
+	if got := lookercommon.ProcessLookerAPIError(nil); got != nil {
+		t.Errorf("expected nil for ProcessLookerAPIError(nil), got %v", got)
+	}
+
+	unauthErr := lookercommon.ProcessLookerAPIError(lookerTestError("response error. status=401 Unauthorized"))
+	var csErr *util.ClientServerError
+	if cs, ok := unauthErr.(*util.ClientServerError); !ok || cs.Code != http.StatusUnauthorized {
+		csErr = cs
+		t.Errorf("expected 401 ClientServerError, got %T (%v)", unauthErr, csErr)
+	}
+
+	badReqErr := lookercommon.ProcessLookerAPIError(lookerTestError(`context={foo} response error. status=400 Bad Request. error={"message":"Validation Failed","errors":[{"message":"Unknown field orders.bad"}]}`))
+	if badReqErr == nil || !strings.Contains(badReqErr.Error(), "Validation Failed: Unknown field orders.bad") {
+		t.Errorf("expected combined Looker error message, got %v", badReqErr)
+	}
+}
+
+func TestNormalizeFilterKeysPreservesMultiQuotedValuesAndCanonicalPrecedence(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		got := lookercommon.NormalizeFilterKeys(
+			map[string]any{
+				"orders.status":   "complete",
+				"orders_status":   "cancelled",
+				"orders.category": "'complete', 'pending'",
+			},
+			[]string{"orders.status", "orders.category"},
+		)
+		if got["orders.status"] != "complete" {
+			t.Fatalf("iteration %d: expected canonical key orders.status=complete to win over orders_status, got %v", i, got["orders.status"])
+		}
+		if got["orders.category"] != "'complete', 'pending'" {
+			t.Fatalf("iteration %d: expected multi-quoted filter expression to be preserved, got %q", i, got["orders.category"])
+		}
+	}
+}
+
+func TestProcessQueryArgsValidatesLimitFiltersAndDynamicFields(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Whitespace-only model rejected
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "   "},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+	}); err == nil {
+		t.Errorf("expected error for whitespace-only model")
+	}
+
+	// limit = -1 allowed, limit = -2 rejected
+	wq, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "limit", Value: -1},
+	})
+	if err != nil || wq.Limit == nil || *wq.Limit != "-1" {
+		t.Errorf("expected limit=-1 to succeed, got wq.Limit=%v err=%v", wq.Limit, err)
+	}
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "limit", Value: -2},
+	}); err == nil {
+		t.Errorf("expected error for limit=-2")
+	}
+
+	// Non-map filters rejected
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "filters", Value: "invalid"},
+	}); err == nil {
+		t.Errorf("expected error for non-map filters")
+	}
+
+	// Non-slice dynamic_fields rejected
+	if _, err := lookercommon.ProcessQueryArgs(ctx, parameters.ParamValues{
+		{Name: "model", Value: "thelook"},
+		{Name: "explore", Value: "orders"},
+		{Name: "fields", Value: []any{"orders.count"}},
+		{Name: "dynamic_fields", Value: "invalid"},
+	}); err == nil {
+		t.Errorf("expected error for non-slice dynamic_fields")
+	}
+}
+
+func TestWriteQueryFromQueryDeepClonesNestedVisConfig(t *testing.T) {
+	hidden := []any{"orders.count"}
+	visConfig := map[string]any{"type": "looker_column", "hidden_fields": hidden}
+	q := v4.Query{
+		Model:     "thelook",
+		View:      "orders",
+		VisConfig: &visConfig,
+	}
+	wq := lookercommon.WriteQueryFromQuery(q)
+	wqHidden := (*wq.VisConfig)["hidden_fields"].([]any)
+	wqHidden[0] = "mutated"
+	if (*q.VisConfig)["hidden_fields"].([]any)[0] != "orders.count" {
+		t.Errorf("expected nested slice in q.VisConfig not to be mutated")
+	}
+}
+
+func TestRunSavedQueryDoesNotRetryPostOnGetFailure(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	postCalled := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			postCalled = true
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Sinatra::NotFound"}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"Unknown field orders.invalid"}`))
+	}))
+	defer ts.Close()
+
+	settings := &rtl.ApiSettings{BaseUrl: ts.URL}
+	session := rtl.NewAuthSession(*settings)
+	session.Client = *ts.Client()
+	sdk := v4.NewLookerSDK(session)
+
+	_, runErr := lookercommon.RunSavedQuery(ctx, sdk, "42", "json_detail", nil, settings)
+	if runErr == nil || !strings.Contains(runErr.Error(), "Unknown field orders.invalid") {
+		t.Errorf("expected original GET 400 error to be preserved, got %v", runErr)
+	}
+	if postCalled {
+		t.Errorf("expected RunSavedQuery not to issue a POST retry on GET failure")
 	}
 }
