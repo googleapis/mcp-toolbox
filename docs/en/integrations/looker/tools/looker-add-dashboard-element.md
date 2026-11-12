@@ -10,12 +10,20 @@ description: >
 
 The `looker-add-dashboard-element` tool creates a new tile (element) within an existing Looker dashboard.
 Tiles are added in the order this tool is called for a given `dashboard_id`.
-It supports query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
+It supports query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`), and extension/data app tiles (`extension`).
 
 CRITICAL ORDER OF OPERATIONS:
 1. Create the dashboard using `make_dashboard`.
 2. Add any dashboard-level filters using `add_dashboard_filter`.
 3. Then, add elements (tiles) using this tool.
+
+DATA APP EXTENSION PUBLISHING LIFECYCLE:
+To mount a Data App Extension on a dashboard:
+1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
 ## Compatible Sources
 
@@ -31,20 +39,31 @@ source: looker-source
 description: |
   This tool creates a new tile (element) within an existing Looker dashboard.
   Tiles are added in the order this tool is called for a given `dashboard_id`.
-  It supports query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
+  It supports query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`),
+  and extension/data app tiles (`extension`).
 
   CRITICAL ORDER OF OPERATIONS:
   1. Create the dashboard using `make_dashboard`.
   2. Add any dashboard-level filters using `add_dashboard_filter`.
   3. Then, add elements (tiles) using this tool.
 
+  DATA APP EXTENSION PUBLISHING LIFECYCLE:
+  To mount a Data App Extension on a dashboard:
+  1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
   - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` are required to define the query for the tile.
+  - For extension tiles (`type: 'extension'`): `extension_id` is required (e.g. `'db::<id>'` or `'app::<id>'`). For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
 
   Optional Parameters:
-  - type: The type of dashboard element (`'vis'`, `'data'`, or `'text'`). If omitted, `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
-  - title: An optional title for query-based dashboard tiles.
+  - type: The type of dashboard element (`'vis'`, `'data'`, `'text'`, or `'extension'`). Note that `'extension'` is automatically inferred when `extension_id` is provided; `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
+  - extension_id: The ID of the extension (e.g. `'db::<id>'` from `create_data_app_extension` or `'app::<id>'` from LookML extensions) for `'extension'` tiles. For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
+  - title: An optional title for query-based or extension dashboard tiles.
   - title_text: The header title text for `'text'` tiles.
   - subtitle_text: The subtitle text displayed below the title.
   - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
