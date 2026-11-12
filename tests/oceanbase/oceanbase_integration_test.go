@@ -88,6 +88,7 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create OceanBase connection pool: %s", err)
 	}
+	defer pool.Close()
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -114,7 +115,10 @@ func TestOceanBaseToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	defer func() {
+		cmd.Close()
+		cleanup()
+	}()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
