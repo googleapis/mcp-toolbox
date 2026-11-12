@@ -27,6 +27,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -40,6 +43,68 @@ var (
 	OceanBaseUser       = os.Getenv("OCEANBASE_USER")
 	OceanBasePass       = os.Getenv("OCEANBASE_PASSWORD")
 )
+
+const (
+	oceanBaseImage             = "oceanbase/oceanbase-ce:4.4.2.1-101000022026050611"
+	oceanBaseContainerDatabase = "test_database"
+)
+
+func setupOceanBaseContainer(ctx context.Context, t *testing.T) (host, port, user, pass, database string) {
+	t.Helper()
+
+	user = "root@test"
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	database = oceanBaseContainerDatabase
+	req := testcontainers.ContainerRequest{
+		Image:        oceanBaseImage,
+		ExposedPorts: []string{"2881/tcp"},
+		Env: map[string]string{
+			"MODE":                      "slim",
+			"OB_TENANT_PASSWORD":        pass,
+			"OB_DATABASE":               database,
+			"TELEMETRY_MODE":            "0",
+			"OBSHELL_TELEMETRY_ENABLED": "0",
+		},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("2881/tcp"),
+			wait.ForLog("boot success!"),
+		).WithStartupTimeoutDefault(5 * time.Minute).WithDeadline(5 * time.Minute),
+	}
+
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+	testcontainers.CleanupContainer(t, c)
+	if err != nil {
+		t.Fatalf("failed to start OceanBase container: %s", err)
+	}
+
+	host, err = c.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get OceanBase container host: %s", err)
+	}
+	mappedPort, err := c.MappedPort(ctx, "2881/tcp")
+	if err != nil {
+		t.Fatalf("failed to get OceanBase container mapped port: %s", err)
+	}
+	return host, mappedPort.Port(), user, pass, database
+}
+
+func useOceanBase(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if OceanBaseHost != "" {
+		return
+	}
+	t.Logf("OCEANBASE_HOST not set; starting ephemeral %s container", oceanBaseImage)
+	host, port, user, pass, database := setupOceanBaseContainer(ctx, t)
+	origHost, origPort, origUser, origPass, origDatabase := OceanBaseHost, OceanBasePort, OceanBaseUser, OceanBasePass, OceanBaseDatabase
+	t.Cleanup(func() {
+		OceanBaseHost, OceanBasePort, OceanBaseUser, OceanBasePass, OceanBaseDatabase = origHost, origPort, origUser, origPass, origDatabase
+	})
+	OceanBaseHost, OceanBasePort, OceanBaseUser, OceanBasePass, OceanBaseDatabase = host, port, user, pass, database
+}
 
 func getOceanBaseVars(t *testing.T) map[string]any {
 	switch "" {
@@ -78,9 +143,10 @@ func initOceanBaseConnectionPool(host, port, user, pass, dbname string) (*sql.DB
 }
 
 func TestOceanBaseToolEndpoints(t *testing.T) {
-	sourceConfig := getOceanBaseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	useOceanBase(ctx, t)
+	sourceConfig := getOceanBaseVars(t)
 
 	args := []string{"--enable-api"}
 
