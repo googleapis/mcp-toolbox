@@ -11,6 +11,6 @@
   "license": "ISC",
   "dependencies": {
     "@google/adk": "^1.2.0",
-    "@toolbox-sdk/adk": "^0.3.0"
+    "@toolbox-sdk/adk": "^1.2.0"
   }
 }
