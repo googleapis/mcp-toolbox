@@ -840,20 +840,31 @@ source: looker-source
 description: |
   This tool creates a new tile (element) within an existing Looker dashboard.
   Tiles are added in the order this tool is called for a given `dashboard_id`.
-  It supports query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
+  It supports query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`),
+  and extension/data app tiles (`extension`).
 
   CRITICAL ORDER OF OPERATIONS:
   1. Create the dashboard using `make_dashboard`.
   2. Add any dashboard-level filters using `add_dashboard_filter`.
   3. Then, add elements (tiles) using this tool.
 
+  DATA APP EXTENSION PUBLISHING LIFECYCLE:
+  To mount a Data App Extension on a dashboard:
+  1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
   - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` are required to define the query for the tile.
+  - For extension tiles (`type: 'extension'`): `extension_id` is required (e.g. `'db::<id>'` or `'app::<id>'`). For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
 
   Optional Parameters:
-  - type: The type of dashboard element (`'vis'`, `'data'`, or `'text'`). If omitted, `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
-  - title: An optional title for query-based dashboard tiles.
+  - type: The type of dashboard element (`'vis'`, `'data'`, `'text'`, or `'extension'`). Note that `'extension'` is automatically inferred when `extension_id` is provided; `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
+  - extension_id: The ID of the extension (e.g. `'db::<id>'` from `create_data_app_extension` or `'app::<id>'` from LookML extensions) for `'extension'` tiles. For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
+  - title: An optional title for query-based or extension dashboard tiles.
   - title_text: The header title text for `'text'` tiles.
   - subtitle_text: The subtitle text displayed below the title.
   - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
@@ -930,12 +941,41 @@ description: |
   - dashboard_id (required): The unique identifier of the dashboard.
 ---
 kind: tool
+name: update_dashboard
+type: looker-update-dashboard
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard (`PATCH /api/4.0/dashboards/:id`).
+  It allows updating top-level dashboard properties such as title, description,
+  visibility, refresh interval, and dashboard appearance settings.
+
+  FULL-BLEED DATA APP APPEARANCE:
+  To configure a dashboard container for full-bleed Data Applications, pass:
+  - `show_dashboard_header: false` (hides Looker's native top navigation bar, title, filter bar, reload icon, and menu)
+  - `page_side_margins: 0` (removes outer dashboard margins)
+  - `tile_space_between: 0` (removes gutter spacing between tiles)
+  - `tile_shadow: false` (removes tile drop shadows)
+
+  Parameters:
+  - dashboard_id (required): The unique identifier of the dashboard to update.
+  - title (optional): Updated dashboard title.
+  - description (optional): Updated dashboard description.
+  - show_dashboard_header (optional): Whether to display Looker's native header bar. Set to false for full-bleed Data Apps.
+  - page_side_margins (optional): Page margin width in pixels (e.g. 0 for full bleed).
+  - tile_space_between (optional): Spacing between tiles in pixels (e.g. 0 for full bleed).
+  - tile_shadow (optional): Whether tiles have drop shadows (e.g. false for full bleed).
+  - appearance (optional): Map of additional appearance styling settings.
+  - hidden (optional): Whether to hide the dashboard in navigation.
+  - refresh_interval (optional): Auto-refresh interval phrase (e.g. '1 hour').
+---
+kind: tool
 name: update_dashboard_element
 type: looker-update-dashboard-element
 source: looker-source
 description: |
   This tool updates an existing element (tile) in a Looker dashboard.
-  It supports updating query-based tiles (`vis`, `data`) as well as text, Markdown/HTML, and Slate rich-text tiles (`text`).
+  It supports updating query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`),
+  and extension/data app tiles (`extension`).
 
   Required Parameters:
   - dashboard_id: The ID of the dashboard containing the element.
@@ -943,8 +983,9 @@ description: |
   - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` define the data for the tile.
 
   Optional Parameters:
-  - type: The type of dashboard element (`'vis'`, `'data'`, or `'text'`).
-  - title: The new title for query-based dashboard tiles.
+  - type: The type of dashboard element (`'vis'`, `'data'`, `'text'`, or `'extension'`). Note that `'extension'` is automatically inferred when `extension_id` is provided.
+  - extension_id: The updated extension ID (e.g. `'db::<id>'` from `create_data_app_extension` or `'app::<id>'` from LookML extensions) for `'extension'` tiles. For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
+  - title: The new title for query-based or extension dashboard tiles.
   - title_text: The header title text for `'text'` tiles.
   - subtitle_text: The subtitle text displayed below the title.
   - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
@@ -973,6 +1014,24 @@ description: |
   - active (optional): Whether to make this layout active.
 ---
 kind: tool
+name: update_dashboard_layout
+type: looker-update-dashboard-layout
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard layout (`PATCH /api/4.0/dashboard_layouts/:id`).
+  It allows changing the layout type, toggling whether the layout is active, or updating the tab label.
+
+  DATA APP FULL-BLEED LAYOUT:
+  Setting `type: "extension"` configures the layout as a frameless, 100% viewport container
+  for hosting a single Data App Extension tile without 24-column grid constraints.
+
+  Parameters:
+  - dashboard_layout_id (required): The ID of the dashboard layout to update.
+  - type (optional): Layout type: 'newspaper' (responsive 24-column grid), 'extension' (frameless full-bleed single extension tile), or 'grid'.
+  - active (optional): Whether this layout is the active layout for the dashboard.
+  - label (optional): Display label for this layout tab.
+---
+kind: tool
 name: update_dashboard_layout_component
 type: looker-update-dashboard-layout-component
 source: looker-source
@@ -987,6 +1046,62 @@ description: |
   - column (optional): The new column position.
   - width (optional): The new width.
   - height (optional): The new height.
+---
+kind: tool
+name: create_data_app_extension
+type: looker-create-data-app-extension
+source: looker-source
+description: |
+  This tool creates a Data App Extension entity in Looker with
+  server-enforced dashboard-tile mount points and sandboxed core API entitlements (`POST /api/4.0/data_app_extension`).
+  Requires the `inline_extensions` feature to be enabled on the Looker instance.
+
+  NOTE: This tool creates the Extension entity in Looker's database, but does NOT automatically create a dashboard or dashboard tile.
+
+  LIFECYCLE / ORDER OF OPERATIONS:
+  1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
+  Required Parameters:
+  - label: The user-friendly display label for the Data App Extension (up to 255 characters).
+  - code: The uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports like `/runtime/data-app.js` used during local preview must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). The module must end with the custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;`
+
+  Optional Parameters:
+  - description: Brief description of the Data App Extension.
+  - name: Unique system identifier matching `[a-zA-Z0-9-_]+`. Leave empty to auto-generate a collision-free `data-app-<slug>-<uuid>` name.
+
+  Output:
+  Returns the created Data App Extension metadata JSON, including `id` and `extension_id` (`"db::<id>"`) for dashboard tile mounting.
+---
+kind: tool
+name: update_data_app_extension
+type: looker-update-data-app-extension
+source: looker-source
+description: |
+  This tool updates an existing Data App Extension in Looker (`PATCH /api/4.0/data_app_extension/:id`)
+  while preserving server-enforced dashboard-tile mount points and sandboxed entitlements.
+
+  IN-PLACE CODE UPDATES:
+  Updating `code` updates the underlying JavaScript ES module source code payload in place. Any dashboards
+  or tiles referencing `db::<id>` will immediately execute the updated code on next view without needing
+  to recreate or update the dashboard element or modify dashboard layouts.
+
+  Required Parameters:
+  - data_app_extension_id: The ID of the Data App Extension to update (accepts `<id>` or `db::<id>`).
+  - At least one updatable field (`label`, `code`, `description`, or `name`) must be provided.
+
+  Optional Parameters:
+  - label: Updated user-friendly display label (up to 255 characters).
+  - code: Updated uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports like `/runtime/data-app.js` used during local preview must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). The module must end with the custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;`
+  - description: Updated description of the Data App Extension.
+  - name: Updated unique system identifier matching `[a-zA-Z0-9-_]+` (normally omitted to avoid unique-index collisions).
+  - dashboard_id: ID of the shared dashboard containing this Data App tile. Only needed when updating an extension mounted on a shared dashboard where the user relies on shared-folder contextual permissions.
+
+  Output:
+  Returns the updated Data App Extension metadata JSON, including `id` and `extension_id` (`"db::<id>"`).
 ---
 kind: group
 name: looker_tools
@@ -1014,6 +1129,10 @@ tools:
 - add_dashboard_filter
 - generate_embed_url
 - get_dashboard
+- update_dashboard
 - update_dashboard_element
 - create_dashboard_layout
+- update_dashboard_layout
 - update_dashboard_layout_component
+- create_data_app_extension
+- update_data_app_extension
