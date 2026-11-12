@@ -12,7 +12,8 @@ description: >
 
 A `looker-get-explore` tool returns detailed metadata for a single explore,
 including query constraints such as `always_filter` and
-`conditionally_filter`, as well as `tags` and whether the explore is `hidden`.
+`conditionally_filter`, as well as `tags`, whether the explore is `hidden`, and
+`certification_metadata` (when certified or revoked).
 
 Use `looker-get-explores` to cheaply list all explores in a model, then use
 `looker-get-explore` to fetch the full metadata for the specific explore you
@@ -45,7 +46,9 @@ type: looker-get-explore
 source: looker-source
 description: |
   This tool retrieves detailed metadata about a specific Looker explore, including its
-  constraints and rules (e.g., `always_filter`, `conditionally_filter`, `tags`).
+  constraints and rules (e.g., `always_filter`, `conditionally_filter`, `tags`) and
+  `certification_metadata` (when certified or revoked). Prefer `certified` explores
+  over uncertified or `revoked` ones when selecting an explore to query.
 
   CRITICAL: You MUST use this tool to inspect the explore's metadata BEFORE generating
   or running a query. If an explore has mandatory filters defined (like `always_filter`
@@ -80,7 +83,13 @@ omitted when the explore does not define them.
             "name": "view_name.field_name",
             "value": "filter value"
         }
-    ]
+    ],
+    "certification_metadata": {
+        "certification_status": "certified",
+        "user_name": "Alex Smith",
+        "notes": "Approved by Analytics Engineering",
+        "updated_at": "2026-09-15T10:00:00Z"
+    }
 }
 ```
 

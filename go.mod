@@ -51,7 +51,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jmoiron/sqlx v1.4.0
-	github.com/looker-open-source/sdk-codegen/go v0.26.22
+	github.com/looker-open-source/sdk-codegen/go v0.26.24
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/nakagami/firebirdsql v0.9.23
 	github.com/neo4j/neo4j-go-driver/v6 v6.4.0

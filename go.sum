@@ -426,8 +426,8 @@ github.com/leodido/go-urn v1.5.0/go.mod h1:9BORnCDhdPBJNDEX+w1bJisa8yOKYi116VeO9
 github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
 github.com/lib/pq v1.11.2 h1:x6gxUeu39V0BHZiugWe8LXZYZ+Utk7hSJGThs8sdzfs=
 github.com/lib/pq v1.11.2/go.mod h1:/p+8NSbOcwzAEI7wiMXFlgydTwcgTr3OSKMsD2BitpA=
-github.com/looker-open-source/sdk-codegen/go v0.26.22 h1:ahNi0Gb00VoNeRVeSQXwOmJ8hcvPN9pr8fNAl4EBSBg=
-github.com/looker-open-source/sdk-codegen/go v0.26.22/go.mod h1:Br1ntSiruDJ/4nYNjpYyWyCbqJ7+GQceWbIgn0hYims=
+github.com/looker-open-source/sdk-codegen/go v0.26.24 h1:HYw2aCcE76s3sqXR3ImqKeP5KYlksviEQLeu/gYVXMM=
+github.com/looker-open-source/sdk-codegen/go v0.26.24/go.mod h1:Br1ntSiruDJ/4nYNjpYyWyCbqJ7+GQceWbIgn0hYims=
 github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e h1:Q6MvJtQK/iRcRtzAscm/zF23XxJlbECiGPyRicsX+Ak=
 github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e/go.mod h1:autxFIvghDt3jPTLoqZ9OZ7s9qTGNAWmYCjVFWPX/zg=
 github.com/magiconair/properties v1.8.10 h1:s31yESBquKXCV9a/ScB3ESkOjUYYv+X0rg8SYxI99mE=
