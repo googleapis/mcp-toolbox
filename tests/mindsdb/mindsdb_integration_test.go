@@ -253,11 +253,11 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 	}
 
 	// Create connection pool and test tables with sample data
-	pool, err := initMindsDBConnectionPool(MindsDBHost, MindsDBPort, MindsDBUser, MindsDBPass, MindsDBDatabase)
+	pool, err := initMindsDBConnectionPool(MindsDBHost, MindsDBPort, MindsDBUser, sourceConfig["password"].(string), MindsDBDatabase)
 	if err != nil {
 		t.Fatalf("unable to create MindsDB connection pool: %s", err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() { pool.Close() })
 
 	// Create param table: id=1:Alice, id=2:Jane, id=3:Sid, id=4:null
 	createParamSQL := fmt.Sprintf("CREATE TABLE files.%s (SELECT 1 as id, 'Alice' as name UNION ALL SELECT 2, 'Jane' UNION ALL SELECT 3, 'Sid' UNION ALL SELECT 4, NULL)", tableNameParam)
@@ -265,6 +265,13 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create param table: %s", err)
 	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameParam)); err != nil {
+			t.Logf("cleanup: failed to drop param table %s: %v", tableNameParam, err)
+		}
+	})
 
 	// Create auth table: id=1:Alice:test@..., id=2:Jane:jane@...
 	createAuthSQL := fmt.Sprintf("CREATE TABLE files.%s (SELECT 1 as id, 'Alice' as name, '%s' as email UNION ALL SELECT 2, 'Jane', 'janedoe@gmail.com')", tableNameAuth, tests.ServiceAccountEmail)
@@ -272,11 +279,13 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create auth table: %s", err)
 	}
-
-	defer func() {
-		_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameParam))
-		_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameAuth))
-	}()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameAuth)); err != nil {
+			t.Logf("cleanup: failed to drop auth table %s: %v", tableNameAuth, err)
+		}
+	})
 
 	select1Want := "[{\"1\":1}]"
 
