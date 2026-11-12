@@ -18,6 +18,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -30,6 +33,68 @@ var (
 	OracleConnStr    = fmt.Sprintf(
 		"%s:%s/%s", OracleHost, "1521", OracleServerName)
 )
+
+const (
+	oracleImage             = "gvenzl/oracle-free:23.26.3-slim-faststart"
+	oracleContainerUser     = "toolbox_user"
+	oracleContainerDatabase = "FREEPDB1"
+)
+
+func setupOracleContainer(ctx context.Context, t *testing.T) (host, port, user, pass, serverName string) {
+	t.Helper()
+
+	user = oracleContainerUser
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	serverName = oracleContainerDatabase
+	req := testcontainers.ContainerRequest{
+		Image:        oracleImage,
+		ExposedPorts: []string{"1521/tcp"},
+		Env: map[string]string{
+			"ORACLE_PASSWORD":   strings.ReplaceAll(uuid.New().String(), "-", ""),
+			"APP_USER":          user,
+			"APP_USER_PASSWORD": pass,
+		},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("1521/tcp"),
+			wait.ForLog("DATABASE IS READY TO USE!"),
+		).WithStartupTimeoutDefault(5 * time.Minute).WithDeadline(5 * time.Minute),
+	}
+
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+	testcontainers.CleanupContainer(t, c)
+	if err != nil {
+		t.Fatalf("failed to start Oracle container: %s", err)
+	}
+
+	host, err = c.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get Oracle container host: %s", err)
+	}
+	mappedPort, err := c.MappedPort(ctx, "1521/tcp")
+	if err != nil {
+		t.Fatalf("failed to get Oracle container mapped port: %s", err)
+	}
+	return host, mappedPort.Port(), user, pass, serverName
+}
+
+func useOracle(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if OracleHost != "" {
+		return
+	}
+	t.Logf("ORACLE_HOST not set; starting ephemeral %s container", oracleImage)
+	host, port, user, pass, serverName := setupOracleContainer(ctx, t)
+	origHost, origUser, origPass, origServerName, origConnStr := OracleHost, OracleUser, OraclePass, OracleServerName, OracleConnStr
+	t.Cleanup(func() {
+		OracleHost, OracleUser, OraclePass, OracleServerName, OracleConnStr = origHost, origUser, origPass, origServerName, origConnStr
+	})
+	OracleHost, OracleUser, OraclePass, OracleServerName = host, user, pass, serverName
+	OracleConnStr = fmt.Sprintf("%s:%s/%s", host, port, serverName)
+}
 
 func getOracleVars(t *testing.T) map[string]any {
 	switch "" {
@@ -72,9 +137,10 @@ func initOracleConnection(ctx context.Context, user, pass, connStr string) (*sql
 }
 
 func TestOracleSimpleToolEndpoints(t *testing.T) {
-	sourceConfig := getOracleVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
+	useOracle(ctx, t)
+	sourceConfig := getOracleVars(t)
 
 	args := []string{"--enable-api"}
 

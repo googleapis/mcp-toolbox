@@ -589,6 +589,9 @@ variables for each source.
   * The Cloud Build service account is a user
 * MySQL - setup in the test project using a Cloud SQL instance
 * Neo4j - setup in the test project on a GCE VM
+* Oracle - ephemeral `gvenzl/oracle-free:23.26.3-slim-faststart` container via
+  testcontainers (set `ORACLE_HOST`, `ORACLE_USERNAME`, `ORACLE_PASSWORD`, and
+  `ORACLE_SERVER_NAME` to use an existing instance)
 * Postgres - setup in the test project using an AlloyDB instance
 * Spanner - setup in the test project
   * The Cloud Build service account is a user
