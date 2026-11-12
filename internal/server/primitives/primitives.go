@@ -43,6 +43,8 @@ type PrimitiveManager struct {
 	resources         map[string]resources.Resource
 	resourceTemplates map[string]resources.ResourceTemplate
 	groups            map[string]group.Group
+	maxRows           int
+	maxResponseBytes  int
 }
 
 func NewPrimitiveManager(
@@ -195,6 +197,24 @@ func (r *PrimitiveManager) GetUIResourceTemplateByURI(uri string) (resources.Res
 		}
 	}
 	return nil, nil, false
+}
+
+// ResultCaps returns the server-wide result caps applied to tools that do not
+// declare their own. They are server configuration rather than per-request
+// state, so they live here alongside the primitives handlers already resolve
+// through.
+func (r *PrimitiveManager) ResultCaps() (maxRows, maxResponseBytes int) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.maxRows, r.maxResponseBytes
+}
+
+// SetResultCaps records the caps. Called once during server construction,
+// before any request is served.
+func (r *PrimitiveManager) SetResultCaps(maxRows, maxResponseBytes int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.maxRows, r.maxResponseBytes = maxRows, maxResponseBytes
 }
 
 // GroupsList returns a copy of the groups list sorted alphabetically by name

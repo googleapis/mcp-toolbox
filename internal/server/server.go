@@ -72,6 +72,8 @@ type Server struct {
 	httpMaxRequestBytes     int64
 	enableDraftSpecs        bool
 	disableExtensionCheck   bool
+	maxRows                 int
+	maxResponseBytes        int
 }
 
 func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
@@ -628,6 +630,7 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 	sseManager := newSseManager(ctx)
 
 	primitiveManager := primitives.NewPrimitiveManager(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap)
+	primitiveManager.SetResultCaps(cfg.MaxRows, cfg.MaxResponseBytes)
 
 	limit := cfg.HttpMaxRequestBytes
 	if limit <= 0 {
@@ -673,6 +676,8 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 		httpMaxRequestBytes:     limit,
 		enableDraftSpecs:        cfg.EnableDraftSpecs,
 		disableExtensionCheck:   cfg.DisableExtensionCheck,
+		maxRows:                 cfg.MaxRows,
+		maxResponseBytes:        cfg.MaxResponseBytes,
 	}
 
 	if s.enableDraftSpecs {
