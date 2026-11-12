@@ -82,6 +82,7 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create Oracle connection pool: %s", err)
 	}
+	defer db.Close()
 
 	dropAllUserTables(t, ctx, db)
 
@@ -138,7 +139,10 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	defer func() {
+		cmd.Close()
+		cleanup()
+	}()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
