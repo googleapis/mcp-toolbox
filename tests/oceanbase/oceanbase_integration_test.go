@@ -207,13 +207,13 @@ func setupOceanBaseTable(t *testing.T, ctx context.Context, pool *sql.DB, create
 	}
 
 	// Create table
-	_, err = pool.QueryContext(ctx, createStatement)
+	_, err = pool.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
 	// Insert test data
-	_, err = pool.QueryContext(ctx, insertStatement, params...)
+	_, err = pool.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
 		t.Fatalf("unable to insert test data: %s", err)
 	}
