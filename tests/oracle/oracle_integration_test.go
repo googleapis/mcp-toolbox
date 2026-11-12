@@ -84,8 +84,6 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	}
 	defer db.Close()
 
-	dropAllUserTables(t, ctx, db)
-
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -252,42 +250,6 @@ func getOracleAuthToolInfo(tableName string) (string, string, string, []any) {
 	params := []any{"Alice", tests.ServiceAccountEmail, "Jane", "janedoe@gmail.com"}
 
 	return createStatement, insertStatement, toolStatement, params
-}
-
-// dropAllUserTables finds and drops all tables owned by the current user.
-func dropAllUserTables(t *testing.T, ctx context.Context, db *sql.DB) {
-	// Query for only the tables we know are created by this test suite.
-	const query = `
-		SELECT table_name FROM user_tables
-		WHERE table_name LIKE 'param_table_%'
-		   OR table_name LIKE 'auth_table_%'
-		   OR table_name LIKE 'template_param_table_%'`
-
-	rows, err := db.QueryContext(ctx, query)
-	if err != nil {
-		t.Fatalf("failed to query for user tables: %v", err)
-	}
-	defer rows.Close()
-
-	var tablesToDrop []string
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			t.Fatalf("failed to scan table name: %v", err)
-		}
-		tablesToDrop = append(tablesToDrop, tableName)
-	}
-
-	if err := rows.Err(); err != nil {
-		t.Fatalf("error iterating over tables: %v", err)
-	}
-
-	for _, tableName := range tablesToDrop {
-		_, err := db.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s CASCADE CONSTRAINTS", tableName))
-		if err != nil {
-			t.Logf("failed to drop table %s: %v", tableName, err)
-		}
-	}
 }
 
 // testDmlQueries sends a JSON-RPC request to the running test server
