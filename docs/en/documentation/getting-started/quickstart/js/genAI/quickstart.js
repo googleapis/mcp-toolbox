@@ -67,7 +67,7 @@ export async function main() {
     const genAI = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
     
     const chat = genAI.chats.create({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         config: {
             systemInstruction: prompt,
             tools: geminiTools,

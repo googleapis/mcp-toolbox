@@ -73,6 +73,15 @@
       allowedVersions: '< 2.0.0',
     },
     {
+      matchManagers: [
+        'npm',
+      ],
+      matchPackageNames: [
+        '@google/adk',
+      ],
+      allowedVersions: '< 2.0.0',
+    },
+    {
       groupName: 'Go Samples',
       matchManagers: [
         'gomod',
