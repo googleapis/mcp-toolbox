@@ -13,8 +13,8 @@ The `looker-get-looks` tool searches for a saved Look by
 name or description. It returns each Look's `id`, `title`, `description`,
 `model_id`, and `certification_metadata` (if present).
 
-`looker-get-looks` takes four parameters, the `title`, `desc`, `limit`
-and `offset`.
+`looker-get-looks` takes seven parameters, the `title`, `desc`, `id`,
+`folder_id`, `user_id`, `limit` and `offset`.
 
 Title and description use SQL style wildcards and are case insensitive.
 
@@ -24,6 +24,18 @@ default to 100 and 0.
 ## Compatible Sources
 
 {{< compatible-sources >}}
+
+## Parameters
+
+| **field** | **type** | **required** | **description**                                         |
+|-----------|:--------:|:------------:|---------------------------------------------------------|
+| title     |  string  |    false     | The title of the look.                                  |
+| desc      |  string  |    false     | The description of the look.                            |
+| id        |  string  |    false     | The id of the look.                                     |
+| folder_id |  string  |    false     | The id of the folder containing the look.               |
+| user_id   |  string  |    false     | The id of the user who created the look.                |
+| limit     | integer  |    false     | The number of looks to fetch. Default 100               |
+| offset    | integer  |    false     | The number of looks to skip before fetching. Default 0  |
 
 ## Example
 
@@ -40,7 +52,7 @@ description: |
   - title (optional): Filter by Look title (supports wildcards).
   - folder_id (optional): Filter by the ID of the folder where the Look is saved.
   - user_id (optional): Filter by the ID of the user who created the Look.
-  - description (optional): Filter by description content (supports wildcards).
+  - desc (optional): Filter by description content (supports wildcards).
   - id (optional): Filter by specific Look ID.
   - limit (optional): Maximum number of results to return. Defaults to a system limit.
   - offset (optional): Starting point for pagination.

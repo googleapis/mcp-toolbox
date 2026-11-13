@@ -17,6 +17,7 @@ package lookergetlooks_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -186,6 +187,9 @@ func TestInvokeLookerGetLooks(t *testing.T) {
 	params := parameters.ParamValues{
 		{Name: "title", Value: "%"},
 		{Name: "desc", Value: ""},
+		{Name: "id", Value: ""},
+		{Name: "folder_id", Value: ""},
+		{Name: "user_id", Value: ""},
 		{Name: "limit", Value: 100},
 		{Name: "offset", Value: 0},
 	}
@@ -236,4 +240,96 @@ func TestInvokeLookerGetLooks(t *testing.T) {
 	if _, exists := second["certification_metadata"]; exists {
 		t.Errorf("expected certification_metadata to be omitted when nil, got %v", second["certification_metadata"])
 	}
+}
+
+func TestInvokeLookerGetLooksIdFolderUserFilters(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithUserAgent(ctx, "test-agent")
+
+	var searchQuery url.Values
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/api/4.0/looks/search") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		searchQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer ts.Close()
+
+	srcCfg := looker.Config{
+		Name:            "test-looker",
+		Type:            "looker",
+		BaseURL:         ts.URL,
+		UseClientOAuth:  "true",
+		Timeout:         "5s",
+		SslVerification: false,
+	}
+	src, err := srcCfg.Initialize(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to initialize source: %v", err)
+	}
+
+	toolCfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "get_looks",
+			Description: "test description",
+		},
+		Type:   "looker-get-looks",
+		Source: "test-looker",
+	}
+	tool, err := toolCfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+	toolParams, err := tool.GetParameters(src)
+	if err != nil {
+		t.Fatalf("failed to get tool parameters: %v", err)
+	}
+
+	invoke := func(t *testing.T, rawArgs map[string]any) {
+		t.Helper()
+		searchQuery = nil
+		params, err := parameters.ParseParams(toolParams, rawArgs, nil)
+		if err != nil {
+			t.Fatalf("unable to parse params: %v", err)
+		}
+		if _, toolboxErr := tool.Invoke(ctx, src, params, "mock-token"); toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+	}
+
+	t.Run("registers id, folder_id and user_id parameters", func(t *testing.T) {
+		var got []string
+		for _, p := range tool.StaticManifest().Parameters {
+			got = append(got, p.Name)
+		}
+		want := []string{"title", "desc", "id", "folder_id", "user_id", "limit", "offset"}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("unexpected parameters (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("passes id, folder_id and user_id to look search", func(t *testing.T) {
+		invoke(t, map[string]any{"id": "47", "folder_id": "12", "user_id": "3"})
+		for name, want := range map[string]string{"id": "47", "folder_id": "12", "user_id": "3"} {
+			if got := searchQuery.Get(name); got != want {
+				t.Errorf("expected %s=%q in look search, got %q", name, want, got)
+			}
+		}
+	})
+
+	t.Run("omits id, folder_id and user_id when empty", func(t *testing.T) {
+		invoke(t, map[string]any{})
+		for _, name := range []string{"id", "folder_id", "user_id"} {
+			if searchQuery.Has(name) {
+				t.Errorf("expected %s to be omitted from look search, got %q", name, searchQuery.Get(name))
+			}
+		}
+	})
 }

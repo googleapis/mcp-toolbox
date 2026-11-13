@@ -74,11 +74,17 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	titleParameter := parameters.NewStringParameter("title", "The title of the dashboard.", parameters.WithStringDefault(""))
 	descParameter := parameters.NewStringParameter("desc", "The description of the dashboard.", parameters.WithStringDefault(""))
+	idParameter := parameters.NewStringParameter("id", "The id of the dashboard.", parameters.WithStringDefault(""))
+	folderIdParameter := parameters.NewStringParameter("folder_id", "The id of the folder containing the dashboard.", parameters.WithStringDefault(""))
+	userIdParameter := parameters.NewStringParameter("user_id", "The id of the user who created the dashboard.", parameters.WithStringDefault(""))
 	limitParameter := parameters.NewIntParameter("limit", "The number of dashboards to fetch. Default 100", parameters.WithIntDefault(100))
 	offsetParameter := parameters.NewIntParameter("offset", "The number of dashboards to skip before fetching. Default 0", parameters.WithIntDefault(0))
 	params := parameters.Parameters{
 		titleParameter,
 		descParameter,
+		idParameter,
+		folderIdParameter,
+		userIdParameter,
 		limitParameter,
 		offsetParameter,
 	}
@@ -205,7 +211,10 @@ func (m lookerFieldMatcher) matches(val *string) bool {
 	return m.re.MatchString(strings.ToLower(*val))
 }
 
-func matchesLookmlDashboard(v v4.Dashboard, titleMatcher, descMatcher lookerFieldMatcher) bool {
+func matchesLookmlDashboard(v v4.Dashboard, id string, titleMatcher, descMatcher lookerFieldMatcher) bool {
+	if id != "" && (v.Id == nil || *v.Id != id) {
+		return false
+	}
 	if titleMatcher.raw != "" {
 		if titleMatcher.isNull || titleMatcher.notNull {
 			if !titleMatcher.matches(v.Title) {
@@ -243,6 +252,21 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if *desc_ptr == "" {
 		desc_ptr = nil
 	}
+	id, _ := paramsMap["id"].(string)
+	id_ptr := &id
+	if *id_ptr == "" {
+		id_ptr = nil
+	}
+	folder_id, _ := paramsMap["folder_id"].(string)
+	folder_id_ptr := &folder_id
+	if *folder_id_ptr == "" {
+		folder_id_ptr = nil
+	}
+	user_id, _ := paramsMap["user_id"].(string)
+	user_id_ptr := &user_id
+	if *user_id_ptr == "" {
+		user_id_ptr = nil
+	}
 	limit := int64(paramsMap["limit"].(int))
 	if limit < 0 {
 		limit = 0
@@ -263,8 +287,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	zeroOffset := int64(0)
 	req := v4.RequestSearchDashboards{
+		Id:          id_ptr,
 		Title:       title_ptr,
 		Description: desc_ptr,
+		FolderId:    folder_id_ptr,
+		UserId:      user_id_ptr,
 		Limit:       &fetchLimit,
 		Offset:      &zeroOffset,
 		Fields:      &fields,
@@ -290,8 +317,14 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		data = append(data, vMap)
 	}
 
-	if fetchLimit <= 0 || int64(len(data)) < fetchLimit {
-		lookmlResp, lookmlErr := lookercommon.SearchLookmlDashboards(sdk, map[string]any{"fields": fields}, source.LookerApiSettings())
+	// LookML dashboards are defined in LookML rather than created by a user, so
+	// they can never match a user_id filter.
+	if user_id_ptr == nil && (fetchLimit <= 0 || int64(len(data)) < fetchLimit) {
+		lookmlParams := map[string]any{"fields": fields}
+		if folder_id_ptr != nil {
+			lookmlParams["folder_id"] = *folder_id_ptr
+		}
+		lookmlResp, lookmlErr := lookercommon.SearchLookmlDashboards(sdk, lookmlParams, source.LookerApiSettings())
 		if lookmlErr != nil {
 			logger.DebugContext(ctx, "error searching lookml dashboards", "error", lookmlErr)
 		} else {
@@ -301,7 +334,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 				if v.Id != nil && seenIDs[*v.Id] {
 					continue
 				}
-				if !matchesLookmlDashboard(v, titleMatcher, descMatcher) {
+				if !matchesLookmlDashboard(v, id, titleMatcher, descMatcher) {
 					continue
 				}
 				if v.Id != nil {

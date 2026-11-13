@@ -17,6 +17,7 @@ package lookergetdashboards_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -449,6 +450,154 @@ func TestInvokeLookerGetDashboardsWithLookmlDashboards(t *testing.T) {
 		gotList, ok := got.([]any)
 		if !ok || len(gotList) != 3 {
 			t.Fatalf("expected all 3 dashboards when limit < 0 is normalized to 0, got %#v", got)
+		}
+	})
+}
+
+func TestInvokeLookerGetDashboardsIdFolderUserFilters(t *testing.T) {
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithUserAgent(ctx, "test-agent")
+
+	var searchQuery, lookmlQuery url.Values
+	var lookmlCalled bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/4.0/dashboards/search"):
+			searchQuery = r.URL.Query()
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(r.URL.Path, "/api/4.0/dashboards/lookml/search"):
+			lookmlCalled = true
+			lookmlQuery = r.URL.Query()
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[
+				{
+					"id": "thelook::business_pulse",
+					"title": "Business Pulse"
+				},
+				{
+					"id": "thelook::customer_overview",
+					"title": "Customer Overview"
+				}
+			]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	srcCfg := looker.Config{
+		Name:            "test-looker",
+		Type:            "looker",
+		BaseURL:         ts.URL,
+		UseClientOAuth:  "true",
+		Timeout:         "5s",
+		SslVerification: false,
+	}
+	src, err := srcCfg.Initialize(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to initialize source: %v", err)
+	}
+
+	toolCfg := lkr.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "get_dashboards",
+			Description: "test description",
+		},
+		Type:   "looker-get-dashboards",
+		Source: "test-looker",
+	}
+	tool, err := toolCfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+	toolParams, err := tool.GetParameters(src)
+	if err != nil {
+		t.Fatalf("failed to get tool parameters: %v", err)
+	}
+
+	invoke := func(t *testing.T, rawArgs map[string]any) []any {
+		t.Helper()
+		searchQuery, lookmlQuery, lookmlCalled = nil, nil, false
+		params, err := parameters.ParseParams(toolParams, rawArgs, nil)
+		if err != nil {
+			t.Fatalf("unable to parse params: %v", err)
+		}
+		got, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		gotList, _ := got.([]any)
+		return gotList
+	}
+
+	t.Run("registers id, folder_id and user_id parameters", func(t *testing.T) {
+		var got []string
+		for _, p := range tool.StaticManifest().Parameters {
+			got = append(got, p.Name)
+		}
+		want := []string{"title", "desc", "id", "folder_id", "user_id", "limit", "offset"}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("unexpected parameters (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("passes id, folder_id and user_id to dashboard search", func(t *testing.T) {
+		invoke(t, map[string]any{"id": "47", "folder_id": "12", "user_id": "3"})
+		for name, want := range map[string]string{"id": "47", "folder_id": "12", "user_id": "3"} {
+			if got := searchQuery.Get(name); got != want {
+				t.Errorf("expected %s=%q in dashboard search, got %q", name, want, got)
+			}
+		}
+	})
+
+	t.Run("omits id, folder_id and user_id when empty", func(t *testing.T) {
+		gotList := invoke(t, map[string]any{})
+		for _, name := range []string{"id", "folder_id", "user_id"} {
+			if searchQuery.Has(name) {
+				t.Errorf("expected %s to be omitted from dashboard search, got %q", name, searchQuery.Get(name))
+			}
+		}
+		if lookmlQuery.Has("folder_id") {
+			t.Errorf("expected folder_id to be omitted from LookML dashboard search, got %q", lookmlQuery.Get("folder_id"))
+		}
+		if len(gotList) != 2 {
+			t.Errorf("expected both LookML dashboards when no filters are set, got %#v", gotList)
+		}
+	})
+
+	t.Run("passes folder_id to LookML dashboard search", func(t *testing.T) {
+		invoke(t, map[string]any{"folder_id": "lookml"})
+		if got := lookmlQuery.Get("folder_id"); got != "lookml" {
+			t.Errorf("expected folder_id=%q in LookML dashboard search, got %q", "lookml", got)
+		}
+	})
+
+	t.Run("matches LookML dashboard by exact id", func(t *testing.T) {
+		gotList := invoke(t, map[string]any{"id": "thelook::business_pulse"})
+		if len(gotList) != 1 {
+			t.Fatalf("expected 1 LookML dashboard matching id, got %#v", gotList)
+		}
+		if first := gotList[0].(map[string]any); first["id"] != "thelook::business_pulse" {
+			t.Errorf("expected id 'thelook::business_pulse', got %v", first["id"])
+		}
+
+		if gotList := invoke(t, map[string]any{"id": "business_pulse"}); len(gotList) != 0 {
+			t.Errorf("expected no LookML dashboards for a partial id, got %#v", gotList)
+		}
+	})
+
+	t.Run("excludes LookML dashboards when user_id is set", func(t *testing.T) {
+		gotList := invoke(t, map[string]any{"user_id": "3"})
+		if lookmlCalled {
+			t.Errorf("expected LookML dashboard search to be skipped when user_id is set")
+		}
+		if len(gotList) != 0 {
+			t.Errorf("expected no dashboards, got %#v", gotList)
 		}
 	})
 }
