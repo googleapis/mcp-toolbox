@@ -577,15 +577,14 @@ variables for each source.
 * Looker
   * The Cloud Build service account is a user for conversational analytics
   * The Looker instance runs under google.com:looker-sandbox.
-* Memorystore Redis - setup in the test project using a Memorystore for Redis
+* Redis - ephemeral `redis:7.2` container via testcontainers (set
+  `REDIS_ADDRESS` and `REDIS_PASS` to use an existing instance)
+* Memorystore Valkey - setup in the test project using a Memorystore for Redis
   standalone instance
   * Memorystore Redis Cluster, Memorystore Valkey standalone, and Memorystore
     Valkey Cluster instances all require PSC connections, which requires extra
     security setup to connect from Cloud Build. Memorystore Redis standalone is
     the only one allowing PSA connection.
-  * The Cloud Build service account is a user
-* Memorystore Valkey - setup in the test project using a Memorystore for Redis
-  standalone instance
   * The Cloud Build service account is a user
 * MySQL - setup in the test project using a Cloud SQL instance
 * Neo4j - setup in the test project on a GCE VM
