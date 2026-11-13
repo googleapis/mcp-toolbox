@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/googleapis/mcp-toolbox-sdk-go/tbadk"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/llmagent"
-	"google.golang.org/adk/model/gemini"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
-	"google.golang.org/adk/tool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	"google.golang.org/adk/v2/model/gemini"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
 )
 
@@ -32,7 +32,7 @@ var queries = []string{
 }
 
 // Pre-processing
-func enforceBusinessRules(ctx tool.Context, tool tool.Tool, args map[string]any) (map[string]any, error) {
+func enforceBusinessRules(ctx agent.Context, tool tool.Tool, args map[string]any) (map[string]any, error) {
 
 	fmt.Printf("POLICY CHECK: Intercepting '%s'\n", tool.Name())
 	if tool.Name() == "update-hotel" {
@@ -57,7 +57,7 @@ func enforceBusinessRules(ctx tool.Context, tool tool.Tool, args map[string]any)
 }
 
 // Post-processing
-func enrichResponse(ctx tool.Context, tool tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
+func enrichResponse(ctx agent.Context, tool tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
 	resultStr := fmt.Sprintf("%v", result)
 
 	if tool.Name() == "book-hotel" {
@@ -140,15 +140,19 @@ func main() {
 		userMsg := genai.NewContentFromText(query, genai.RoleUser)
 		streamingMode := agent.StreamingModeSSE
 
-		runIter := r.Run(ctx, userID, sess.ID(), userMsg, agent.RunConfig{
-			StreamingMode: streamingMode,
-		})
-
 		fmt.Print("AI: ")
-		for event := range runIter {
-			if event != nil && event.Content != nil {
-				for _, p := range event.Content.Parts {
-					fmt.Print(p.Text)
+		for event, err := range r.Run(ctx, userID, sess.ID(), userMsg, agent.RunConfig{
+			StreamingMode: streamingMode,
+		}) {
+			if err != nil {
+				fmt.Printf("\nAGENT_ERROR: %v\n", err)
+				continue
+			}
+			if event != nil && event.LLMResponse.Content != nil {
+				for _, p := range event.LLMResponse.Content.Parts {
+					if streamingMode != agent.StreamingModeSSE || event.LLMResponse.Partial {
+						fmt.Print(p.Text)
+					}
 				}
 			}
 		}
