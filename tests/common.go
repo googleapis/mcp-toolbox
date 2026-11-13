@@ -728,7 +728,7 @@ func SetupMsSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStat
 
 	teardown := func(t *testing.T) {
 		// tear down test
-		if _, dropErr := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE %s;", tableName)); dropErr != nil {
+		if _, dropErr := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE [%s];", tableName)); dropErr != nil {
 			t.Errorf("Teardown failed: %s", dropErr)
 		}
 	}
