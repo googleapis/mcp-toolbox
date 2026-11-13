@@ -148,26 +148,17 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if *desc_ptr == "" {
 		desc_ptr = nil
 	}
-	id, ok := paramsMap["id"].(string)
-	if !ok {
-		return nil, util.NewAgentError("missing or invalid 'id' parameter", nil)
-	}
+	id, _ := paramsMap["id"].(string)
 	id_ptr := &id
 	if *id_ptr == "" {
 		id_ptr = nil
 	}
-	folder_id, ok := paramsMap["folder_id"].(string)
-	if !ok {
-		return nil, util.NewAgentError("missing or invalid 'folder_id' parameter", nil)
-	}
+	folder_id, _ := paramsMap["folder_id"].(string)
 	folder_id_ptr := &folder_id
 	if *folder_id_ptr == "" {
 		folder_id_ptr = nil
 	}
-	user_id, ok := paramsMap["user_id"].(string)
-	if !ok {
-		return nil, util.NewAgentError("missing or invalid 'user_id' parameter", nil)
-	}
+	user_id, _ := paramsMap["user_id"].(string)
 	user_id_ptr := &user_id
 	if *user_id_ptr == "" {
 		user_id_ptr = nil

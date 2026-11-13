@@ -187,9 +187,6 @@ func TestInvokeLookerGetLooks(t *testing.T) {
 	params := parameters.ParamValues{
 		{Name: "title", Value: "%"},
 		{Name: "desc", Value: ""},
-		{Name: "id", Value: ""},
-		{Name: "folder_id", Value: ""},
-		{Name: "user_id", Value: ""},
 		{Name: "limit", Value: 100},
 		{Name: "offset", Value: 0},
 	}
