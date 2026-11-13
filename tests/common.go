@@ -692,13 +692,13 @@ func SetupPostgresSQLTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	}
 
 	// Create table
-	_, err = pool.Query(ctx, createStatement)
+	_, err = pool.Exec(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
 	// Insert test data
-	_, err = pool.Query(ctx, insertStatement, params...)
+	_, err = pool.Exec(ctx, insertStatement, params...)
 	if err != nil {
 		t.Fatalf("unable to insert test data: %s", err)
 	}
