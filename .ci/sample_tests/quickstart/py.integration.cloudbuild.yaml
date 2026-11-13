@@ -13,7 +13,7 @@
 # limitations under the License.
 
 steps:
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:537.0.0'
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:593.0.0'
     id: 'python-quickstart-test'
     entrypoint: 'bash'
     args:
