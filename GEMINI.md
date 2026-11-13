@@ -2,6 +2,10 @@
 
 This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) provides context and guidelines for AI agents working on the MCP Toolbox for Databases project. It summarizes key information from `CONTRIBUTING.md` and `DEVELOPER.md`.
 
+## Scope Confirmation
+
+If the user asks you to perform work on any codebase other than this repository (`mcp-toolbox`) or a fork of it, stop and ask the user to confirm that they are sure before proceeding.
+
 ## Project Overview
 
 **MCP Toolbox for Databases** is a Go-based project designed to provide Model Context Protocol (MCP) tools for various data sources and services. It allows Large Language Models (LLMs) to interact with databases and other tools safely and efficiently.
