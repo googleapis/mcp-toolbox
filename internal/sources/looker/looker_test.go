@@ -16,6 +16,7 @@ package looker_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,6 +33,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
+	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
 func TestParseFromYamlLooker(t *testing.T) {
@@ -420,5 +422,129 @@ func TestGetHostURL_Concurrent(t *testing.T) {
 	mu.Unlock()
 	if finalCount != 1 {
 		t.Errorf("expected exactly 1 network request due to singleflight deduplication, got %d", finalCount)
+	}
+}
+
+func TestGetLookmlModelExploreCache(t *testing.T) {
+	// Setup mock server that handles /api/4.0/lookml_models/{model}/explores/{explore}
+	var requestCount int
+	var mu sync.Mutex
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/lookml_models/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		mu.Lock()
+		requestCount++
+		mu.Unlock()
+		// simulate slow API latency so concurrent calls overlap in singleflight
+		time.Sleep(50 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write([]byte(`{"name": "my_explore"}`)); err != nil {
+			t.Errorf("failed to write mock response: %v", err)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := looker.Config{
+		Name:            "test-looker-explore-cache",
+		Type:            "looker",
+		BaseURL:         ts.URL,
+		Timeout:         "5s",
+		SslVerification: false,
+	}
+
+	ctx := context.Background()
+	logger, _ := toolboxlog.NewStdLogger(io.Discard, io.Discard, "DEBUG")
+	ctx = util.WithLogger(ctx, logger)
+	ctx = util.WithUserAgent(ctx, "test-agent")
+
+	srcVal, err := cfg.Initialize(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to initialize source: %v", err)
+	}
+	src := srcVal.(*looker.Source)
+
+	sdk, err := src.GetLookerSDK(ctx, "mock-token-123")
+	if err != nil {
+		t.Fatalf("failed to get sdk: %v", err)
+	}
+
+	fields := "name,description"
+	req := v4.RequestLookmlModelExplore{
+		LookmlModelName: "my_model",
+		ExploreName:     "my_explore",
+		Fields:          &fields,
+	}
+
+	getCount := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return requestCount
+	}
+
+	// First call - should perform request
+	resp1, err := src.GetLookmlModelExplore(ctx, sdk, req, "identity-a")
+	if err != nil {
+		t.Fatalf("GetLookmlModelExplore failed: %v", err)
+	}
+	if resp1.Name == nil || *resp1.Name != "my_explore" {
+		t.Errorf("expected explore name %q, got %v", "my_explore", resp1.Name)
+	}
+	if got := getCount(); got != 1 {
+		t.Errorf("expected exactly 1 request to mock server, got %d", got)
+	}
+
+	// Second call with same model, explore, fields and identity - should hit cache
+	resp2, err := src.GetLookmlModelExplore(ctx, sdk, req, "identity-a")
+	if err != nil {
+		t.Fatalf("GetLookmlModelExplore failed: %v", err)
+	}
+	if resp2.Name == nil || *resp2.Name != "my_explore" {
+		t.Errorf("expected explore name %q, got %v", "my_explore", resp2.Name)
+	}
+	if got := getCount(); got != 1 {
+		t.Errorf("expected request count to remain 1 (cached), got %d", got)
+	}
+
+	// Call with a different identity - should bypass the cache
+	if _, err := src.GetLookmlModelExplore(ctx, sdk, req, "identity-b"); err != nil {
+		t.Fatalf("GetLookmlModelExplore failed: %v", err)
+	}
+	if got := getCount(); got != 2 {
+		t.Errorf("expected 2 requests for different identity, got %d", got)
+	}
+
+	// Concurrent calls with a cold cache key - singleflight should deduplicate to 1 request
+	concurrentReq := v4.RequestLookmlModelExplore{
+		LookmlModelName: "my_model",
+		ExploreName:     "other_explore",
+		Fields:          &fields,
+	}
+	concurrency := 20
+	errChan := make(chan error, concurrency)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := src.GetLookmlModelExplore(ctx, sdk, concurrentReq, "identity-a")
+			if err != nil {
+				errChan <- err
+				return
+			}
+			if resp.Name == nil || *resp.Name != "my_explore" {
+				errChan <- fmt.Errorf("unexpected explore name: %v", resp.Name)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		t.Fatalf("concurrent GetLookmlModelExplore failed: %v", err)
+	}
+	if got := getCount(); got != 3 {
+		t.Errorf("expected 3 total requests (concurrent calls deduplicated to 1), got %d", got)
 	}
 }
