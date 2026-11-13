@@ -567,6 +567,19 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 
 	selectOnlyNamesWant := "[{\"name\":\"Alex\"},{\"name\":\"Alice\"}]"
 
+	if configs.supportDdl {
+		t.Cleanup(func() {
+			dropArgs := map[string]any{"tableName": tableName}
+			if configs.isMCP {
+				_, _, _ = InvokeMCPTool(t, "drop-table-templateParams-tool", dropArgs, nil)
+			} else {
+				api := "http://127.0.0.1:5000/api/tool/drop-table-templateParams-tool/invoke"
+				reqBytes, _ := json.Marshal(dropArgs)
+				_, _ = RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
+			}
+		})
+	}
+
 	parseJSONArray := func(s string) []any {
 		var res []any
 		_ = json.Unmarshal([]byte(s), &res)
@@ -778,6 +791,29 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		option(configs)
 	}
 
+	tableName := configs.tableName
+	if tableName == "" {
+		tableName = "t_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	}
+
+	createStmt := strings.Trim(createTableStatement, "\"")
+	if strings.Contains(createStmt, "CREATE TABLE t ") {
+		createStmt = strings.Replace(createStmt, "CREATE TABLE t ", fmt.Sprintf("CREATE TABLE %s ", tableName), 1)
+	} else if strings.Contains(createStmt, "CREATE TABLE t(") {
+		createStmt = strings.Replace(createStmt, "CREATE TABLE t(", fmt.Sprintf("CREATE TABLE %s(", tableName), 1)
+	}
+
+	t.Cleanup(func() {
+		dropArgs := map[string]any{"sql": fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)}
+		if configs.isMCP {
+			_, _, _ = InvokeMCPTool(t, "my-exec-sql-tool", dropArgs, nil)
+		} else {
+			api := "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke"
+			reqBytes, _ := json.Marshal(dropArgs)
+			_, _ = RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
+		}
+	})
+
 	// Get ID token
 	idToken, err := GetGoogleIdToken(t)
 	if err != nil {
@@ -806,7 +842,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool create table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": strings.Trim(createTableStatement, "\"")},
+			args:          map[string]any{"sql": createStmt},
 			want:          configs.createWant,
 			isErr:         false,
 		},
@@ -814,7 +850,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool select table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "SELECT * FROM t"},
+			args:          map[string]any{"sql": fmt.Sprintf("SELECT * FROM %s", tableName)},
 			want:          configs.selectEmptyWant,
 			isErr:         false,
 		},
@@ -822,7 +858,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool drop table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "DROP TABLE t"},
+			args:          map[string]any{"sql": fmt.Sprintf("DROP TABLE %s", tableName)},
 			want:          configs.dropWant,
 			isErr:         false,
 		},
