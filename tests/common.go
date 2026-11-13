@@ -1123,22 +1123,24 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 			if uid == "" {
 				continue
 			}
-			rows, err := pool.QueryContext(ctx, "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME LIKE @p1", sql.Named("p1", "%"+uid+"%"))
-			if err != nil {
-				t.Logf("cleanup: failed to query tables for uniqueID %s: %v", uid, err)
-				return
-			}
-			var tables []string
-			for rows.Next() {
-				var name string
-				if err := rows.Scan(&name); err == nil {
-					tables = append(tables, name)
+			func() {
+				rows, err := pool.QueryContext(ctx, "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME LIKE @p1", sql.Named("p1", "%"+uid+"%"))
+				if err != nil {
+					t.Logf("cleanup: failed to query tables for uniqueID %s: %v", uid, err)
+					return
 				}
-			}
-			rows.Close()
-			for _, table := range tables {
-				_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", table))
-			}
+				defer rows.Close()
+				var tables []string
+				for rows.Next() {
+					var name string
+					if err := rows.Scan(&name); err == nil {
+						tables = append(tables, name)
+					}
+				}
+				for _, table := range tables {
+					_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", table))
+				}
+			}()
 		}
 		return
 	}
