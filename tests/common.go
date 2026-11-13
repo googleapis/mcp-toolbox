@@ -728,7 +728,8 @@ func SetupMsSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStat
 
 	teardown := func(t *testing.T) {
 		// tear down test
-		if _, dropErr := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE [%s];", tableName)); dropErr != nil {
+		escapedTable := strings.ReplaceAll(tableName, "]", "]]")
+		if _, dropErr := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE [%s];", escapedTable)); dropErr != nil {
 			t.Errorf("Teardown failed: %s", dropErr)
 		}
 	}
@@ -1143,7 +1144,8 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 					t.Logf("cleanup: rows error: %v", err)
 				}
 				for _, table := range tables {
-					_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", table))
+					escapedTable := strings.ReplaceAll(table, "]", "]]")
+					_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
 				}
 			}()
 		}
@@ -1177,7 +1179,8 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 		t.Logf("cleanup: rows error for orphaned tables: %v", err)
 	}
 	for _, tbl := range tablesToDrop {
-		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", tbl))
+		escapedTable := strings.ReplaceAll(tbl, "]", "]]")
+		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
 	}
 }
 

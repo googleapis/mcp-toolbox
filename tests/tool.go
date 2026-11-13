@@ -797,13 +797,11 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 	}
 
 	createStmt := strings.TrimSpace(strings.Trim(createTableStatement, "\""))
-	for _, prefix := range []string{"CREATE TABLE ", "create table ", "Create Table "} {
-		if strings.HasPrefix(createStmt, prefix) {
-			rest := createStmt[len(prefix):]
-			if strings.HasPrefix(rest, "t ") || strings.HasPrefix(rest, "t(") {
-				createStmt = prefix + tableName + rest[1:]
-				break
-			}
+	lowerStmt := strings.ToLower(createStmt)
+	if idx := strings.Index(lowerStmt, "table"); idx != -1 {
+		rest := strings.TrimSpace(createStmt[idx+5:])
+		if strings.HasPrefix(rest, "t ") || strings.HasPrefix(rest, "t(") {
+			createStmt = createStmt[:idx+5] + " " + tableName + rest[1:]
 		}
 	}
 
