@@ -244,8 +244,7 @@ func setupTrinoTable(t *testing.T, ctx context.Context, pool *sql.DB, createStat
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
-		_, err = pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
-		if err != nil {
+		if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
 			t.Logf("cleanup: failed to drop table %s: %s", tableName, err)
 		}
 	})
