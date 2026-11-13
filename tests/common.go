@@ -729,7 +729,9 @@ func SetupMsSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStat
 	teardown := func(t *testing.T) {
 		// tear down test
 		escapedTable := strings.ReplaceAll(tableName, "]", "]]")
-		if _, dropErr := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE [%s];", escapedTable)); dropErr != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if _, dropErr := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE [%s];", escapedTable)); dropErr != nil {
 			t.Errorf("Teardown failed: %s", dropErr)
 		}
 	}
@@ -1119,13 +1121,16 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 // CleanupMSSQLTables drops test tables matching the specified uniqueIDs, or orphaned integration test tables
 // created more than 2 hours ago. It avoids unconditionally dropping all user tables to prevent breaking concurrent CI runs.
 func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueIDs ...string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	if len(uniqueIDs) > 0 {
 		for _, uid := range uniqueIDs {
 			if uid == "" {
 				continue
 			}
 			func() {
-				rows, err := pool.QueryContext(ctx, "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME LIKE @p1", sql.Named("p1", "%"+uid+"%"))
+				rows, err := pool.QueryContext(cleanupCtx, "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME LIKE @p1", sql.Named("p1", "%"+uid+"%"))
 				if err != nil {
 					t.Logf("cleanup: failed to query tables for uniqueID %s: %v", uid, err)
 					return
@@ -1145,7 +1150,7 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 				}
 				for _, table := range tables {
 					escapedTable := strings.ReplaceAll(table, "]", "]]")
-					_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
+					_, _ = pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
 				}
 			}()
 		}
@@ -1159,7 +1164,7 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 		WHERE (t.name LIKE 'param_table_%' OR t.name LIKE 'auth_table_%' OR t.name LIKE 'template_param_table_%' OR t.name LIKE 't_%')
 		  AND t.create_date < DATEADD(hour, -2, GETDATE());
 	`
-	rows, err := pool.QueryContext(ctx, query)
+	rows, err := pool.QueryContext(cleanupCtx, query)
 	if err != nil {
 		t.Logf("cleanup: failed to query orphaned tables: %v", err)
 		return
@@ -1180,7 +1185,7 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 	}
 	for _, tbl := range tablesToDrop {
 		escapedTable := strings.ReplaceAll(tbl, "]", "]]")
-		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
+		_, _ = pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
 	}
 }
 
