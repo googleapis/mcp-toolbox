@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,53 @@ func initSpannerClients(ctx context.Context, project, instance, dbname string) (
 	return dataClient, adminClient, nil
 }
 
+func newSpannerTestResourceName(prefix string) string {
+	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", ""))
+}
+
+func cleanupOldSpannerResources(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dataClient *spanner.Client, dbString, schema string) {
+	t.Helper()
+	cutoff := time.Now().Add(-2 * time.Hour).Unix()
+	isOld := func(name string) bool {
+		parts := strings.Split(name, "_")
+		if len(parts) < 3 {
+			return false
+		}
+		ts, err := strconv.ParseInt(parts[len(parts)-2], 10, 64)
+		return err == nil && ts < cutoff
+	}
+
+	var drops []string
+	if schema == "" {
+		_ = dataClient.Single().Query(ctx, spanner.NewStatement(
+			"SELECT PROPERTY_GRAPH_NAME FROM INFORMATION_SCHEMA.PROPERTY_GRAPHS",
+		)).Do(func(r *spanner.Row) error {
+			var name string
+			if r.Columns(&name) == nil && isOld(name) {
+				drops = append(drops, "DROP PROPERTY GRAPH IF EXISTS "+name)
+			}
+			return nil
+		})
+	}
+	_ = dataClient.Single().Query(ctx, spanner.NewStatement(
+		fmt.Sprintf("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '%s' ORDER BY TABLE_NAME", schema),
+	)).Do(func(r *spanner.Row) error {
+		var name string
+		if r.Columns(&name) == nil && isOld(name) {
+			drops = append(drops, "DROP TABLE IF EXISTS "+name)
+		}
+		return nil
+	})
+	if len(drops) > 0 {
+		if op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+			Database:   dbString,
+			Statements: drops,
+		}); err == nil {
+			_ = op.Wait(ctx)
+		}
+	}
+}
+
 func TestSpannerToolEndpoints(t *testing.T) {
 	sourceConfig := getSpannerVars(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -89,11 +137,13 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create Spanner client: %s", err)
 	}
+	defer dataClient.Close()
+	defer adminClient.Close()
 
 	// create table name with UUID
-	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameParam := newSpannerTestResourceName("param_table")
+	tableNameAuth := newSpannerTestResourceName("auth_table")
+	tableNameTemplateParam := newSpannerTestResourceName("template_param_table")
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSpannerParamToolInfo(tableNameParam)
@@ -103,6 +153,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 		SpannerInstance,
 		SpannerDatabase,
 	)
+	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, "")
 	teardownTable1 := setupSpannerTable(t, ctx, adminClient, dataClient, createParamTableStmt, insertParamTableStmt, tableNameParam, dbString, paramTestParams)
 	defer teardownTable1(t)
 
@@ -117,12 +168,12 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	defer teardownTableTmpl(t)
 
 	// set up for graph tool
-	nodeTableName := "node_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	nodeTableName := newSpannerTestResourceName("node_table")
 	createNodeStatementTmpl := fmt.Sprintf("CREATE TABLE %s (id INT64 NOT NULL) PRIMARY KEY (id)", nodeTableName)
 	teardownNodeTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createNodeStatementTmpl, "", nodeTableName, dbString, nil)
 	defer teardownNodeTableTmpl(t)
 
-	edgeTableName := "edge_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	edgeTableName := newSpannerTestResourceName("edge_table")
 	createEdgeStatementTmpl := fmt.Sprintf(`
 	CREATE TABLE %[1]s (
 		id INT64 NOT NULL,
@@ -134,7 +185,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	teardownEdgeTableTmpl := setupSpannerTable(t, ctx, adminClient, dataClient, createEdgeStatementTmpl, "", edgeTableName, dbString, nil)
 	defer teardownEdgeTableTmpl(t)
 
-	graphName := "graph_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	graphName := newSpannerTestResourceName("graph")
 	createGraphStmt := fmt.Sprintf(`
 	CREATE PROPERTY GRAPH %[3]s
 		NODE TABLES (
@@ -172,6 +223,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
+	defer cmd.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -276,7 +328,7 @@ func addSpannerSearchCatalogConfig(t *testing.T, config map[string]any) map[stri
 
 // setupSpannerPgVectorTable creates a vector table in Spanner (PostgreSQL dialect) for semantic search testing
 func setupSpannerPgVectorTable(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string) (string, func(*testing.T)) {
-	tableName := "vector_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableName := newSpannerTestResourceName("vector_table")
 	createStatement := fmt.Sprintf(`CREATE TABLE %s (
 		id bigint PRIMARY KEY,
 		content text,
@@ -347,6 +399,8 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 	}
 	defer dataClient.Close()
 
+	cleanupOldSpannerResources(t, ctx, adminClient, dataClient, dbString, "public")
+
 	// Set up table for semantic search
 	vectorTableName, tearDownVectorTable := setupSpannerPgVectorTable(t, ctx, adminClient, dbString)
 	defer tearDownVectorTable(t)
@@ -374,6 +428,7 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
+	defer cmd.Close()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
