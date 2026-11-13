@@ -16,12 +16,16 @@ package lookercommon_test
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
 
@@ -606,5 +610,284 @@ func TestProcessQueryArgsWithDynamicFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestStripDrillLinks(t *testing.T) {
+	detailResp := map[string]any{
+		"sql":             "SELECT * FROM orders",
+		"applied_filters": map[string]any{"orders.status": "complete"},
+		"from_cache":      true,
+		"data": []any{
+			map[string]any{
+				"orders.status": map[string]any{
+					"value":            "complete",
+					"filterable_value": "complete",
+					"links":            []any{map[string]any{"label": "Drill", "url": "/explore/x"}},
+				},
+				"orders.count": map[string]any{
+					"2025": map[string]any{
+						"value":            42,
+						"rendered":         "42",
+						"filterable_value": "42",
+						"links":            []any{map[string]any{"label": "Show All 42", "url": "/explore/y"}},
+					},
+				},
+			},
+		},
+		"pivots": []any{
+			map[string]any{
+				"key": "2025",
+				"metadata": map[string]any{
+					"orders.created_year": map[string]any{
+						"value":            "2025",
+						"filterable_value": "2025",
+						"links":            []any{map[string]any{"label": "Drill Year", "url": "/explore/p"}},
+					},
+				},
+			},
+		},
+		"totals_data": map[string]any{
+			"orders.count": map[string]any{
+				"value":            42,
+				"filterable_value": "42",
+				"links":            []any{map[string]any{"label": "Total Drill", "url": "/explore/z"}},
+			},
+		},
+		"fields": map[string]any{
+			"measures": []any{
+				map[string]any{
+					"name":                        "orders.count",
+					"label":                       "Order Count",
+					"drill_fields":                []any{"orders.id", "orders.created_date"},
+					"sql":                         "${TABLE}.id",
+					"can":                         map[string]any{"filter": true},
+					"user_attribute_filter_types": []any{"number"},
+					"available_custom_timeframes": []any{"day"},
+					"suggest_dimension":           "orders.count",
+				},
+			},
+		},
+	}
+
+	lookercommon.StripDrillLinks(detailResp)
+
+	for _, topKey := range []string{"sql", "applied_filters", "from_cache"} {
+		if _, exists := detailResp[topKey]; exists {
+			t.Errorf("expected top-level %q to be stripped from detailResp", topKey)
+		}
+	}
+
+	row := detailResp["data"].([]any)[0].(map[string]any)
+	statusCell := row["orders.status"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := statusCell[k]; exists {
+			t.Errorf("expected %q to be stripped from flat cell, got %v", k, statusCell)
+		}
+	}
+	if statusCell["value"] != "complete" {
+		t.Errorf("expected value to be preserved, got %v", statusCell["value"])
+	}
+
+	pivotCell := row["orders.count"].(map[string]any)["2025"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := pivotCell[k]; exists {
+			t.Errorf("expected %q to be stripped from pivoted cell, got %v", k, pivotCell)
+		}
+	}
+	if pivotCell["value"] != 42 {
+		t.Errorf("expected pivoted cell value 42 to be preserved, got %v", pivotCell["value"])
+	}
+
+	pivotMeta := detailResp["pivots"].([]any)[0].(map[string]any)["metadata"].(map[string]any)["orders.created_year"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := pivotMeta[k]; exists {
+			t.Errorf("expected %q to be stripped from pivot metadata cell, got %v", k, pivotMeta)
+		}
+	}
+
+	totalsCell := detailResp["totals_data"].(map[string]any)["orders.count"].(map[string]any)
+	for _, k := range []string{"links", "filterable_value"} {
+		if _, exists := totalsCell[k]; exists {
+			t.Errorf("expected %q to be stripped from totals_data cell, got %v", k, totalsCell)
+		}
+	}
+
+	measureField := detailResp["fields"].(map[string]any)["measures"].([]any)[0].(map[string]any)
+	for _, strippedKey := range []string{"drill_fields", "sql", "can", "user_attribute_filter_types", "available_custom_timeframes", "suggest_dimension"} {
+		if _, exists := measureField[strippedKey]; exists {
+			t.Errorf("expected %q to be stripped from field metadata, got %v", strippedKey, measureField)
+		}
+	}
+	if measureField["name"] != "orders.count" || measureField["label"] != "Order Count" {
+		t.Errorf("expected essential field metadata to be preserved, got %v", measureField)
+	}
+}
+
+func TestDataAppExtensionValidationHelpers(t *testing.T) {
+	t.Run("GenerateDataAppExtensionName", func(t *testing.T) {
+		got := lookercommon.GenerateDataAppExtensionName("Revenue & Margin Explorer (Q4)!")
+		if !strings.HasPrefix(got, "data-app-revenue-margin-explorer-q4-") {
+			t.Errorf("unexpected generated name prefix: %q", got)
+		}
+		if err := lookercommon.ValidateDataAppExtensionName(got); err != nil {
+			t.Errorf("generated name %q failed validation: %v", got, err)
+		}
+
+		fallback := lookercommon.GenerateDataAppExtensionName("   !!!   ")
+		if !strings.HasPrefix(fallback, "data-app-untitled-") {
+			t.Errorf("expected untitled fallback prefix, got %q", fallback)
+		}
+
+		longLabel := strings.Repeat("a", 200)
+		longName := lookercommon.GenerateDataAppExtensionName(longLabel)
+		if err := lookercommon.ValidateDataAppExtensionName(longName); err != nil {
+			t.Errorf("generated long-label name %q failed validation: %v", longName, err)
+		}
+	})
+
+	t.Run("ValidateDataAppExtensionName", func(t *testing.T) {
+		if err := lookercommon.ValidateDataAppExtensionName("valid_App-Name_01"); err != nil {
+			t.Errorf("unexpected error for valid name: %v", err)
+		}
+		for _, bad := range []string{"", "has space", "bad/slash", strings.Repeat("x", 256)} {
+			if err := lookercommon.ValidateDataAppExtensionName(bad); err == nil {
+				t.Errorf("expected error for invalid name %q, got nil", bad)
+			}
+		}
+	})
+
+	t.Run("NormalizeDataAppExtensionID", func(t *testing.T) {
+		id, err := lookercommon.NormalizeDataAppExtensionID("db::550e8400-e29b-41d4-a716-446655440000")
+		if err != nil || id != "550e8400-e29b-41d4-a716-446655440000" {
+			t.Fatalf("expected stripped UUID, got %q (err=%v)", id, err)
+		}
+		id, err = lookercommon.NormalizeDataAppExtensionID("550e8400-e29b-41d4-a716-446655440000")
+		if err != nil || id != "550e8400-e29b-41d4-a716-446655440000" {
+			t.Fatalf("expected raw UUID, got %q (err=%v)", id, err)
+		}
+		for _, bad := range []string{"", "db::", "../inline_extension/123", "id?dashboard_id=1", "id/bundle.js"} {
+			if _, err := lookercommon.NormalizeDataAppExtensionID(bad); err == nil {
+				t.Errorf("expected path/format error for %q, got nil", bad)
+			}
+		}
+	})
+
+	t.Run("ValidateDataAppExtensionCodeAndLabel", func(t *testing.T) {
+		if err := lookercommon.ValidateDataAppExtensionLabel("My Data App"); err != nil {
+			t.Errorf("unexpected label error: %v", err)
+		}
+		if err := lookercommon.ValidateDataAppExtensionLabel("   "); err == nil {
+			t.Errorf("expected empty label error")
+		}
+		if err := lookercommon.ValidateDataAppExtensionLabel(strings.Repeat("é", 256)); err == nil {
+			t.Errorf("expected >255 rune label error")
+		}
+		if err := lookercommon.ValidateDataAppExtensionCode("export default () => null;"); err != nil {
+			t.Errorf("unexpected code error: %v", err)
+		}
+		if err := lookercommon.ValidateDataAppExtensionCode("   "); err == nil {
+			t.Errorf("expected empty code error")
+		}
+		if err := lookercommon.ValidateDataAppExtensionCode(strings.Repeat("a", lookercommon.MaxDataAppExtensionCodeBytes+1)); err == nil {
+			t.Errorf("expected >5MB code error")
+		}
+	})
+}
+
+func TestCreateAndUpdateDataAppExtensionTransport(t *testing.T) {
+	var lastMethod, lastPath, lastRawQuery string
+	var lastBody map[string]any
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/4.0/login" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "mock-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+			return
+		}
+		lastMethod = r.Method
+		lastPath = r.URL.Path
+		lastRawQuery = r.URL.RawQuery
+		lastBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&lastBody)
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":           "abc-123",
+			"name":         "data-app-sales-abc",
+			"label":        "Sales App",
+			"user_id":      7,
+			"code_size":    42,
+			"mount_points": map[string]any{"dashboard_tile": true},
+			"entitlements": map[string]any{
+				"core_api_methods":  []string{"run_inline_query", "dashboard", "dashboard_element"},
+				"external_api_urls": []string{},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	settings := rtl.ApiSettings{
+		BaseUrl:      ts.URL,
+		ApiVersion:   "4.0",
+		ClientId:     "id",
+		ClientSecret: "secret",
+	}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(settings))
+
+	name := "data-app-sales-abc"
+	label := "Sales App"
+	code := "console.log('hi');"
+	created, err := lookercommon.CreateDataAppExtension(sdk, lookercommon.WriteDataAppExtension{
+		Name:  &name,
+		Label: &label,
+		Code:  &code,
+	}, &settings)
+	if err != nil {
+		t.Fatalf("CreateDataAppExtension failed: %v", err)
+	}
+	if lastMethod != http.MethodPost || lastPath != "/api/4.0/data_app_extension" {
+		t.Fatalf("unexpected request %s %s", lastMethod, lastPath)
+	}
+	if created.ExtensionId != "db::abc-123" {
+		t.Errorf("expected ExtensionId 'db::abc-123', got %q", created.ExtensionId)
+	}
+	sentCode, _ := lastBody["code"].(string)
+	if !strings.Contains(sentCode, "window.__lookerDataAppMeta") || !strings.Contains(sentCode, "publishedAt") || !strings.HasSuffix(sentCode, "console.log('hi');") {
+		t.Errorf("expected __lookerDataAppMeta header prepended to code, got %q", sentCode)
+	}
+
+	updatedLabel := "Sales App v2"
+	updated, err := lookercommon.UpdateDataAppExtension(sdk, "db::abc-123", "99", lookercommon.WriteDataAppExtension{
+		Label: &updatedLabel,
+	}, &settings)
+	if err != nil {
+		t.Fatalf("UpdateDataAppExtension failed: %v", err)
+	}
+	if lastMethod != http.MethodPatch || lastPath != "/api/4.0/data_app_extension/abc-123" || lastRawQuery != "dashboard_id=99" {
+		t.Fatalf("unexpected PATCH request: %s %s?%s", lastMethod, lastPath, lastRawQuery)
+	}
+	if _, hasName := lastBody["name"]; hasName {
+		t.Errorf("expected omitted 'name' in PATCH body, got %v", lastBody)
+	}
+	if updated.ExtensionId != "db::abc-123" {
+		t.Errorf("expected ExtensionId 'db::abc-123', got %q", updated.ExtensionId)
+	}
+}
+
+func TestEnsureDataAppMeta(t *testing.T) {
+	raw := "export default class MyApp {};"
+	stamped := lookercommon.EnsureDataAppMeta(raw)
+	if !strings.HasPrefix(stamped, "window.__lookerDataAppMeta = Object.assign(") {
+		t.Fatalf("expected __lookerDataAppMeta prefix, got %q", stamped)
+	}
+	if !strings.HasSuffix(stamped, raw) {
+		t.Fatalf("expected original code preserved at end, got %q", stamped)
+	}
+	if again := lookercommon.EnsureDataAppMeta(stamped); again != stamped {
+		t.Fatalf("expected EnsureDataAppMeta to be idempotent, got %q", again)
 	}
 }

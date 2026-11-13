@@ -130,6 +130,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool with prompt: %v", resourceType, params.AsMap()["prompt"]))
+
 	results, err := source.InvokeSearchCatalog(ctx, params.AsMap(), tokenStr)
 	if err != nil {
 		return nil, util.ProcessGcpError(err)
