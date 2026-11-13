@@ -21,6 +21,7 @@ database: ${POSTGRES_DATABASE}
 user: ${POSTGRES_USER}
 password: ${POSTGRES_PASSWORD}
 queryParams: ${POSTGRES_QUERY_PARAMS:}
+readOnly: ${POSTGRES_READONLY:false}
 ---
 kind: tool
 name: execute_sql
