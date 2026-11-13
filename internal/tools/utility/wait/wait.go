@@ -97,10 +97,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	return fmt.Sprintf("Wait for %v completed successfully.", totalDuration), nil
 }
 
-func (t Tool) Authorized(verifiedAuthServices []string) bool {
-	return true
-}
-
 func (t Tool) GetSourceName() string {
 	return ""
 }

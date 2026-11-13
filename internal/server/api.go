@@ -236,7 +236,7 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if any of the specified auth services is verified
-	isAuthorized := tool.Authorized(verifiedAuthServices)
+	isAuthorized := tools.IsAuthorized(tool.GetAuthRequired(), verifiedAuthServices)
 	if !isAuthorized {
 		err = fmt.Errorf("tool invocation not authorized. Please make sure you specify correct auth headers")
 		s.logger.DebugContext(ctx, err.Error())
@@ -354,6 +354,14 @@ func toolInvokeHandler(s *Server, w http.ResponseWriter, r *http.Request) {
 			s.logger.ErrorContext(ctx, fmt.Sprintf("Tool invocation unknown error: %v", err))
 			_ = render.Render(w, r, newErrResponse(err, http.StatusInternalServerError))
 			return
+		}
+	}
+
+	if structuredRes, ok := res.(tools.StructuredToolResult); ok {
+		if structuredRes.StructuredContent != nil {
+			res = structuredRes.StructuredContent
+		} else {
+			res = structuredRes.Content
 		}
 	}
 

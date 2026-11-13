@@ -15,6 +15,7 @@ ARG BASE_IMAGE="golang:1"
 FROM --platform=$BUILDPLATFORM ${BASE_IMAGE} AS build
 
 # Install Zig for CGO cross-compilation
+COPY ["zig.tar.x[z]", "./"]
 RUN --mount=type=secret,id=airlock_token \
     if [ -f /run/secrets/airlock_token ]; then \
         export TOKEN=$(cat /run/secrets/airlock_token) && \
@@ -25,11 +26,16 @@ RUN --mount=type=secret,id=airlock_token \
         echo "deb [trusted=yes] https://us-apt.pkg.dev/projects/artifact-foundry-prod ${REPO} main" > /etc/apt/sources.list; \
     fi && \
     apt-get update && apt-get install -y xz-utils && \
-    rm -f /etc/apt/auth.conf
-RUN curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz && \
+    rm -f /etc/apt/auth.conf && \
+    if [ -f /run/secrets/airlock_token ]; then \
+        if [ ! -f zig.tar.xz ]; then echo "Error: zig.tar.xz was not pre-fetched!" && exit 1; fi; \
+    else \
+        curl -fL "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz" -o zig.tar.xz; \
+    fi && \
+    echo "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239  zig.tar.xz" | sha256sum -c - && \
     mkdir -p /zig && \
     tar -xf zig.tar.xz -C /zig --strip-components=1 && \
-    rm zig.tar.xz
+    rm -f zig.tar.xz
 
 WORKDIR /go/src/mcp-toolbox
 COPY . .
@@ -63,7 +69,7 @@ RUN --mount=type=secret,id=airlock_token \
     rm -f ~/.netrc
 
 # Final Stage
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot
 
 WORKDIR /app
 COPY --from=build --chown=nonroot /go/src/mcp-toolbox/mcp-toolbox /toolbox
