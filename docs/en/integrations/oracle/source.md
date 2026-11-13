@@ -32,6 +32,38 @@ user][oracle-users] to log in to the database with the necessary permissions.
 [oracle-users]:
     https://docs.oracle.com/en/database/oracle/oracle-database/21/sqlrf/CREATE-USER.html
 
+### Read-Only Access
+
+A tool's `readOnly: true` setting runs its statement in an Oracle read-only
+transaction, so writes and locking reads fail with `ORA-01456`. It does not stop
+DDL: Oracle commits implicitly before and after every DDL statement, so `CREATE`,
+`TRUNCATE` and `ALTER` still take effect, and a statement that performs DDL
+before writing leaves the read-only transaction entirely.
+
+Where a source backs tools that take untrusted or model-generated SQL, such as
+`oracle-execute-sql`, enforce read-only in the database instead. On Oracle
+Database 23ai and later, mark the connecting user read-only:
+
+```sql
+CREATE USER toolbox_ro IDENTIFIED BY "<password>" QUOTA 0 ON users READ ONLY;
+GRANT CREATE SESSION TO toolbox_ro;
+GRANT READ ON app.orders TO toolbox_ro;
+```
+
+Every write from that user's sessions then fails with `ORA-28194: Can perform
+read operations only` — DDL, DML, `SELECT ... FOR UPDATE`, and writes inside
+PL/SQL blocks, including autonomous transactions and definer's-rights
+procedures. `ALTER USER toolbox_ro READ WRITE` reverses it.
+
+The attribute applies to that user's sessions on this database, so it does not
+constrain a procedure invoked over a database link, which runs on the target
+database as the link's user. Grant `EXECUTE` on remote procedures and
+database-link access sparingly.
+
+Before 23ai there is no equivalent, so grant only `CREATE SESSION` plus the
+specific `READ` object privileges the user needs, and no `RESOURCE`, `DBA`, or
+`ANY` privileges.
+
 ### Oracle Driver Requirement (Conditional)
 
 The Oracle source offers two connection drivers:

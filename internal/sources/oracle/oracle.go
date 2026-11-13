@@ -142,8 +142,19 @@ func (s *Source) OracleDB() *sql.DB {
 	return s.DB
 }
 
-func (s *Source) RunSQL(ctx context.Context, statement string, params []any, readOnly bool) (any, error) {
-	if !readOnly {
+// RunSQL runs statement and returns its rows, or a status and the number of
+// affected rows for DML. readOnly selects how the statement is executed:
+//
+//	true  - inside an Oracle read-only transaction, so the database itself
+//	        rejects writes and locking reads such as `SELECT ... FOR UPDATE`.
+//	false - as DML, reporting the number of affected rows.
+//	nil   - unspecified: run as a query in a regular transaction that is
+//	        committed afterwards. Tools whose `readOnly` is not configured use
+//	        this so that statements with side effects keep working; it gives no
+//	        read-only guarantee, but still ends the transaction before the
+//	        connection returns to the pool.
+func (s *Source) RunSQL(ctx context.Context, statement string, params []any, readOnly *bool) (any, error) {
+	if readOnly != nil && !*readOnly {
 		result, err := s.OracleDB().ExecContext(ctx, statement, params...)
 		if err != nil {
 			return nil, fmt.Errorf("unable to execute DML statement: %w", err)
@@ -159,13 +170,73 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any, rea
 			"rows_affected": rowsAffected,
 		}, nil
 	}
-	rows, err := s.OracleDB().QueryContext(ctx, statement, params...)
+
+	enforceReadOnly := readOnly != nil && *readOnly
+
+	// Run the statement in an explicit transaction. Calling QueryContext on the
+	// pool only picks a Go function: Oracle still accepts statements with side
+	// effects through it, most notably `SELECT ... FOR UPDATE`, which is
+	// syntactically a SELECT but opens a transaction and holds row locks until
+	// a COMMIT or ROLLBACK. Since database/sql knows nothing about that
+	// server-side transaction, it hands the connection back to the pool with
+	// the locks still held, and the next caller inherits them. Ending the
+	// transaction here keeps that state off the pooled connection.
+	tx, err := s.OracleDB().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to begin transaction: %w", err)
+	}
+	// Also covers the error paths below: the transaction always ends before the
+	// connection returns to the pool.
+	defer func() { _ = tx.Rollback() }()
+
+	if enforceReadOnly {
+		// Let Oracle enforce the read-only contract. Locking reads and writes
+		// then fail with ORA-01456 instead of taking effect, which no amount of
+		// inspecting the statement text in Go could guarantee.
+		//
+		// The mode is set with an explicit statement rather than
+		// sql.TxOptions{ReadOnly: true} because neither supported driver
+		// implements that option usefully: go-ora rejects it ("readonly
+		// transaction is not supported"), and godror runs its own SET
+		// TRANSACTION while the connection is still in autocommit mode, which
+		// commits away the transaction it just started. Sent as the first
+		// statement inside the transaction, it works on both.
+		if _, err := tx.ExecContext(ctx, "SET TRANSACTION READ ONLY"); err != nil {
+			return nil, fmt.Errorf("unable to set transaction read-only: %w", err)
+		}
+	}
+
+	rows, err := tx.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
 	defer rows.Close()
 
-	// If Columns() errors, it might be a DDL/DML without an OUTPUT clause.
+	out, err := scanRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	// Close the result set before ending the transaction.
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("unable to close result set: %w", err)
+	}
+
+	if !enforceReadOnly {
+		// Commit so statements that this mode still allows (DML, DDL) keep the
+		// effect they had when they ran in autocommit mode.
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("unable to commit transaction: %w", err)
+		}
+	}
+
+	return out, nil
+}
+
+// scanRows reads a result set into a slice of column name to value maps.
+func scanRows(rows *sql.Rows) ([]any, error) {
+	// If Columns() errors, the statement may not return a result set at all
+	// (e.g. ALTER SESSION, which a read-only transaction still permits).
 	// We proceed, and results.Err() will catch actual query execution errors.
 	// 'out' will remain an empty slice if cols is empty or err is not nil here.
 	cols, _ := rows.Columns()
