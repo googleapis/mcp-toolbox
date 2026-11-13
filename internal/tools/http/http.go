@@ -265,9 +265,15 @@ func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]st
 	allHeaders := mergeHeaders(defaultHeaders)
 	for _, p := range headerParams {
 		headerValue, ok := paramsMap[p.GetName()]
-		if ok {
+		// An optional header param that was not provided is present in
+		// paramsMap with a nil value; omit it, as is done for query params.
+		if ok && headerValue != nil {
 			if strValue, ok := headerValue.(string); ok {
-				allHeaders[http.CanonicalHeaderKey(p.GetName())] = strValue
+				// An empty string carries no header value; omit it so any
+				// source or tool header with the same name is kept.
+				if strValue != "" {
+					allHeaders[http.CanonicalHeaderKey(p.GetName())] = strValue
+				}
 			} else {
 				return nil, fmt.Errorf("header param %s got value of type %t, not string", p.GetName(), headerValue)
 			}
