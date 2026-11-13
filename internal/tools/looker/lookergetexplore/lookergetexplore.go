@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
@@ -110,6 +111,11 @@ func (t Tool) ValidateSource(source sources.Source) error {
 	return nil
 }
 
+type lookmlModelExploreResponse struct {
+	v4.LookmlModelExplore
+	CertificationMetadata *v4.Certification `json:"certification_metadata,omitempty"`
+}
+
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
 	source, ok := s.(compatibleSource)
 	if !ok {
@@ -133,13 +139,17 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError("error getting sdk", http.StatusInternalServerError, err)
 	}
-	fieldsStr := "name,description,label,group_label,hidden,tags,always_filter,conditionally_filter"
-	request := v4.RequestLookmlModelExplore{
-		LookmlModelName: model,
-		ExploreName:     explore,
-		Fields:          &fieldsStr,
-	}
-	resp, err := sdk.LookmlModelExplore(request, source.LookerApiSettings())
+	fieldsStr := "name,description,label,group_label,hidden,tags,always_filter,conditionally_filter,certification_metadata"
+	var resp lookmlModelExploreResponse
+	err = sdk.AuthSession.Do(
+		&resp,
+		"GET",
+		"/4.0",
+		fmt.Sprintf("/lookml_models/%v/explores/%v", url.PathEscape(model), url.PathEscape(explore)),
+		map[string]any{"fields": fieldsStr},
+		nil,
+		source.LookerApiSettings(),
+	)
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
@@ -175,6 +185,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	if resp.ConditionallyFilter != nil {
 		vMap["conditionally_filter"] = *resp.ConditionallyFilter
+	}
+	if resp.CertificationMetadata != nil {
+		vMap["certification_metadata"] = resp.CertificationMetadata
 	}
 	logger.DebugContext(ctx, "data = ", vMap)
 
