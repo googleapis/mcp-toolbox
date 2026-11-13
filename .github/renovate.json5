@@ -73,27 +73,6 @@
       allowedVersions: '< 2.0.0',
     },
     {
-      matchManagers: [
-        'npm',
-      ],
-      matchPackageNames: [
-        '@google/adk',
-      ],
-      allowedVersions: '< 2.0.0',
-    },
-    {
-      matchManagers: [
-        'npm',
-      ],
-      matchFileNames: [
-        'docs/en/documentation/getting-started/quickstart/js/genkit/**',
-      ],
-      matchPackageNames: [
-        'zod',
-      ],
-      allowedVersions: '< 4.0.0',
-    },
-    {
       groupName: 'Go Samples',
       matchManagers: [
         'gomod',
