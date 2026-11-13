@@ -15,11 +15,14 @@
 package http_test
 
 import (
+	"context"
+	nethttp "net/http"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	http "github.com/googleapis/mcp-toolbox/internal/tools/http"
@@ -224,4 +227,87 @@ func TestFailParseFromYamlHTTP(t *testing.T) {
 		})
 	}
 
+}
+
+// headerCaptureSource is a minimal HTTP source that records the headers of
+// the request it is asked to run instead of sending it.
+type headerCaptureSource struct {
+	got nethttp.Header
+}
+
+func (s *headerCaptureSource) SourceType() string                 { return "http" }
+func (s *headerCaptureSource) ToConfig() sources.SourceConfig     { return nil }
+func (s *headerCaptureSource) IsReadOnly() bool                   { return false }
+func (s *headerCaptureSource) HttpBaseURL() string                { return "http://example.com" }
+func (s *headerCaptureSource) HttpQueryParams() map[string]string { return nil }
+func (s *headerCaptureSource) HttpDefaultHeaders() map[string]string {
+	return map[string]string{"Content-Type": "application/json"}
+}
+
+func (s *headerCaptureSource) RunRequest(_ context.Context, req *nethttp.Request) (any, error) {
+	s.got = req.Header.Clone()
+	return "ok", nil
+}
+
+func TestInvokeOptionalHeaderParams(t *testing.T) {
+	cfg := http.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "example_tool",
+			Description: "some description",
+		},
+		Type:   "http",
+		Source: "my-instance",
+		Method: "GET",
+		Path:   "/test",
+		HeaderParams: []parameters.Parameter{
+			parameters.NewStringParameter("X-Trace-Id", "optional trace id", parameters.WithStringRequired(false)),
+		},
+	}
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error initializing tool: %s", err)
+	}
+
+	tcs := []struct {
+		desc string
+		in   map[string]any
+		want map[string]string
+	}{
+		{
+			desc: "optional header omitted",
+			in:   map[string]any{},
+			want: map[string]string{"Content-Type": "application/json"},
+		},
+		{
+			desc: "optional header provided",
+			in:   map[string]any{"X-Trace-Id": "abc123"},
+			want: map[string]string{"Content-Type": "application/json", "X-Trace-Id": "abc123"},
+		},
+		{
+			desc: "empty string header provided",
+			in:   map[string]any{"X-Trace-Id": ""},
+			want: map[string]string{"Content-Type": "application/json"},
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			// Build the param values through ParseParams, as the server does
+			// before calling Invoke.
+			params, err := parameters.ParseParams(cfg.HeaderParams, tc.in, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing params: %s", err)
+			}
+			src := &headerCaptureSource{}
+			if _, toolErr := tool.Invoke(context.Background(), src, params, ""); toolErr != nil {
+				t.Fatalf("unexpected error invoking tool: %s", toolErr)
+			}
+			got := make(map[string]string)
+			for k := range src.got {
+				got[k] = src.got.Get(k)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Fatalf("incorrect request headers (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
