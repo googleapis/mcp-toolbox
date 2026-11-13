@@ -262,6 +262,25 @@ func ConvertArrayParamToString(param any) (string, error) {
 	}
 }
 
+// validTemplateIdentifier matches a plain, optionally dot-qualified SQL
+// identifier: a letter or underscore followed by letters, digits or
+// underscores, with optional dot-separated parts (e.g. "table" or
+// "datasource.table"). It deliberately rejects whitespace, quotes, statement
+// separators and other metacharacters.
+var validTemplateIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$`)
+
+// SafeIdentifier validates that s is a plain SQL identifier and returns it
+// unchanged, or an error if it is not. It is registered as the "identifier"
+// template function so that templated tool statements can interpolate an
+// identifier parameter without allowing SQL injection, e.g.
+// `SELECT * FROM {{identifier .table_name}}`.
+func SafeIdentifier(s string) (string, error) {
+	if !validTemplateIdentifier.MatchString(s) {
+		return "", fmt.Errorf("invalid SQL identifier %q: must match %s", s, validTemplateIdentifier.String())
+	}
+	return s, nil
+}
+
 // GetParams return the ParamValues that are associated with the Parameters.
 func GetParams(params Parameters, paramValuesMap map[string]any) (ParamValues, error) {
 	resultParamValues := make(ParamValues, 0)
@@ -284,7 +303,8 @@ func ResolveTemplateParams(templateParams Parameters, originalStatement string, 
 	}
 
 	funcMap := template.FuncMap{
-		"array": ConvertArrayParamToString,
+		"array":      ConvertArrayParamToString,
+		"identifier": SafeIdentifier,
 	}
 	t, err := template.New("statement").Funcs(funcMap).Parse(originalStatement)
 	if err != nil {
