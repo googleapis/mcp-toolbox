@@ -130,11 +130,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	return resp, nil
 }
 
-// Authorized checks if the tool is authorized.
-func (t Tool) Authorized(verifiedAuthServices []string) bool {
-	return true
-}
-
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
 	s, ok := source.(compatibleSource)
 	if !ok {

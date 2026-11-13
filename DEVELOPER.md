@@ -256,7 +256,7 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
   [`tools.BaseTool[Config]`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)**.
   `BaseTool` provides default implementations of most of the `Tool` interface —
   `GetName`, `GetDescription`, `GetAuthRequired`, `GetScopesRequired`,
-  `GetAnnotations`, `Manifest`, `GetParameters`, `Authorized`,
+  `GetAnnotations`, `Manifest`, `GetParameters`,
   `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, and `EmbedParams`.
   **Do not re-declare these** — eliminating that boilerplate is the entire point
   of embedding `BaseTool`.
@@ -442,6 +442,20 @@ Evals for the prebuilt configs run separately from the test workflows, on their
 own Cloud Build config. See
 [Adding Prebuilt Config Evals](#adding-prebuilt-config-evals).
 
+### Propagating Test Failures in CI Scripts
+
+Most sources run their integration tests through the shared
+[`test_with_coverage.sh`](./.ci/test_with_coverage.sh) script, which checks
+the test binary's exit code with `if ! ...; then exit 1; fi` before computing
+coverage. A source whose CI step cannot use that shared script (for example,
+one needing extra system packages installed inline, like Oracle) must apply
+the same check by hand around its own `go test` invocation. A bare `go test
+...` on its own line lets a failing test fall through to the coverage
+calculation; if coverage still clears the threshold, Cloud Build reports the
+step as passing even though tests failed. Always wrap the test command so a
+non-zero exit fails the build immediately, and never rely on a downstream
+coverage or lint check to catch a test failure it wasn't designed to detect.
+
 ### Linting
 
 ### Code Linting
@@ -558,8 +572,8 @@ variables for each source.
 * Cloud SQL SQL Server - setup in the test project
   * The Cloud Build service account is a user
 * Couchbase - setup in the test project via the Marketplace
-* DGraph - using the public dgraph interface <https://play.dgraph.io> for
-  testing
+* DGraph - ephemeral `dgraph/standalone` container via testcontainers (set
+  `DGRAPH_URL` to use an existing instance)
 * Looker
   * The Cloud Build service account is a user for conversational analytics
   * The Looker instance runs under google.com:looker-sandbox.

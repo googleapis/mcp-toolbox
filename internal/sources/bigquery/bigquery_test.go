@@ -780,3 +780,35 @@ func TestInitialize_ReadOnlyAndWriteModeValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestBigQueryAllowedDatasets_Sorted(t *testing.T) {
+	emptySrc := &bigquery.Source{}
+	if got := emptySrc.BigQueryAllowedDatasets(); got != nil {
+		t.Fatalf("BigQueryAllowedDatasets() on empty source = %v, want nil", got)
+	}
+
+	src := &bigquery.Source{
+		AllowedDatasets: map[string]struct{}{
+			"my-project.zeta":  {},
+			"my-project.alpha": {},
+			"my-project.gamma": {},
+			"my-project.beta":  {},
+			"other-proj.delta": {},
+		},
+	}
+
+	want := []string{
+		"my-project.alpha",
+		"my-project.beta",
+		"my-project.gamma",
+		"my-project.zeta",
+		"other-proj.delta",
+	}
+
+	for i := 0; i < 20; i++ {
+		got := src.BigQueryAllowedDatasets()
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("iteration %d: BigQueryAllowedDatasets() mismatch (-want +got):\n%s", i, diff)
+		}
+	}
+}

@@ -19,8 +19,9 @@
 #
 # Required CWD: repo root.
 #
-# Binaries (toolbox.<os>.<arch>) must be pre-staged in the workspace by an
-# earlier Cloud Build step. The retry pipeline downloads them from GCS first.
+# Binaries (toolbox.<os>.<arch>) must be pre-staged in the workspace from GCS by
+# the earlier fetch-binaries step (in both promote.cloudbuild.yaml and
+# pypi_retry.cloudbuild.yaml).
 #
 # AR doesn't support twine's `--skip-existing` flag. If this version already
 # has wheels in AR (e.g., from a prior run where Exit Gate failed to externally
