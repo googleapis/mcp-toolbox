@@ -158,22 +158,22 @@ func dropTable(session *gocql.Session, tableName string) {
 	}
 }
 
-func TestScyllaDB(t *testing.T) {
+func setupScyllaDBTest(t *testing.T) string {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
 	host, containerCleanup := setupScyllaDBContainer(ctx, t)
-	defer containerCleanup()
+	t.Cleanup(containerCleanup)
 
 	session, err := initScyllaDBTestSession(host)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer session.Close()
+	t.Cleanup(session.Close)
 
 	sourceConfig := getScyllaDBVars(host)
 
-	args := []string{"--enable-api"}
 	paramTableName := "param_table_" + uuid.New().String()[:8]
 	tableNameAuth := "auth_table_" + uuid.New().String()[:8]
 	tableNameTemplateParam := "tmpl_param_table_" + uuid.New().String()[:8]
@@ -182,19 +182,19 @@ func TestScyllaDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dropTable(session, paramTableName)
+	t.Cleanup(func() { dropTable(session, paramTableName) })
 
 	err = initTable(tableNameAuth, session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dropTable(session, tableNameAuth)
+	t.Cleanup(func() { dropTable(session, tableNameAuth) })
 
 	err = initTable(tableNameTemplateParam, session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dropTable(session, tableNameTemplateParam)
+	t.Cleanup(func() { dropTable(session, tableNameTemplateParam) })
 
 	paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt := createParamToolInfo(paramTableName)
 	_, _, authToolStmt := getScyllaDBAuthToolInfo(tableNameAuth)
@@ -205,11 +205,20 @@ func TestScyllaDB(t *testing.T) {
 
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, ScyllaDBToolType, tmplSelectCombined, tmplSelectFilterCombined, tmpSelectAll)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("toolbox shutdown: %v", err)
+		}
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -219,25 +228,36 @@ func TestScyllaDB(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
+	return tableNameTemplateParam
+}
+
+func runScyllaDBCallTests(t *testing.T, tableName string, invokeOptions []tests.InvokeTestOption, templateOptions []tests.TemplateParamOption) {
 	selectIdNameWant, selectIdNullWant, selectArrayParamWant, mcpMyFailToolWant, mcpSelect1Want, mcpMyToolIdWant := getScyllaDBWants()
 	selectAllWant, selectIdWant, selectNameWant := getScyllaDBTmplWants()
-
-	tests.RunToolGetTest(t)
-	tests.RunToolInvokeTest(t, "", tests.DisableSelect1Test(),
-		tests.DisableOptionalNullParamTest(),
-		tests.WithMyToolId3NameAliceWant(selectIdNameWant),
-		tests.WithMyToolById4Want(selectIdNullWant),
-		tests.WithMyArrayToolWant(selectArrayParamWant),
-		tests.DisableSelect1AuthTest())
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
-		tests.DisableSelectFilterTest(),
-		tests.WithSelectAllWant(selectAllWant),
-		tests.DisableDdlTest(), tests.DisableInsertTest(), tests.WithTmplSelectId1Want(selectIdWant), tests.WithTmplSelectNameWant(selectNameWant))
-
-	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
-		tests.WithMcpMyToolId3NameAliceWant(mcpMyToolIdWant),
-		tests.WithMcpMySecureToolWant(selectIdNameWant),
-		tests.DisableMcpSelect1AuthTest())
+	t.Run("invoke", func(t *testing.T) {
+		opts := []tests.InvokeTestOption{
+			tests.DisableSelect1Test(), tests.DisableOptionalNullParamTest(),
+			tests.WithMyToolId3NameAliceWant(selectIdNameWant),
+			tests.WithMyToolById4Want(selectIdNullWant),
+			tests.WithMyArrayToolWant(selectArrayParamWant), tests.DisableSelect1AuthTest(),
+		}
+		tests.RunToolInvokeTest(t, "", append(opts, invokeOptions...)...)
+	})
+	t.Run("template_parameters", func(t *testing.T) {
+		opts := []tests.TemplateParamOption{
+			tests.DisableSelectFilterTest(), tests.WithSelectAllWant(selectAllWant),
+			// The API serializes ScyllaDB's nil row slice as null.
+			tests.WithSelectEmptyWant(`null`),
+			tests.DisableDdlTest(), tests.DisableInsertTest(),
+			tests.WithTmplSelectId1Want(selectIdWant), tests.WithTmplSelectNameWant(selectNameWant),
+		}
+		tests.RunToolInvokeWithTemplateParameters(t, tableName, append(opts, templateOptions...)...)
+	})
+	t.Run("mcp_call", func(t *testing.T) {
+		tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want,
+			tests.WithMcpMyToolId3NameAliceWant(mcpMyToolIdWant),
+			tests.WithMcpMySecureToolWant(selectIdNameWant), tests.DisableMcpSelect1AuthTest())
+	})
 }
 
 func createParamToolInfo(tableName string) (string, string, string, string) {
