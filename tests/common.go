@@ -1066,11 +1066,11 @@ func CleanupPostgresTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	}
 }
 
-// Finds and drops all tables in a mysql database.
+// Finds and drops tables older than 2 hours in a mysql database.
 func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	query := `
 	SELECT table_name FROM information_schema.tables
-	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE';`
+	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' AND create_time < NOW() - INTERVAL 2 HOUR;`
 
 	rows, err := pool.QueryContext(ctx, query)
 	if err != nil {
@@ -1113,15 +1113,15 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	}
 }
 
-// Finds and drops all tables in an mssql database.
+// Finds and drops user tables older than 2 hours in an mssql database.
 func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'"
 	if _, err := pool.ExecContext(ctx, disableConstraintsCmd); err != nil {
 		t.Fatalf("Failed to disable MSSQL constraints: %v", err)
 	}
 
-	// drop 'U' (User Tables)
-	dropTablesCmd := "EXEC sp_MSforeachtable 'DROP TABLE ?', @whereand = 'AND O.Type = ''U'''"
+	// drop 'U' (User Tables) older than 2 hours
+	dropTablesCmd := "EXEC sp_MSforeachtable 'DROP TABLE ?', @whereand = 'AND O.Type = ''U'' AND O.crdate < DATEADD(HOUR, -2, GETDATE())'"
 	if _, err := pool.ExecContext(ctx, dropTablesCmd); err != nil {
 		t.Fatalf("Failed to drop all MSSQL tables: %v", err)
 	}
