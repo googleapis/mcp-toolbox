@@ -40,7 +40,7 @@ export async function main() {
         {
           name: tool.getName(),
           description: tool.getDescription(),
-          inputSchema: tool.getParamSchema(),
+          inputJsonSchema: tool.getParamSchema().toJSONSchema({ target: "draft-7" }),
         },
         tool
       );
