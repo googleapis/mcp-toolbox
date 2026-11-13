@@ -23,6 +23,14 @@ linters:
   exclusions:
     presets:
       - std-error-handling
+    rules:
+      # The Google Cloud OpenTelemetry exporters backing --telemetry-gcp are
+      # deprecated in favor of OTLP. Migrating changes exported metric names,
+      # so it is tracked separately from dependency updates.
+      - path: internal/telemetry/
+        linters:
+          - staticcheck
+        text: "SA1019: github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/"
 formatters:
   enable:
     - goimports
