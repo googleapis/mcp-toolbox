@@ -1148,6 +1148,7 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 				if err := rows.Err(); err != nil {
 					t.Logf("cleanup: rows error: %v", err)
 				}
+				rows.Close()
 				for _, table := range tables {
 					escapedTable := strings.ReplaceAll(table, "]", "]]")
 					_, _ = pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
@@ -1183,6 +1184,7 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 	if err := rows.Err(); err != nil {
 		t.Logf("cleanup: rows error for orphaned tables: %v", err)
 	}
+	rows.Close()
 	for _, tbl := range tablesToDrop {
 		escapedTable := strings.ReplaceAll(tbl, "]", "]]")
 		_, _ = pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
