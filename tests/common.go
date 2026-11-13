@@ -1133,9 +1133,14 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 				var tables []string
 				for rows.Next() {
 					var name string
-					if err := rows.Scan(&name); err == nil {
-						tables = append(tables, name)
+					if err := rows.Scan(&name); err != nil {
+						t.Logf("cleanup: failed to scan table name: %v", err)
+						continue
 					}
+					tables = append(tables, name)
+				}
+				if err := rows.Err(); err != nil {
+					t.Logf("cleanup: rows error: %v", err)
 				}
 				for _, table := range tables {
 					_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", table))
@@ -1162,9 +1167,14 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 	var tablesToDrop []string
 	for rows.Next() {
 		var tableName string
-		if err := rows.Scan(&tableName); err == nil {
-			tablesToDrop = append(tablesToDrop, tableName)
+		if err := rows.Scan(&tableName); err != nil {
+			t.Logf("cleanup: failed to scan orphaned table name: %v", err)
+			continue
 		}
+		tablesToDrop = append(tablesToDrop, tableName)
+	}
+	if err := rows.Err(); err != nil {
+		t.Logf("cleanup: rows error for orphaned tables: %v", err)
 	}
 	for _, tbl := range tablesToDrop {
 		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", tbl))
