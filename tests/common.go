@@ -1155,7 +1155,7 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 		SELECT t.name 
 		FROM sys.tables t
 		WHERE (t.name LIKE 'param_table_%' OR t.name LIKE 'auth_table_%' OR t.name LIKE 'template_param_table_%' OR t.name LIKE 't_%')
-		  AND t.create_date < DATEADD(hour, -2, GETUTCDATE());
+		  AND t.create_date < DATEADD(hour, -2, GETDATE());
 	`
 	rows, err := pool.QueryContext(ctx, query)
 	if err != nil {

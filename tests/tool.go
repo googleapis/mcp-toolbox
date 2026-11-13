@@ -796,11 +796,15 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		tableName = "t_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	}
 
-	createStmt := strings.Trim(createTableStatement, "\"")
-	if strings.Contains(createStmt, "CREATE TABLE t ") {
-		createStmt = strings.Replace(createStmt, "CREATE TABLE t ", fmt.Sprintf("CREATE TABLE %s ", tableName), 1)
-	} else if strings.Contains(createStmt, "CREATE TABLE t(") {
-		createStmt = strings.Replace(createStmt, "CREATE TABLE t(", fmt.Sprintf("CREATE TABLE %s(", tableName), 1)
+	createStmt := strings.TrimSpace(strings.Trim(createTableStatement, "\""))
+	for _, prefix := range []string{"CREATE TABLE ", "create table ", "Create Table "} {
+		if strings.HasPrefix(createStmt, prefix) {
+			rest := createStmt[len(prefix):]
+			if strings.HasPrefix(rest, "t ") || strings.HasPrefix(rest, "t(") {
+				createStmt = prefix + tableName + rest[1:]
+				break
+			}
+		}
 	}
 
 	t.Cleanup(func() {
