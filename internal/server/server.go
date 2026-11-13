@@ -108,6 +108,13 @@ func InitializeConfigs(ctx context.Context, cfg ServerConfig) (
 		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to get logger from context: %w", err)
 	}
 
+	// Check source and tool types against TOOLBOX_ALLOWED_SOURCES and
+	// TOOLBOX_DISALLOWED_TOOLS. This runs before any source opens a
+	// connection. When neither is set, nothing is restricted.
+	if err := checkRestrictions(ctx, cfg, l); err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
+	}
+
 	// initialize and validate the sources from configs
 	sourcesMap := make(map[string]sources.Source)
 	for name, sc := range cfg.SourceConfigs {
@@ -361,6 +368,11 @@ func InitializeOfflineConfigs(ctx context.Context, cfg ServerConfig) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get logger from context: %w", err)
 	}
+
+	if err := checkRestrictions(ctx, cfg, l); err != nil {
+		return nil, nil, err
+	}
+
 	// Automatically skip source validation
 	cfg.SkipSourceValidation = true
 	toolsMap, err := initializeTools(ctx, cfg, map[string]sources.Source{}, instrumentation, l)

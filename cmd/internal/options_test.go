@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -246,6 +247,48 @@ func TestCheckVersion(t *testing.T) {
 			}
 			if !strings.Contains(output, tc.wantInfoLog) {
 				t.Errorf("expected info log containing %q, but got: %s", tc.wantInfoLog, output)
+			}
+		})
+	}
+}
+
+func TestLoadRestrictionsFromEnv(t *testing.T) {
+	tcs := []struct {
+		desc                string
+		envAllowedSources   string
+		envDisallowedTools  string
+		wantAllowedSources  []string
+		wantDisallowedTools []string
+	}{
+		{
+			desc: "unset means no restriction",
+		},
+		{
+			desc:                "both set",
+			envAllowedSources:   "cloud-sql-postgres, spanner",
+			envDisallowedTools:  "wait,postgres-execute-sql",
+			wantAllowedSources:  []string{"cloud-sql-postgres", " spanner"},
+			wantDisallowedTools: []string{"wait", "postgres-execute-sql"},
+		},
+		{
+			desc:               "whitespace only means no restriction",
+			envAllowedSources:  "   ",
+			envDisallowedTools: "\t",
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Setenv(allowedSourcesEnvVar, tc.envAllowedSources)
+			t.Setenv(disallowedToolsEnvVar, tc.envDisallowedTools)
+			opts := NewToolboxOptions()
+
+			opts.loadRestrictionsFromEnv()
+
+			if diff := cmp.Diff(tc.wantAllowedSources, opts.Cfg.AllowedSources); diff != "" {
+				t.Errorf("AllowedSources mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantDisallowedTools, opts.Cfg.DisallowedTools); diff != "" {
+				t.Errorf("DisallowedTools mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
