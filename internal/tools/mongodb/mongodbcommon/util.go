@@ -17,6 +17,8 @@ package mongodbcommon
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -24,6 +26,14 @@ import (
 
 // CollectionKey is the runtime parameter name used to pick a collection.
 const CollectionKey string = "collection"
+
+func anySlice(vs []string) []any {
+	out := make([]any, len(vs))
+	for i, v := range vs {
+		out[i] = v
+	}
+	return out
+}
 
 // ValidateCollectionConfig rejects setting collection and collectionAllowedValues together.
 func ValidateCollectionConfig(collection string, allowedValues []string) error {
@@ -40,11 +50,7 @@ func WithRuntimeCollectionParam(collection string, allowedValues []string, param
 	}
 	opts := []parameters.StringParameterOption{parameters.WithStringRequired(true)}
 	if len(allowedValues) > 0 {
-		allowed := make([]any, len(allowedValues))
-		for i, v := range allowedValues {
-			allowed[i] = v
-		}
-		opts = append(opts, parameters.WithStringAllowedValues(allowed))
+		opts = append(opts, parameters.WithStringAllowedValues(anySlice(allowedValues)))
 	}
 	collectionParam := parameters.NewStringParameter(CollectionKey, "The name of the collection to operate on.", opts...)
 	return append(params, collectionParam)
@@ -60,4 +66,99 @@ func ResolveCollection(collection string, paramsMap map[string]any) (string, uti
 		return "", util.NewAgentError("collection must be set in the tool config or provided as a parameter", nil)
 	}
 	return c, nil
+}
+
+// CollectionScopedSource is the part of a MongoDB source that collection scoping needs.
+type CollectionScopedSource interface {
+	IsCollectionAllowed(database, collection string) bool
+	MongoDBAllowedCollections(database string) []string
+}
+
+// EffectiveCollections narrows the source's allow-list with the tool's collectionAllowedValues, which may hold regexes.
+// A nil sourceAllowed means the source is unrestricted; an empty non-nil one means it allows nothing in this database.
+func EffectiveCollections(sourceAllowed, toolAllowed []string) []string {
+	if sourceAllowed == nil {
+		return toolAllowed
+	}
+	if len(toolAllowed) == 0 {
+		return sourceAllowed
+	}
+	effective := make([]string, 0, len(sourceAllowed))
+	for _, c := range sourceAllowed {
+		for _, pattern := range toolAllowed {
+			if matchesCollection(c, pattern) {
+				effective = append(effective, c)
+				break
+			}
+		}
+	}
+	return effective
+}
+
+// matchesCollection reports whether a collection name matches a collectionAllowedValues entry. Unlike the shared
+// allowedValues match, it is anchored: a literal entry must equal the name and a regex entry must match all of it,
+// so "orders" does not admit "orders_confidential". This follows the exact matching of the other source allow-lists.
+func matchesCollection(name, pattern string) bool {
+	if regexp.QuoteMeta(pattern) == pattern {
+		return name == pattern
+	}
+	re, err := regexp.Compile("^(?:" + pattern + ")$")
+	if err != nil {
+		return name == pattern
+	}
+	return re.MatchString(name)
+}
+
+// CheckCollectionAllowed rejects a collection outside the effective set (the source's allowedCollections narrowed by
+// the tool's collectionAllowedValues) and lists that set in the error so the agent can retry. It matches names
+// exactly because the runtime parameter's allowedValues check is unanchored and would let "orders_confidential"
+// through an effective set of "orders".
+func CheckCollectionAllowed(src CollectionScopedSource, database, collection string, toolAllowed []string) util.ToolboxError {
+	sourceAllowed := src.MongoDBAllowedCollections(database)
+	if sourceAllowed == nil {
+		return nil
+	}
+	effective := EffectiveCollections(sourceAllowed, toolAllowed)
+	if slices.Contains(effective, collection) {
+		return nil
+	}
+	return util.NewAgentError(fmt.Sprintf("collection %q is not allowed for this tool; allowed collections in database %q are %v", collection, database, effective), nil)
+}
+
+// ValidateCollectionScope checks a tool's collection config against the source's allow-list so a bad config fails at startup.
+func ValidateCollectionScope(src CollectionScopedSource, database, collection string, toolAllowed []string) error {
+	sourceAllowed := src.MongoDBAllowedCollections(database)
+	if sourceAllowed == nil {
+		return nil
+	}
+	if collection != "" {
+		if !src.IsCollectionAllowed(database, collection) {
+			return fmt.Errorf("collection %q is not in the allowedCollections of database %q on this source", collection, database)
+		}
+		return nil
+	}
+	if len(EffectiveCollections(sourceAllowed, toolAllowed)) == 0 {
+		return fmt.Errorf("no collection in database %q is both allowed by the source and listed in collectionAllowedValues", database)
+	}
+	return nil
+}
+
+// ScopeCollectionParam returns a copy of params with the runtime collection parameter restricted to allowed.
+// The tools narrow their already-built parameters rather than rebuilding them, because some construct their
+// non-collection parameters locally in Initialize and could not reproduce them from config alone.
+func ScopeCollectionParam(params parameters.Parameters, allowed []string) parameters.Parameters {
+	if len(allowed) == 0 {
+		return params
+	}
+	scoped := slices.Clone(params)
+	for i, p := range scoped {
+		sp, ok := p.(*parameters.StringParameter)
+		if !ok || sp.GetName() != CollectionKey {
+			continue
+		}
+		narrowed := *sp
+		narrowed.AllowedValues = anySlice(allowed)
+		scoped[i] = &narrowed
+	}
+	return scoped
 }
