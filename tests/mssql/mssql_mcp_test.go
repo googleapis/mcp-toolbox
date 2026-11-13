@@ -41,6 +41,10 @@ func setupMSSQLMCPServer(t *testing.T, ctx context.Context) (string, string, str
 	}
 	t.Cleanup(func() { pool.Close() })
 
+	// Clean up orphaned test tables older than 2 hours from previous failed runs.
+	// This is safe for concurrent CI runs as it only targets old tables.
+	tests.CleanupMSSQLTables(t, ctx, pool)
+
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
