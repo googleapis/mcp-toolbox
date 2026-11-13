@@ -181,6 +181,7 @@ type ExecuteSqlTestConfig struct {
 	createWant       string
 	dropWant         string
 	selectEmptyWant  string
+	tableName        string
 	isMCP            bool
 }
 
@@ -191,6 +192,13 @@ type ExecuteSqlOption func(*ExecuteSqlTestConfig)
 func WithSelect1Statement(s string) ExecuteSqlOption {
 	return func(c *ExecuteSqlTestConfig) {
 		c.select1Statement = s
+	}
+}
+
+// WithExecuteTableName sets the table name used in execute-sql tests.
+func WithExecuteTableName(name string) ExecuteSqlOption {
+	return func(c *ExecuteSqlTestConfig) {
+		c.tableName = name
 	}
 }
 

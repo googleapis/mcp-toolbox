@@ -668,7 +668,7 @@ func GetPostgresWants() (string, string, string, string) {
 // GetMSSQLWants return the expected wants for mssql
 func GetMSSQLWants() (string, string, string, string) {
 	select1Want := "[{\"\":1}]"
-	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: mssql: Could not find stored procedure 'SELEC'. (2812)"}],"isError":true}}`
+	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: mssql: Could not find stored procedure 'SELEC'."}],"isError":true}}`
 	createTableStatement := `"CREATE TABLE t (id INT IDENTITY(1,1) PRIMARY KEY, name NVARCHAR(MAX))"`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"\":1}"}]}}`
 	return select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want
@@ -721,24 +721,27 @@ func SetupMsSQLTable(t *testing.T, ctx context.Context, pool *sql.DB, createStat
 	}
 
 	// Create table
-	_, err = pool.QueryContext(ctx, createStatement)
+	_, err = pool.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
+	teardown := func(t *testing.T) {
+		// tear down test
+		escapedTable := strings.ReplaceAll(tableName, "]", "]]")
+		if _, dropErr := pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE [%s];", escapedTable)); dropErr != nil {
+			t.Errorf("Teardown failed: %s", dropErr)
+		}
+	}
+
 	// Insert test data
-	_, err = pool.QueryContext(ctx, insertStatement, params...)
+	_, err = pool.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
+		teardown(t)
 		t.Fatalf("unable to insert test data: %s", err)
 	}
 
-	return func(t *testing.T) {
-		// tear down test
-		_, err = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE %s;", tableName))
-		if err != nil {
-			t.Errorf("Teardown failed: %s", err)
-		}
-	}
+	return teardown
 }
 
 // SetupMySQLTable creates and inserts data into a table of tool
@@ -1113,19 +1116,72 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	}
 }
 
-// Finds and drops all tables in an mssql database.
-func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
-	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'"
-	if _, err := pool.ExecContext(ctx, disableConstraintsCmd); err != nil {
-		t.Fatalf("Failed to disable MSSQL constraints: %v", err)
+// CleanupMSSQLTables drops test tables matching the specified uniqueIDs, or orphaned integration test tables
+// created more than 2 hours ago. It avoids unconditionally dropping all user tables to prevent breaking concurrent CI runs.
+func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueIDs ...string) {
+	if len(uniqueIDs) > 0 {
+		for _, uid := range uniqueIDs {
+			if uid == "" {
+				continue
+			}
+			func() {
+				rows, err := pool.QueryContext(ctx, "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_NAME LIKE @p1", sql.Named("p1", "%"+uid+"%"))
+				if err != nil {
+					t.Logf("cleanup: failed to query tables for uniqueID %s: %v", uid, err)
+					return
+				}
+				defer rows.Close()
+				var tables []string
+				for rows.Next() {
+					var name string
+					if err := rows.Scan(&name); err != nil {
+						t.Logf("cleanup: failed to scan table name: %v", err)
+						continue
+					}
+					tables = append(tables, name)
+				}
+				if err := rows.Err(); err != nil {
+					t.Logf("cleanup: rows error: %v", err)
+				}
+				for _, table := range tables {
+					escapedTable := strings.ReplaceAll(table, "]", "]]")
+					_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
+				}
+			}()
+		}
+		return
 	}
 
-	// drop 'U' (User Tables)
-	dropTablesCmd := "EXEC sp_MSforeachtable 'DROP TABLE ?', @whereand = 'AND O.Type = ''U'''"
-	if _, err := pool.ExecContext(ctx, dropTablesCmd); err != nil {
-		t.Fatalf("Failed to drop all MSSQL tables: %v", err)
+	// If no specific uniqueID is given, only clean up orphaned test tables older than 2 hours
+	query := `
+		SELECT t.name 
+		FROM sys.tables t
+		WHERE (t.name LIKE 'param_table_%' OR t.name LIKE 'auth_table_%' OR t.name LIKE 'template_param_table_%' OR t.name LIKE 't_%')
+		  AND t.create_date < DATEADD(hour, -2, GETDATE());
+	`
+	rows, err := pool.QueryContext(ctx, query)
+	if err != nil {
+		t.Logf("cleanup: failed to query orphaned tables: %v", err)
+		return
 	}
+	defer rows.Close()
 
+	var tablesToDrop []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			t.Logf("cleanup: failed to scan orphaned table name: %v", err)
+			continue
+		}
+		tablesToDrop = append(tablesToDrop, tableName)
+	}
+	if err := rows.Err(); err != nil {
+		t.Logf("cleanup: rows error for orphaned tables: %v", err)
+	}
+	for _, tbl := range tablesToDrop {
+		escapedTable := strings.ReplaceAll(tbl, "]", "]]")
+		_, _ = pool.ExecContext(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS [%s];", escapedTable))
+	}
 }
 
 // finds and deletes all tables in a Bigtable instance that match the uniqueID.

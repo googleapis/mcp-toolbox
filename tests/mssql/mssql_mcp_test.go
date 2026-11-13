@@ -41,9 +41,6 @@ func setupMSSQLMCPServer(t *testing.T, ctx context.Context) (string, string, str
 	}
 	t.Cleanup(func() { pool.Close() })
 
-	// cleanup test environment
-	tests.CleanupMSSQLTables(t, ctx, pool)
-
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
