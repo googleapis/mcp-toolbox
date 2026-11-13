@@ -27,6 +27,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	_ "github.com/trinodb/trino-go-client/trino" // Import Trino SQL driver
 )
 
@@ -40,6 +42,73 @@ var (
 	TrinoCatalog    = os.Getenv("TRINO_CATALOG")
 	TrinoSchema     = os.Getenv("TRINO_SCHEMA")
 )
+
+const (
+	defaultTrinoImage = "trinodb/trino:471"
+	trinoInternalPort = "8080/tcp"
+)
+
+func setupTrinoContainer(ctx context.Context, t *testing.T) (string, string) {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image:        defaultTrinoImage,
+		ExposedPorts: []string{trinoInternalPort},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort(trinoInternalPort),
+			wait.ForLog("SERVER STARTED"),
+		).WithDeadline(3 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start Trino container: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if err := container.Terminate(cleanupCtx); err != nil {
+			t.Logf("cleanup: failed to terminate Trino container: %v", err)
+		}
+	})
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get Trino container host: %v", err)
+	}
+
+	mappedPort, err := container.MappedPort(ctx, trinoInternalPort)
+	if err != nil {
+		t.Fatalf("failed to get Trino container port: %v", err)
+	}
+
+	return host, mappedPort.Port()
+}
+
+func useTrino(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if TrinoHost != "" {
+		return
+	}
+
+	t.Logf("TRINO_HOST not set; launching ephemeral container (%s)", defaultTrinoImage)
+	host, port := setupTrinoContainer(ctx, t)
+
+	origHost, origPort, origUser, origCatalog, origSchema := TrinoHost, TrinoPort, TrinoUser, TrinoCatalog, TrinoSchema
+	t.Cleanup(func() {
+		TrinoHost, TrinoPort, TrinoUser, TrinoCatalog, TrinoSchema = origHost, origPort, origUser, origCatalog, origSchema
+	})
+
+	TrinoHost = host
+	TrinoPort = port
+	TrinoUser = "toolbox"
+	TrinoCatalog = "memory"
+	TrinoSchema = "default"
+}
 
 func getTrinoVars(t *testing.T) map[string]any {
 	switch "" {
@@ -158,29 +227,34 @@ func getTrinoWants() (string, string, string, string) {
 
 // setupTrinoTable creates and inserts data into a table of tool
 // compatible with trino-sql tool
-func setupTrinoTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) func(*testing.T) {
+func setupTrinoTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) {
+	t.Helper()
 	err := pool.PingContext(ctx)
 	if err != nil {
 		t.Fatalf("unable to connect to test database: %s", err)
 	}
 
-	// Create table
-	_, err = pool.QueryContext(ctx, createStatement)
+	// Create table using ExecContext to avoid leaking *sql.Rows
+	_, err = pool.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
-	// Insert test data
-	_, err = pool.QueryContext(ctx, insertStatement, params...)
-	if err != nil {
-		t.Fatalf("unable to insert test data: %s", err)
-	}
-
-	return func(t *testing.T) {
-		// tear down test
-		_, err = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s", tableName))
+	// Register cleanup immediately with WithoutCancel so it executes even if insert or test fails
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		_, err = pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
 		if err != nil {
-			t.Errorf("Teardown failed: %s", err)
+			t.Logf("cleanup: failed to drop table %s: %s", tableName, err)
+		}
+	})
+
+	// Insert test data
+	if insertStatement != "" {
+		_, err = pool.ExecContext(ctx, insertStatement, params...)
+		if err != nil {
+			t.Fatalf("unable to insert test data: %s", err)
 		}
 	}
 }
@@ -209,9 +283,11 @@ func addTrinoExecuteSqlConfig(t *testing.T, config map[string]any) map[string]an
 }
 
 func TestTrinoToolEndpoints(t *testing.T) {
-	sourceConfig := getTrinoVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	useTrino(ctx, t)
+	sourceConfig := getTrinoVars(t)
 
 	args := []string{"--enable-api"}
 
@@ -219,21 +295,36 @@ func TestTrinoToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create Trino connection pool: %s", err)
 	}
+	t.Cleanup(func() {
+		_ = pool.Close()
+	})
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 
+	// Ensure table 't' from RunExecuteSqlToolInvokeTest is dropped even on failure
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_, _ = pool.ExecContext(cleanupCtx, "DROP TABLE IF EXISTS t")
+	})
+
+	// Ensure template-param table is dropped even if intermediate steps fail
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_, _ = pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableNameTemplateParam))
+	})
+
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getTrinoParamToolInfo(tableNameParam)
-	teardownTable1 := setupTrinoTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	setupTrinoTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getTrinoAuthToolInfo(tableNameAuth)
-	teardownTable2 := setupTrinoTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	setupTrinoTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, TrinoToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
