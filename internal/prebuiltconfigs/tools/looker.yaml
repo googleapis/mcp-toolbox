@@ -45,10 +45,26 @@ description: |
   This tool retrieves a list of explores defined within a specific LookML model.
   Explores represent a curated view of your data, typically joining several
   tables together to allow for focused analysis on a particular subject area.
-  The output provides details like the explore's `name` and `label`.
+  The output provides details like the explore's `name`, `label`, and whether it is `hidden`.
 
   Parameters:
   - model_name (required): The name of the LookML model, obtained from `get_models`.
+---
+kind: tool
+name: get_explore
+type: looker-get-explore
+source: looker-source
+description: |
+  This tool retrieves detailed metadata about a specific Looker explore, including its
+  constraints and rules (e.g., `always_filter`, `conditionally_filter`, `tags`).
+
+  CRITICAL: You MUST use this tool to inspect the explore's metadata BEFORE generating
+  or running a query. If an explore has mandatory filters defined (like `always_filter`
+  or `conditionally_filter`), your query will fail unless you include them.
+
+  Parameters:
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
 ---
 kind: tool
 name: get_dimensions
@@ -70,6 +86,11 @@ description: |
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
   - If a dimension includes `"suggestable": true`, you can retrieve its valid value suggestions by calling the 'get_field_value_suggestions' tool, passing the dimension's 'name' as the 'field' parameter, alongside the explore and model names.
+  - If a dimension includes a `value_format` (an Excel style format string) or a
+    `value_format_name` (a named format such as `usd` or `percent_2`), it defines
+    how that dimension's values should be displayed. Format any values you report
+    for that dimension accordingly rather than showing the raw number, and use the
+    format to reason about the field's units.
 ---
 kind: tool
 name: get_measures
@@ -89,6 +110,11 @@ description: |
     that can be used directly as filters for that measure.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a measure includes a `value_format` (an Excel style format string) or a
+    `value_format_name` (a named format such as `usd` or `percent_2`), it defines
+    how that measure's values should be displayed. Format any values you report
+    for that measure accordingly rather than showing the raw number, and use the
+    format to reason about the measure's units when comparing or combining metrics.
 ---
 kind: tool
 name: get_filters
@@ -147,12 +173,13 @@ name: query
 type: looker-query
 source: looker-source
 description: |
-  This tool runs a query against a LookML model and returns the results in JSON format.
+  This tool runs a query against a LookML model or executes a saved query by ID/slug and returns the results in JSON format.
 
-  Required Parameters:
-  - model_name: The name of the LookML model (from `get_models`).
-  - explore_name: The name of the explore (from `get_explores`).
-  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query.
+  Parameters (provide either `query_id` OR `model` + `explore` + `fields`):
+  - query_id (optional): The unique identifier (numeric ID or slug) of a saved Looker query to execute. If provided, `model`, `explore`, and `fields` are not required.
+  - model: The name of the LookML model (from `get_models`). Required if `query_id` is not provided.
+  - explore: The name of the explore (from `get_explores`). Required if `query_id` is not provided.
+  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query. Required if `query_id` is not provided.
 
   Optional Parameters:
   - pivots: A list of fields to pivot the results by. These fields must also be included in the `fields` list.
@@ -183,7 +210,10 @@ description: |
       - Custom Measure: `[{"measure": "sum_of_revenue", "label": "Sum of Revenue", "based_on": "training.revenue", "type": "sum", "_type_hint": "number"}]`
   - sorts: A list of fields to sort by, optionally including direction (e.g., `["view.field desc"]`).
   - limit: Row limit (default 500). Use "-1" for unlimited.
-  - query_timezone: specific timezone for the query (e.g. `America/Los_Angeles`).
+  - tz: Specific timezone for the query (e.g. `America/Los_Angeles`).
+  - result_format: Output format (`'json'` or `'json_detail'`, default `'json'`).
+  - vis_config: Optional visualization configuration JSON string to associate with the query response.
+  - generate_drill_links: Optional flag indicating whether to generate drill links in the query result.
 
   Note: Use `get_dimensions`, `get_measures`, `get_filters`, and `get_parameters` to find valid fields.
 ---
@@ -784,34 +814,74 @@ description: |
   `add_dashboard_filter` and `add_dashboard_element`.
 ---
 kind: tool
+name: import_dashboard_from_lookml
+type: looker-import-dashboard-from-lookml
+source: looker-source
+description: |
+  This tool imports a LookML dashboard YAML definition to create or overwrite a
+  user-defined dashboard in Looker.
+
+  If a dashboard already exists with the YAML-defined `preferred_slug`, it will
+  be overwritten. Otherwise, a new dashboard will be created.
+
+  Required Parameters:
+  - lookml (required): Valid LookML dashboard YAML string defining the dashboard, filters, and elements.
+
+  Optional Parameters:
+  - folder (optional): Destination folder ID. If omitted, new dashboards are placed in the user's personal folder and overwritten dashboards remain in their existing folder.
+
+  Output:
+  A JSON object containing a link (`url`) to the imported dashboard and its unique `id`.
+---
+kind: tool
 name: add_dashboard_element
 type: looker-add-dashboard-element
 source: looker-source
 description: |
   This tool creates a new tile (element) within an existing Looker dashboard.
   Tiles are added in the order this tool is called for a given `dashboard_id`.
+  It supports query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`),
+  and extension/data app tiles (`extension`).
 
   CRITICAL ORDER OF OPERATIONS:
   1. Create the dashboard using `make_dashboard`.
   2. Add any dashboard-level filters using `add_dashboard_filter`.
   3. Then, add elements (tiles) using this tool.
 
+  DATA APP EXTENSION PUBLISHING LIFECYCLE:
+  To mount a Data App Extension on a dashboard:
+  1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
-  - model_name, explore_name, fields: These query parameters are inherited
-    from the `query` tool and are required to define the data for the tile.
+  - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` are required to define the query for the tile.
+  - For extension tiles (`type: 'extension'`): `extension_id` is required (e.g. `'db::<id>'` or `'app::<id>'`). For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
 
   Optional Parameters:
-  - title: An optional title for the dashboard tile.
-  - pivots, filters, sorts, limit, query_timezone: These query parameters are
-    inherited from the `query` tool and can be used to customize the tile's query.
+  - type: The type of dashboard element (`'vis'`, `'data'`, `'text'`, or `'extension'`). Note that `'extension'` is automatically inferred when `extension_id` is provided; `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
+  - extension_id: The ID of the extension (e.g. `'db::<id>'` from `create_data_app_extension` or `'app::<id>'` from LookML extensions) for `'extension'` tiles. For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
+  - title: An optional title for query-based or extension dashboard tiles.
+  - title_text: The header title text for `'text'` tiles.
+  - subtitle_text: The subtitle text displayed below the title.
+  - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
+  - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `'{"format":"slate"}'`).
+  - note_text: Note text attached to the tile.
+  - note_display: Where the note appears on the tile (`'above'`, `'below'`, or `'hover'`).
+  - note_state: The display state of the note (`'expanded'` or `'collapsed'`).
+  - title_hidden: Whether to hide the tile title (`true`/`false`).
+  - refresh_interval: Auto-refresh interval for the tile (e.g., `'1 hour'`).
+  - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters inherited from the `query` tool to customize a query tile.
   - vis_config: A JSON object defining the visualization settings for this tile.
     The structure and options are the same as for the `query_url` tool's `vis_config`.
 
   Connecting to Dashboard Filters:
   A dashboard element can be connected to one or more dashboard filters (created with
-  `add_dashboard_filter`). To do this, specify the `name` of the dashboard filter
-  and the `field` from the element's query that the filter should apply to.
+  `add_dashboard_filter`). To do this, specify the `dashboard_filter_name` of the dashboard filter
+  and the `field` from the element's query that the filter should apply to in `dashboard_filters`.
   The format for specifying the field is `view_name.field_name`.
 ---
 kind: tool
@@ -871,22 +941,61 @@ description: |
   - dashboard_id (required): The unique identifier of the dashboard.
 ---
 kind: tool
+name: update_dashboard
+type: looker-update-dashboard
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard (`PATCH /api/4.0/dashboards/:id`).
+  It allows updating top-level dashboard properties such as title, description,
+  visibility, refresh interval, and dashboard appearance settings.
+
+  FULL-BLEED DATA APP APPEARANCE:
+  To configure a dashboard container for full-bleed Data Applications, pass:
+  - `show_dashboard_header: false` (hides Looker's native top navigation bar, title, filter bar, reload icon, and menu)
+  - `page_side_margins: 0` (removes outer dashboard margins)
+  - `tile_space_between: 0` (removes gutter spacing between tiles)
+  - `tile_shadow: false` (removes tile drop shadows)
+
+  Parameters:
+  - dashboard_id (required): The unique identifier of the dashboard to update.
+  - title (optional): Updated dashboard title.
+  - description (optional): Updated dashboard description.
+  - show_dashboard_header (optional): Whether to display Looker's native header bar. Set to false for full-bleed Data Apps.
+  - page_side_margins (optional): Page margin width in pixels (e.g. 0 for full bleed).
+  - tile_space_between (optional): Spacing between tiles in pixels (e.g. 0 for full bleed).
+  - tile_shadow (optional): Whether tiles have drop shadows (e.g. false for full bleed).
+  - appearance (optional): Map of additional appearance styling settings.
+  - hidden (optional): Whether to hide the dashboard in navigation.
+  - refresh_interval (optional): Auto-refresh interval phrase (e.g. '1 hour').
+---
+kind: tool
 name: update_dashboard_element
 type: looker-update-dashboard-element
 source: looker-source
 description: |
-  This tool updates an existing query element (tile) in a Looker dashboard.
-  It reconstructs the query for the element using the provided parameters
-  and updates its title and visualization configuration.
+  This tool updates an existing element (tile) in a Looker dashboard.
+  It supports updating query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`),
+  and extension/data app tiles (`extension`).
 
   Required Parameters:
   - dashboard_id: The ID of the dashboard containing the element.
   - dashboard_element_id: The ID of the element to update.
-  - model, explore, fields: These query parameters define the data for the tile.
+  - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` define the data for the tile.
 
   Optional Parameters:
-  - title: The new title for the dashboard tile.
-  - pivots, filters, sorts, limit, tz: These query parameters customize the tile's query.
+  - type: The type of dashboard element (`'vis'`, `'data'`, `'text'`, or `'extension'`). Note that `'extension'` is automatically inferred when `extension_id` is provided.
+  - extension_id: The updated extension ID (e.g. `'db::<id>'` from `create_data_app_extension` or `'app::<id>'` from LookML extensions) for `'extension'` tiles. For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
+  - title: The new title for query-based or extension dashboard tiles.
+  - title_text: The header title text for `'text'` tiles.
+  - subtitle_text: The subtitle text displayed below the title.
+  - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
+  - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `'{"format":"slate"}'`).
+  - note_text: Note text attached to the tile.
+  - note_display: Where the note appears on the tile (`'above'`, `'below'`, or `'hover'`).
+  - note_state: The display state of the note (`'expanded'` or `'collapsed'`).
+  - title_hidden: Whether to hide the tile title (`true`/`false`).
+  - refresh_interval: Auto-refresh interval for the tile (e.g., `'1 hour'`).
+  - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters that customize a query tile.
   - vis_config: A JSON object defining the visualization settings.
   - dashboard_filters: An array of dashboard filters to connect to this element.
 ---
@@ -905,6 +1014,24 @@ description: |
   - active (optional): Whether to make this layout active.
 ---
 kind: tool
+name: update_dashboard_layout
+type: looker-update-dashboard-layout
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard layout (`PATCH /api/4.0/dashboard_layouts/:id`).
+  It allows changing the layout type, toggling whether the layout is active, or updating the tab label.
+
+  DATA APP FULL-BLEED LAYOUT:
+  Setting `type: "extension"` configures the layout as a frameless, 100% viewport container
+  for hosting a single Data App Extension tile without 24-column grid constraints.
+
+  Parameters:
+  - dashboard_layout_id (required): The ID of the dashboard layout to update.
+  - type (optional): Layout type: 'newspaper' (responsive 24-column grid), 'extension' (frameless full-bleed single extension tile), or 'grid'.
+  - active (optional): Whether this layout is the active layout for the dashboard.
+  - label (optional): Display label for this layout tab.
+---
+kind: tool
 name: update_dashboard_layout_component
 type: looker-update-dashboard-layout-component
 source: looker-source
@@ -920,12 +1047,69 @@ description: |
   - width (optional): The new width.
   - height (optional): The new height.
 ---
+kind: tool
+name: create_data_app_extension
+type: looker-create-data-app-extension
+source: looker-source
+description: |
+  This tool creates a Data App Extension entity in Looker with
+  server-enforced dashboard-tile mount points and sandboxed core API entitlements (`POST /api/4.0/data_app_extension`).
+  Requires the `inline_extensions` feature to be enabled on the Looker instance.
+
+  NOTE: This tool creates the Extension entity in Looker's database, but does NOT automatically create a dashboard or dashboard tile.
+
+  LIFECYCLE / ORDER OF OPERATIONS:
+  1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
+  Required Parameters:
+  - label: The user-friendly display label for the Data App Extension (up to 255 characters).
+  - code: The uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports like `/runtime/data-app.js` used during local preview must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). The module must end with the custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;`
+
+  Optional Parameters:
+  - description: Brief description of the Data App Extension.
+  - name: Unique system identifier matching `[a-zA-Z0-9-_]+`. Leave empty to auto-generate a collision-free `data-app-<slug>-<uuid>` name.
+
+  Output:
+  Returns the created Data App Extension metadata JSON, including `id` and `extension_id` (`"db::<id>"`) for dashboard tile mounting.
+---
+kind: tool
+name: update_data_app_extension
+type: looker-update-data-app-extension
+source: looker-source
+description: |
+  This tool updates an existing Data App Extension in Looker (`PATCH /api/4.0/data_app_extension/:id`)
+  while preserving server-enforced dashboard-tile mount points and sandboxed entitlements.
+
+  IN-PLACE CODE UPDATES:
+  Updating `code` updates the underlying JavaScript ES module source code payload in place. Any dashboards
+  or tiles referencing `db::<id>` will immediately execute the updated code on next view without needing
+  to recreate or update the dashboard element or modify dashboard layouts.
+
+  Required Parameters:
+  - data_app_extension_id: The ID of the Data App Extension to update (accepts `<id>` or `db::<id>`).
+  - At least one updatable field (`label`, `code`, `description`, or `name`) must be provided.
+
+  Optional Parameters:
+  - label: Updated user-friendly display label (up to 255 characters).
+  - code: Updated uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports like `/runtime/data-app.js` used during local preview must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). The module must end with the custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;`
+  - description: Updated description of the Data App Extension.
+  - name: Updated unique system identifier matching `[a-zA-Z0-9-_]+` (normally omitted to avoid unique-index collisions).
+  - dashboard_id: ID of the shared dashboard containing this Data App tile. Only needed when updating an extension mounted on a shared dashboard where the user relies on shared-folder contextual permissions.
+
+  Output:
+  Returns the updated Data App Extension metadata JSON, including `id` and `extension_id` (`"db::<id>"`).
+---
 kind: group
 name: looker_tools
 description: These skills are designed for data discovery and business intelligence.
 tools:
 - get_models
 - get_explores
+- get_explore
 - get_dimensions
 - get_measures
 - get_filters
@@ -940,10 +1124,15 @@ tools:
 - get_dashboards
 - run_dashboard
 - make_dashboard
+- import_dashboard_from_lookml
 - add_dashboard_element
 - add_dashboard_filter
 - generate_embed_url
 - get_dashboard
+- update_dashboard
 - update_dashboard_element
 - create_dashboard_layout
+- update_dashboard_layout
 - update_dashboard_layout_component
+- create_data_app_extension
+- update_data_app_extension

@@ -12,7 +12,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	_ "github.com/godror/godror"   // OCI driver
-	_ "github.com/sijms/go-ora/v2" // Pure Go driver
+	_ "github.com/sijms/go-ora/v3" // Pure Go driver
 
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/util"

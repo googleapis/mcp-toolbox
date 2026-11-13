@@ -27,6 +27,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerconversationalanalytics"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercreateagent"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercreatedashboardlayout"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercreatedataappextension"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercreategitbranch"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercreateprojectdirectory"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercreateprojectfile"
@@ -46,6 +47,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboards"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdimensions"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplore"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplores"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfieldvaluesuggestions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetfilters"
@@ -62,6 +64,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthanalyze"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthpulse"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerhealthvacuum"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerimportdashboardfromlookml"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistagents"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistgitbranches"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookermakedashboard"
@@ -74,8 +77,11 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerrunlookmltests"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerswitchgitbranch"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdateagent"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboardelement"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboardlayout"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedashboardlayoutcomponent"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdatedataappextension"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerupdateprojectfile"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookervalidateproject"
 )
@@ -108,6 +114,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 		},
 		{
 			resourceType:    "looker-create-dashboard-layout",
+			wantReadOnly:    false,
+			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-create-data-app-extension",
 			wantReadOnly:    false,
 			wantDestructive: false,
 		},
@@ -207,6 +218,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 			wantDestructive: false,
 		},
 		{
+			resourceType:    "looker-get-explore",
+			wantReadOnly:    true,
+			wantDestructive: false,
+		},
+		{
 			resourceType:    "looker-get-explores",
 			wantReadOnly:    true,
 			wantDestructive: false,
@@ -287,6 +303,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 			wantDestructive: false,
 		},
 		{
+			resourceType:    "looker-import-dashboard-from-lookml",
+			wantReadOnly:    false,
+			wantDestructive: false,
+		},
+		{
 			resourceType:    "looker-list-agents",
 			wantReadOnly:    true,
 			wantDestructive: false,
@@ -347,12 +368,27 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 			wantDestructive: true,
 		},
 		{
+			resourceType:    "looker-update-dashboard",
+			wantReadOnly:    false,
+			wantDestructive: true,
+		},
+		{
 			resourceType:    "looker-update-dashboard-element",
 			wantReadOnly:    false,
 			wantDestructive: true,
 		},
 		{
+			resourceType:    "looker-update-dashboard-layout",
+			wantReadOnly:    false,
+			wantDestructive: true,
+		},
+		{
 			resourceType:    "looker-update-dashboard-layout-component",
+			wantReadOnly:    false,
+			wantDestructive: true,
+		},
+		{
+			resourceType:    "looker-update-data-app-extension",
 			wantReadOnly:    false,
 			wantDestructive: true,
 		},

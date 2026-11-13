@@ -128,15 +128,18 @@ One table covers all three kinds; the **applies to** column shows where each
 field is accepted. Supplying a field to a kind that does not accept it is a
 configuration error.
 
-| **field**  |    **type**    | **required** | **applies to**                       | **description**                                                                                            |
-| ---------- | :------------: | :----------: | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| projectId  |     string     |     true     | all                                  | The project the instance belongs to.                                                                       |
-| region     |     string     |     true     | all                                  | The region of the instance, for example `us-central1`.                                                     |
-| clusterId  |     string     |     true     | `alloydb`                            | The AlloyDB cluster id.                                                                                    |
-| instanceId |     string     |     true     | all                                  | The instance id.                                                                                           |
-| databaseId |     string     |     true     | all                                  | The database id.                                                                                           |
-| engine     |     string     |     true     | `cloudSqlReference`, `spannerReference` | `POSTGRESQL` or `MYSQL` for `cloudSqlReference`; `GOOGLE_SQL` or `POSTGRESQL` for `spannerReference`. AlloyDB has no engine field. |
-| tableIds   | list of string |    false     | all                                  | Restricts the query to these tables. All tables in the database are used if unset.                         |
+| **field**               |    **type**    | **required** | **applies to**                          | **description**                                                                                                                    |
+| ----------------------- | :------------: | :----------: | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| projectId               |     string     |     true     | all                                     | The project the instance belongs to.                                                                                               |
+| region                  |     string     |     true     | `cloudSqlReference`, `alloydb`          | The region of the instance, for example `us-central1`. Spanner does not take a region.                                             |
+| clusterId               |     string     |     true     | `alloydb`                               | The AlloyDB cluster id.                                                                                                            |
+| instanceId              |     string     |     true     | all                                     | The instance id.                                                                                                                   |
+| databaseId              |     string     |     true     | all                                     | The database id.                                                                                                                   |
+| engine                  |     string     |     true     | `cloudSqlReference`, `spannerReference` | `POSTGRESQL` or `MYSQL` for `cloudSqlReference`; `GOOGLE_SQL` or `POSTGRESQL` for `spannerReference`. AlloyDB has no engine field.  |
+| tableIds                | list of string |    false     | all                                     | Restricts the query to these tables. All tables in the database are used if unset.                                                 |
+| databaseTableReferences | list of object |    false     | all                                     | Restricts the query to these tables, with optional schema. Each entry takes `tableId` (required) and `schema`. Richer alternative to `tableIds`. |
+| priority                |     string     |    false     | `spannerReference`                      | Spanner request priority: `LOW`, `MEDIUM`, or `HIGH`. Unsupported values are ignored.                                              |
+| requestTag              |     string     |    false     | `spannerReference`                      | Tag attached to all Spanner queries, for identifying and monitoring traffic from this tool.                                        |
 
 ## Advanced Usage
 

@@ -246,6 +246,32 @@ func TestParseFromYamlText(t *testing.T) {
 				},
 			},
 		},
+		{
+			// The skill URI check runs after the scheme and host are
+			// lowercased, so an uppercase skill name in the host is accepted.
+			desc: "skill uri with an uppercase scheme and host",
+			in: `
+			kind: resource
+			name: my-skill
+			type: text
+			uri: SKILL://Analytics-Guide/SKILL.md
+			text: "hello"
+			`,
+			want: server.ResourceConfigs{
+				"my-skill": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name:        "my-skill",
+							Type:        "text",
+							MimeType:    "text/plain",
+							Annotations: &resources.ResourceAnnotations{Priority: floatPtr(1.0)},
+						},
+						URI: "skill://analytics-guide/SKILL.md",
+					},
+					Text: "hello",
+				},
+			},
+		},
 	}
 
 	for _, tc := range tcs {
@@ -382,6 +408,28 @@ func TestFailParseFromYaml(t *testing.T) {
 				lastModified: "2025-01-12"
 			`,
 			err: "not a valid ISO 8601 string",
+		},
+		{
+			desc: "skill uri with an invalid skill name",
+			in: `
+			kind: resource
+			name: test-skill
+			type: text
+			text: "hello"
+			uri: skill://org/Bad_Name/SKILL.md
+			`,
+			err: `invalid skill uri "skill://org/Bad_Name/SKILL.md" for resource "test-skill": skill name "Bad_Name" may only contain lowercase letters, digits, and hyphens`,
+		},
+		{
+			desc: "skill uri with a query",
+			in: `
+			kind: resource
+			name: test-skill
+			type: text
+			text: "hello"
+			uri: skill://analytics-guide/SKILL.md?x=1
+			`,
+			err: "must be a bare path, with no query, fragment, or userinfo",
 		},
 	}
 
@@ -541,4 +589,46 @@ text: "{}"
 			t.Errorf("Expected URI 'custom://my-json-resource', got %q", resCfg.URI)
 		}
 	})
+}
+
+// TestTextResource_SkillDocIdentity checks that, after Initialize, a SKILL.md
+// reports the name and description from its frontmatter and the
+// text/markdown MIME type. Other resources keep their config values.
+func TestTextResource_SkillDocIdentity(t *testing.T) {
+	const skillMD = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
+	tcs := []struct {
+		desc, uri, text              string
+		wantName, wantDesc, wantMime string
+	}{
+		{"SKILL.md", "skill://analytics-guide/SKILL.md", skillMD, "analytics-guide", "Query the warehouse", "text/markdown"},
+		{"supporting file", "skill://analytics-guide/notes.md", skillMD, "guide", "configured", "text/plain"},
+		{"non-skill uri", "text://guide", skillMD, "guide", "configured", "text/plain"},
+		// Initialize doesn't fail here; it keeps the config values and
+		// skills.Validate rejects the file at startup.
+		{"SKILL.md without frontmatter", "skill://analytics-guide/SKILL.md", "# Guide\n", "guide", "configured", "text/plain"},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := &text.Config{
+				ResourceConfigBase: resources.ResourceConfigBase{
+					ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", Description: "configured", MimeType: "text/plain"},
+					URI:        tc.uri,
+				},
+				Text: tc.text,
+			}
+			res, err := cfg.Initialize(context.Background())
+			if err != nil {
+				t.Fatalf("Initialize() = %v", err)
+			}
+			if got := res.GetName(); got != tc.wantName {
+				t.Errorf("GetName() = %q, want %q", got, tc.wantName)
+			}
+			if got := res.GetDescription(); got != tc.wantDesc {
+				t.Errorf("GetDescription() = %q, want %q", got, tc.wantDesc)
+			}
+			if got := res.GetMimeType(); got != tc.wantMime {
+				t.Errorf("GetMimeType() = %q, want %q", got, tc.wantMime)
+			}
+		})
+	}
 }

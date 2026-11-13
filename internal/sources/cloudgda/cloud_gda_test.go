@@ -70,6 +70,24 @@ func TestParseFromYamlCloudGDA(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "read only example",
+			in: `
+			kind: source
+			name: my-gda-instance
+			type: cloud-gemini-data-analytics
+			projectId: test-project-id
+			readOnly: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-gda-instance": cloudgda.Config{
+					Name:      "my-gda-instance",
+					Type:      cloudgda.SourceType,
+					ProjectID: "test-project-id",
+					ReadOnly:  true,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		tc := tc
@@ -116,6 +134,16 @@ func TestFailParseFromYaml(t *testing.T) {
 				t.Fatalf("unexpected error: got %q, want %q", errStr, tc.err)
 			}
 		})
+	}
+}
+
+func TestIsReadOnly(t *testing.T) {
+	t.Parallel()
+	for _, readOnly := range []bool{false, true} {
+		src := &cloudgda.Source{Config: cloudgda.Config{Name: "test-gda", Type: cloudgda.SourceType, ProjectID: "test-proj", ReadOnly: readOnly}}
+		if got := src.IsReadOnly(); got != readOnly {
+			t.Errorf("IsReadOnly() = %t, want %t", got, readOnly)
+		}
 	}
 }
 
