@@ -797,13 +797,8 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 	}
 
 	createStmt := strings.TrimSpace(strings.Trim(createTableStatement, "\""))
-	lowerStmt := strings.ToLower(createStmt)
-	if idx := strings.Index(lowerStmt, "table"); idx != -1 {
-		rest := strings.TrimSpace(createStmt[idx+5:])
-		if strings.HasPrefix(rest, "t ") || strings.HasPrefix(rest, "t(") {
-			createStmt = createStmt[:idx+5] + " " + tableName + rest[1:]
-		}
-	}
+	createStmt = strings.Replace(createStmt, " TABLE t ", " TABLE "+tableName+" ", 1)
+	createStmt = strings.Replace(createStmt, " TABLE t(", " TABLE "+tableName+"(", 1)
 
 	t.Cleanup(func() {
 		dropArgs := map[string]any{"sql": fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)}

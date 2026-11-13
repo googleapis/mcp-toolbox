@@ -1162,7 +1162,7 @@ func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB, uniqueI
 	query := `
 		SELECT t.name 
 		FROM sys.tables t
-		WHERE (t.name LIKE 'param_table_%' OR t.name LIKE 'auth_table_%' OR t.name LIKE 'template_param_table_%' OR t.name LIKE 't_%')
+		WHERE (t.name LIKE 'param[_]table[_]%' OR t.name LIKE 'auth[_]table[_]%' OR t.name LIKE 'template[_]param[_]table[_]%' OR t.name LIKE 't[_]%')
 		  AND t.create_date < DATEADD(hour, -2, GETDATE());
 	`
 	rows, err := pool.QueryContext(cleanupCtx, query)
