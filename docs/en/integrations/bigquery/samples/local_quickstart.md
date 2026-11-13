@@ -447,7 +447,7 @@ async def run_application():
             history.append(user_prompt_content)
 
             response = genai_client.models.generate_content(
-                model="gemini-2.0-flash-001",
+                model="gemini-3.8-flash",
                 contents=history,
                 config=GenerateContentConfig(
                     system_instruction=prompt,
@@ -474,7 +474,7 @@ async def run_application():
                 history.append(tool_response_content)
 
             response2 = genai_client.models.generate_content(
-                model="gemini-2.0-flash-001",
+                model="gemini-3.8-flash",
                 contents=history,
                 config=GenerateContentConfig(
                     tools=genai_tools,
@@ -522,8 +522,8 @@ queries = [
 
 async def main():
     # TODO(developer): replace this with another model if needed
-    model = ChatVertexAI(model_name="gemini-2.0-flash-001")
-    # model = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001")
+    model = ChatVertexAI(model_name="gemini-3.8-flash")
+    # model = ChatGoogleGenerativeAI(model="gemini-3.8-flash")
     # model = ChatAnthropic(model="claude-3-5-sonnet-20240620")
 
     # Load the tools from the Toolbox server
@@ -576,12 +576,12 @@ queries = [
 async def main():
     # TODO(developer): replace this with another model if needed
     llm = GoogleGenAI(
-        model="gemini-2.0-flash-001",
+        model="gemini-3.8-flash",
         vertexai_config={"location": "us-central1"},
     )
     # llm = GoogleGenAI(
     #     api_key=os.getenv("GOOGLE_API_KEY"),
-    #     model="gemini-2.0-flash-001",
+    #     model="gemini-3.8-flash",
     # )
     # llm = Anthropic(
     #   model="claude-3-7-sonnet-latest",
@@ -643,7 +643,7 @@ prompt = """
 # --- Configure the Agent ---
 
 root_agent = Agent(
-    model='gemini-2.0-flash-001',
+    model='gemini-3.8-flash',
     name='hotel_agent',
     description='A helpful AI assistant that can search and book hotels.',
     instruction=prompt,
