@@ -35,8 +35,14 @@ const listTableSpacesStatement = `
         SELECT
         spcname AS tablespace_name,
         pg_catalog.pg_get_userbyid(spcowner) AS owner_name,
+        -- pg_tablespace_size is allowed with CREATE on the tablespace, with the
+        -- privileges of pg_read_all_stats, or for the current database's
+        -- default tablespace; return NULL otherwise instead of an error.
         CASE
-            WHEN pg_catalog.has_tablespace_privilege(oid, 'CREATE') THEN pg_tablespace_size(oid)
+            WHEN pg_catalog.has_tablespace_privilege(oid, 'CREATE')
+                OR pg_catalog.pg_has_role('pg_read_all_stats', 'USAGE')
+                OR oid = (SELECT dattablespace FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database())
+            THEN pg_tablespace_size(oid)
             ELSE NULL
             END AS size_in_bytes,
         oid,
@@ -92,7 +98,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 		parameters.NewIntParameter("limit", "Optional: The maximum number of rows to return.", parameters.WithIntDefault(50)),
 	}
 	if cfg.Description == "" {
-		cfg.Description = "Lists all tablespaces in the database. Returns the tablespace name, owner name, size in bytes(if the current user has CREATE privileges on the tablespace, otherwise NULL), internal object ID, the access control list regarding permissions, and any specific tablespace options."
+		cfg.Description = "Lists all tablespaces in the database. Returns the tablespace name, owner name, size in bytes (if the current user is allowed to read it: CREATE privilege on the tablespace, the privileges of pg_read_all_stats, or the tablespace is the current database's default; otherwise NULL), internal object ID, the access control list regarding permissions, and any specific tablespace options."
 	}
 	return Tool{
 		BaseTool: tools.NewBaseTool(
