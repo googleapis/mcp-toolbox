@@ -40,7 +40,7 @@ jobs:
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success')
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     concurrency:
       group: "cf-deploy-${{ github.event.inputs.pr_number || github.event.workflow_run.pull_requests[0].number }}"
       cancel-in-progress: true
