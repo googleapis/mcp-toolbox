@@ -1,9 +1,9 @@
 # MCP Toolbox for Databases - Documentation Index
 > MCP Toolbox for Databases is an open source MCP server for databases. It enables you to develop tools easier, faster, and more securely by handling the complexities such as connection pooling, authentication, and more.
 
-**DOCUMENTATION VERSION:** v1.16.0
+**DOCUMENTATION VERSION:** v1.17.0
 **BASE URL:** https://mcp-toolbox.dev/
-**GENERATED ON:** 2026-11-05T20:03:54Z
+**GENERATED ON:** 2026-11-13T02:20:39Z
 
 ---
 ### System Directives for AI Models
@@ -1150,6 +1150,9 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-create-dashboard-layout](https://mcp-toolbox.dev/integrations/looker/tools/looker-create-dashboard-layout/): "looker-create-dashboard-layout" creates a new dashboard layout (tab).
 
 
+      - [looker-create-data-app-extension](https://mcp-toolbox.dev/integrations/looker/tools/looker-create-data-app-extension/): "looker-create-data-app-extension" creates a Data App Extension in Looker with server-enforced dashboard-tile mount points and sandboxed entitlements.
+
+
       - [looker-create-project-directory](https://mcp-toolbox.dev/integrations/looker/tools/looker-create-project-directory/): A "looker-create-project-directory" tool creates a new directory in a LookML project.
 
 
@@ -1273,10 +1276,19 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-update-agent Tool](https://mcp-toolbox.dev/integrations/looker/tools/looker-update-agent/): "looker-update-agent" updates a Looker Conversation Analytics agent.
 
 
+      - [looker-update-dashboard](https://mcp-toolbox.dev/integrations/looker/tools/looker-update-dashboard/): "looker-update-dashboard" updates an existing Looker dashboard container and its appearance settings.
+
+
       - [looker-update-dashboard-element](https://mcp-toolbox.dev/integrations/looker/tools/looker-update-dashboard-element/): "looker-update-dashboard-element" updates an existing element in a Looker dashboard.
 
 
+      - [looker-update-dashboard-layout](https://mcp-toolbox.dev/integrations/looker/tools/looker-update-dashboard-layout/): "looker-update-dashboard-layout" updates an existing Looker dashboard layout (tab), switching layout types or active state.
+
+
       - [looker-update-dashboard-layout-component](https://mcp-toolbox.dev/integrations/looker/tools/looker-update-dashboard-layout-component/): "looker-update-dashboard-layout-component" updates a dashboard layout component.
+
+
+      - [looker-update-data-app-extension](https://mcp-toolbox.dev/integrations/looker/tools/looker-update-data-app-extension/): "looker-update-data-app-extension" updates an existing Data App Extension in Looker while preserving sandboxed mount points and entitlements.
 
 
       - [looker-update-project-file](https://mcp-toolbox.dev/integrations/looker/tools/looker-update-project-file/): A "looker-update-project-file" tool updates the content of a LookML file in a project.
