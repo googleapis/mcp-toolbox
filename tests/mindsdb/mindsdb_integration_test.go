@@ -30,6 +30,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -42,7 +44,76 @@ var (
 	MindsDBPass       = os.Getenv("MINDSDB_PASS")
 )
 
+func setupMindsDBContainer(t *testing.T) (host, mysqlPort, httpPort string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	req := testcontainers.ContainerRequest{
+		Image: "mindsdb/mindsdb:latest",
+		ExposedPorts: []string{
+			"47335/tcp", // MySQL Protocol
+			"47334/tcp", // HTTP API / Web UI
+		},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("47335/tcp"),
+			wait.ForHTTP("/api/status").WithPort("47334/tcp").WithStatusCodeMatcher(func(status int) bool {
+				return status == http.StatusOK
+			}),
+		).WithDeadline(5 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start mindsdb container: %v", err)
+	}
+
+	t.Cleanup(func() {
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelCleanup()
+		if err := container.Terminate(cleanupCtx); err != nil {
+			t.Logf("cleanup: failed to terminate mindsdb container: %v", err)
+		}
+	})
+
+	host, err = container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get container host: %v", err)
+	}
+
+	mPort, err := container.MappedPort(ctx, "47335/tcp")
+	if err != nil {
+		t.Fatalf("failed to get mapped mysql port: %v", err)
+	}
+
+	hPort, err := container.MappedPort(ctx, "47334/tcp")
+	if err != nil {
+		t.Fatalf("failed to get mapped http port: %v", err)
+	}
+
+	return host, mPort.Port(), hPort.Port()
+}
+
 func getMindsDBVars(t *testing.T) map[string]any {
+	if MindsDBHost == "" {
+		if testing.Short() {
+			t.Skip("skipping MindsDB container in short mode")
+		}
+		host, mysqlPort, _ := setupMindsDBContainer(t)
+		return map[string]any{
+			"type":     MindsDBSourceType,
+			"host":     host,
+			"port":     mysqlPort,
+			"database": "mindsdb",
+			"user":     "mindsdb",
+			"password": "",
+		}
+	}
+
 	switch "" {
 	case MindsDBDatabase:
 		t.Fatal("'MINDSDB_DATABASE' not set")
@@ -87,7 +158,7 @@ func initMindsDBConnectionPool(host, port, user, pass, dbname string) (*sql.DB, 
 
 func TestMindsDBToolEndpoints(t *testing.T) {
 	sourceConfig := getMindsDBVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	args := []string{"--enable-api"}
@@ -253,11 +324,17 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 	}
 
 	// Create connection pool and test tables with sample data
-	pool, err := initMindsDBConnectionPool(MindsDBHost, MindsDBPort, MindsDBUser, MindsDBPass, MindsDBDatabase)
+	pool, err := initMindsDBConnectionPool(
+		sourceConfig["host"].(string),
+		sourceConfig["port"].(string),
+		sourceConfig["user"].(string),
+		sourceConfig["password"].(string),
+		sourceConfig["database"].(string),
+	)
 	if err != nil {
 		t.Fatalf("unable to create MindsDB connection pool: %s", err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() { pool.Close() })
 
 	// Create param table: id=1:Alice, id=2:Jane, id=3:Sid, id=4:null
 	createParamSQL := fmt.Sprintf("CREATE TABLE files.%s (SELECT 1 as id, 'Alice' as name UNION ALL SELECT 2, 'Jane' UNION ALL SELECT 3, 'Sid' UNION ALL SELECT 4, NULL)", tableNameParam)
@@ -265,6 +342,13 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create param table: %s", err)
 	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameParam)); err != nil {
+			t.Logf("cleanup: failed to drop param table %s: %v", tableNameParam, err)
+		}
+	})
 
 	// Create auth table: id=1:Alice:test@..., id=2:Jane:jane@...
 	createAuthSQL := fmt.Sprintf("CREATE TABLE files.%s (SELECT 1 as id, 'Alice' as name, '%s' as email UNION ALL SELECT 2, 'Jane', 'janedoe@gmail.com')", tableNameAuth, tests.ServiceAccountEmail)
@@ -272,11 +356,13 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create auth table: %s", err)
 	}
-
-	defer func() {
-		_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameParam))
-		_, _ = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameAuth))
-	}()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", tableNameAuth)); err != nil {
+			t.Logf("cleanup: failed to drop auth table %s: %v", tableNameAuth, err)
+		}
+	})
 
 	select1Want := "[{\"1\":1}]"
 
@@ -305,11 +391,17 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 
 	// Test CREATE DATABASE (MindsDB's federated database capability)
 	t.Run("mindsdb_create_database", func(t *testing.T) {
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP DATABASE IF EXISTS test_postgres_db"}`), "")
+		dbName := fmt.Sprintf("test_postgres_db_%s", strings.ReplaceAll(uuid.New().String(), "-", "")[:8])
+		t.Cleanup(func() {
+			cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			defer cancelCleanup()
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
+				t.Logf("cleanup: failed to drop database %s: %v", dbName, err)
+			}
+		})
 
 		// Create external database integration using MindsDB's demo database
-		createDBSQL := `CREATE DATABASE test_postgres_db WITH ENGINE = 'postgres', PARAMETERS = {'user': 'demo_user', 'password': 'demo_password', 'host': 'samples.mindsdb.com', 'port': '5432', 'database': 'demo', 'schema': 'demo_data'}`
+		createDBSQL := fmt.Sprintf(`CREATE DATABASE %s WITH ENGINE = 'postgres', PARAMETERS = {'user': 'demo_user', 'password': 'demo_password', 'host': 'samples.mindsdb.com', 'port': '5432', 'database': 'demo', 'schema': 'demo_data'}`, dbName)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+createDBSQL+`"}`), "")
 
@@ -317,81 +409,97 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 			[]byte(`{"sql": "SHOW DATABASES"}`), "")
 
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "SHOW TABLES FROM test_postgres_db"}`), "")
-
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP DATABASE IF EXISTS test_postgres_db"}`), "")
+			[]byte(fmt.Sprintf(`{"sql": "SHOW TABLES FROM %s"}`, dbName)), "")
 	})
 
 	// Test MindsDB integration capabilities with product/review data
 	t.Run("mindsdb_integration_demo", func(t *testing.T) {
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_products"}`), "")
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_reviews"}`), "")
+		subID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+		testProducts := fmt.Sprintf("test_products_%s", subID)
+		testReviews := fmt.Sprintf("test_reviews_%s", subID)
+		testProductSummary := fmt.Sprintf("test_product_summary_%s", subID)
+
+		t.Cleanup(func() {
+			cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			defer cancelCleanup()
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", testProducts)); err != nil {
+				t.Logf("cleanup: failed to drop table files.%s: %v", testProducts, err)
+			}
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", testReviews)); err != nil {
+				t.Logf("cleanup: failed to drop table files.%s: %v", testReviews, err)
+			}
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", testProductSummary)); err != nil {
+				t.Logf("cleanup: failed to drop table files.%s: %v", testProductSummary, err)
+			}
+		})
 
 		// Create test tables with sample data
-		createProductsSQL := `CREATE TABLE files.test_products (SELECT 'PROD001' as product_id, 'Laptop Computer' as product_name, 'Electronics' as category UNION ALL SELECT 'PROD002', 'Office Chair', 'Furniture' UNION ALL SELECT 'PROD003', 'Coffee Maker', 'Appliances' UNION ALL SELECT 'PROD004', 'Desk Lamp', 'Furniture')`
+		createProductsSQL := fmt.Sprintf(`CREATE TABLE files.%s (SELECT 'PROD001' as product_id, 'Laptop Computer' as product_name, 'Electronics' as category UNION ALL SELECT 'PROD002', 'Office Chair', 'Furniture' UNION ALL SELECT 'PROD003', 'Coffee Maker', 'Appliances' UNION ALL SELECT 'PROD004', 'Desk Lamp', 'Furniture')`, testProducts)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+createProductsSQL+`"}`), "")
 
-		createReviewsSQL := `CREATE TABLE files.test_reviews (SELECT 'PROD001' as product_id, 'Great laptop, very fast!' as review, 5 as rating UNION ALL SELECT 'PROD001', 'Good value for money', 4 UNION ALL SELECT 'PROD002', 'Very comfortable chair', 5 UNION ALL SELECT 'PROD002', 'Nice design but expensive', 3 UNION ALL SELECT 'PROD003', 'Makes excellent coffee', 5 UNION ALL SELECT 'PROD004', 'Bright light, perfect for reading', 4)`
+		createReviewsSQL := fmt.Sprintf(`CREATE TABLE files.%s (SELECT 'PROD001' as product_id, 'Great laptop, very fast!' as review, 5 as rating UNION ALL SELECT 'PROD001', 'Good value for money', 4 UNION ALL SELECT 'PROD002', 'Very comfortable chair', 5 UNION ALL SELECT 'PROD002', 'Nice design but expensive', 3 UNION ALL SELECT 'PROD003', 'Makes excellent coffee', 5 UNION ALL SELECT 'PROD004', 'Bright light, perfect for reading', 4)`, testReviews)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+createReviewsSQL+`"}`), "")
 
 		t.Run("query_created_tables", func(t *testing.T) {
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-				[]byte(`{"sql": "SELECT * FROM files.test_products ORDER BY product_id"}`), "")
+				[]byte(fmt.Sprintf(`{"sql": "SELECT * FROM files.%s ORDER BY product_id"}`, testProducts)), "")
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-				[]byte(`{"sql": "SELECT * FROM files.test_reviews ORDER BY product_id, rating DESC"}`), "")
+				[]byte(fmt.Sprintf(`{"sql": "SELECT * FROM files.%s ORDER BY product_id, rating DESC"}`, testReviews)), "")
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-				[]byte(`{"sql": "SELECT category, COUNT(*) as product_count FROM files.test_products GROUP BY category ORDER BY category"}`), "")
+				[]byte(fmt.Sprintf(`{"sql": "SELECT category, COUNT(*) as product_count FROM files.%s GROUP BY category ORDER BY category"}`, testProducts)), "")
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-				[]byte(`{"sql": "SELECT product_id, AVG(rating) as avg_rating FROM files.test_reviews GROUP BY product_id ORDER BY avg_rating DESC"}`), "")
+				[]byte(fmt.Sprintf(`{"sql": "SELECT product_id, AVG(rating) as avg_rating FROM files.%s GROUP BY product_id ORDER BY avg_rating DESC"}`, testReviews)), "")
 		})
 
 		t.Run("cross_database_join", func(t *testing.T) {
-			joinSQL := `SELECT p.product_name, p.category, r.review, r.rating FROM files.test_products p JOIN files.test_reviews r ON p.product_id = r.product_id WHERE r.rating >= 4 ORDER BY p.product_name, r.rating DESC`
+			joinSQL := fmt.Sprintf(`SELECT p.product_name, p.category, r.review, r.rating FROM files.%s p JOIN files.%s r ON p.product_id = r.product_id WHERE r.rating >= 4 ORDER BY p.product_name, r.rating DESC`, testProducts, testReviews)
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 				[]byte(`{"sql": "`+joinSQL+`"}`), "")
 
-			aggSQL := `SELECT p.category, COUNT(DISTINCT p.product_id) as product_count, COUNT(r.review) as review_count, AVG(r.rating) as avg_rating FROM files.test_products p LEFT JOIN files.test_reviews r ON p.product_id = r.product_id GROUP BY p.category ORDER BY avg_rating DESC`
+			aggSQL := fmt.Sprintf(`SELECT p.category, COUNT(DISTINCT p.product_id) as product_count, COUNT(r.review) as review_count, AVG(r.rating) as avg_rating FROM files.%s p LEFT JOIN files.%s r ON p.product_id = r.product_id GROUP BY p.category ORDER BY avg_rating DESC`, testProducts, testReviews)
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 				[]byte(`{"sql": "`+aggSQL+`"}`), "")
 		})
 
 		t.Run("advanced_sql_features", func(t *testing.T) {
-			subquerySQL := `SELECT p.product_name, p.category, AVG(r.rating) as avg_rating FROM files.test_products p JOIN files.test_reviews r ON p.product_id = r.product_id GROUP BY p.product_id, p.product_name, p.category HAVING AVG(r.rating) >= 4 ORDER BY avg_rating DESC`
+			subquerySQL := fmt.Sprintf(`SELECT p.product_name, p.category, AVG(r.rating) as avg_rating FROM files.%s p JOIN files.%s r ON p.product_id = r.product_id GROUP BY p.product_id, p.product_name, p.category HAVING AVG(r.rating) >= 4 ORDER BY avg_rating DESC`, testProducts, testReviews)
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 				[]byte(`{"sql": "`+subquerySQL+`"}`), "")
 
-			caseSQL := `SELECT product_id, review, rating, CASE WHEN rating >= 5 THEN 'Excellent' WHEN rating >= 4 THEN 'Good' WHEN rating >= 3 THEN 'Average' ELSE 'Poor' END as rating_category FROM files.test_reviews ORDER BY rating DESC, product_id`
+			caseSQL := fmt.Sprintf(`SELECT product_id, review, rating, CASE WHEN rating >= 5 THEN 'Excellent' WHEN rating >= 4 THEN 'Good' WHEN rating >= 3 THEN 'Average' ELSE 'Poor' END as rating_category FROM files.%s ORDER BY rating DESC, product_id`, testReviews)
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 				[]byte(`{"sql": "`+caseSQL+`"}`), "")
 		})
 
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_product_summary"}`), "")
-
 		t.Run("data_manipulation", func(t *testing.T) {
-			summarySQL := `CREATE TABLE files.test_product_summary (SELECT p.product_id, p.product_name, p.category, COUNT(r.review) as total_reviews, AVG(r.rating) as avg_rating, MAX(r.rating) as max_rating, MIN(r.rating) as min_rating FROM files.test_products p LEFT JOIN files.test_reviews r ON p.product_id = r.product_id GROUP BY p.product_id, p.product_name, p.category)`
+			summarySQL := fmt.Sprintf(`CREATE TABLE files.%s (SELECT p.product_id, p.product_name, p.category, COUNT(r.review) as total_reviews, AVG(r.rating) as avg_rating, MAX(r.rating) as max_rating, MIN(r.rating) as min_rating FROM files.%s p LEFT JOIN files.%s r ON p.product_id = r.product_id GROUP BY p.product_id, p.product_name, p.category)`, testProductSummary, testProducts, testReviews)
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 				[]byte(`{"sql": "`+summarySQL+`"}`), "")
 
 			tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-				[]byte(`{"sql": "SELECT * FROM files.test_product_summary ORDER BY avg_rating DESC"}`), "")
+				[]byte(fmt.Sprintf(`{"sql": "SELECT * FROM files.%s ORDER BY avg_rating DESC"}`, testProductSummary)), "")
 		})
-
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_products"}`), "")
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_reviews"}`), "")
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_product_summary"}`), "")
 	})
 
 	// Test database integration and cross-database joins
 	t.Run("mindsdb_create_database_integration", func(t *testing.T) {
+		subID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+		testIntegrationData := fmt.Sprintf("test_integration_data_%s", subID)
+		testLocalData := fmt.Sprintf("test_local_data_%s", subID)
+
+		t.Cleanup(func() {
+			cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			defer cancelCleanup()
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", testIntegrationData)); err != nil {
+				t.Logf("cleanup: failed to drop table files.%s: %v", testIntegrationData, err)
+			}
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", testLocalData)); err != nil {
+				t.Logf("cleanup: failed to drop table files.%s: %v", testLocalData, err)
+			}
+		})
+
 		showDBSQL := `SHOW DATABASES`
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+showDBSQL+`"}`), "")
@@ -399,58 +507,53 @@ func TestMindsDBToolEndpoints(t *testing.T) {
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "SHOW TABLES FROM files"}`), "")
 
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_integration_data"}`), "")
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_local_data"}`), "")
-
-		createIntegrationTableSQL := `CREATE TABLE files.test_integration_data (SELECT 1 as id, 'Data from integration' as description, CURDATE() as created_at UNION ALL SELECT 2, 'Another record', CURDATE() UNION ALL SELECT 3, 'Third record', CURDATE())`
+		createIntegrationTableSQL := fmt.Sprintf(`CREATE TABLE files.%s (SELECT 1 as id, 'Data from integration' as description, CURDATE() as created_at UNION ALL SELECT 2, 'Another record', CURDATE() UNION ALL SELECT 3, 'Third record', CURDATE())`, testIntegrationData)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+createIntegrationTableSQL+`"}`), "")
 
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "SELECT * FROM files.test_integration_data ORDER BY id"}`), "")
+			[]byte(fmt.Sprintf(`{"sql": "SELECT * FROM files.%s ORDER BY id"}`, testIntegrationData)), "")
 
-		createLocalTableSQL := `CREATE TABLE files.test_local_data (SELECT 1 as id, 'Local metadata' as metadata UNION ALL SELECT 2, 'More metadata')`
+		createLocalTableSQL := fmt.Sprintf(`CREATE TABLE files.%s (SELECT 1 as id, 'Local metadata' as metadata UNION ALL SELECT 2, 'More metadata')`, testLocalData)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+createLocalTableSQL+`"}`), "")
 
-		crossJoinSQL := `SELECT i.id, i.description, l.metadata FROM files.test_integration_data i LEFT JOIN files.test_local_data l ON i.id = l.id ORDER BY i.id`
+		crossJoinSQL := fmt.Sprintf(`SELECT i.id, i.description, l.metadata FROM files.%s i LEFT JOIN files.%s l ON i.id = l.id ORDER BY i.id`, testIntegrationData, testLocalData)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+crossJoinSQL+`"}`), "")
-
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_integration_data"}`), "")
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_local_data"}`), "")
 	})
 
 	// Test data transformation with customer order data
 	t.Run("mindsdb_data_transformation", func(t *testing.T) {
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_orders"}`), "")
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_customer_summary"}`), "")
+		subID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+		testOrders := fmt.Sprintf("test_orders_%s", subID)
+		testCustomerSummary := fmt.Sprintf("test_customer_summary_%s", subID)
 
-		createOrdersSQL := `CREATE TABLE files.test_orders (SELECT 1 as order_id, 'CUST001' as customer_id, 100.50 as amount, '2024-01-15' as order_date UNION ALL SELECT 2, 'CUST001', 250.00, '2024-02-20' UNION ALL SELECT 3, 'CUST002', 75.25, '2024-01-18' UNION ALL SELECT 4, 'CUST003', 500.00, '2024-03-10' UNION ALL SELECT 5, 'CUST002', 150.00, '2024-02-25')`
+		t.Cleanup(func() {
+			cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			defer cancelCleanup()
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", testOrders)); err != nil {
+				t.Logf("cleanup: failed to drop table files.%s: %v", testOrders, err)
+			}
+			if _, err := pool.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS files.%s", testCustomerSummary)); err != nil {
+				t.Logf("cleanup: failed to drop table files.%s: %v", testCustomerSummary, err)
+			}
+		})
+
+		createOrdersSQL := fmt.Sprintf(`CREATE TABLE files.%s (SELECT 1 as order_id, 'CUST001' as customer_id, 100.50 as amount, '2024-01-15' as order_date UNION ALL SELECT 2, 'CUST001', 250.00, '2024-02-20' UNION ALL SELECT 3, 'CUST002', 75.25, '2024-01-18' UNION ALL SELECT 4, 'CUST003', 500.00, '2024-03-10' UNION ALL SELECT 5, 'CUST002', 150.00, '2024-02-25')`, testOrders)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+createOrdersSQL+`"}`), "")
 
-		customerSummarySQL := `CREATE TABLE files.test_customer_summary (SELECT customer_id, COUNT(*) as total_orders, SUM(amount) as total_spent, AVG(amount) as avg_order_value, MIN(order_date) as first_order_date, MAX(order_date) as last_order_date FROM files.test_orders GROUP BY customer_id)`
+		customerSummarySQL := fmt.Sprintf(`CREATE TABLE files.%s (SELECT customer_id, COUNT(*) as total_orders, SUM(amount) as total_spent, AVG(amount) as avg_order_value, MIN(order_date) as first_order_date, MAX(order_date) as last_order_date FROM files.%s GROUP BY customer_id)`, testCustomerSummary, testOrders)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+customerSummarySQL+`"}`), "")
 
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "SELECT * FROM files.test_customer_summary ORDER BY total_spent DESC"}`), "")
+			[]byte(fmt.Sprintf(`{"sql": "SELECT * FROM files.%s ORDER BY total_spent DESC"}`, testCustomerSummary)), "")
 
-		segmentSQL := `SELECT customer_id, total_spent, CASE WHEN total_spent >= 300 THEN 'High Value' WHEN total_spent >= 150 THEN 'Medium Value' ELSE 'Low Value' END as customer_segment FROM files.test_customer_summary ORDER BY total_spent DESC`
+		segmentSQL := fmt.Sprintf(`SELECT customer_id, total_spent, CASE WHEN total_spent >= 300 THEN 'High Value' WHEN total_spent >= 150 THEN 'Medium Value' ELSE 'Low Value' END as customer_segment FROM files.%s ORDER BY total_spent DESC`, testCustomerSummary)
 		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
 			[]byte(`{"sql": "`+segmentSQL+`"}`), "")
-
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_orders"}`), "")
-		tests.RunToolInvokeParametersTest(t, "my-exec-sql-tool",
-			[]byte(`{"sql": "DROP TABLE IF EXISTS files.test_customer_summary"}`), "")
 	})
 
 	// Test error handling - these are expected to fail but exercise error paths
