@@ -272,6 +272,53 @@ func TestGetClaimsFromHeader(t *testing.T) {
 			errContains: "audience validation failed",
 		},
 		{
+			name: "missing issuer",
+			setupHeader: func() http.Header {
+				token := generateValidToken(t, privateKey, keyID, jwt.MapClaims{
+					"aud":   "my-audience",
+					"scope": "read:files",
+					"exp":   time.Now().Add(time.Hour).Unix(),
+				})
+				header := http.Header{}
+				header.Set("test-generic-auth_token", token)
+				return header
+			},
+			wantError:   true,
+			errContains: "missing issuer claim in token",
+		},
+		{
+			name: "wrong issuer",
+			setupHeader: func() http.Header {
+				token := generateValidToken(t, privateKey, keyID, jwt.MapClaims{
+					"iss":   "https://wrong-issuer.com",
+					"aud":   "my-audience",
+					"scope": "read:files",
+					"exp":   time.Now().Add(time.Hour).Unix(),
+				})
+				header := http.Header{}
+				header.Set("test-generic-auth_token", token)
+				return header
+			},
+			wantError:   true,
+			errContains: "issuer validation failed",
+		},
+		{
+			name: "invalid issuer format (non-string)",
+			setupHeader: func() http.Header {
+				token := generateValidToken(t, privateKey, keyID, jwt.MapClaims{
+					"iss":   123,
+					"aud":   "my-audience",
+					"scope": "read:files",
+					"exp":   time.Now().Add(time.Hour).Unix(),
+				})
+				header := http.Header{}
+				header.Set("test-generic-auth_token", token)
+				return header
+			},
+			wantError:   true,
+			errContains: "could not parse issuer from token",
+		},
+		{
 			name: "expired token",
 			setupHeader: func() http.Header {
 				token := generateValidToken(t, privateKey, keyID, jwt.MapClaims{

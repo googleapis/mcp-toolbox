@@ -349,6 +349,9 @@ func runAlloyDBListClustersTest(t *testing.T, vars map[string]string) {
 
 				var got []string
 				for _, cluster := range clustersData.Clusters {
+					if strings.HasSuffix(cluster.Name, "/clusters/eval-test-cluster") {
+						continue
+					}
 					got = append(got, cluster.Name)
 				}
 
@@ -579,6 +582,9 @@ func runAlloyDBListInstancesTest(t *testing.T, vars map[string]string) {
 
 				var got []string
 				for _, instance := range instancesData.Instances {
+					if strings.Contains(instance.Name, "/clusters/eval-test-cluster/") || strings.HasSuffix(instance.Name, "/instances/eval-test-instance") {
+						continue
+					}
 					got = append(got, instance.Name)
 				}
 

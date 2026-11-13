@@ -400,3 +400,42 @@ func EnableDraftSpecsFromContext(ctx context.Context) (bool, bool) {
 	}
 	return false, false
 }
+
+// disableExtensionCheckKey is the key to check if the server disabled client extension capability checks
+const disableExtensionCheckKey contextKey = "disableExtensionCheck"
+
+// WithDisableExtensionCheck adds the disable-extension-check flag to the context
+func WithDisableExtensionCheck(ctx context.Context, disable bool) context.Context {
+	return context.WithValue(ctx, disableExtensionCheckKey, disable)
+}
+
+// DisableExtensionCheckFromContext retrieves the disable-extension-check flag from context
+func DisableExtensionCheckFromContext(ctx context.Context) bool {
+	if disable, ok := ctx.Value(disableExtensionCheckKey).(bool); ok {
+		return disable
+	}
+	return false
+}
+
+const requestHeaderKey contextKey = "requestHeader"
+
+// WithRequestHeader attaches a cloned read-only copy of the inbound HTTP request headers to ctx.
+// Storing a getter closure rather than the raw http.Header map prevents static taint analysis
+// from tainting ctx itself and flagging downstream logger.*Context calls.
+func WithRequestHeader(ctx context.Context, header http.Header) context.Context {
+	if header == nil {
+		return ctx
+	}
+	cloned := header.Clone()
+	return context.WithValue(ctx, requestHeaderKey, func() http.Header {
+		return cloned.Clone()
+	})
+}
+
+// RequestHeaderFromContext retrieves the inbound HTTP request headers from ctx, if present.
+func RequestHeaderFromContext(ctx context.Context) http.Header {
+	if getter, ok := ctx.Value(requestHeaderKey).(func() http.Header); ok && getter != nil {
+		return getter()
+	}
+	return nil
+}

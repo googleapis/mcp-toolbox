@@ -8,7 +8,7 @@ description: >
 
 ## About
 
-The `looker-get-dashboard` tool retrieves the JSON design of a Looker dashboard by its ID. The output is trimmed to essential fields, excluding alerts and scheduled plans, making it suitable for replicating or analyzing the dashboard structure.
+The `looker-get-dashboard` tool retrieves the JSON design of a Looker dashboard by its ID. The output is trimmed to essential fields (including `certification_metadata`), excluding alerts and scheduled plans, making it suitable for replicating or analyzing the dashboard structure.
 
 ## Compatible Sources
 
@@ -23,7 +23,7 @@ type: looker-get-dashboard
 source: looker-source
 description: |
   This tool retrieves the JSON design of a Looker dashboard by its ID.
-  The output is trimmed to essential fields, excluding alerts and scheduled plans,
+  The output is trimmed to essential fields (including certification_metadata), excluding alerts and scheduled plans,
   making it suitable for replicating or analyzing the dashboard structure.
 
   Parameters:
