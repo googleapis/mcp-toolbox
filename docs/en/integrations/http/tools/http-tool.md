@@ -111,6 +111,29 @@ headerParams:
     type: string
 ```
 
+#### Google access tokens from ADC
+
+For Google APIs that accept an OAuth 2.0 access token, set
+`sendGoogleAccessToken` to `true`. Toolbox obtains a token from
+[Application Default Credentials][adc-doc] using the Google Cloud Platform
+scope and sends it as a Bearer token in the `Authorization` header:
+
+```yaml
+kind: tool
+name: my-google-api-tool
+type: http
+source: my-http-source
+method: GET
+path: /search
+description: Search a Google API
+sendGoogleAccessToken: true
+```
+
+When enabled, the ADC-generated `Authorization` header overrides a header with
+the same name configured on the source, in `headers`, or in `headerParams`.
+Only enable this option for trusted HTTPS endpoints to avoid exposing the
+access token.
+
 ### Query parameters
 
 Query parameters are key-value pairs appended to a URL after a question mark (?)
@@ -289,5 +312,7 @@ headerParams:
 | queryParams  | [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) |    false     | List of [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) that will be inserted into the query string.                                                                                                                               |
 | bodyParams   | [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) |    false     | List of [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) that will be inserted into the request body payload.                                                                                                                       |
 | headerParams | [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) |    false     | List of [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) that will be inserted as the request headers.                                                                                                                              |
+| sendGoogleAccessToken | boolean | false | Whether to obtain an OAuth 2.0 access token from Application Default Credentials using the Google Cloud Platform scope and send it as a Bearer token in the `Authorization` header. |
 
 [go-template-doc]: <https://pkg.go.dev/text/template#pkg-overview>
+[adc-doc]: <https://cloud.google.com/docs/authentication/application-default-credentials>

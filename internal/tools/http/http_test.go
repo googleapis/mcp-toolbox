@@ -106,6 +106,7 @@ func TestParseFromYamlHTTP(t *testing.T) {
 			headers:
 				Authorization: API_KEY
 				Content-Type: application/json
+			sendGoogleAccessToken: true
 			headerParams:
 				- name: Language
 				  type: string
@@ -138,9 +139,10 @@ func TestParseFromYamlHTTP(t *testing.T) {
   "food": {{.food}}
 }
 `,
-					BodyParams:   []parameters.Parameter{parameters.NewIntParameter("age", "age num"), parameters.NewStringParameter("city", "city string")},
-					Headers:      map[string]string{"Authorization": "API_KEY", "Content-Type": "application/json"},
-					HeaderParams: []parameters.Parameter{parameters.NewStringParameter("Language", "language string")},
+					BodyParams:            []parameters.Parameter{parameters.NewIntParameter("age", "age num"), parameters.NewStringParameter("city", "city string")},
+					Headers:               map[string]string{"Authorization": "API_KEY", "Content-Type": "application/json"},
+					HeaderParams:          []parameters.Parameter{parameters.NewStringParameter("Language", "language string")},
+					SendGoogleAccessToken: true,
 				},
 			},
 		},
