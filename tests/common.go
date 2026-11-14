@@ -20,6 +20,7 @@ package tests
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -654,6 +655,174 @@ func GetMySQLTmplToolStatement() (string, string) {
 	tmplSelectCombined := "SELECT * FROM {{.tableName}} WHERE id = ?"
 	tmplSelectFilterCombined := "SELECT * FROM {{.tableName}} WHERE {{.columnFilter}} = ?"
 	return tmplSelectCombined, tmplSelectFilterCombined
+}
+
+// DataTypeToolInfo holds the setup statements, tool statements and expected
+// results for a data type integration test.
+type DataTypeToolInfo struct {
+	CreateStatement string
+	InsertStatement string
+	// ToolStatements maps each tool name to the statement it runs.
+	ToolStatements map[string]string
+	// Wants maps each tool name to the rows it should return, decoded from
+	// JSON with json.Decoder.UseNumber.
+	Wants map[string][]any
+}
+
+// dataTypeLongText is longer than 64KB so it overflows a MySQL TEXT column.
+var dataTypeLongText = strings.Repeat("abcdefghij", 7000)
+
+const (
+	dataTypeJSON    = `{"name": "Alice", "tags": ["a", "b"], "nested": {"k": 1}}`
+	dataTypeUnicode = "你好，世界 🌏"
+)
+
+func dataTypeJSONWant() map[string]any {
+	return map[string]any{
+		"name":   "Alice",
+		"tags":   []any{"a", "b"},
+		"nested": map[string]any{"k": json.Number("1")},
+	}
+}
+
+// GetPostgresDataTypeToolInfo returns statements and expected results for
+// data type test cases for postgres-sql type
+func GetPostgresDataTypeToolInfo(tableName string) DataTypeToolInfo {
+	createStatement := fmt.Sprintf(`CREATE TABLE %s (
+		id INT PRIMARY KEY,
+		json_val JSON,
+		jsonb_val JSONB,
+		long_text_val TEXT,
+		unicode_val TEXT,
+		numeric_val NUMERIC(10, 2),
+		int_val INT,
+		bigint_val BIGINT,
+		double_val DOUBLE PRECISION,
+		bool_val BOOLEAN,
+		date_val DATE,
+		timestamp_val TIMESTAMP,
+		bytea_val BYTEA,
+		uuid_val UUID,
+		text_array_val TEXT[],
+		null_val TEXT
+	);`, tableName)
+	insertStatement := fmt.Sprintf(`INSERT INTO %s VALUES (
+		1, '%s', '%s', repeat('abcdefghij', 7000), '%s', 12.34, -42, 9007199254740993, 3.5, true,
+		'2024-01-15', '2024-01-15 10:30:45', '\xdeadbeef', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+		ARRAY['alpha', 'beta'], NULL
+	);`, tableName, dataTypeJSON, dataTypeJSON, dataTypeUnicode)
+
+	return DataTypeToolInfo{
+		CreateStatement: createStatement,
+		InsertStatement: insertStatement,
+		ToolStatements: map[string]string{
+			"my-datatype-tool": fmt.Sprintf("SELECT * FROM %s ORDER BY id;", tableName),
+		},
+		Wants: map[string][]any{
+			"my-datatype-tool": {
+				map[string]any{
+					"id":             json.Number("1"),
+					"json_val":       dataTypeJSONWant(),
+					"jsonb_val":      dataTypeJSONWant(),
+					"long_text_val":  dataTypeLongText,
+					"unicode_val":    dataTypeUnicode,
+					"numeric_val":    json.Number("12.34"),
+					"int_val":        json.Number("-42"),
+					"bigint_val":     json.Number("9007199254740993"),
+					"double_val":     json.Number("3.5"),
+					"bool_val":       true,
+					"date_val":       "2024-01-15T00:00:00Z",
+					"timestamp_val":  "2024-01-15T10:30:45Z",
+					"bytea_val":      "3q2+7w==",
+					"uuid_val":       "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+					"text_array_val": []any{"alpha", "beta"},
+					"null_val":       nil,
+				},
+			},
+		},
+	}
+}
+
+// GetMySQLDataTypeToolInfo returns statements and expected results for data
+// type test cases for mysql-sql type
+func GetMySQLDataTypeToolInfo(tableName string) DataTypeToolInfo {
+	// TODO: add a BLOB column once binary values are returned losslessly.
+	// mysqlcommon.ConvertToType currently casts them to a string, so bytes
+	// that are not valid UTF-8 come back as U+FFFD.
+	createStatement := fmt.Sprintf(`CREATE TABLE %s (
+		id INT PRIMARY KEY,
+		json_val JSON,
+		long_text_val LONGTEXT,
+		unicode_val VARCHAR(255),
+		decimal_val DECIMAL(10, 2),
+		int_val INT,
+		bigint_val BIGINT,
+		double_val DOUBLE,
+		tinyint_bool_val TINYINT(1),
+		date_val DATE,
+		datetime_val DATETIME,
+		bit_val BIT(8),
+		null_val VARCHAR(255)
+	) DEFAULT CHARSET = utf8mb4;`, tableName)
+	insertStatement := fmt.Sprintf(`INSERT INTO %s VALUES (
+		1, '%s', REPEAT('abcdefghij', 7000), '%s', 12.34, -42, 9007199254740993, 3.5, 1,
+		'2024-01-15', '2024-01-15 10:30:45', b'00000101', NULL
+	);`, tableName, dataTypeJSON, dataTypeUnicode)
+
+	return DataTypeToolInfo{
+		CreateStatement: createStatement,
+		InsertStatement: insertStatement,
+		ToolStatements: map[string]string{
+			"my-datatype-tool": fmt.Sprintf("SELECT * FROM %s ORDER BY id;", tableName),
+			// GROUP_CONCAT returns a TEXT column, which was base64-encoded
+			// before #840 was fixed.
+			"my-group-concat-tool": fmt.Sprintf("SELECT GROUP_CONCAT(unicode_val) AS concat_val FROM %s;", tableName),
+		},
+		Wants: map[string][]any{
+			"my-datatype-tool": {
+				map[string]any{
+					"id":            json.Number("1"),
+					"json_val":      dataTypeJSONWant(),
+					"long_text_val": dataTypeLongText,
+					"unicode_val":   dataTypeUnicode,
+					// TODO: DECIMAL comes back as a string here but as a number from
+					// Postgres NUMERIC; standardize decimal handling across sources.
+					"decimal_val":      "12.34",
+					"int_val":          json.Number("-42"),
+					"bigint_val":       json.Number("9007199254740993"),
+					"double_val":       json.Number("3.5"),
+					"tinyint_bool_val": json.Number("1"),
+					"date_val":         "2024-01-15T00:00:00Z",
+					"datetime_val":     "2024-01-15T10:30:45Z",
+					// TODO: BIT comes back as raw bytes, which shows up as control
+					// characters; return it as an integer instead.
+					"bit_val":  "\u0005",
+					"null_val": nil,
+				},
+			},
+			"my-group-concat-tool": {
+				map[string]any{"concat_val": dataTypeUnicode},
+			},
+		},
+	}
+}
+
+// AddDataTypeToolConfig adds a tool for each data type test statement
+func AddDataTypeToolConfig(t *testing.T, config map[string]any, toolType string, toolStatements map[string]string) map[string]any {
+	tools, ok := config["tools"].(map[string]any)
+	if !ok {
+		t.Fatalf("unable to get tools from config")
+	}
+	for name, statement := range toolStatements {
+		tools[name] = map[string]any{
+			"type":        toolType,
+			"source":      "my-instance",
+			"description": "Tool to test data type handling.",
+			"statement":   statement,
+		}
+	}
+	config["tools"] = tools
+	return config
 }
 
 // GetPostgresWants return the expected wants for postgres
