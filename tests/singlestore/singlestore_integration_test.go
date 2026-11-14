@@ -318,7 +318,7 @@ func TestSingleStoreToolEndpoints(t *testing.T) {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), singleStoreCleanupTimeout)
 		defer cancel()
 		if _, err := pool.ExecContext(cleanupCtx, "DROP TABLE IF EXISTS senseai_docs;"); err != nil {
-			t.Logf("Teardown failed: %s", err)
+			t.Errorf("Teardown failed: %s", err)
 		}
 	})
 	_, err = pool.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS senseai_docs (id INT AUTO_INCREMENT PRIMARY KEY, content TEXT, embedding BLOB);")
