@@ -39,8 +39,18 @@ func TestGetHeadersCaseInsensitiveOverride(t *testing.T) {
 			want: map[string]string{"Content-Type": "text/plain; charset=UTF-8"},
 		},
 		{
-			name:      "nil parameter retains existing error behavior",
-			params:    map[string]any{"CONTENT-type": nil},
+			name:   "nil parameter retains static header",
+			params: map[string]any{"CONTENT-type": nil},
+			want:   map[string]string{"Content-Type": "text/plain; charset=UTF-8"},
+		},
+		{
+			name:   "empty string parameter retains static header",
+			params: map[string]any{"CONTENT-type": ""},
+			want:   map[string]string{"Content-Type": "text/plain; charset=UTF-8"},
+		},
+		{
+			name:      "non-string parameter returns an error",
+			params:    map[string]any{"CONTENT-type": 1},
 			wantError: true,
 		},
 	} {

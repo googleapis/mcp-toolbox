@@ -18,16 +18,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -35,6 +40,67 @@ var (
 	DgraphApiKey     = "api-key"
 	DgraphUrl        = os.Getenv("DGRAPH_URL")
 )
+
+const dgraphImage = "dgraph/standalone:v25.5.1"
+
+func setupDgraphContainer(ctx context.Context, t *testing.T) string {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image:        dgraphImage,
+		ExposedPorts: []string{"8080/tcp"},
+		WaitingFor: wait.ForHTTP("/health").WithPort("8080/tcp").
+			WithResponseMatcher(func(body io.Reader) bool {
+				var health []struct {
+					Status string `json:"status"`
+				}
+				if err := json.NewDecoder(body).Decode(&health); err != nil || len(health) == 0 {
+					return false
+				}
+				for _, h := range health {
+					if h.Status != "healthy" {
+						return false
+					}
+				}
+				return true
+			}).
+			WithStartupTimeout(3 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+
+	testcontainers.CleanupContainer(t, container, testcontainers.StopTimeout(0))
+	if err != nil {
+		t.Fatalf("failed to start Dgraph container: %s", err)
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get Dgraph container host: %s", err)
+	}
+	mappedPort, err := container.MappedPort(ctx, "8080/tcp")
+	if err != nil {
+		t.Fatalf("failed to get Dgraph container mapped port: %s", err)
+	}
+	return fmt.Sprintf("http://%s:%s", host, mappedPort.Port())
+}
+
+func useDgraph(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if DgraphUrl != "" {
+		return
+	}
+	t.Logf("DGRAPH_URL not set; starting ephemeral %s container", dgraphImage)
+	url := setupDgraphContainer(ctx, t)
+	// Restore the global so repeated runs (-count>1) start a fresh container.
+	origUrl := DgraphUrl
+	t.Cleanup(func() { DgraphUrl = origUrl })
+	DgraphUrl = url
+}
 
 func getDgraphVars(t *testing.T) map[string]any {
 	if DgraphUrl == "" {
@@ -48,9 +114,11 @@ func getDgraphVars(t *testing.T) map[string]any {
 }
 
 func TestDgraphToolEndpoints(t *testing.T) {
-	sourceConfig := getDgraphVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	useDgraph(ctx, t)
+	sourceConfig := getDgraphVars(t)
 
 	args := []string{"--enable-api"}
 
@@ -69,13 +137,27 @@ func TestDgraphToolEndpoints(t *testing.T) {
 				"timeout":     "20s",
 				"parameters":  []any{},
 			},
+			"my-mutation-tool": map[string]any{
+				"type":        "dgraph-dql",
+				"source":      "my-dgraph-instance",
+				"description": "Tool to insert a node.",
+				"statement":   "{ set { _:a <name> $name . } }",
+				"isQuery":     false,
+				"timeout":     "20s",
+				"parameters": []any{
+					map[string]any{"name": "name", "type": "string", "description": "Name of the node."},
+				},
+			},
 		},
 	}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	defer func() {
+		cmd.Close()
+		cleanup()
+	}()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -132,16 +214,24 @@ func TestDgraphToolEndpoints(t *testing.T) {
 
 	// Test tool invoke endpoint
 	invokeTcs := []struct {
-		name        string
-		api         string
-		requestBody io.Reader
-		want        string
+		name         string
+		api          string
+		requestBody  io.Reader
+		want         string
+		wantContains bool
 	}{
 		{
 			name:        "invoke my-simple-dql-tool",
 			api:         "http://127.0.0.1:5000/api/tool/my-simple-dql-tool/invoke",
 			requestBody: bytes.NewBuffer([]byte(`{}`)),
 			want:        "{\"result\":[{\"constant\":1}]}",
+		},
+		{
+			name:         "invoke my-mutation-tool",
+			api:          "http://127.0.0.1:5000/api/tool/my-mutation-tool/invoke",
+			requestBody:  bytes.NewBuffer([]byte(`{"name": "Alice"}`)),
+			want:         "\"code\":\"Success\"",
+			wantContains: true,
 		},
 	}
 	for _, tc := range invokeTcs {
@@ -167,7 +257,7 @@ func TestDgraphToolEndpoints(t *testing.T) {
 				t.Fatalf("unable to find result in response body")
 			}
 
-			if got != tc.want {
+			if tc.wantContains && !strings.Contains(got, tc.want) || !tc.wantContains && got != tc.want {
 				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
 			}
 		})

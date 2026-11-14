@@ -95,25 +95,23 @@ func (c Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	}
 
 	// Create a new Elasticsearch client with the provided configuration
-	cfg := elasticsearch.Config{
-		Addresses:       c.Addresses,
-		Instrumentation: elasticsearch.NewOpenTelemetryInstrumentation(tracerProvider, false),
-		Header:          http.Header{"User-Agent": []string{ua + " go-elasticsearch/" + elasticsearch.Version}},
+	opts := []elasticsearch.Option{
+		elasticsearch.WithAddresses(c.Addresses...),
+		elasticsearch.WithInstrumentation(elasticsearch.NewOpenTelemetryInstrumentation(tracerProvider, false)),
+		elasticsearch.WithTransportOptions(elastictransport.WithHeader(http.Header{"User-Agent": []string{ua + " go-elasticsearch/" + elasticsearch.Version}})),
 	}
 
 	// Client need either username and password or an API key
 	if c.Username != "" && c.Password != "" {
-		cfg.Username = c.Username
-		cfg.Password = c.Password
+		opts = append(opts, elasticsearch.WithBasicAuth(c.Username, c.Password))
 	} else if c.APIKey != "" {
-		// API key will be set below
-		cfg.APIKey = c.APIKey
+		opts = append(opts, elasticsearch.WithAPIKey(c.APIKey))
 	} else {
 		// If neither username/password nor API key is provided, we throw an error
 		return nil, fmt.Errorf("elasticsearch source %q requires either username/password or an API key", c.Name)
 	}
 
-	client, err := elasticsearch.NewBaseClient(cfg)
+	client, err := elasticsearch.NewBase(opts...)
 	if err != nil {
 		return nil, err
 	}
