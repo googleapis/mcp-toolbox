@@ -1038,11 +1038,13 @@ window.addEventListener('message', (event) => {
 
     if (data && typeof data === 'object') {
         const toolId = matchingIframe.id ? matchingIframe.id.replace('mcp-app-iframe-', '') : '';
-        if (data.type === 'ui/sandbox-inspect-response' && data.id) {
-            const resolver = pendingInspectRequests.get(data.id);
-            if (resolver) {
+        if (data.type === 'ui/sandbox-inspect-response') {
+            if (typeof data.id === 'string' && pendingInspectRequests.has(data.id)) {
+                const resolver = pendingInspectRequests.get(data.id);
                 pendingInspectRequests.delete(data.id);
-                resolver(data.dom || { error: data.error });
+                if (typeof resolver === 'function') {
+                    resolver(data.dom || { error: data.error });
+                }
             }
             return;
         }
