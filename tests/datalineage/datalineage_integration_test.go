@@ -20,10 +20,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,17 +42,80 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// datalineageCleanupTimeout bounds the deletion of the lineage resources.
-// Cleanups detach from the test context's cancellation (it is already cancelled
-// when they run), so they need their own deadline to fail fast if the API stops
-// responding.
-const datalineageCleanupTimeout = 2 * time.Minute
+const (
+	// datalineageSetupTimeout bounds initial fixture creation in GCP Data Lineage.
+	datalineageSetupTimeout = 2 * time.Minute
+	// datalineageCleanupTimeout bounds the deletion of the lineage resources on package exit.
+	datalineageCleanupTimeout = 2 * time.Minute
+)
 
 var (
 	DatalineageSourceType     = "datalineage"
 	DatalineageSearchToolType = "datalineage-search-lineage"
 	DatalineageProject        = os.Getenv("DATALINEAGE_PROJECT")
 )
+
+// datalineageFixture holds a single UUID-isolated lineage graph shared across
+// the sequential REST and MCP search tests within one test binary execution.
+type datalineageFixture struct {
+	toolsFile   map[string]any
+	sourceFQN   string
+	targetFQN   string
+	processName string
+	setupErr    error
+	pollErr     error
+}
+
+var (
+	sharedFixtureOnce sync.Once
+	sharedFixture     *datalineageFixture
+)
+
+func TestMain(m *testing.M) {
+	os.Exit(runDatalineageTests(m))
+}
+
+func runDatalineageTests(m *testing.M) (code int) {
+	defer func() {
+		if err := cleanupSharedDatalineageFixture(); err != nil {
+			log.Printf("Shared fixture cleanup failed: %v", err)
+			if code == 0 {
+				code = 1
+			}
+		}
+	}()
+	return m.Run()
+}
+
+func cleanupSharedDatalineageFixture() (retErr error) {
+	if sharedFixture == nil || sharedFixture.processName == "" {
+		return nil
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), datalineageCleanupTimeout)
+	defer cancel()
+
+	client, err := initLineageConnection(cleanupCtx)
+	if err != nil {
+		return fmt.Errorf("unable to create Lineage connection for cleanup: %w", err)
+	}
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil && retErr == nil {
+			retErr = fmt.Errorf("unable to close Lineage client: %w", closeErr)
+		}
+	}()
+
+	op, err := client.DeleteProcess(cleanupCtx, &lineagepb.DeleteProcessRequest{Name: sharedFixture.processName})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil
+		}
+		return fmt.Errorf("failed to delete process %s: %w", sharedFixture.processName, err)
+	}
+	if err := op.Wait(cleanupCtx); err != nil {
+		log.Printf("Warning: Failed to wait for delete process %s: %v", sharedFixture.processName, err)
+	}
+	return nil
+}
 
 func getDatalineageVars(t *testing.T) map[string]any {
 	if DatalineageProject == "" {
@@ -76,66 +141,48 @@ func initLineageConnection(ctx context.Context) (*lineage.Client, error) {
 }
 
 // setupDatalineageResources creates a lineage process, run and event linking a
-// source entity to a target entity. The process (and everything under it) is
-// deleted on cleanup; the cleanup is registered before the process is created
-// so a partially failed setup is still cleaned up.
-func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineage.Client, project string, uuidStr string) (string, string, string) {
-	t.Helper()
+// source entity to a target entity. processName is set on fx before creation so
+// TestMain cleans up partially created resources on failure.
+func setupDatalineageResources(ctx context.Context, client *lineage.Client, fx *datalineageFixture, project, uuidStr string) error {
 	parent := fmt.Sprintf("projects/%s/locations/us", project)
 	processID := fmt.Sprintf("mcp-process-%s", uuidStr)
 	runID := fmt.Sprintf("mcp-run-%s", uuidStr)
 	eventID := fmt.Sprintf("mcp-event-%s", uuidStr)
-	processName := fmt.Sprintf("%s/processes/%s", parent, processID)
-
-	sourceFQN := fmt.Sprintf("custom:%s_source", uuidStr)
-	targetFQN := fmt.Sprintf("custom:%s_target", uuidStr)
-
-	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), datalineageCleanupTimeout)
-		defer cancel()
-		op, err := client.DeleteProcess(cleanupCtx, &lineagepb.DeleteProcessRequest{Name: processName})
-		if err != nil {
-			if status.Code(err) != codes.NotFound {
-				t.Errorf("Failed to delete process %s: %v", processName, err)
-			}
-			return
-		}
-		if err := op.Wait(cleanupCtx); err != nil {
-			t.Logf("Warning: Failed to wait for delete process %s: %v", processName, err)
-		}
-	})
+	fx.processName = fmt.Sprintf("%s/processes/%s", parent, processID)
+	fx.sourceFQN = fmt.Sprintf("custom:%s_source", uuidStr)
+	fx.targetFQN = fmt.Sprintf("custom:%s_target", uuidStr)
 
 	// 1. Create Process
 	createProcessReq := &lineagepb.CreateProcessRequest{
 		Parent: parent,
 		Process: &lineagepb.Process{
-			Name:        processName,
+			Name:        fx.processName,
 			DisplayName: fmt.Sprintf("MCP Test Process %s", uuidStr),
 		},
 	}
 	process, err := client.CreateProcess(ctx, createProcessReq)
 	if err != nil {
-		t.Fatalf("Failed to create process %s: %v", processID, err)
+		return fmt.Errorf("failed to create process %s: %w", processID, err)
 	}
+	fx.processName = process.GetName()
 
-	// 2. Create Run
-	tTime, err := time.Parse(time.RFC3339Nano, "2026-01-01T01:01:01.010Z")
-	if err != nil {
-		t.Fatalf("failed to parse start time: %v", err)
-	}
-	startTime := timestamppb.New(tTime)
+	// 2. Create Run (within the 30-day retention window)
+	now := time.Now().UTC()
+	startTime := timestamppb.New(now.Add(-1 * time.Minute))
+	endTime := timestamppb.New(now)
 
 	createRunReq := &lineagepb.CreateRunRequest{
 		Parent: process.GetName(),
 		Run: &lineagepb.Run{
 			Name:      fmt.Sprintf("%s/runs/%s", process.GetName(), runID),
 			StartTime: startTime,
+			EndTime:   endTime,
 			State:     lineagepb.Run_COMPLETED,
 		},
 	}
 	run, err := client.CreateRun(ctx, createRunReq)
 	if err != nil {
-		t.Fatalf("Failed to create run %s: %v", runID, err)
+		return fmt.Errorf("failed to create run %s: %w", runID, err)
 	}
 
 	// 3. Create Lineage Event
@@ -144,20 +191,20 @@ func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineag
 		LineageEvent: &lineagepb.LineageEvent{
 			Name:      fmt.Sprintf("%s/lineageEvents/%s", run.GetName(), eventID),
 			StartTime: startTime,
+			EndTime:   endTime,
 			Links: []*lineagepb.EventLink{
 				{
-					Source: &lineagepb.EntityReference{FullyQualifiedName: sourceFQN},
-					Target: &lineagepb.EntityReference{FullyQualifiedName: targetFQN},
+					Source: &lineagepb.EntityReference{FullyQualifiedName: fx.sourceFQN},
+					Target: &lineagepb.EntityReference{FullyQualifiedName: fx.targetFQN},
 				},
 			},
 		},
 	}
-	_, err = client.CreateLineageEvent(ctx, createEventReq)
-	if err != nil {
-		t.Fatalf("Failed to create lineage event %s: %v", eventID, err)
+	if _, err := client.CreateLineageEvent(ctx, createEventReq); err != nil {
+		return fmt.Errorf("failed to create lineage event %s: %w", eventID, err)
 	}
 
-	return sourceFQN, targetFQN, process.GetName()
+	return nil
 }
 
 func getDatalineageToolsConfig(sourceConfig map[string]any) map[string]any {
@@ -175,28 +222,38 @@ func getDatalineageToolsConfig(sourceConfig map[string]any) map[string]any {
 	}
 }
 
-// setupDatalineageTest creates the lineage resources used by the search tests
-// and returns the tools file along with the source and target FQNs and the
-// process name. The Lineage client is closed on cleanup.
+// setupDatalineageTest lazily creates one UUID-isolated lineage fixture shared
+// across the search tests in this binary and returns the tools file along with
+// the source and target FQNs and the process name. Cleanup runs in TestMain.
 func setupDatalineageTest(t *testing.T, ctx context.Context) (map[string]any, string, string, string) {
 	t.Helper()
 	sourceConfig := getDatalineageVars(t)
 	project := sourceConfig["project"].(string)
 
-	lineageClient, err := initLineageConnection(ctx)
-	if err != nil {
-		t.Fatalf("unable to create Lineage connection: %s", err)
-	}
-	t.Cleanup(func() {
-		if err := lineageClient.Close(); err != nil {
-			t.Errorf("unable to close Lineage client: %s", err)
+	sharedFixtureOnce.Do(func() {
+		setupCtx, cancel := context.WithTimeout(ctx, datalineageSetupTimeout)
+		defer cancel()
+
+		client, err := initLineageConnection(setupCtx)
+		if err != nil {
+			sharedFixture = &datalineageFixture{setupErr: fmt.Errorf("unable to create Lineage connection: %w", err)}
+			return
 		}
+		fx := &datalineageFixture{
+			toolsFile: getDatalineageToolsConfig(sourceConfig),
+		}
+		uuidStr := strings.ReplaceAll(uuid.New().String(), "-", "")
+		fx.setupErr = setupDatalineageResources(setupCtx, client, fx, project, uuidStr)
+		if closeErr := client.Close(); closeErr != nil && fx.setupErr == nil {
+			fx.setupErr = fmt.Errorf("unable to close Lineage client: %w", closeErr)
+		}
+		sharedFixture = fx
 	})
+	if sharedFixture.setupErr != nil {
+		t.Fatalf("%v", sharedFixture.setupErr)
+	}
 
-	uuidStr := strings.ReplaceAll(uuid.New().String(), "-", "")
-	sourceFQN, targetFQN, processName := setupDatalineageResources(t, ctx, lineageClient, project, uuidStr)
-
-	return getDatalineageToolsConfig(sourceConfig), sourceFQN, targetFQN, processName
+	return sharedFixture.toolsFile, sharedFixture.sourceFQN, sharedFixture.targetFQN, sharedFixture.processName
 }
 
 // datalineageTransport selects how the tests talk to the toolbox server: the
@@ -319,6 +376,10 @@ func TestDatalineageToolEndpoints(t *testing.T) {
 // runDatalineageSearchTests polls until the new lineage link is indexed, then
 // checks upstream search, process details and parameter validation.
 func runDatalineageSearchTests(t *testing.T, ctx context.Context, tr datalineageTransport, sourceFQN, targetFQN, processName string) {
+	if sharedFixture != nil && sharedFixture.pollErr != nil {
+		t.Fatalf("shared lineage fixture already failed to materialize: %v", sharedFixture.pollErr)
+	}
+
 	reqBody := map[string]any{
 		"locations": []string{"us"},
 		"root_entities": []any{
@@ -333,6 +394,9 @@ func runDatalineageSearchTests(t *testing.T, ctx context.Context, tr datalineage
 	pollTimeout := 5 * time.Minute
 	links, err := pollSearchLineage(t, ctx, tr, "my-datalineage-search-tool", reqBody, sourceFQN, targetFQN, pollTimeout)
 	if err != nil {
+		if sharedFixture != nil && sharedFixture.pollErr == nil {
+			sharedFixture.pollErr = err
+		}
 		t.Fatalf("failed to find the link in search index within %s timeout: %v", pollTimeout, err)
 	}
 
@@ -356,11 +420,12 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 func pollSearchLineage(t *testing.T, ctx context.Context, tr datalineageTransport, toolName string, reqBody map[string]any, wantSourceFQN, wantTargetFQN string, timeout time.Duration) ([]map[string]any, error) {
 	startTime := time.Now()
+	deadline := startTime.Add(timeout)
 	delay := 2 * time.Second
-	maxDelay := 30 * time.Second
+	maxDelay := 10 * time.Second
 
-	for time.Since(startTime) < timeout {
-		t.Logf("Querying search lineage index (elapsed: %s, next poll in %s)...", time.Since(startTime).Round(time.Second), delay)
+	for {
+		t.Logf("Querying search lineage index (elapsed: %s)...", time.Since(startTime).Round(time.Second))
 		res, err := tr.invoke(t, ctx, toolName, reqBody)
 		switch {
 		case err != nil:
@@ -393,14 +458,16 @@ func pollSearchLineage(t *testing.T, ctx context.Context, tr datalineageTranspor
 			}
 		}
 
-		if err := sleepCtx(ctx, delay); err != nil {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		sleep := min(delay, remaining)
+		if err := sleepCtx(ctx, sleep); err != nil {
 			return nil, err
 		}
 		// Exponential backoff
-		delay = delay * 2
-		if delay > maxDelay {
-			delay = maxDelay
-		}
+		delay = min(delay*2, maxDelay)
 	}
 	return nil, fmt.Errorf("timeout waiting for lineage link %q -> %q", wantSourceFQN, wantTargetFQN)
 }
