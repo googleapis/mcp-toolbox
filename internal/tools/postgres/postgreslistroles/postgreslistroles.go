@@ -60,8 +60,8 @@ const listRolesStatement = `
         FROM pg_roles r
     -- Exclude system and internal roles
         WHERE r.rolname NOT LIKE 'cloudsql%'
-        AND r.rolname NOT LIKE 'alloydb_%'
-        AND r.rolname NOT LIKE 'pg_%'
+        AND r.rolname NOT LIKE 'alloydb\_%'
+        AND r.rolname NOT LIKE 'pg\_%'
     )
     SELECT *
     FROM RoleDetails
