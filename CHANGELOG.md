@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.17.1](https://github.com/googleapis/mcp-toolbox/compare/v1.17.0...v1.17.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **cmd:** Run telemetry shutdown with an uncanceled bounded context ([#4148](https://github.com/googleapis/mcp-toolbox/issues/4148)) ([dcdbbae](https://github.com/googleapis/mcp-toolbox/commit/dcdbbaea95730b8f91c5f23b4bfd8923f4b35d6f))
+* **server,tool/conversational-analytics:** Resolve CodeQL dynamic call and allocation alerts ([#4489](https://github.com/googleapis/mcp-toolbox/issues/4489)) ([3bb1e24](https://github.com/googleapis/mcp-toolbox/commit/3bb1e24858f105724e7c5d06c9b284b55ef9ee71))
+
 ## [1.17.0](https://github.com/googleapis/mcp-toolbox/compare/v1.16.0...v1.17.0) (2026-11-12)
 
 
