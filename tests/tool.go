@@ -2112,6 +2112,7 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 	}
 
 	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc1AppName := fmt.Sprintf("test_sleep_tc1_%s", testUUID)
 	tc2AppName := fmt.Sprintf("test_sleep_tc2_%s", testUUID)
 	tc3AppName := fmt.Sprintf("test_sleep_tc3_%s", testUUID)
 
@@ -2136,6 +2137,7 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 			name:                "invoke list_active_queries when the system is idle",
 			toolName:            "list_active_queries",
 			args:                map[string]any{"exclude_application_names": "wal_uploader"},
+			appName:             tc1AppName,
 			clientSleepSecs:     0,
 			waitSecsBeforeCheck: 0,
 			wantStatusCode:      http.StatusOK,
@@ -3239,6 +3241,7 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 	}
 
 	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc1QueryTag := fmt.Sprintf("test_mysql_sleep_tc1_%s", testUUID)
 	tc2QueryTag := fmt.Sprintf("test_mysql_sleep_tc2_%s", testUUID)
 	tc3QueryTag := fmt.Sprintf("test_mysql_sleep_tc3_%s", testUUID)
 	tc4QueryTag := fmt.Sprintf("test_mysql_sleep_tc4_%s", testUUID)
@@ -3280,7 +3283,7 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 		{
 			name:                "invoke list_active_queries when the system is idle",
 			requestBody:         bytes.NewBufferString(`{}`),
-			queryTag:            "",
+			queryTag:            tc1QueryTag,
 			clientSleepSecs:     0,
 			waitSecsBeforeCheck: 0,
 			wantStatusCode:      http.StatusOK,
@@ -4085,6 +4088,15 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 				}
 				if tc.wantStatusCode != http.StatusOK {
 					return
+				}
+
+				if tc.checkResult != nil {
+					if mcpResp.Error != nil {
+						t.Fatalf("get_query_plan returned RPC error: %v", mcpResp.Error)
+					}
+					if mcpResp.Result.IsError {
+						t.Fatalf("get_query_plan returned error result: %+v", mcpResp.Result.Content)
+					}
 				}
 
 				gotObj := getMCPResultText(t, mcpResp)

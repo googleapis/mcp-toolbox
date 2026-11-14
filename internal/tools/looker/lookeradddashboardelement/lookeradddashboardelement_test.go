@@ -348,6 +348,91 @@ func TestInvokeLookerAddDashboardElement(t *testing.T) {
 		}
 	})
 
+	t.Run("extension element", func(t *testing.T) {
+		gotElement = v4.WriteDashboardElement{}
+		queryCreated = false
+
+		rawArgs := map[string]any{
+			"dashboard_id": "78",
+			"type":         "extension",
+			"extension_id": "db::04ac012c-f040-4a85-a772-e35d88449a1f",
+			"title":        "My Extension Tile",
+			"title_hidden": true,
+		}
+		params, err := parameters.ParseParams(toolParams, rawArgs, nil)
+		if err != nil {
+			t.Fatalf("ParseParams failed for extension element: %v", err)
+		}
+
+		_, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		if queryCreated {
+			t.Errorf("expected no query to be created for extension element")
+		}
+
+		want := v4.WriteDashboardElement{
+			DashboardId: strPtr("78"),
+			Type:        strPtr("extension"),
+			ExtensionId: strPtr("db::04ac012c-f040-4a85-a772-e35d88449a1f"),
+			Title:       strPtr("My Extension Tile"),
+			TitleHidden: boolPtr(true),
+		}
+		if diff := cmp.Diff(want, gotElement); diff != "" {
+			t.Fatalf("WriteDashboardElement mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("auto-inferred extension element", func(t *testing.T) {
+		gotElement = v4.WriteDashboardElement{}
+		queryCreated = false
+
+		rawArgs := map[string]any{
+			"dashboard_id": "78",
+			"extension_id": "db::04ac012c-f040-4a85-a772-e35d88449a1f",
+			"title_hidden": true,
+		}
+		params, err := parameters.ParseParams(toolParams, rawArgs, nil)
+		if err != nil {
+			t.Fatalf("ParseParams failed: %v", err)
+		}
+
+		_, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		if queryCreated {
+			t.Errorf("expected no query to be created for extension element")
+		}
+
+		want := v4.WriteDashboardElement{
+			DashboardId: strPtr("78"),
+			Type:        strPtr("extension"),
+			ExtensionId: strPtr("db::04ac012c-f040-4a85-a772-e35d88449a1f"),
+			TitleHidden: boolPtr(true),
+		}
+		if diff := cmp.Diff(want, gotElement); diff != "" {
+			t.Fatalf("WriteDashboardElement mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("extension element missing extension_id", func(t *testing.T) {
+		rawArgs := map[string]any{
+			"dashboard_id": "78",
+			"type":         "extension",
+		}
+		params, err := parameters.ParseParams(toolParams, rawArgs, nil)
+		if err != nil {
+			t.Fatalf("ParseParams failed: %v", err)
+		}
+
+		_, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr == nil {
+			t.Fatalf("expected error when extension_id is missing for extension element, got nil")
+		}
+	})
+
 	t.Run("invalid element type rejected by ParseParams", func(t *testing.T) {
 		rawArgs := map[string]any{
 			"dashboard_id": "78",
