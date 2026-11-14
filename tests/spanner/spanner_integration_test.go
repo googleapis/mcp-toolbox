@@ -17,10 +17,14 @@
 package spanner
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -311,6 +315,101 @@ func setupSpannerPgVectorTable(t *testing.T, ctx context.Context, adminClient *d
 	}
 }
 
+// setupSpannerPgIndexedTable creates a table (PostgreSQL dialect) with a
+// secondary index that stores a non-key column via INCLUDE.
+func setupSpannerPgIndexedTable(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string) (string, string, func(*testing.T)) {
+	suffix := strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableName := "indexed_table_" + suffix
+	indexName := "idx_indexed_table_" + suffix
+	statements := []string{
+		fmt.Sprintf(`CREATE TABLE %s (
+		id bigint PRIMARY KEY,
+		val text,
+		payload text
+	)`, tableName),
+		fmt.Sprintf("CREATE INDEX %s ON %s (val) INCLUDE (payload)", indexName, tableName),
+	}
+
+	op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		Database:   dbString,
+		Statements: statements,
+	})
+	if err != nil {
+		t.Fatalf("unable to start create indexed table operation %s: %s", tableName, err)
+	}
+	err = op.Wait(ctx)
+	if err != nil {
+		t.Fatalf("unable to create test indexed table %s: %s", tableName, err)
+	}
+
+	return tableName, indexName, func(t *testing.T) {
+		op, err = adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+			Database: dbString,
+			Statements: []string{
+				fmt.Sprintf("DROP INDEX IF EXISTS %s", indexName),
+				fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName),
+			},
+		})
+		if err != nil {
+			t.Errorf("unable to start drop %s operation: %s", tableName, err)
+			return
+		}
+		opErr := op.Wait(ctx)
+		if opErr != nil {
+			t.Errorf("Teardown failed: %s", opErr)
+		}
+	}
+}
+
+// runSpannerPgListTablesStoringColumnsTest checks that spanner-list-tables
+// reports the INCLUDE columns of a secondary index as storing_columns.
+func runSpannerPgListTablesStoringColumnsTest(t *testing.T, tableName, indexName, storingColumn string) {
+	t.Run("list tables reports index storing columns", func(t *testing.T) {
+		url := "http://127.0.0.1:5000/api/tool/list-tables-tool/invoke"
+		requestBody := bytes.NewBuffer([]byte(fmt.Sprintf(`{"table_names": "%s"}`, tableName)))
+		resp, respBody := tests.RunRequest(t, http.MethodPost, url, requestBody, map[string]string{})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(respBody, &body); err != nil {
+			t.Fatalf("error parsing response body: %s", err)
+		}
+		result, ok := body["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body")
+		}
+
+		var tables []struct {
+			ObjectName    string `json:"object_name"`
+			ObjectDetails struct {
+				Indexes []struct {
+					IndexName      string   `json:"index_name"`
+					StoringColumns []string `json:"storing_columns"`
+				} `json:"indexes"`
+			} `json:"object_details"`
+		}
+		if err := json.Unmarshal([]byte(result), &tables); err != nil {
+			t.Fatalf("unable to parse result as JSON array: %s", err)
+		}
+		if len(tables) != 1 || tables[0].ObjectName != tableName {
+			t.Fatalf("expected only table %s, got: %s", tableName, result)
+		}
+
+		for _, idx := range tables[0].ObjectDetails.Indexes {
+			if idx.IndexName != indexName {
+				continue
+			}
+			if !slices.Equal(idx.StoringColumns, []string{storingColumn}) {
+				t.Errorf("index %s: got storing_columns %v, want [%s]", indexName, idx.StoringColumns, storingColumn)
+			}
+			return
+		}
+		t.Errorf("index %s not found in result: %s", indexName, result)
+	})
+}
+
 // getSpannerPgVectorSearchStmts returns statements for spanner semantic search (PostgreSQL dialect)
 func getSpannerPgVectorSearchStmts(vectorTableName string) (string, string) {
 	insertStmt := fmt.Sprintf("INSERT INTO %s (id, content, embedding) VALUES (1, $1, $2)", vectorTableName)
@@ -367,7 +466,12 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 		"tools": map[string]any{},
 	}
 
+	// Set up table with a secondary index that stores a column, for list tables
+	indexedTableName, indexName, tearDownIndexedTable := setupSpannerPgIndexedTable(t, ctx, adminClient, dbString)
+	defer tearDownIndexedTable(t)
+
 	toolsConfig := tests.AddSemanticSearchConfig(t, config, SpannerToolType, insertStmt, searchStmt)
+	toolsConfig = addSpannerListTablesConfig(t, toolsConfig)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig, "--enable-api")
 	if err != nil {
@@ -385,4 +489,7 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 
 	// Run semantic search test
 	tests.RunSemanticSearchToolInvokeTest(t, "[]", "", "The quick brown fox")
+
+	// Run list tables test for an index with INCLUDE columns
+	runSpannerPgListTablesStoringColumnsTest(t, indexedTableName, indexName, "payload")
 }
