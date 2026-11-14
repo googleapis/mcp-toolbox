@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -677,8 +678,11 @@ func runBigTableAdminToolsTest(t *testing.T, ctx context.Context, instanceId str
 		t.Fatalf("bigtable-list-logical-views output does not contain expected view %q: %v", viewName, listViewsResp.Result.Content)
 	}
 
-	// List schemas
-	listSchemasResp := assertMCPSuccess(t, "bigtable-list-schemas", map[string]any{})
+	// List schemas without the default 20-table limit: other tests share this
+	// instance, so our table may appear beyond the first 20 entries.
+	listSchemasResp := assertMCPSuccess(t, "bigtable-list-schemas", map[string]any{
+		"limit": math.MaxInt32,
+	})
 	if len(listSchemasResp.Result.Content) == 0 {
 		t.Fatalf("bigtable-list-schemas returned empty content")
 	}
