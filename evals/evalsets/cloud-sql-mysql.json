@@ -20,6 +20,53 @@
       ],
       "kind": "tools",
       "max_turns": 1
+    },
+    {
+      "id": "cloudsqlmysql-data-03",
+      "starting_prompt": "Our API latency is extremely high on ${CLOUD_SQL_MYSQL_DATABASE} and users are seeing 504 gateway errors. Can you check what's currently executing on the database?",
+      "conversation_plan": "Turn 2: ask if any queries are stuck waiting on row or table locks. Turn 3: ask to see the overall query performance statistics to find out which normalized statements have the worst latency. Then thank the assistant and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_active_queries",
+        "toolbox__list_all_locks",
+        "toolbox__show_query_stats"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlmysql-data-04",
+      "starting_prompt": "One of our analytics reports is running really slow. How would MySQL execute this query under the hood without actually running it against the DB: select table_name, data_length from information_schema.tables order by data_length desc limit 10;",
+      "conversation_plan": "Turn 2: ask how big the user tables actually are and check their read/write latency to gauge the impact. Turn 3: ask to run a SQL query to check the database server's innodb_buffer_pool_size to see how much cache memory is allocated. Then accept the findings and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__get_query_plan",
+        "toolbox__list_table_stats",
+        "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlmysql-data-05",
+      "starting_prompt": "We just migrated a bunch of legacy tables into ${CLOUD_SQL_MYSQL_DATABASE}. Did anyone forget to define a primary key or unique constraint on any of them?",
+      "conversation_plan": "Turn 2: ask if there is any severe table fragmentation where we could reclaim wasted disk space. Turn 3: ask to see the full table schema and column types for the unindexed tables so we can fix them. Then end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables_missing_unique_indexes",
+        "toolbox__list_table_fragmentation",
+        "toolbox__list_tables"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "cloudsqlmysql-data-06",
+      "starting_prompt": "I'm new to the team and trying to map out what's in ${CLOUD_SQL_MYSQL_DATABASE}. What user tables exist here, and how much data is in each one?",
+      "conversation_plan": "The user wants a summary of existing user tables and their storage footprints. Accept a concise breakdown and end the conversation.",
+      "expected_trajectory": [
+        "toolbox__list_tables",
+        "toolbox__list_table_stats"
+      ],
+      "kind": "tools",
+      "max_turns": 1
     }
   ]
 }
