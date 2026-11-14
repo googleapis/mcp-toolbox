@@ -403,7 +403,8 @@ description: |
   Parameters:
   - project_id (required): The unique ID of the LookML project.
   - connection (required): The database connection name.
-  - tables (required): A list of objects to generate views for. Each object must contain `schema` and `table_name` (note: table names are case-sensitive). Optional fields include `primary_key`, `base_view`, and `columns` (array of objects with `column_name`).
+  - database (optional): The BigQuery project or database where the target table resides. May be required even when using the connection's default database.
+  - tables (required): A list of objects to generate views for. Each object requires `table_name` (note: table names are case-sensitive) and accepts optional `schema`, `primary_key`, `base_view`, and `columns` (array of objects with `column_name`).
   - folder_name (optional): The folder to place the view files in (defaults to 'views/').
 
   Output:
