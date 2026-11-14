@@ -139,11 +139,11 @@ func replaceCommandsParams(commands [][]string, params parameters.Parameters, pa
 				for _, item := range v.([]any) {
 					// Nested arrays will only be expanded once
 					// e.g., [A, [B, C]]  --> ["A", "[B C]"]
-					newCmd = append(newCmd, fmt.Sprintf("%s", item))
+					newCmd = append(newCmd, fmt.Sprint(item))
 				}
 				continue
 			}
-			newCmd = append(newCmd, fmt.Sprintf("%s", v))
+			newCmd = append(newCmd, fmt.Sprint(v))
 		}
 		newCommands[i] = newCmd
 	}
