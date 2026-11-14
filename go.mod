@@ -53,6 +53,7 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/looker-open-source/sdk-codegen/go v0.26.22
 	github.com/microsoft/go-mssqldb v1.11.2
+	github.com/moby/moby/api v1.56.1
 	github.com/nakagami/firebirdsql v0.9.23
 	github.com/neo4j/neo4j-go-driver/v6 v6.4.0
 	github.com/redis/go-redis/v9 v9.23.0
@@ -218,7 +219,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.3.0 // indirect
-	github.com/moby/moby/api v1.56.1 // indirect
 	github.com/moby/moby/client v0.6.2 // indirect
 	github.com/moby/patternmatcher v0.6.1 // indirect
 	github.com/moby/sys/sequential v0.7.0 // indirect

@@ -60,7 +60,7 @@ func getSingleStoreMCPExpectedTools() []tests.MCPToolManifest {
 }
 
 func TestSingleStoreMCPListTools(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	_, _, toolsFile := setupSingleStoreTest(t, ctx)
@@ -72,7 +72,7 @@ func TestSingleStoreMCPListTools(t *testing.T) {
 }
 
 func TestSingleStoreMCPCallTool(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	tableNameTemplateParam, _, toolsFile := setupSingleStoreTest(t, ctx)

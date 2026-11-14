@@ -30,6 +30,10 @@ import (
 	singlestoresrc "github.com/googleapis/mcp-toolbox/internal/sources/singlestore"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/moby/moby/api/types/container"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // singleStoreCleanupTimeout bounds each cleanup query. Cleanups detach from the
@@ -46,6 +50,75 @@ var (
 	SingleStoreUser       = os.Getenv("SINGLESTORE_USER")
 	SingleStorePass       = os.Getenv("SINGLESTORE_PASSWORD")
 )
+
+const (
+	singleStoreImage             = "ghcr.io/singlestore-labs/singlestoredb-dev:0.2.90"
+	singleStoreContainerDatabase = "test_database"
+)
+
+func setupSingleStoreContainer(ctx context.Context, t *testing.T) (host, port, user, pass, database string) {
+	t.Helper()
+
+	user = "root"
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	database = singleStoreContainerDatabase
+	req := testcontainers.ContainerRequest{
+		Image:        singleStoreImage,
+		ExposedPorts: []string{"3306/tcp"},
+		Env: map[string]string{
+			"ROOT_PASSWORD": pass,
+			"ENABLE_STUDIO": "0",
+			"SINGLESTORE_SET_GLOBAL_CRITICAL_DIAGNOSTICS": "OFF",
+		},
+		HostConfigModifier: func(hc *container.HostConfig) {
+			hc.NanoCPUs = 8e9
+			hc.Memory = 16 << 30
+		},
+		Files: []testcontainers.ContainerFile{{
+			Reader:            strings.NewReader(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s;\n", database)),
+			ContainerFilePath: "/init.sql",
+			FileMode:          0o644,
+		}},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("3306/tcp"),
+			wait.ForHealthCheck(),
+		).WithStartupTimeoutDefault(3 * time.Minute).WithDeadline(3 * time.Minute),
+	}
+
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+	testcontainers.CleanupContainer(t, c)
+	if err != nil {
+		t.Fatalf("failed to start SingleStore container: %s", err)
+	}
+
+	host, err = c.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get SingleStore container host: %s", err)
+	}
+	mappedPort, err := c.MappedPort(ctx, "3306/tcp")
+	if err != nil {
+		t.Fatalf("failed to get SingleStore container mapped port: %s", err)
+	}
+	return host, mappedPort.Port(), user, pass, database
+}
+
+func useSingleStore(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if SingleStoreHost != "" {
+		return
+	}
+	t.Logf("SINGLESTORE_HOST not set; starting ephemeral %s container", singleStoreImage)
+	host, port, user, pass, database := setupSingleStoreContainer(ctx, t)
+	origHost, origPort, origUser, origPass, origDatabase := SingleStoreHost, SingleStorePort, SingleStoreUser, SingleStorePass, SingleStoreDatabase
+	t.Cleanup(func() {
+		SingleStoreHost, SingleStorePort, SingleStoreUser, SingleStorePass, SingleStoreDatabase = origHost, origPort, origUser, origPass, origDatabase
+	})
+	SingleStoreHost, SingleStorePort, SingleStoreUser, SingleStorePass, SingleStoreDatabase = host, port, user, pass, database
+}
 
 func getSingleStoreVars(t *testing.T) map[string]any {
 	switch "" {
@@ -235,6 +308,7 @@ func initSingleStoreConnectionPool(cfg singlestoresrc.Config) (*sql.DB, error) {
 // and the tools file. The pool is closed and the tables dropped on cleanup.
 func setupSingleStoreTest(t *testing.T, ctx context.Context) (string, *sql.DB, map[string]any) {
 	t.Helper()
+	useSingleStore(ctx, t)
 	sourceConfig := getSingleStoreVars(t)
 
 	cfg := singlestoresrc.Config{
@@ -277,7 +351,7 @@ func setupSingleStoreTest(t *testing.T, ctx context.Context) (string, *sql.DB, m
 }
 
 func TestSingleStoreToolEndpoints(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	args := []string{"--enable-api"}

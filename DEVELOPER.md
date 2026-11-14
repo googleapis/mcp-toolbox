@@ -590,6 +590,10 @@ variables for each source.
 * MySQL - setup in the test project using a Cloud SQL instance
 * Neo4j - setup in the test project on a GCE VM
 * Postgres - setup in the test project using an AlloyDB instance
+* SingleStore - ephemeral `ghcr.io/singlestore-labs/singlestoredb-dev:0.2.90`
+  container via testcontainers (set `SINGLESTORE_HOST`, `SINGLESTORE_PORT`,
+  `SINGLESTORE_USER`, `SINGLESTORE_PASSWORD`, and `SINGLESTORE_DATABASE` to use
+  an existing instance)
 * Spanner - setup in the test project
   * The Cloud Build service account is a user
 * SQL Server - setup in the test project using a Cloud SQL instance
