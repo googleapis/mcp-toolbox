@@ -1559,11 +1559,8 @@ steps:
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
-      - "SINGLESTORE_PORT=$_SINGLESTORE_PORT"
-      - "SINGLESTORE_USER=$_SINGLESTORE_USER"
-      - "SINGLESTORE_DATABASE=$_SINGLESTORE_DATABASE"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
-    secretEnv: ["SINGLESTORE_PASSWORD", "SINGLESTORE_HOST", "CLIENT_ID", "API_KEY"]
+    secretEnv: ["CLIENT_ID", "API_KEY"]
     volumes:
       - name: "go"
         path: "/gopath"
@@ -1800,10 +1797,6 @@ availableSecrets:
       env: ORACLE_PASSWORD
     - versionName: projects/$PROJECT_ID/secrets/oracle_host/versions/latest
       env: ORACLE_HOST
-    - versionName: projects/$PROJECT_ID/secrets/singlestore_pass/versions/latest
-      env: SINGLESTORE_PASSWORD
-    - versionName: projects/$PROJECT_ID/secrets/singlestore_host/versions/latest
-      env: SINGLESTORE_HOST
     - versionName: projects/$PROJECT_ID/secrets/mariadb_user/versions/latest
       env: MARIADB_USER
     - versionName: projects/$PROJECT_ID/secrets/mariadb_pass/versions/latest
@@ -1861,10 +1854,6 @@ substitutions:
   _YUGABYTEDB_PORT: "5433"
   _YUGABYTEDB_LOADBALANCE: "false"
   _ORACLE_SERVER_NAME: "FREEPDB1"
-  _SINGLESTORE_HOST: 127.0.0.1
-  _SINGLESTORE_PORT: "3308"
-  _SINGLESTORE_DATABASE: "singlestore"
-  _SINGLESTORE_USER: "root"
   _COCKROACHDB_HOST: 127.0.0.1
   _COCKROACHDB_PORT: "26257"
   _COCKROACHDB_USER: "root"
