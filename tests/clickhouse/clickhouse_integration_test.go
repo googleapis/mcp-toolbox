@@ -822,6 +822,80 @@ func TestClickHouseEdgeCases(t *testing.T) {
 	t.Logf("✅ Edge case tests completed successfully")
 }
 
+// TestClickHouseResultEncoding checks the JSON of a result row exactly: the
+// columns keep the order of the query, and Array(UInt8) values, also nested,
+// are lists of numbers instead of base64 strings.
+func TestClickHouseResultEncoding(t *testing.T) {
+	sourceConfig := getClickHouseVars(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	toolsFile := map[string]any{
+		"sources": map[string]any{
+			"my-instance": sourceConfig,
+		},
+		"tools": map[string]any{
+			"execute-sql-tool": map[string]any{
+				"type":        "clickhouse-execute-sql",
+				"source":      "my-instance",
+				"description": "Test result encoding",
+			},
+		},
+	}
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	tcs := []struct {
+		name string
+		sql  string
+		want string
+	}{
+		{
+			name: "column order",
+			sql:  "SELECT 3 AS zeta, 1 AS alpha, 'x' AS mid",
+			want: `{"zeta":3,"alpha":1,"mid":"x"}`,
+		},
+		{
+			name: "uint8 arrays",
+			sql: "SELECT CAST([1, 2, 3] AS Array(UInt8)) AS small, CAST([1, 2, 3] AS Array(UInt16)) AS wide, " +
+				"CAST([[1, 2], [3]] AS Array(Array(UInt8))) AS nested, CAST(map('a', [1, 2]) AS Map(String, Array(UInt8))) AS m, " +
+				"CAST(tuple(7, [8, 9]) AS Tuple(UInt8, Array(UInt8))) AS tup",
+			want: `{"small":[1,2,3],"wide":[1,2,3],"nested":[[1,2],[3]],"m":{"a":[1,2]},"tup":[7,[8,9]]}`,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			statusCode, mcpResp, err := tests.InvokeMCPTool(t, "execute-sql-tool", map[string]any{"sql": tc.sql}, nil)
+			if err != nil {
+				t.Fatalf("native error executing execute-sql-tool: %s", err)
+			}
+			if statusCode != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", statusCode)
+			}
+			if mcpResp.Result.IsError {
+				t.Fatalf("execute-sql-tool returned error result: %v", mcpResp.Result)
+			}
+			if len(mcpResp.Result.Content) != 1 {
+				t.Fatalf("expected 1 content item, got %d", len(mcpResp.Result.Content))
+			}
+			if got := mcpResp.Result.Content[0].Text; got != tc.want {
+				t.Errorf("unexpected result: got %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 // getClickHouseSQLParamToolInfo returns statements and param for my-tool clickhouse-sql type
 func getClickHouseSQLParamToolInfo(tableName string) (string, string, string, string, string, string, []any) {
 	createStatement := fmt.Sprintf("CREATE TABLE %s (id UInt32, name String) ENGINE = Memory", tableName)
