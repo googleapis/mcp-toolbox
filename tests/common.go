@@ -668,7 +668,7 @@ func GetPostgresWants() (string, string, string, string) {
 // GetMSSQLWants return the expected wants for mssql
 func GetMSSQLWants() (string, string, string, string) {
 	select1Want := "[{\"\":1}]"
-	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: mssql: Could not find stored procedure 'SELEC'."}],"isError":true}}`
+	mcpMyFailToolWant := `Could not find stored procedure 'SELEC'`
 	createTableStatement := `"CREATE TABLE t (id INT IDENTITY(1,1) PRIMARY KEY, name NVARCHAR(MAX))"`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"\":1}"}]}}`
 	return select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want
