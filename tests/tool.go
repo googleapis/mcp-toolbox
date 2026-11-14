@@ -567,19 +567,6 @@ func RunToolInvokeWithTemplateParameters(t *testing.T, tableName string, options
 
 	selectOnlyNamesWant := "[{\"name\":\"Alex\"},{\"name\":\"Alice\"}]"
 
-	if configs.supportDdl {
-		t.Cleanup(func() {
-			dropArgs := map[string]any{"tableName": tableName}
-			if configs.isMCP {
-				_, _, _ = InvokeMCPTool(t, "drop-table-templateParams-tool", dropArgs, nil)
-			} else {
-				api := "http://127.0.0.1:5000/api/tool/drop-table-templateParams-tool/invoke"
-				reqBytes, _ := json.Marshal(dropArgs)
-				_, _ = RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
-			}
-		})
-	}
-
 	parseJSONArray := func(s string) []any {
 		var res []any
 		_ = json.Unmarshal([]byte(s), &res)
@@ -799,17 +786,6 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 	createStmt := strings.TrimSpace(strings.Trim(createTableStatement, "\""))
 	createStmt = strings.Replace(createStmt, " TABLE t ", " TABLE "+tableName+" ", 1)
 	createStmt = strings.Replace(createStmt, " TABLE t(", " TABLE "+tableName+"(", 1)
-
-	t.Cleanup(func() {
-		dropArgs := map[string]any{"sql": fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)}
-		if configs.isMCP {
-			_, _, _ = InvokeMCPTool(t, "my-exec-sql-tool", dropArgs, nil)
-		} else {
-			api := "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke"
-			reqBytes, _ := json.Marshal(dropArgs)
-			_, _ = RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
-		}
-	})
 
 	// Get ID token
 	idToken, err := GetGoogleIdToken(t)
