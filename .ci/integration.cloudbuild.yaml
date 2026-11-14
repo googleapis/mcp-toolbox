@@ -990,11 +990,8 @@ steps:
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
-      - "OCEANBASE_PORT=$_OCEANBASE_PORT"
-      - "OCEANBASE_DATABASE=$_OCEANBASE_DATABASE"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
-    secretEnv:
-      ["CLIENT_ID", "OCEANBASE_HOST", "OCEANBASE_USER", "OCEANBASE_PASSWORD"]
+    secretEnv: ["CLIENT_ID"]
     volumes:
       - name: "go"
         path: "/gopath"
@@ -1764,12 +1761,6 @@ availableSecrets:
       env: FIREBIRD_PASS
     - versionName: projects/$PROJECT_ID/secrets/trino_user/versions/latest
       env: TRINO_USER
-    - versionName: projects/$PROJECT_ID/secrets/oceanbase_host/versions/latest
-      env: OCEANBASE_HOST
-    - versionName: projects/$PROJECT_ID/secrets/oceanbase_user/versions/latest
-      env: OCEANBASE_USER
-    - versionName: projects/$PROJECT_ID/secrets/oceanbase_pass/versions/latest
-      env: OCEANBASE_PASSWORD
     - versionName: projects/$PROJECT_ID/secrets/mindsdb_host/versions/latest
       env: MINDSDB_HOST
     - versionName: projects/$PROJECT_ID/secrets/mindsdb_user/versions/latest
@@ -1853,8 +1844,6 @@ substitutions:
   _TRINO_PORT: "8080"
   _TRINO_CATALOG: "memory"
   _TRINO_SCHEMA: "default"
-  _OCEANBASE_PORT: "2883"
-  _OCEANBASE_DATABASE: "oceanbase"
   _MINDSDB_PORT: "47335"
   _MINDSDB_DATABASE: "mindsdb_test"
   _YUGABYTEDB_DATABASE: "yugabyte"
