@@ -1,0 +1,217 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: deployment
+templates:
+  - templates/deployment.yaml
+release:
+  name: test
+tests:
+  - it: fails without any tool configuration
+    asserts:
+      - failedTemplate:
+          errorMessage: "mcp-toolbox: set config.toolsYaml, config.existingSecret, or config.prebuilt"
+
+  - it: fails when toolsYaml and existingSecret are both set
+    set:
+      config.toolsYaml: "kind: source"
+      config.existingSecret: my-secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "mcp-toolbox: config.toolsYaml and config.existingSecret are mutually exclusive"
+
+  - it: listens on all interfaces and loads the mounted config
+    set:
+      config.toolsYaml: "kind: source"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --address=0.0.0.0
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --config=/etc/toolbox/tools.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].secret.secretName
+          value: test-mcp-toolbox-config
+      - exists:
+          path: spec.template.metadata.annotations["checksum/config"]
+
+  - it: mounts the config directory without subPath so reloads work
+    set:
+      config.toolsYaml: "kind: source"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0]
+          value:
+            name: config
+            mountPath: /etc/toolbox
+            readOnly: true
+
+  - it: polls the mounted config so Secret updates are reloaded
+    set:
+      config.existingSecret: my-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --poll-interval=10
+
+  - it: does not poll when reload is disabled or there is no config file
+    set:
+      config.prebuilt: [postgres]
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --poll-interval=10
+
+  - it: uses an existing Secret and custom key
+    set:
+      config.existingSecret: my-secret
+      config.secretKey: config.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].secret.secretName
+          value: my-secret
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --config=/etc/toolbox/config.yaml
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/config"]
+
+  - it: runs prebuilt tools without mounting a config
+    set:
+      config.prebuilt:
+        - postgres
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prebuilt=postgres
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --config=/etc/toolbox/tools.yaml
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 1
+
+  - it: passes server flags
+    set:
+      config.toolsYaml: "kind: source"
+      config.disableReload: true
+      server.allowedHosts: [toolbox.example.com, localhost]
+      server.allowedOrigins: [https://app.example.com]
+      server.logLevel: DEBUG
+      server.loggingFormat: JSON
+      server.extraArgs: [--enable-api]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --disable-reload
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --poll-interval=10
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --allowed-hosts=toolbox.example.com,localhost
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --allowed-origins=https://app.example.com
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=DEBUG
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --logging-format=JSON
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-api
+
+  - it: adds extra volumes and mounts
+    set:
+      config.toolsYaml: "kind: source"
+      extraVolumes:
+        - name: db-certs
+          secret:
+            secretName: db-certs
+      extraVolumeMounts:
+        - name: db-certs
+          mountPath: /etc/db-certs
+          readOnly: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: db-certs
+            secret:
+              secretName: db-certs
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: db-certs
+            mountPath: /etc/db-certs
+            readOnly: true
+
+  - it: defaults the image tag to the chart appVersion
+    set:
+      config.toolsYaml: "kind: source"
+    chart:
+      appVersion: 9.9.9
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:9.9.9
+
+  - it: meets the restricted Pod Security Standard by default
+    set:
+      config.toolsYaml: "kind: source"
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      # A numeric UID is required for the kubelet to verify runAsNonRoot
+      # against the image's named "nonroot" user.
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+  - it: probes /healthz
+    set:
+      config.toolsYaml: "kind: source"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+
+  - it: drops replicas when autoscaling is enabled
+    set:
+      config.toolsYaml: "kind: source"
+      autoscaling.enabled: true
+    asserts:
+      - notExists:
+          path: spec.replicas

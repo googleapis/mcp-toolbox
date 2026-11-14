@@ -23,7 +23,7 @@ node_modules
 __pycache__/
 
 # executable
-mcp-toolbox
+/mcp-toolbox
 toolbox
 toolbox.exe
 **/test.db
