@@ -778,6 +778,15 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		option(configs)
 	}
 
+	tableName := configs.tableName
+	if tableName == "" {
+		tableName = "t_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	}
+
+	createStmt := strings.TrimSpace(strings.Trim(createTableStatement, "\""))
+	createStmt = strings.Replace(createStmt, " TABLE t ", " TABLE "+tableName+" ", 1)
+	createStmt = strings.Replace(createStmt, " TABLE t(", " TABLE "+tableName+"(", 1)
+
 	// Get ID token
 	idToken, err := GetGoogleIdToken(t)
 	if err != nil {
@@ -806,7 +815,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool create table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": strings.Trim(createTableStatement, "\"")},
+			args:          map[string]any{"sql": createStmt},
 			want:          configs.createWant,
 			isErr:         false,
 		},
@@ -814,7 +823,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool select table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "SELECT * FROM t"},
+			args:          map[string]any{"sql": fmt.Sprintf("SELECT * FROM %s", tableName)},
 			want:          configs.selectEmptyWant,
 			isErr:         false,
 		},
@@ -822,7 +831,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool drop table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "DROP TABLE t"},
+			args:          map[string]any{"sql": fmt.Sprintf("DROP TABLE %s", tableName)},
 			want:          configs.dropWant,
 			isErr:         false,
 		},

@@ -96,9 +96,10 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create SQL Server connection pool: %s", err)
 	}
-	defer pool.Close()
+	t.Cleanup(func() { pool.Close() })
 
-	// cleanup test environment
+	// Clean up orphaned test tables older than 2 hours from previous failed runs.
+	// This is safe for concurrent CI runs as it only targets old tables.
 	tests.CleanupMSSQLTables(t, ctx, pool)
 
 	// create table name with UUID
@@ -109,12 +110,12 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMSSQLParamToolInfo(tableNameParam)
 	teardownTable1 := tests.SetupMsSQLTable(t, ctx, pool, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	t.Cleanup(func() { teardownTable1(t) })
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := tests.GetMSSQLAuthToolInfo(tableNameAuth)
 	teardownTable2 := tests.SetupMsSQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	t.Cleanup(func() { teardownTable2(t) })
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, MSSQLToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -128,8 +129,10 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
-	defer cmd.Close()
+	t.Cleanup(func() {
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
