@@ -51,6 +51,10 @@ arguments:
 An argument can be any [Parameter](../tools/_index.md#specifying-parameters)
 type. If the `type` field is not specified, it will default to `string`.
 
+MCP clients pass argument values as strings. For a non-string parameter, use its
+JSON representation, such as `3`, `false`, `[1, 2]`, or `{"count": 3}`. String
+arguments are used as written.
+
 ## Usage with Gemini CLI
 
 Prompts defined in your `tools.yaml` can be seamlessly integrated with the
