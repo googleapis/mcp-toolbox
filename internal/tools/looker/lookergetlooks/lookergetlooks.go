@@ -73,11 +73,17 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	titleParameter := parameters.NewStringParameter("title", "The title of the look.", parameters.WithStringDefault(""))
 	descParameter := parameters.NewStringParameter("desc", "The description of the look.", parameters.WithStringDefault(""))
+	idParameter := parameters.NewStringParameter("id", "The id of the look.", parameters.WithStringDefault(""))
+	folderIdParameter := parameters.NewStringParameter("folder_id", "The id of the folder containing the look.", parameters.WithStringDefault(""))
+	userIdParameter := parameters.NewStringParameter("user_id", "The id of the user who created the look.", parameters.WithStringDefault(""))
 	limitParameter := parameters.NewIntParameter("limit", "The number of looks to fetch. Default 100", parameters.WithIntDefault(100))
 	offsetParameter := parameters.NewIntParameter("offset", "The number of looks to skip before fetching. Default 0", parameters.WithIntDefault(0))
 	allParameters := parameters.Parameters{
 		titleParameter,
 		descParameter,
+		idParameter,
+		folderIdParameter,
+		userIdParameter,
 		limitParameter,
 		offsetParameter,
 	}
@@ -142,6 +148,21 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if *desc_ptr == "" {
 		desc_ptr = nil
 	}
+	id, _ := paramsMap["id"].(string)
+	id_ptr := &id
+	if *id_ptr == "" {
+		id_ptr = nil
+	}
+	folder_id, _ := paramsMap["folder_id"].(string)
+	folder_id_ptr := &folder_id
+	if *folder_id_ptr == "" {
+		folder_id_ptr = nil
+	}
+	user_id, _ := paramsMap["user_id"].(string)
+	user_id_ptr := &user_id
+	if *user_id_ptr == "" {
+		user_id_ptr = nil
+	}
 	limit := int64(paramsMap["limit"].(int))
 	offset := int64(paramsMap["offset"].(int))
 
@@ -151,8 +172,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	fields := "id,title,description,model,certification_metadata"
 	req := v4.RequestSearchLooks{
+		Id:          id_ptr,
 		Title:       title_ptr,
 		Description: desc_ptr,
+		FolderId:    folder_id_ptr,
+		UserId:      user_id_ptr,
 		Limit:       &limit,
 		Offset:      &offset,
 		Fields:      &fields,
