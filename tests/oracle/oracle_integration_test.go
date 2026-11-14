@@ -18,6 +18,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/log"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 var (
@@ -30,6 +33,68 @@ var (
 	OracleConnStr    = fmt.Sprintf(
 		"%s:%s/%s", OracleHost, "1521", OracleServerName)
 )
+
+const (
+	oracleImage             = "gvenzl/oracle-free:23.26.3-slim-faststart"
+	oracleContainerUser     = "toolbox_user"
+	oracleContainerDatabase = "FREEPDB1"
+)
+
+func setupOracleContainer(ctx context.Context, t *testing.T) (host, port, user, pass, serverName string) {
+	t.Helper()
+
+	user = oracleContainerUser
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	serverName = oracleContainerDatabase
+	req := testcontainers.ContainerRequest{
+		Image:        oracleImage,
+		ExposedPorts: []string{"1521/tcp"},
+		Env: map[string]string{
+			"ORACLE_PASSWORD":   strings.ReplaceAll(uuid.New().String(), "-", ""),
+			"APP_USER":          user,
+			"APP_USER_PASSWORD": pass,
+		},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("1521/tcp"),
+			wait.ForLog("DATABASE IS READY TO USE!"),
+		).WithStartupTimeoutDefault(5 * time.Minute).WithDeadline(5 * time.Minute),
+	}
+
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+		Logger:           log.TestLogger(t),
+	})
+	testcontainers.CleanupContainer(t, c)
+	if err != nil {
+		t.Fatalf("failed to start Oracle container: %s", err)
+	}
+
+	host, err = c.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get Oracle container host: %s", err)
+	}
+	mappedPort, err := c.MappedPort(ctx, "1521/tcp")
+	if err != nil {
+		t.Fatalf("failed to get Oracle container mapped port: %s", err)
+	}
+	return host, mappedPort.Port(), user, pass, serverName
+}
+
+func useOracle(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if OracleHost != "" {
+		return
+	}
+	t.Logf("ORACLE_HOST not set; starting ephemeral %s container", oracleImage)
+	host, port, user, pass, serverName := setupOracleContainer(ctx, t)
+	origHost, origUser, origPass, origServerName, origConnStr := OracleHost, OracleUser, OraclePass, OracleServerName, OracleConnStr
+	t.Cleanup(func() {
+		OracleHost, OracleUser, OraclePass, OracleServerName, OracleConnStr = origHost, origUser, origPass, origServerName, origConnStr
+	})
+	OracleHost, OracleUser, OraclePass, OracleServerName = host, user, pass, serverName
+	OracleConnStr = fmt.Sprintf("%s:%s/%s", host, port, serverName)
+}
 
 func getOracleVars(t *testing.T) map[string]any {
 	switch "" {
@@ -72,9 +137,10 @@ func initOracleConnection(ctx context.Context, user, pass, connStr string) (*sql
 }
 
 func TestOracleSimpleToolEndpoints(t *testing.T) {
-	sourceConfig := getOracleVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
+	useOracle(ctx, t)
+	sourceConfig := getOracleVars(t)
 
 	args := []string{"--enable-api"}
 
@@ -82,8 +148,7 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create Oracle connection pool: %s", err)
 	}
-
-	dropAllUserTables(t, ctx, db)
+	defer db.Close()
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -138,7 +203,10 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	defer func() {
+		cmd.Close()
+		cleanup()
+	}()
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -178,20 +246,27 @@ func setupOracleTable(t *testing.T, ctx context.Context, pool *sql.DB, createSta
 	}
 
 	// Create table
-	_, err = pool.QueryContext(ctx, createStatement)
+	_, err = pool.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
 	// Insert test data
-	_, err = pool.QueryContext(ctx, insertStatement, params...)
+	_, err = pool.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
+		dropCtx, dropCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer dropCancel()
+		if _, dropErr := pool.ExecContext(dropCtx, fmt.Sprintf("DROP TABLE %s", tableName)); dropErr != nil {
+			t.Errorf("unable to drop test table %s: %s", tableName, dropErr)
+		}
 		t.Fatalf("unable to insert test data: %s", err)
 	}
 
 	return func(t *testing.T) {
 		// tear down test
-		_, err = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s", tableName))
+		dropCtx, dropCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer dropCancel()
+		_, err = pool.ExecContext(dropCtx, fmt.Sprintf("DROP TABLE %s", tableName))
 		if err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
@@ -241,42 +316,6 @@ func getOracleAuthToolInfo(tableName string) (string, string, string, []any) {
 	params := []any{"Alice", tests.ServiceAccountEmail, "Jane", "janedoe@gmail.com"}
 
 	return createStatement, insertStatement, toolStatement, params
-}
-
-// dropAllUserTables finds and drops all tables owned by the current user.
-func dropAllUserTables(t *testing.T, ctx context.Context, db *sql.DB) {
-	// Query for only the tables we know are created by this test suite.
-	const query = `
-		SELECT table_name FROM user_tables
-		WHERE table_name LIKE 'param_table_%'
-		   OR table_name LIKE 'auth_table_%'
-		   OR table_name LIKE 'template_param_table_%'`
-
-	rows, err := db.QueryContext(ctx, query)
-	if err != nil {
-		t.Fatalf("failed to query for user tables: %v", err)
-	}
-	defer rows.Close()
-
-	var tablesToDrop []string
-	for rows.Next() {
-		var tableName string
-		if err := rows.Scan(&tableName); err != nil {
-			t.Fatalf("failed to scan table name: %v", err)
-		}
-		tablesToDrop = append(tablesToDrop, tableName)
-	}
-
-	if err := rows.Err(); err != nil {
-		t.Fatalf("error iterating over tables: %v", err)
-	}
-
-	for _, tableName := range tablesToDrop {
-		_, err := db.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s CASCADE CONSTRAINTS", tableName))
-		if err != nil {
-			t.Logf("failed to drop table %s: %v", tableName, err)
-		}
-	}
 }
 
 // testDmlQueries sends a JSON-RPC request to the running test server
