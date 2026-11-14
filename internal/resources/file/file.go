@@ -618,7 +618,7 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 	}
 
 	// Explicitly block backward traversal in the raw input
-	if containsTraversal(pathStr) {
+	if strings.Contains(pathStr, "../") || strings.Contains(pathStr, "..\\") || containsTraversal(pathStr) {
 		logger.ErrorContext(ctx, fmt.Sprintf("security violation: path %q contains backward traversal components (..) for resource template %q", pathStr, r.Name))
 		return nil, fmt.Errorf("security violation: path contains backward traversal components (..) for resource template %q", r.Name)
 	}
