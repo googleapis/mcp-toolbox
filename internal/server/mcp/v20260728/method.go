@@ -309,7 +309,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	}
 
 	var req CallToolRequest
-	if err = json.Unmarshal(body, &req); err != nil {
+	if err = mcputil.UnmarshalJSON(body, &req); err != nil {
 		err = fmt.Errorf("invalid mcp tools call request: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
 	}
@@ -433,7 +433,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 
 	var data map[string]any
 	if toolArguments != nil {
-		aMarshal, err := json.Marshal(toolArguments)
+		aMarshal, err := mcputil.MarshalArguments(toolArguments)
 		if err != nil {
 			err = fmt.Errorf("unable to marshal tools argument: %w", err)
 			return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
