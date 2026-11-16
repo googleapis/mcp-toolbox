@@ -366,3 +366,8 @@ func WithMCPExec() ToolExecOption {
 		c.isMCP = true
 	}
 }
+
+// IsMCP reports whether a tool test should use the MCP endpoint.
+func (c *ToolExecConfig) IsMCP() bool {
+	return c.isMCP
+}
