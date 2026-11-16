@@ -46,7 +46,7 @@ import (
 func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g group.Group, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
 	switch method {
 	case SERVER_DISCOVER:
-		return serverDiscoverHandler(ctx, id, body, header)
+		return serverDiscoverHandler(ctx, id, g, body, header)
 	case TOOLS_LIST:
 		return toolsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case TOOLS_CALL:
@@ -189,7 +189,11 @@ func getResultMetadata(ctx context.Context, curMeta map[string]any) (map[string]
 	return newMeta, nil
 }
 
-func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, body []byte, header http.Header) (any, error) {
+// serverDiscoverHandler generates a response for server/discover. The cache
+// hints (ttlMs and cacheScope) are required by the spec and are taken from the
+// group the client is connected to, matching tools/list and the other
+// cacheable results.
+func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, body []byte, header http.Header) (any, error) {
 	enableDraft, ok := util.EnableDraftSpecsFromContext(ctx)
 	if !ok {
 		err := fmt.Errorf("unable to retrieve enableDraftSpecs from context")
@@ -222,6 +226,10 @@ func serverDiscoverHandler(ctx context.Context, id jsonrpc.RequestId, body []byt
 			Result: jsonrpc.Result{
 				Meta: meta,
 			},
+		},
+		CacheableResult: CacheableResult{
+			TtlMs:      g.GetTTLMs(),
+			CacheScope: cacheScope(g.GetCacheScope()),
 		},
 		SupportedVersions: mcputil.GetSupportedVersions(enableDraft),
 		Capabilities: ServerCapabilities{

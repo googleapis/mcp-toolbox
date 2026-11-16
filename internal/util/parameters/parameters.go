@@ -24,7 +24,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"text/template"
+	"text/template" // NOLINT: renders statement templates, not YAML
 
 	embeddingmodels "github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/util"
