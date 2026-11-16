@@ -2803,15 +2803,22 @@ func setUpDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dbName
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf("GRANT %s TO current_user;", dbOwner))
 	if err != nil {
+		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
 		t.Fatalf("failed to grant %s to current_user: %v", dbOwner, err)
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", dbName, dbOwner))
 	if err != nil {
+		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
 		t.Fatalf("failed to create %s: %v", dbName, err)
 	}
 	return func() {
-		_, _ = pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
-		_, _ = pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
+		cleanupCtx := context.WithoutCancel(ctx)
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName)); err != nil {
+			t.Errorf("failed to drop database %s: %v", dbName, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner)); err != nil {
+			t.Errorf("failed to drop role %s: %v", dbOwner, err)
+		}
 	}
 }
 
@@ -2849,9 +2856,15 @@ func setupPostgresRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (
 	return adminUser, superUser, normalUser, func(t *testing.T) {
 		t.Helper()
 		cleanupCtx := context.WithoutCancel(ctx)
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser))
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser))
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser))
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", normalUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", superUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", adminUser, err)
+		}
 	}
 }
 
@@ -2988,6 +3001,30 @@ func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 			}
 		})
 	}
+
+	// "_" is a LIKE wildcard, so roles such as "pgbouncer" must not be
+	// hidden by the filter that excludes the built-in "pg_" roles.
+	pgPrefixedRole := "pgx" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE ROLE %s NOLOGIN;", pgPrefixedRole)); err != nil {
+		t.Fatalf("unable to create role %s: %v", pgPrefixedRole, err)
+	}
+	defer func() {
+		if _, err := pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", pgPrefixedRole)); err != nil {
+			t.Errorf("unable to drop role %s: %v", pgPrefixedRole, err)
+		}
+	}()
+
+	t.Run("list_roles includes roles starting with pg but not pg_", func(t *testing.T) {
+		const api = "http://127.0.0.1:5000/api/tool/list_roles/invoke"
+		requestBody := bytes.NewBufferString(fmt.Sprintf(`{"role_name": "%s"}`, pgPrefixedRole))
+		resp, respBody := RunRequest(t, http.MethodPost, api, requestBody, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, http.StatusOK, string(respBody))
+		}
+		if !strings.Contains(string(respBody), pgPrefixedRole) {
+			t.Errorf("expected role %q in the response, got: %s", pgPrefixedRole, string(respBody))
+		}
+	})
 }
 
 // RunMySQLListTablesTest run tests against the mysql-list-tables tool
@@ -5032,11 +5069,29 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 		t.Fatalf("unable to run ANALYZE: %s", err)
 	}
 
+	// Inheritance parent with a child table: pg_stats holds two rows per
+	// column for the parent (inherited = false and inherited = true).
+	parentTableName := "parent_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	childTableName := "child_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	inheritanceStmts := []string{
+		fmt.Sprintf(`CREATE TABLE %s.%s (id INT, category TEXT)`, schemaName, parentTableName),
+		fmt.Sprintf(`CREATE TABLE %s.%s () INHERITS (%s.%s)`, schemaName, childTableName, schemaName, parentTableName),
+		fmt.Sprintf(`INSERT INTO %s.%s SELECT g, 'p' || (g %% 3) FROM generate_series(1, 100) g`, schemaName, parentTableName),
+		fmt.Sprintf(`INSERT INTO %s.%s SELECT g, 'c' || (g %% 50) FROM generate_series(1, 900) g`, schemaName, childTableName),
+		fmt.Sprintf(`ANALYZE %s.%s`, schemaName, parentTableName),
+	}
+	for _, stmt := range inheritanceStmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("unable to set up inheritance tables: %s", err)
+		}
+	}
+
 	invokeTcs := []struct {
 		name           string
 		requestBody    io.Reader
 		wantStatusCode int
-		shouldHaveData bool // Whether we expect data in the response
+		shouldHaveData bool     // Whether we expect data in the response
+		wantColumns    []string // If set, the exact sorted column names expected (one row per column)
 	}{
 		{
 			name:           "get cardinality for a specific column",
@@ -5061,6 +5116,13 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "non_existent_schema", "table_name": "%s"}`, tableName)),
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
+		},
+		{
+			name:           "get cardinality for an inheritance parent returns one row per column",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s"}`, schemaName, parentTableName)),
+			wantStatusCode: http.StatusOK,
+			shouldHaveData: true,
+			wantColumns:    []string{"category", "id"},
 		},
 	}
 
@@ -5090,6 +5152,18 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 			var got []map[string]any
 			if err := json.Unmarshal([]byte(resultString), &got); err != nil {
 				t.Fatalf("failed to unmarshal nested result string: %v", err)
+			}
+
+			if tc.wantColumns != nil {
+				gotColumns := []string{}
+				for _, row := range got {
+					columnName, _ := row["column_name"].(string)
+					gotColumns = append(gotColumns, columnName)
+				}
+				sort.Strings(gotColumns)
+				if !reflect.DeepEqual(gotColumns, tc.wantColumns) {
+					t.Fatalf("unexpected columns: got %v, want %v", gotColumns, tc.wantColumns)
+				}
 			}
 
 			// Verify that we got the expected data presence

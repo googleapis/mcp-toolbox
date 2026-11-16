@@ -230,6 +230,12 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 			wantBody:   "Bob",
 		},
 		{
+			name:       "preserve large integer in JSON",
+			sql:        "SELECT json_object('id', 9007199254740993) AS payload",
+			wantStatus: 200,
+			wantBody:   `\"payload\":{\"id\":9007199254740993}`,
+		},
+		{
 			name:       "select no rows",
 			sql:        fmt.Sprintf("SELECT name FROM %s WHERE id = 999", tableName),
 			wantStatus: 200,
