@@ -13,6 +13,7 @@
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"reflect"
@@ -168,5 +169,37 @@ func TestConvertNumbers(t *testing.T) {
 				t.Errorf("ConvertNumbers(%v) = %#v (%T), want %#v (%T)", tc.in, got, got, tc.want, tc.want)
 			}
 		})
+	}
+}
+
+func TestRequestHeaderContext(t *testing.T) {
+	ctx := context.Background()
+	if got := RequestHeaderFromContext(ctx); got != nil {
+		t.Fatalf("expected nil header on empty context, got %v", got)
+	}
+
+	if gotCtx := WithRequestHeader(ctx, nil); gotCtx != ctx {
+		t.Fatalf("expected WithRequestHeader(ctx, nil) to return original ctx")
+	}
+
+	orig := http.Header{"Authorization": []string{"Bearer secret-token"}}
+	ctx = WithRequestHeader(ctx, orig)
+
+	// Mutating original map after WithRequestHeader must not affect stored headers
+	orig.Set("Authorization", "Bearer mutated")
+
+	got := RequestHeaderFromContext(ctx)
+	if got == nil {
+		t.Fatal("expected non-nil header from context")
+	}
+	if got.Get("Authorization") != "Bearer secret-token" {
+		t.Errorf("got Authorization %q, want %q", got.Get("Authorization"), "Bearer secret-token")
+	}
+
+	// Mutating returned map must not affect subsequent reads
+	got.Set("Authorization", "Bearer mutated-2")
+	gotAgain := RequestHeaderFromContext(ctx)
+	if gotAgain.Get("Authorization") != "Bearer secret-token" {
+		t.Errorf("got Authorization %q after mutating returned copy, want %q", gotAgain.Get("Authorization"), "Bearer secret-token")
 	}
 }
