@@ -1456,9 +1456,7 @@ steps:
     env:
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
-      - "ORACLE_SERVER_NAME=$_ORACLE_SERVER_NAME"
-    secretEnv:
-      ["CLIENT_ID", "ORACLE_USERNAME", "ORACLE_PASSWORD", "ORACLE_HOST"]
+    secretEnv: ["CLIENT_ID"]
     volumes:
       - name: "go"
         path: "/gopath"
@@ -1794,12 +1792,6 @@ availableSecrets:
       env: CASSANDRA_PASS
     - versionName: projects/$PROJECT_ID/secrets/cassandra_host/versions/latest
       env: CASSANDRA_HOST
-    - versionName: projects/$PROJECT_ID/secrets/oracle_user/versions/latest
-      env: ORACLE_USERNAME
-    - versionName: projects/$PROJECT_ID/secrets/oracle_pass/versions/latest
-      env: ORACLE_PASSWORD
-    - versionName: projects/$PROJECT_ID/secrets/oracle_host/versions/latest
-      env: ORACLE_HOST
     - versionName: projects/$PROJECT_ID/secrets/singlestore_pass/versions/latest
       env: SINGLESTORE_PASSWORD
     - versionName: projects/$PROJECT_ID/secrets/singlestore_host/versions/latest
@@ -1860,7 +1852,6 @@ substitutions:
   _YUGABYTEDB_DATABASE: "yugabyte"
   _YUGABYTEDB_PORT: "5433"
   _YUGABYTEDB_LOADBALANCE: "false"
-  _ORACLE_SERVER_NAME: "FREEPDB1"
   _SINGLESTORE_HOST: 127.0.0.1
   _SINGLESTORE_PORT: "3308"
   _SINGLESTORE_DATABASE: "singlestore"
