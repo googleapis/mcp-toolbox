@@ -120,8 +120,12 @@ func TestSnowflake(t *testing.T) {
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		_, _ = db.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableNameExecSQL))
-		_, _ = db.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableNameTemplateParam))
+		if _, err := db.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableNameExecSQL)); err != nil {
+			t.Errorf("Teardown failed for table %s: %s", tableNameExecSQL, err)
+		}
+		if _, err := db.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableNameTemplateParam)); err != nil {
+			t.Errorf("Teardown failed for table %s: %s", tableNameTemplateParam, err)
+		}
 	})
 
 	// set up data for param tool
