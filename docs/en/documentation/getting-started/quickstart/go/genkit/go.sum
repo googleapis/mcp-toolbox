@@ -40,8 +40,8 @@ github.com/envoyproxy/protoc-gen-validate v1.3.3 h1:MVQghNeW+LZcmXe7SY1V36Z+WFMD
 github.com/envoyproxy/protoc-gen-validate v1.3.3/go.mod h1:TsndJ/ngyIdQRhMcVVGDDHINPLWB7C82oDArY51KfB0=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
-github.com/firebase/genkit/go v1.4.0 h1:CP1hNWk7z0hosyY53zMH6MFKFO1fMLtj58jGPllQo6I=
-github.com/firebase/genkit/go v1.4.0/go.mod h1:HX6m7QOaGc3MDNr/DrpQZrzPLzxeuLxrkTvfFtCYlGw=
+github.com/firebase/genkit/go v1.5.0 h1:GovQzZy11bwsNBWDfAy9vPpxGBIsRGIk5bnU5N8eDxk=
+github.com/firebase/genkit/go v1.5.0/go.mod h1:vu8ZAqNU6MU5qDza66bvqTtzJoUrqhO/+z5/6dtouJQ=
 github.com/go-jose/go-jose/v4 v4.1.6 h1:sNRkftxFJxwsILiQukqp5z83QBSmntVwmgRY7AqBDO4=
 github.com/go-jose/go-jose/v4 v4.1.6/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
@@ -65,10 +65,10 @@ github.com/googleapis/enterprise-certificate-proxy v0.3.11 h1:vAe81Msw+8tKUxi2Dq
 github.com/googleapis/enterprise-certificate-proxy v0.3.11/go.mod h1:RFV7MUdlb7AgEq2v7FmMCfeSMCllAzWxFgRdusoGks8=
 github.com/googleapis/gax-go/v2 v2.17.0 h1:RksgfBpxqff0EZkDWYuz9q/uWsTVz+kf43LsZ1J6SMc=
 github.com/googleapis/gax-go/v2 v2.17.0/go.mod h1:mzaqghpQp4JDh3HvADwrat+6M3MOIDp5YKHhb9PAgDY=
-github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2 h1:RgO6nEjldaORHgHVcTisxDsYHXLBki1/qIoyjdCVhuw=
-github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2/go.mod h1:aIdj9c1UgMC9cCS6ZrT4x0TraBFg6R/Nt1CiOHOaMfk=
-github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit v0.6.0 h1:rHsn35szMNM/XZ4yRm4XX6l3fSUUZh2IgO5Ny0Nmmlc=
-github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit v0.6.0/go.mod h1:uBXIcLYu/cokhL4d1Yf1DdHMvD8GGKCJvcG4oWO5zRA=
+github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0 h1:4wLpf82+ZjCX1nPaKGvb34FoOnGnWPiCLjDdm567EgQ=
+github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0/go.mod h1:aIdj9c1UgMC9cCS6ZrT4x0TraBFg6R/Nt1CiOHOaMfk=
+github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit v0.7.0 h1:yeqKvrzRZLMuvHN5uuFIlA0jMz2h1E00TkT4tty6GTE=
+github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit v0.7.0/go.mod h1:MIhIFvQxZXVCzLKri545PXoE8qHtZ8Icixe7Cy/MQBM=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/invopop/jsonschema v0.13.0 h1:KvpoAJWEjR3uD9Kbm2HWJmqsEaHt8lBUpd0qHcIi21E=

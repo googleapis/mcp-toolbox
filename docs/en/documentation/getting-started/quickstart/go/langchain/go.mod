@@ -3,7 +3,7 @@ module langchan-quickstart
 go 1.27.3
 
 require (
-	github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2
+	github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0
 	github.com/tmc/langchaingo v0.1.14
 )
 

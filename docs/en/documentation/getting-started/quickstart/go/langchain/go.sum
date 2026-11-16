@@ -66,8 +66,8 @@ github.com/googleapis/enterprise-certificate-proxy v0.3.11 h1:vAe81Msw+8tKUxi2Dq
 github.com/googleapis/enterprise-certificate-proxy v0.3.11/go.mod h1:RFV7MUdlb7AgEq2v7FmMCfeSMCllAzWxFgRdusoGks8=
 github.com/googleapis/gax-go/v2 v2.17.0 h1:RksgfBpxqff0EZkDWYuz9q/uWsTVz+kf43LsZ1J6SMc=
 github.com/googleapis/gax-go/v2 v2.17.0/go.mod h1:mzaqghpQp4JDh3HvADwrat+6M3MOIDp5YKHhb9PAgDY=
-github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2 h1:RgO6nEjldaORHgHVcTisxDsYHXLBki1/qIoyjdCVhuw=
-github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2/go.mod h1:aIdj9c1UgMC9cCS6ZrT4x0TraBFg6R/Nt1CiOHOaMfk=
+github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0 h1:4wLpf82+ZjCX1nPaKGvb34FoOnGnWPiCLjDdm567EgQ=
+github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0/go.mod h1:aIdj9c1UgMC9cCS6ZrT4x0TraBFg6R/Nt1CiOHOaMfk=
 github.com/pkoukk/tiktoken-go v0.1.6 h1:JF0TlJzhTbrI30wCvFuiw6FzP2+/bR+FIxUdgEAcUsw=
 github.com/pkoukk/tiktoken-go v0.1.6/go.mod h1:9NiV+i9mJKGj1rYOT+njbv+ZwA/zJxYdewGl6qVatpg=
 github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 h1:GFCKgmp0tecUJ0sJuv4pzYCqS9+RGSn52M3FUwPs+uo=

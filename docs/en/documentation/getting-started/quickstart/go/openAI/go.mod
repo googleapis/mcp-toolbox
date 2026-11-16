@@ -3,8 +3,8 @@ module openai-quickstart
 go 1.27.3
 
 require (
-	github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2
-	github.com/openai/openai-go/v3 v3.8.1
+	github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0
+	github.com/openai/openai-go/v3 v3.29.0
 )
 
 require (

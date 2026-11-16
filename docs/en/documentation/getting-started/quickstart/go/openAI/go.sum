@@ -54,10 +54,10 @@ github.com/googleapis/enterprise-certificate-proxy v0.3.11 h1:vAe81Msw+8tKUxi2Dq
 github.com/googleapis/enterprise-certificate-proxy v0.3.11/go.mod h1:RFV7MUdlb7AgEq2v7FmMCfeSMCllAzWxFgRdusoGks8=
 github.com/googleapis/gax-go/v2 v2.17.0 h1:RksgfBpxqff0EZkDWYuz9q/uWsTVz+kf43LsZ1J6SMc=
 github.com/googleapis/gax-go/v2 v2.17.0/go.mod h1:mzaqghpQp4JDh3HvADwrat+6M3MOIDp5YKHhb9PAgDY=
-github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2 h1:RgO6nEjldaORHgHVcTisxDsYHXLBki1/qIoyjdCVhuw=
-github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2/go.mod h1:aIdj9c1UgMC9cCS6ZrT4x0TraBFg6R/Nt1CiOHOaMfk=
-github.com/openai/openai-go/v3 v3.8.1 h1:b+YWsmwqXnbpSHWQEntZAkKciBZ5CJXwL68j+l59UDg=
-github.com/openai/openai-go/v3 v3.8.1/go.mod h1:UOpNxkqC9OdNXNUfpNByKOtB4jAL0EssQXq5p8gO0Xs=
+github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0 h1:4wLpf82+ZjCX1nPaKGvb34FoOnGnWPiCLjDdm567EgQ=
+github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0/go.mod h1:aIdj9c1UgMC9cCS6ZrT4x0TraBFg6R/Nt1CiOHOaMfk=
+github.com/openai/openai-go/v3 v3.29.0 h1:dZNJ0w7DxwpgppzKQjSKfLebW27KrtGqgSy4ipJS0U8=
+github.com/openai/openai-go/v3 v3.29.0/go.mod h1:cdufnVK14cWcT9qA1rRtrXx4FTRsgbDPW7Ia7SS5cZo=
 github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 h1:GFCKgmp0tecUJ0sJuv4pzYCqS9+RGSn52M3FUwPs+uo=
 github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10/go.mod h1:t/avpk3KcrXxUnYOhZhMXJlSEyie6gQbtLq5NM3loB8=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=

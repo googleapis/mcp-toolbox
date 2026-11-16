@@ -3,9 +3,9 @@ module adkgo-quickstart
 go 1.27.3
 
 require (
-	github.com/googleapis/mcp-toolbox-sdk-go/tbadk v0.6.0
+	github.com/googleapis/mcp-toolbox-sdk-go/tbadk v0.7.0
 	google.golang.org/adk v0.3.0
-	google.golang.org/genai v1.45.0
+	google.golang.org/genai v1.51.0
 )
 
 require (
@@ -24,7 +24,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
-	github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2 // indirect
+	github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect

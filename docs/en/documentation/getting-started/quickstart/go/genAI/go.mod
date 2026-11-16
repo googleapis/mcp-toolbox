@@ -3,8 +3,8 @@ module genai-quickstart
 go 1.27.3
 
 require (
-	github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2
-	google.golang.org/genai v1.36.0
+	github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0
+	google.golang.org/genai v1.51.0
 )
 
 require (

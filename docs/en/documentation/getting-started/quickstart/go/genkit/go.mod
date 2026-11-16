@@ -3,9 +3,9 @@ module genkit-quickstart
 go 1.27.3
 
 require (
-	github.com/firebase/genkit/go v1.4.0
-	github.com/googleapis/mcp-toolbox-sdk-go/core v0.6.2
-	github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit v0.6.0
+	github.com/firebase/genkit/go v1.5.0
+	github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0
+	github.com/googleapis/mcp-toolbox-sdk-go/tbgenkit v0.7.0
 )
 
 require (
