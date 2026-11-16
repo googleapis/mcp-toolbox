@@ -58,6 +58,113 @@ func bqSearchResult(project, dataset, table string) searchcatalog.DataplexSearch
 	}
 }
 
+func TestSearchCatalogParamsAllowedDatasets(t *testing.T) {
+	newParams := func() map[string]any {
+		return map[string]any{
+			"prompt":     "customers",
+			"projectIds": []any{},
+			"datasetIds": []any{},
+		}
+	}
+	allowed := map[string]struct{}{
+		"p2.shared":  {},
+		"p1.other":   {},
+		"p1.allowed": {},
+	}
+
+	t.Run("no allowlist leaves params unchanged", func(t *testing.T) {
+		s := &Source{}
+		params := newParams()
+		got, err := s.searchCatalogParams(params)
+		if err != nil {
+			t.Fatalf("searchCatalogParams() unexpected error: %v", err)
+		}
+		if diff := cmp.Diff(params, got); diff != "" {
+			t.Errorf("searchCatalogParams() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("empty scope is populated from the allowlist", func(t *testing.T) {
+		s := &Source{AllowedDatasets: allowed}
+		got, err := s.searchCatalogParams(newParams())
+		if err != nil {
+			t.Fatalf("searchCatalogParams() unexpected error: %v", err)
+		}
+		if diff := cmp.Diff([]any{"p1", "p2"}, got["projectIds"]); diff != "" {
+			t.Errorf("projectIds mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]any{"allowed", "other", "shared"}, got["datasetIds"]); diff != "" {
+			t.Errorf("datasetIds mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("project scope fills only datasets in those projects", func(t *testing.T) {
+		s := &Source{AllowedDatasets: allowed}
+		params := newParams()
+		params["projectIds"] = []any{"p1"}
+		got, err := s.searchCatalogParams(params)
+		if err != nil {
+			t.Fatalf("searchCatalogParams() unexpected error: %v", err)
+		}
+		if diff := cmp.Diff([]any{"p1"}, got["projectIds"]); diff != "" {
+			t.Errorf("projectIds mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]any{"allowed", "other"}, got["datasetIds"]); diff != "" {
+			t.Errorf("datasetIds mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("dataset scope fills only projects containing those datasets", func(t *testing.T) {
+		s := &Source{AllowedDatasets: allowed}
+		params := newParams()
+		params["datasetIds"] = []any{"allowed", "shared"}
+		got, err := s.searchCatalogParams(params)
+		if err != nil {
+			t.Fatalf("searchCatalogParams() unexpected error: %v", err)
+		}
+		if diff := cmp.Diff([]any{"p1", "p2"}, got["projectIds"]); diff != "" {
+			t.Errorf("projectIds mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]any{"allowed", "shared"}, got["datasetIds"]); diff != "" {
+			t.Errorf("datasetIds mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("explicit allowed pair is preserved", func(t *testing.T) {
+		s := &Source{AllowedDatasets: allowed}
+		params := newParams()
+		params["projectIds"] = []any{"p1"}
+		params["datasetIds"] = []any{"allowed"}
+		got, err := s.searchCatalogParams(params)
+		if err != nil {
+			t.Fatalf("searchCatalogParams() unexpected error: %v", err)
+		}
+		if diff := cmp.Diff(params, got); diff != "" {
+			t.Errorf("searchCatalogParams() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	for _, tc := range []struct {
+		name       string
+		projectIDs []any
+		datasetIDs []any
+	}{
+		{name: "project outside allowlist", projectIDs: []any{"p3"}},
+		{name: "dataset outside allowlist", datasetIDs: []any{"missing"}},
+		{name: "explicit pair outside allowlist", projectIDs: []any{"p2"}, datasetIDs: []any{"allowed"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Source{AllowedDatasets: allowed}
+			params := newParams()
+			params["projectIds"] = tc.projectIDs
+			params["datasetIds"] = tc.datasetIDs
+			if _, err := s.searchCatalogParams(params); err == nil {
+				t.Fatal("searchCatalogParams() expected an access error, got nil")
+			}
+		})
+	}
+}
+
 func TestFilterSearchCatalogByAllowedDatasets(t *testing.T) {
 	allowed := bqSearchResult("proj", "allowed_ds", "customers")
 	forbidden := bqSearchResult("proj", "secret_ds", "customers")
