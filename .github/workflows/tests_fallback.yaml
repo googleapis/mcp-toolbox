@@ -14,8 +14,7 @@
 
 name: tests
 
-# zizmor flags pull_request_target, but this fallback workflow never checks out code.
-on: # zizmor: ignore[dangerous-triggers]
+on:
   push:
     branches:
       - "main"
@@ -25,13 +24,6 @@ on: # zizmor: ignore[dangerous-triggers]
       - ".github/**"
       - "!.github/workflows/tests.yaml"
   pull_request:
-    paths:
-      - "docs/**"
-      - "**.md"
-      - ".github/**"
-      - "!.github/workflows/tests.yaml"
-  pull_request_target:
-    types: [labeled]
     paths:
       - "docs/**"
       - "**.md"

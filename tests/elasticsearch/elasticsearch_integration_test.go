@@ -142,11 +142,10 @@ func TestElasticsearchToolEndpoints(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	esClient, err := elasticsearch.NewBaseClient(elasticsearch.Config{
-		Addresses: []string{EsAddress},
-		Username:  EsUser,
-		Password:  EsPass,
-	})
+	esClient, err := elasticsearch.NewBase(
+		elasticsearch.WithAddresses(EsAddress),
+		elasticsearch.WithBasicAuth(EsUser, EsPass),
+	)
 	if err != nil {
 		t.Fatalf("error creating the Elasticsearch client: %s", err)
 	}
