@@ -124,7 +124,7 @@ func main() {
 	// Initialize genkit
   g := genkit.Init(ctx,
 		genkit.WithPlugins(&googlegenai.GoogleAI{}),
-		genkit.WithDefaultModel("googleai/gemini-1.5-flash"),
+		genkit.WithDefaultModel("googleai/gemini-3.8-flash"),
 	)
 
 	// Convert your tool to a Genkit tool.
