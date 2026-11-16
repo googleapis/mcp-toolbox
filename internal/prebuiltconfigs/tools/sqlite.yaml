@@ -42,7 +42,7 @@ statement: |
       table_name,
       json_group_array(json(details)) AS details
     FROM (
-      SELECT m.name AS table_name, json_object('constraint_name', 'PRIMARY', 'constraint_type', 'PRIMARY KEY', 'constraint_columns', json_group_array(T.name)) AS details
+      SELECT m.name AS table_name, json_object('constraint_name', 'PRIMARY', 'constraint_type', 'PRIMARY KEY', 'constraint_columns', json_group_array(T.name ORDER BY T.pk)) AS details
       FROM sqlite_master AS m, pragma_table_info(m.name) AS T
       WHERE m.type = 'table' AND T.pk > 0
       GROUP BY m.name
