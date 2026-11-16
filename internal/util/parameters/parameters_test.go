@@ -1458,6 +1458,107 @@ func TestParseTypeErrorReportsValue(t *testing.T) {
 	}
 }
 
+func TestParseParamsDefaultFromYAML(t *testing.T) {
+	// Numbers inside an array or map `default` are decoded by YAML as
+	// uint64/int64, not as the int/float64 the item parsers produce. Using the
+	// default must still parse those values as the declared item type.
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tcs := []struct {
+		name string
+		yaml string
+		want any
+	}{
+		{
+			name: "integer array default",
+			yaml: `
+- name: ids
+  type: array
+  description: ids
+  default: [1, 2]
+  items:
+    name: id
+    type: integer
+    description: id
+`,
+			want: []any{1, 2},
+		},
+		{
+			name: "negative integer array default",
+			yaml: `
+- name: ids
+  type: array
+  description: ids
+  default: [-1, 2]
+  items:
+    name: id
+    type: integer
+    description: id
+`,
+			want: []any{-1, 2},
+		},
+		{
+			name: "float array default with whole numbers",
+			yaml: `
+- name: weights
+  type: array
+  description: weights
+  default: [1, -2, 0.5]
+  items:
+    name: weight
+    type: float
+    description: weight
+`,
+			want: []any{1.0, -2.0, 0.5},
+		},
+		{
+			name: "integer map default",
+			yaml: `
+- name: limits
+  type: map
+  description: limits
+  valueType: integer
+  default: {rows: 10}
+`,
+			want: map[string]any{"rows": 10},
+		},
+		{
+			name: "float map default with whole numbers",
+			yaml: `
+- name: weights
+  type: map
+  description: weights
+  valueType: float
+  default: {a: 1}
+`,
+			want: map[string]any{"a": 1.0},
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			var ps parameters.Parameters
+			if err := yaml.UnmarshalContext(ctx, []byte(tc.yaml), &ps); err != nil {
+				t.Fatalf("unable to unmarshal: %s", err)
+			}
+			got, err := parameters.ParseParams(ps, map[string]any{}, nil)
+			if err != nil {
+				t.Fatalf("unexpected error from ParseParams: %s", err)
+			}
+			if diff := cmp.Diff(tc.want, got[0].Value); diff != "" {
+				t.Fatalf("ParseParams() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+	t.Run("integer out of range", func(t *testing.T) {
+		p := parameters.NewIntParameter("my_int", "an int")
+		if _, err := p.Parse(uint64(math.MaxUint64)); err == nil {
+			t.Fatalf("Parse(MaxUint64) expected an error, got nil")
+		}
+	})
+}
+
 func TestAuthParametersParse(t *testing.T) {
 	authServices := []parameters.ParamAuthService{
 		{
