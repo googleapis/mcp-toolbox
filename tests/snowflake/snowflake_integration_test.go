@@ -107,21 +107,30 @@ func TestSnowflake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create snowflake connection pool: %s", err)
 	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
 
 	// create table name with UUID
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameExecSQL := "exec_sql_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, _ = db.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableNameExecSQL))
+		_, _ = db.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableNameTemplateParam))
+	})
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSnowflakeParamToolInfo(tableNameParam)
-	teardownTable1 := setupSnowflakeTable(t, ctx, db, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
-	defer teardownTable1(t)
+	setupSnowflakeTable(t, ctx, db, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getSnowflakeAuthToolInfo(tableNameAuth)
-	teardownTable2 := setupSnowflakeTable(t, ctx, db, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
-	defer teardownTable2(t)
+	setupSnowflakeTable(t, ctx, db, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 	t.Logf("Test table setup complete.")
 
 	// Write config into a file and pass it to command
@@ -134,7 +143,10 @@ func TestSnowflake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(func() {
+		cmd.Close()
+		cleanup()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -144,9 +156,7 @@ func TestSnowflake(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	tests.RunToolGetTest(t)
-
-	select1Want, failInvocationWant, createTableStatement, mcpSelect1Want := getSnowflakeWants()
+	select1Want, failInvocationWant, createTableStatement, mcpSelect1Want := getSnowflakeWants(tableNameExecSQL)
 
 	// Run tests
 	tests.RunToolGetTest(t)
@@ -160,9 +170,13 @@ func TestSnowflake(t *testing.T) {
 		tests.WithMcpMySecureToolWant(`[{"ID":"1","NAME":"Alice"},{"ID":"3","NAME":"Sid"}]`),
 	)
 
+	createWant := fmt.Sprintf(`[{"status":"Table %s successfully created."}]`, strings.ToUpper(tableNameExecSQL))
+	dropWant := fmt.Sprintf(`[{"status":"%s successfully dropped."}]`, strings.ToUpper(tableNameExecSQL))
 	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want,
-		tests.WithExecuteCreateWant(`[{"status":"Table T successfully created."}]`),
-		tests.WithExecuteDropWant(`[{"status":"T successfully dropped."}]`))
+		tests.WithExecuteTableName(tableNameExecSQL),
+		tests.WithExecuteCreateWant(createWant),
+		tests.WithExecuteDropWant(dropWant),
+	)
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
 }
 
@@ -221,39 +235,44 @@ func getSnowflakeTmplToolStatement() (string, string) {
 }
 
 // getSnowflakeWants return the expected wants for snowflake
-func getSnowflakeWants() (string, string, string, string) {
+func getSnowflakeWants(tableName string) (string, string, string, string) {
 	select1Want := `[{"1":"1"}]`
 	failInvocationWant := `unexpected 'SELEC'`
-	createTableStatement := `"CREATE TABLE IF NOT EXISTS t (id INTEGER AUTOINCREMENT PRIMARY KEY, name STRING)"`
+	createTableStatement := fmt.Sprintf(`"CREATE TABLE IF NOT EXISTS %s (id INTEGER AUTOINCREMENT PRIMARY KEY, name STRING)"`, tableName)
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"1\":\"1\"}"}]}}`
 	return select1Want, failInvocationWant, createTableStatement, mcpSelect1Want
 }
 
 // setupSnowflakeTable creates and inserts data into a table of tool
 // compatible with snowflake-sql tool
-func setupSnowflakeTable(t *testing.T, ctx context.Context, db *sqlx.DB, createStatement, insertStatement, tableName string, params []any) func(*testing.T) {
+func setupSnowflakeTable(t *testing.T, ctx context.Context, db *sqlx.DB, createStatement, insertStatement, tableName string, params []any) {
+	t.Helper()
+
 	err := db.PingContext(ctx)
 	if err != nil {
 		t.Fatalf("unable to connect to test database: %s", err)
 	}
 
 	// Create table
-	_, err = db.QueryxContext(ctx, createStatement)
+	_, err = db.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
+	// Register teardown immediately after creating table so it is cleaned up
+	// even if insertion or later steps fail.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, err := db.ExecContext(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName))
+		if err != nil {
+			t.Errorf("Teardown failed for table %s: %s", tableName, err)
+		}
+	})
+
 	// Insert test data
-	_, err = db.QueryxContext(ctx, insertStatement, params...)
+	_, err = db.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
 		t.Fatalf("unable to insert test data: %s", err)
-	}
-
-	return func(t *testing.T) {
-		// tear down test
-		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s;", tableName))
-		if err != nil {
-			t.Errorf("Teardown failed: %s", err)
-		}
 	}
 }
