@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "main": "quickstart.js",
-  "type" : "module",
+  "type": "module",
   "scripts": {
     "test": "node --test"
   },
@@ -14,6 +14,20 @@
     "@genkit-ai/google-genai": "^1.44.0",
     "@toolbox-sdk/core": "^1.0.0",
     "genkit": "^1.44.0",
+    "zod": "^4.6.6"
+  },
+  "overrides": {
+    "@opentelemetry/instrumentation-cassandra-driver": "^0.66.0",
+    "@opentelemetry/instrumentation-knex": "^0.65.0",
+    "@opentelemetry/instrumentation-mongoose": "^0.67.0",
+    "@opentelemetry/instrumentation-mysql": "^0.67.0",
+    "@opentelemetry/instrumentation-mysql2": "^0.67.0",
+    "@opentelemetry/instrumentation-pg": "^0.73.0",
+    "@opentelemetry/instrumentation-tedious": "^0.40.0",
+    "@opentelemetry/propagator-jaeger": "^2.9.0",
+    "glob": "^14.0.2",
+    "minimatch": "^11.0.1",
+    "uuid": "^11.1.1",
     "zod": "^4.6.6"
   }
 }

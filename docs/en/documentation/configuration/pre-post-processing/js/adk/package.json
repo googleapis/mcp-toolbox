@@ -12,5 +12,12 @@
   "dependencies": {
     "@google/adk": "^1.2.0",
     "@toolbox-sdk/adk": "^1.2.0"
+  },
+  "overrides": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@opentelemetry/core": "^2.12.1",
+    "adm-zip": "^0.6.1",
+    "minimatch": "^11.0.1",
+    "uuid": "^11.1.1"
   }
 }
