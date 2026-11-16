@@ -30,6 +30,14 @@ import (
 const resourceType string = "postgres-replication-stats"
 
 const replicationStats = `
+    WITH current_wal AS (
+        -- pg_current_wal_lsn() cannot run during recovery. On a cascading
+        -- standby, use the latest WAL position it has received or replayed.
+        SELECT CASE WHEN pg_is_in_recovery()
+            THEN GREATEST(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+            ELSE pg_current_wal_lsn()
+        END AS lsn
+    )
     SELECT
         pid,
         usename,
@@ -38,13 +46,13 @@ const replicationStats = `
         client_addr,
         state,
         sync_state,
-        pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), sent_lsn)) AS sent_lag,
+        pg_size_pretty(pg_wal_lsn_diff(current_wal.lsn, sent_lsn)) AS sent_lag,
         pg_size_pretty(pg_wal_lsn_diff(sent_lsn, write_lsn)) AS write_lag,
         pg_size_pretty(pg_wal_lsn_diff(write_lsn, flush_lsn)) AS flush_lag,
         pg_size_pretty(pg_wal_lsn_diff(flush_lsn, replay_lsn)) AS replay_lag,
-        pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)) AS total_lag
+        pg_size_pretty(pg_wal_lsn_diff(current_wal.lsn, replay_lsn)) AS total_lag
     FROM
-        pg_stat_replication;
+        pg_stat_replication, current_wal;
 `
 
 func init() {
