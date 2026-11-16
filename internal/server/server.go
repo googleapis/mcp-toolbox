@@ -747,6 +747,13 @@ func NewServer(ctx context.Context, cfg ServerConfig) (*Server, error) {
 		})
 	}
 
+	// OAuth discovery/token proxy for sources with client-side OAuth enabled
+	// (see sources.OAuthProxySource). No-op when no configured source needs
+	// it, so this is zero behavior change for the vast majority of setups.
+	if err := mountOAuthProxyRoutes(ctx, r, sourcesMap, cfg.OAuthProxyCACertFile, l); err != nil {
+		return nil, err
+	}
+
 	// control plane
 	mcpR, err := mcpRouter(s)
 	if err != nil {
