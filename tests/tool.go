@@ -1750,6 +1750,19 @@ func RunPostgresDatabaseOverviewTest(t *testing.T, ctx context.Context, pool *pg
 			t.Errorf("Expected 'pct_connections_used' to be between 0 and 100, got %f", pctUsed)
 		}
 	}
+
+	// Only client backends count towards max_connections; background
+	// processes (checkpointer, walwriter, autovacuum launcher, ...) do not.
+	// The server refuses connections beyond max_connections, so a correct
+	// count can never exceed it.
+	currentConns, _ := resultRow["current_connections"].(float64)
+	activeConns, _ := resultRow["active_connections"].(float64)
+	if maxConn, ok := resultRow["max_connections"].(float64); ok && currentConns > maxConn {
+		t.Errorf("Expected 'current_connections' (%f) to be at most 'max_connections' (%f)", currentConns, maxConn)
+	}
+	if activeConns > currentConns {
+		t.Errorf("Expected 'active_connections' (%f) to be at most 'current_connections' (%f)", activeConns, currentConns)
+	}
 }
 
 func setupPostgresTrigger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schemaName, tableName, functionName, triggerName string) func() {
@@ -2794,15 +2807,22 @@ func setUpDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dbName
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf("GRANT %s TO current_user;", dbOwner))
 	if err != nil {
+		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
 		t.Fatalf("failed to grant %s to current_user: %v", dbOwner, err)
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", dbName, dbOwner))
 	if err != nil {
+		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
 		t.Fatalf("failed to create %s: %v", dbName, err)
 	}
 	return func() {
-		_, _ = pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
-		_, _ = pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
+		cleanupCtx := context.WithoutCancel(ctx)
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName)); err != nil {
+			t.Errorf("failed to drop database %s: %v", dbName, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner)); err != nil {
+			t.Errorf("failed to drop role %s: %v", dbOwner, err)
+		}
 	}
 }
 
@@ -2840,9 +2860,15 @@ func setupPostgresRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (
 	return adminUser, superUser, normalUser, func(t *testing.T) {
 		t.Helper()
 		cleanupCtx := context.WithoutCancel(ctx)
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser))
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser))
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser))
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", normalUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", superUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", adminUser, err)
+		}
 	}
 }
 
