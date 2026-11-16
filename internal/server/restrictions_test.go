@@ -16,11 +16,14 @@ package server
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -39,6 +42,21 @@ func (c recordingSourceConfig) Initialize(ctx context.Context, tracer trace.Trac
 	return testutils.MockSource{MockSourceConfig: testutils.MockSourceConfig{Type: c.sourceType}}, nil
 }
 
+// failingToolConfig is a tool config whose Initialize always fails. If
+// initialized is set, Initialize records that it was called.
+type failingToolConfig struct {
+	initialized *bool
+}
+
+func (failingToolConfig) ToolConfigType() string { return "failing-tool" }
+
+func (c failingToolConfig) Initialize(context.Context) (tools.Tool, error) {
+	if c.initialized != nil {
+		*c.initialized = true
+	}
+	return nil, errors.New("initialize failed")
+}
+
 // newTestContext returns a context with a logger and telemetry
 // instrumentation, as required by InitializeConfigs.
 func newTestContext(t *testing.T) context.Context {
@@ -52,6 +70,11 @@ func newTestContext(t *testing.T) context.Context {
 		t.Fatalf("error setting up instrumentation: %s", err)
 	}
 	return util.WithInstrumentation(ctx, instrumentation)
+}
+
+// errLines joins lines with newlines to build a multi-line error message.
+func errLines(lines ...string) string {
+	return strings.Join(lines, "\n")
 }
 
 // errString returns err.Error(), or "" if err is nil.
@@ -79,8 +102,8 @@ func TestCheckRestrictions(t *testing.T) {
 		"exec":    testutils.MockToolConfig{Type: "postgres-execute-sql"},
 		"sleeper": testutils.MockToolConfig{Type: "wait"},
 	}
-	gcpSources := make(SourceConfigs, len(gcpSourceTypes))
-	for _, st := range gcpSourceTypes {
+	gcpSources := make(SourceConfigs, len(sourcePresets["gcp-sources"]))
+	for _, st := range sourcePresets["gcp-sources"] {
 		gcpSources[st] = testutils.MockSourceConfig{Name: st, Type: st}
 	}
 
@@ -106,12 +129,21 @@ func TestCheckRestrictions(t *testing.T) {
 		{
 			name:           "sources not in allowlist are rejected in sorted order",
 			allowedSources: []string{"cloud-sql-postgres"},
-			wantErr:        `config contains disallowed sources or tools: source "bq" has type "bigquery", which is not allowed by TOOLBOX_ALLOWED_SOURCES; source "local" has type "sqlite", which is not allowed by TOOLBOX_ALLOWED_SOURCES`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - bq (type: bigquery)",
+				"    - local (type: sqlite)",
+			),
 		},
 		{
 			name:           "gcp-sources alone rejects non-gcp sources",
 			allowedSources: []string{"gcp-sources"},
-			wantErr:        `config contains disallowed sources or tools: source "local" has type "sqlite", which is not allowed by TOOLBOX_ALLOWED_SOURCES`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - local (type: sqlite)",
+			),
 		},
 		{
 			name:           "gcp-sources allows every gcp source type",
@@ -137,12 +169,21 @@ func TestCheckRestrictions(t *testing.T) {
 		{
 			name:            "denylisted tools are rejected in sorted order",
 			disallowedTools: []string{"wait", "postgres-execute-sql"},
-			wantErr:         `config contains disallowed sources or tools: tool "exec" has type "postgres-execute-sql", which is disallowed by TOOLBOX_DISALLOWED_TOOLS; tool "sleeper" has type "wait", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  tools disallowed by TOOLBOX_DISALLOWED_TOOLS:",
+				"    - exec (type: postgres-execute-sql)",
+				"    - sleeper (type: wait)",
+			),
 		},
 		{
 			name:            "denylist matching is case-insensitive and trimmed",
 			disallowedTools: []string{" Postgres-Execute-SQL "},
-			wantErr:         `config contains disallowed sources or tools: tool "exec" has type "postgres-execute-sql", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  tools disallowed by TOOLBOX_DISALLOWED_TOOLS:",
+				"    - exec (type: postgres-execute-sql)",
+			),
 		},
 		{
 			name:            "gcp-sources is not expanded in denylist",
@@ -153,7 +194,83 @@ func TestCheckRestrictions(t *testing.T) {
 			name:            "source and tool violations are both reported",
 			allowedSources:  []string{"cloud-sql-postgres", "sqlite"},
 			disallowedTools: []string{"wait"},
-			wantErr:         `config contains disallowed sources or tools: source "bq" has type "bigquery", which is not allowed by TOOLBOX_ALLOWED_SOURCES; tool "sleeper" has type "wait", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - bq (type: bigquery)",
+				"  tools disallowed by TOOLBOX_DISALLOWED_TOOLS:",
+				"    - sleeper (type: wait)",
+			),
+		},
+		{
+			name:           "tools using rejected sources are listed",
+			allowedSources: []string{"cloud-sql-postgres"},
+			tools: ToolConfigs{
+				"bq-query":  testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+				"bq-schema": testutils.MockToolConfig{Type: "bigquery-get-table-info", Source: "bq"},
+				"pg-query":  testutils.MockToolConfig{Type: "postgres-sql", Source: "pg"},
+				"sleeper":   testutils.MockToolConfig{Type: "wait"},
+			},
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - bq (type: bigquery), used by tools:",
+				"        - bq-query",
+				"        - bq-schema",
+				"    - local (type: sqlite)",
+			),
+		},
+		{
+			name:           "every tool using a rejected source is listed",
+			allowedSources: []string{"cloud-sql-postgres", "sqlite"},
+			tools: ToolConfigs{
+				"t1": testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+				"t2": testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+				"t3": testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+				"t4": testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+				"t5": testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+			},
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - bq (type: bigquery), used by tools:",
+				"        - t1",
+				"        - t2",
+				"        - t3",
+				"        - t4",
+				"        - t5",
+			),
+		},
+		{
+			name:            "denylisted tool is not listed as used by a rejected source",
+			allowedSources:  []string{"cloud-sql-postgres", "sqlite"},
+			disallowedTools: []string{"bigquery-execute-sql"},
+			tools: ToolConfigs{
+				"bq-exec":  testutils.MockToolConfig{Type: "bigquery-execute-sql", Source: "bq"},
+				"bq-query": testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+			},
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - bq (type: bigquery), used by tools:",
+				"        - bq-query",
+				"  tools disallowed by TOOLBOX_DISALLOWED_TOOLS:",
+				"    - bq-exec (type: bigquery-execute-sql)",
+			),
+		},
+		{
+			name:           "tools that fail to initialize are skipped",
+			allowedSources: []string{"cloud-sql-postgres", "sqlite"},
+			tools: ToolConfigs{
+				"broken":   failingToolConfig{},
+				"bq-query": testutils.MockToolConfig{Type: "bigquery-sql", Source: "bq"},
+			},
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - bq (type: bigquery), used by tools:",
+				"        - bq-query",
+			),
 		},
 	}
 	for _, tc := range tests {
@@ -179,6 +296,47 @@ func TestCheckRestrictions(t *testing.T) {
 	}
 }
 
+func TestCheckRestrictionsInitializesToolsOnlyOnSourceRejection(t *testing.T) {
+	ctx := newTestContext(t)
+	l, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		t.Fatalf("error getting logger: %s", err)
+	}
+
+	tests := []struct {
+		name            string
+		allowedSources  []string
+		disallowedTools []string
+		wantInitialized bool
+	}{
+		{
+			name:            "no source rejected",
+			allowedSources:  []string{"bigquery"},
+			disallowedTools: []string{"wait"},
+		},
+		{
+			name:            "source rejected",
+			allowedSources:  []string{"spanner"},
+			wantInitialized: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var initialized bool
+			cfg := ServerConfig{
+				AllowedSources:  tc.allowedSources,
+				DisallowedTools: tc.disallowedTools,
+				SourceConfigs:   SourceConfigs{"bq": testutils.MockSourceConfig{Name: "bq", Type: "bigquery"}},
+				ToolConfigs:     ToolConfigs{"tool": failingToolConfig{initialized: &initialized}},
+			}
+			_ = checkRestrictions(ctx, cfg, l)
+			if initialized != tc.wantInitialized {
+				t.Errorf("tool initialized = %t, want %t", initialized, tc.wantInitialized)
+			}
+		})
+	}
+}
+
 func TestInitializeConfigsRestrictions(t *testing.T) {
 	ctx := newTestContext(t)
 
@@ -198,12 +356,21 @@ func TestInitializeConfigsRestrictions(t *testing.T) {
 		{
 			name:           "disallowed source fails before source initializes",
 			allowedSources: []string{"spanner"},
-			wantErr:        `config contains disallowed sources or tools: source "my-source" has type "mock-source", which is not allowed by TOOLBOX_ALLOWED_SOURCES`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - my-source (type: mock-source), used by tools:",
+				"        - my-tool",
+			),
 		},
 		{
 			name:            "disallowed tool fails before source initializes",
 			disallowedTools: []string{"mock-tool"},
-			wantErr:         `config contains disallowed sources or tools: tool "my-tool" has type "mock-tool", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  tools disallowed by TOOLBOX_DISALLOWED_TOOLS:",
+				"    - my-tool (type: mock-tool)",
+			),
 		},
 	}
 	for _, tc := range tests {
@@ -249,12 +416,21 @@ func TestInitializeOfflineConfigsRestrictions(t *testing.T) {
 		{
 			name:           "disallowed source fails",
 			allowedSources: []string{"spanner"},
-			wantErr:        `config contains disallowed sources or tools: source "my-source" has type "mock-source", which is not allowed by TOOLBOX_ALLOWED_SOURCES`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - my-source (type: mock-source), used by tools:",
+				"        - my-tool",
+			),
 		},
 		{
 			name:            "disallowed tool fails",
 			disallowedTools: []string{"mock-tool"},
-			wantErr:         `config contains disallowed sources or tools: tool "my-tool" has type "mock-tool", which is disallowed by TOOLBOX_DISALLOWED_TOOLS`,
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  tools disallowed by TOOLBOX_DISALLOWED_TOOLS:",
+				"    - my-tool (type: mock-tool)",
+			),
 		},
 	}
 	for _, tc := range tests {
