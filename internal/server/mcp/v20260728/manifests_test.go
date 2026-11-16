@@ -24,6 +24,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/resources/skills"
 	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -906,5 +907,72 @@ func TestGenerateListResourceTemplatesResult(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("unexpected list resource templates result (-want +got):\n%s", diff)
+	}
+}
+
+// TestGenerateSkillManifest pins the wire shape SEP-2640 specifies for a skill:
+// the uri addresses SKILL.md, frontmatter passes through verbatim, and
+// resources is the file list or the string "dynamic".
+func TestGenerateSkillManifest(t *testing.T) {
+	tcs := []struct {
+		desc string
+		in   skills.Entry
+		want string
+	}{
+		{
+			// Built from SEP-2640's "Retrieval via skills/get" example, so a
+			// renamed or dropped field fails here. encoding/json sorts map keys.
+			desc: "static skill matches the SEP example",
+			in: skills.Entry{
+				URI: "skill://pdf-processing/SKILL.md",
+				Frontmatter: map[string]any{
+					"name":        "pdf-processing",
+					"description": "Extract, fill, and assemble PDF documents",
+					"metadata":    map[string]any{"version": "2.1.0"},
+				},
+				Resources: skills.Manifest{Refs: []skills.ResourceRef{
+					{URI: "skill://pdf-processing/SKILL.md", Digest: "sha256:d5e6f7a8...", Size: 5120},
+					{URI: "skill://pdf-processing/references/FORMS.md", Digest: "sha256:e6f7a8b9...", Size: 18433},
+				}},
+			},
+			want: `{"uri":"skill://pdf-processing/SKILL.md",` +
+				`"frontmatter":{"description":"Extract, fill, and assemble PDF documents","metadata":{"version":"2.1.0"},"name":"pdf-processing"},` +
+				`"resources":[` +
+				`{"uri":"skill://pdf-processing/SKILL.md","digest":"sha256:d5e6f7a8...","size":5120},` +
+				`{"uri":"skill://pdf-processing/references/FORMS.md","digest":"sha256:e6f7a8b9...","size":18433}]}`,
+		},
+		{
+			desc: "dynamic skill collapses to the marker",
+			in: skills.Entry{
+				URI:         "skill://drafting/SKILL.md",
+				Frontmatter: map[string]any{"name": "drafting"},
+				Resources:   skills.Manifest{Dynamic: true},
+			},
+			want: `{"uri":"skill://drafting/SKILL.md","frontmatter":{"name":"drafting"},"resources":"dynamic"}`,
+		},
+		{
+			desc: "dynamic wins over any refs left set",
+			in: skills.Entry{
+				URI:       "skill://x/SKILL.md",
+				Resources: skills.Manifest{Dynamic: true, Refs: []skills.ResourceRef{{URI: "skill://x/SKILL.md"}}},
+			},
+			want: `{"uri":"skill://x/SKILL.md","frontmatter":null,"resources":"dynamic"}`,
+		},
+		{
+			desc: "unpopulated static manifest stays an array",
+			in:   skills.Entry{URI: "skill://x/SKILL.md"},
+			want: `{"uri":"skill://x/SKILL.md","frontmatter":null,"resources":[]}`,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			got, err := json.Marshal(generateSkillManifest(tc.in))
+			if err != nil {
+				t.Fatalf("Marshal() = %v, want nil", err)
+			}
+			if string(got) != tc.want {
+				t.Errorf("Marshal() =\n%s\nwant\n%s", got, tc.want)
+			}
+		})
 	}
 }

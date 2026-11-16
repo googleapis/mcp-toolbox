@@ -9,7 +9,7 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 
 ## Tech Stack
 
--   **Language:** Go (1.23+)
+-   **Language:** Go (1.27+)
 -   **Documentation:** Hugo (Extended Edition v0.146.0+)
 -   **Containerization:** Docker
 -   **CI/CD:** GitHub Actions, Google Cloud Build
@@ -35,7 +35,7 @@ This file (symlinked as `CLAUDE.md`, `AGENTS.md`, and `.gemini/styleguide.md`) p
 
 ### Prerequisites
 
--   Go 1.23 or later.
+-   Go 1.27 or later.
 -   Docker (for building container images and running some tests).
 -   Access to necessary Google Cloud resources for integration testing (if applicable).
 

@@ -110,6 +110,11 @@ func (s *Source) MSSQLDB() *sql.DB {
 	return s.Db
 }
 
+// function to lock specific tool to non cloud mssql
+func (s *Source) IsNonCloud() bool {
+	return true
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
 	results, err := s.MSSQLDB().QueryContext(ctx, statement, params...)
 	if err != nil {
@@ -117,29 +122,35 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	}
 	defer results.Close()
 
-	cols, err := results.Columns()
-	// If Columns() errors, it might be a DDL/DML without an OUTPUT clause.
-	// We proceed, and results.Err() will catch actual query execution errors.
-	// 'out' will remain an empty slice if cols is empty or err is not nil here.
 	out := []any{}
-	if err == nil && len(cols) > 0 {
-		// create an array of values for each column, which can be re-used to scan each row
-		rawValues := make([]any, len(cols))
-		values := make([]any, len(cols))
-		for i := range rawValues {
-			values[i] = &rawValues[i]
+	for {
+		cols, err := results.Columns()
+		// If Columns() errors, it might be a DDL/DML without an OUTPUT clause.
+		// We proceed, and results.Err() will catch actual query execution errors.
+		// 'out' will remain an empty slice if cols is empty or err is not nil here.
+		if err == nil && len(cols) > 0 {
+			// create an array of values for each column, which can be re-used to scan each row
+			rawValues := make([]any, len(cols))
+			values := make([]any, len(cols))
+			for i := range rawValues {
+				values[i] = &rawValues[i]
+			}
+
+			for results.Next() {
+				scanErr := results.Scan(values...)
+				if scanErr != nil {
+					return nil, fmt.Errorf("unable to parse row: %w", scanErr)
+				}
+				row := orderedmap.Row{}
+				for i, name := range cols {
+					row.Add(name, rawValues[i])
+				}
+				out = append(out, row)
+			}
 		}
 
-		for results.Next() {
-			scanErr := results.Scan(values...)
-			if scanErr != nil {
-				return nil, fmt.Errorf("unable to parse row: %w", scanErr)
-			}
-			row := orderedmap.Row{}
-			for i, name := range cols {
-				row.Add(name, rawValues[i])
-			}
-			out = append(out, row)
+		if !results.NextResultSet() {
+			break
 		}
 	}
 
