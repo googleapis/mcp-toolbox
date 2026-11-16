@@ -44,9 +44,8 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Timeout          string                 `yaml:"timeout" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Timeout          string `yaml:"timeout" validate:"required"`
 }
 
 var _ tools.ToolConfig = Config{}
@@ -96,10 +95,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	time.Sleep(totalDuration)
 
 	return fmt.Sprintf("Wait for %v completed successfully.", totalDuration), nil
-}
-
-func (t Tool) Authorized(verifiedAuthServices []string) bool {
-	return true
 }
 
 func (t Tool) GetSourceName() string {

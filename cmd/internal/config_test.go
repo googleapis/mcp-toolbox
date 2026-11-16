@@ -33,6 +33,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	cloudgdasrc "github.com/googleapis/mcp-toolbox/internal/sources/cloudgda"
 	cloudsqlpgsrc "github.com/googleapis/mcp-toolbox/internal/sources/cloudsqlpg"
 	httpsrc "github.com/googleapis/mcp-toolbox/internal/sources/http"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -182,6 +183,30 @@ func TestParseEnv(t *testing.T) {
 				"port: 5432\n" +
 				"user: my_user\n",
 			wantOptional: []string{"DB_PORT"},
+		},
+		{
+			desc: "multiline yaml with env var between comment blocks",
+			in: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: ${FOO}\n" +
+				"# Another comment block\n",
+			env: map[string]string{
+				"FOO": "bar",
+			},
+			want: "# First comment block\n" +
+				"# Second comment block\n" +
+				"# Third comment block\n" +
+				"# Fourth comment block\n" +
+				"# Fifth comment block\n" +
+				"# Sixth comment block\n" +
+				"# Seventh comment block\n" +
+				"user: bar\n" +
+				"# Another comment block\n",
 		},
 		{
 			desc:         "with default without env",
@@ -1850,6 +1875,7 @@ func TestPrebuiltTools(t *testing.T) {
 	alloydb_config, _ := prebuiltconfigs.Get("alloydb-postgres")
 	alloydbobsvconfig, _ := prebuiltconfigs.Get("alloydb-postgres-observability")
 	bigquery_config, _ := prebuiltconfigs.Get("bigquery")
+	bigtable_config, _ := prebuiltconfigs.Get("bigtable")
 	clickhouse_config, _ := prebuiltconfigs.Get("clickhouse")
 	cloudhealthcare_config, _ := prebuiltconfigs.Get("cloud-healthcare")
 	cloudsqlmssql_config, _ := prebuiltconfigs.Get("cloud-sql-mssql")
@@ -1888,6 +1914,8 @@ func TestPrebuiltTools(t *testing.T) {
 	t.Setenv("API_KEY", "your_api_key")
 
 	t.Setenv("BIGQUERY_PROJECT", "your_gcp_project_id")
+	t.Setenv("BIGTABLE_PROJECT", "your_gcp_project_id")
+	t.Setenv("BIGTABLE_INSTANCE", "your_bigtable_instance")
 	t.Setenv("DATAPLEX_PROJECT", "your_gcp_project_id")
 	t.Setenv("FIRESTORE_PROJECT", "your_gcp_project_id")
 	t.Setenv("FIRESTORE_DATABASE", "your_firestore_db_name")
@@ -2173,6 +2201,27 @@ func TestPrebuiltTools(t *testing.T) {
 			},
 		},
 		{
+			name: "bigtable prebuilt tools",
+			in:   bigtable_config,
+			wantGroups: server.GroupConfigs{
+				"admin": group.GroupConfig{
+					Name:        "admin",
+					Description: "Use these tools when you need to create, get, list, update, or delete Bigtable instances and clusters.",
+					ToolNames:   []string{"create_instance", "get_instance", "list_instances", "update_instance", "delete_instance", "create_cluster", "get_cluster", "list_clusters", "update_cluster", "delete_cluster"},
+				},
+				"data": group.GroupConfig{
+					Name:        "data",
+					Description: "Use these tools when you need to list Bigtable schemas, create, get, list, update, or delete tables, and execute GoogleSQL queries.",
+					ToolNames:   []string{"execute_sql", "list_schemas", "list_tables", "get_table", "create_table", "update_table", "delete_table"},
+				},
+				"views": group.GroupConfig{
+					Name:        "views",
+					Description: "Use these tools when you need to create, get, list, update, or delete Bigtable logical views and materialized views.",
+					ToolNames:   []string{"create_logical_view", "get_logical_view", "list_logical_views", "update_logical_view", "delete_logical_view", "create_materialized_view", "get_materialized_view", "list_materialized_views", "update_materialized_view", "delete_materialized_view"},
+				},
+			},
+		},
+		{
 			name: "clickhouse prebuilt tools",
 			in:   clickhouse_config,
 			wantGroups: server.GroupConfigs{
@@ -2286,11 +2335,11 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"discovery": group.GroupConfig{
 					Name:      "discovery",
-					ToolNames: []string{"search_entries", "lookup_entry", "search_aspect_types", "lookup_context", "search_dq_scans"},
+					ToolNames: []string{"search_entries", "lookup_entry", "lookup_context", "search_dq_scans"},
 				},
 				"data-products": group.GroupConfig{
 					Name:      "data-products",
-					ToolNames: []string{"search_entries", "lookup_entry", "search_aspect_types", "lookup_context", "list_data_products", "get_data_product", "list_data_assets", "get_data_asset", "create_data_product", "update_data_product", "create_data_asset", "update_data_asset", "update_data_product_aspects", "get_operation"},
+					ToolNames: []string{"search_entries", "lookup_entry", "lookup_context", "list_data_products", "get_data_product", "list_data_assets", "get_data_asset", "create_data_product", "update_data_product", "create_data_asset", "update_data_asset", "update_data_product_aspects", "get_operation"},
 				},
 				"enrich": group.GroupConfig{
 					Name:      "enrich",
@@ -2354,7 +2403,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"data": group.GroupConfig{
 					Name:      "data",
-					ToolNames: []string{"execute_sql", "list_tables"},
+					ToolNames: []string{"execute_sql", "list_tables", "get_database_object_source_code"},
 				},
 			},
 		},
@@ -2365,7 +2414,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"looker_tools": group.GroupConfig{
 					Name:        "looker_tools",
 					Description: "These skills are designed for data discovery and business intelligence.",
-					ToolNames:   []string{"get_models", "get_explores", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout_component"},
+					ToolNames:   []string{"get_models", "get_explores", "get_explore", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "import_dashboard_from_lookml", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout", "update_dashboard_layout_component", "create_data_app_extension", "update_data_app_extension"},
 				},
 			},
 		},
@@ -2584,7 +2633,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"conversational_analytics_tools": group.GroupConfig{
 					Name:      "conversational_analytics_tools",
-					ToolNames: []string{"list_accessible_data_agents", "get_data_agent_info", "ask_data_agent"},
+					ToolNames: []string{"list_accessible_data_agents", "get_data_agent_info", "ask_data_agent", "create_data_agent", "update_data_agent", "delete_data_agent"},
 				},
 			},
 		},
@@ -2642,6 +2691,74 @@ func TestPrebuiltTools(t *testing.T) {
 					}
 				}
 			})
+
+			t.Run("initialize tools", func(t *testing.T) {
+				for tName, tCfg := range configFile.Tools {
+					tool, err := tCfg.Initialize(ctx)
+					if err != nil {
+						t.Fatalf("failed to initialize tool %q in config %q: %v", tName, tc.name, err)
+					}
+					if tool.GetName() != tName {
+						t.Errorf("tool name mismatch: got %q, want %q", tool.GetName(), tName)
+					}
+					if tc.name == "bigtable prebuilt tools" && tool.GetDescription() == "" {
+						t.Errorf("tool %q in config %q has empty description", tName, tc.name)
+					}
+				}
+			})
+		})
+	}
+}
+
+func TestPrebuiltConversationalAnalyticsReadOnly(t *testing.T) {
+	raw, err := prebuiltconfigs.Get("conversational-analytics-with-data-agent")
+	if err != nil {
+		t.Fatalf("failed to load prebuilt config: %v", err)
+	}
+	t.Setenv("CLOUD_GDA_PROJECT", "your_gcp_project_id")
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	tcs := []struct {
+		name   string
+		setEnv bool
+		value  string
+		want   bool
+	}{
+		{name: "unset defaults to true", want: true},
+		{name: "true enables read-only mode", setEnv: true, value: "true", want: true},
+		{name: "false disables read-only mode", setEnv: true, value: "false", want: false},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			// t.Setenv registers restoring the original value, so the variable can
+			// then be unset to exercise the prebuilt's default.
+			t.Setenv("CLOUD_GDA_READONLY", tc.value)
+			if !tc.setEnv {
+				if err := os.Unsetenv("CLOUD_GDA_READONLY"); err != nil {
+					t.Fatalf("failed to unset CLOUD_GDA_READONLY: %v", err)
+				}
+			}
+
+			parser := ConfigParser{}
+			configFile, err := parser.ParseConfig(ctx, raw)
+			if err != nil {
+				t.Fatalf("failed to parse prebuilt config: %v", err)
+			}
+			srcCfg, found := configFile.Sources["conversational-analytics-source"]
+			if !found {
+				t.Fatalf("source %q not found in prebuilt config", "conversational-analytics-source")
+			}
+			src, ok := srcCfg.(cloudgdasrc.Config)
+			if !ok {
+				t.Fatalf("expected source config of type %T, got %T", cloudgdasrc.Config{}, srcCfg)
+			}
+			if src.ReadOnly != tc.want {
+				t.Errorf("ReadOnly = %t, want %t", src.ReadOnly, tc.want)
+			}
 		})
 	}
 }
@@ -3037,7 +3154,12 @@ resourceTemplates:
 		t.Fatalf("resCfg.Initialize failed: %v", err)
 	}
 
-	content, err := res.Read(context.Background(), nil)
+	readCtx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := res.Read(readCtx, nil)
 	if err != nil {
 		t.Fatalf("res.Read failed: %v", err)
 	}
@@ -3055,7 +3177,7 @@ resourceTemplates:
 		t.Fatalf("tmplCfg.Initialize failed: %v", err)
 	}
 
-	tmplContent, err := tmpl.Read(context.Background(), map[string]any{"path": dataPath})
+	tmplContent, err := tmpl.Read(readCtx, map[string]any{"path": dataPath})
 	if err != nil {
 		t.Fatalf("tmpl.Read failed: %v", err)
 	}

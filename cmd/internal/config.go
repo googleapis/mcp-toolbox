@@ -25,7 +25,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/lexer"
@@ -71,26 +70,44 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 		p.EnvVars = make(map[string]string)
 	}
 
-	tokens := lexer.Tokenize(input)
+	// Normalize CRLF to LF since goccy/go-yaml lexer counts \r inconsistently across OSes
+	input = strings.ReplaceAll(input, "\r\n", "\n")
+	input = strings.ReplaceAll(input, "\r", "\n")
+
+	// Pre-index comments: map[line]firstCommentStartColumn
+	// YAML comments are line-scoped, so everything from '#' to the end of that line is comment text.
+	commentColByLine := make(map[int]int)
+	for _, t := range lexer.Tokenize(input) {
+		if t.Type == token.CommentType && t.Position != nil {
+			if existingCol, exists := commentColByLine[t.Position.Line]; !exists || t.Position.Column < existingCol {
+				commentColByLine[t.Position.Line] = t.Position.Column
+			}
+		}
+	}
 
 	var missing []string
 	seenMissing := make(map[string]bool)
 	matches := re.FindAllStringSubmatchIndex(input, -1)
 	var output strings.Builder
 	lastIndex := 0
-	// The lexer reports token positions as 1-based rune offsets, while the regexp
-	// reports byte offsets. Track the rune offset alongside so both use the same
-	// coordinate space; matches are ordered, so this only walks the input once.
-	runeOffset := 1
+	line, column := 1, 1
 	scannedBytes := 0
+
 	for _, match := range matches {
 		start, end := match[0], match[1]
-
-		runeOffset += utf8.RuneCountInString(input[scannedBytes:start])
+		// Scan only from last scanned position since regex matches are in order
+		for _, r := range input[scannedBytes:start] {
+			if r == '\n' {
+				line++
+				column = 1
+			} else {
+				column++
+			}
+		}
 		scannedBytes = start
 
-		// Skip substitution if the variable is inside a comment
-		if isInsideComment(tokens, runeOffset) {
+		// checks if the placeholder is on or after the '#' on this line
+		if commentCol, ok := commentColByLine[line]; ok && column >= commentCol {
 			output.WriteString(input[lastIndex:end])
 			lastIndex = end
 			continue
@@ -123,7 +140,6 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 				output.WriteString(variableName)
 			} else if !seenMissing[variableName] {
 				seenMissing[variableName] = true
-				line, column := lineColumnAt(input, start)
 				missing = append(missing, fmt.Sprintf("%q (line %d, column %d)", variableName, line, column))
 			}
 		}
@@ -151,41 +167,6 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 	}
 
 	return output.String(), err
-}
-
-// isInsideComment checks if the given 1-based rune offset in the YAML input is
-// within a comment token. Token positions from the lexer are 1-based rune
-// offsets, so callers must convert byte offsets before calling this.
-func isInsideComment(tokens token.Tokens, runeOffset int) bool {
-	for _, t := range tokens {
-		if t.Type == token.CommentType && t.Position != nil {
-			// Position.Offset points at the "#", but Origin also carries any
-			// indentation that precedes it, so measure the length from the "#".
-			length := utf8.RuneCountInString(strings.TrimLeft(t.Origin, " \t"))
-			if runeOffset >= t.Position.Offset && runeOffset < t.Position.Offset+length {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// ParseConfig parses the provided yaml into appropriate configs.
-func lineColumnAt(input string, index int) (int, int) {
-	line := 1
-	column := 1
-	for i, r := range input {
-		if i >= index {
-			break
-		}
-		if r == '\n' {
-			line++
-			column = 1
-		} else {
-			column++
-		}
-	}
-	return line, column
 }
 
 func (p *ConfigParser) ParseConfig(ctx context.Context, raw []byte) (Config, error) {

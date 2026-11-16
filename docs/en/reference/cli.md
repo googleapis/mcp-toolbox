@@ -12,6 +12,7 @@ description: >
 |--------------|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
 | `-a`         | `--address`                | Address of the interface the server will listen on.                                                                                                                       | `127.0.0.1` |
 |              | `--disable-ext`            | Specifies MCP extension URIs disabled on this server.                                                                                                                     |             |
+|              | `--disable-extension-check` | Disable client extension capability checks in older MCP protocol versions.                                                                                                | `false`     |
 |              | `--disable-reload`         | Disables dynamic reloading config.                                                                                                                                        |             |
 | `-h`         | `--help`                   | help for toolbox                                                                                                                                                          |             |
 |              | `--http-max-request-bytes` | Maximum MCP HTTP request body size in bytes.                                                                                                                              | `10485760`  |
@@ -19,6 +20,7 @@ description: >
 |              | `--log-level`              | Specify the minimum level logged. Allowed: 'DEBUG', 'INFO', 'WARN', 'ERROR'.                                                                                              | `info`      |
 |              | `--logging-format`         | Specify logging format to use. Allowed: 'standard' or 'JSON'.                                                                                                             | `standard`  |
 |              | `--mcp-prm-file`           | Path to a manual Protected Resource Metadata (PRM) JSON file. If provided, overrides auto-generation for MCP Server-Wide Authentication.                                  |             |
+|              | `--openai-apps-challenge-file` | Path to a file containing the OpenAI verification challenge token to serve at `/.well-known/openai-apps-challenge`.                                                       |             |
 | `-p`         | `--port`                   | Port the server will listen on.                                                                                                                                           | `5000`      |
 |              | `--tls-cert`               | Path to the PEM-encoded TLS certificate file.                                                                                                                             |             |
 |              | `--tls-key`                | Path to the PEM-encoded TLS private key file.                                                                                                                             |             |
@@ -110,7 +112,7 @@ toolbox skills-generate --name <name> --description <description> --toolset <too
 - `--invocation-mode`: (Optional) Invocation mode for the generated scripts: 'binary' or 'npx' (default: "npx").
 - `--toolbox-version`: (Optional) Version of @toolbox-sdk/server to use for npx approach (defaults to current toolbox version).
 
-For more detailed instructions, see [Generate Agent Skills](../documentation/configuration/skills/_index.md).
+For more detailed instructions, see [Generating Skills](../documentation/configuration/skills/generating.md).
 
 </details>
 
@@ -246,12 +248,23 @@ visit [Toolbox UI](../documentation/configuration/toolbox-ui/index.md).
 
 ### Disabling MCP Extensions
 
-By default, Toolbox advertises support for its own custom MCP extensions (e.g., `com.google.cloud/toolbox.v1`) during the client discovery phase. This extension signals to clients that they can leverage Toolbox-specific features that fall outside the official MCP specification (see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for a list of currently supported capabilities).
+During the client discovery phase, Toolbox advertises the extensions below. One is Toolbox's own; the others are defined by the MCP specification.
+
+| Extension URI | What it provides |
+| :--- | :--- |
+| `com.google.cloud/toolbox.v1` | Toolbox-specific features that fall outside the official MCP specification, such as secure parameters and `groups/*`. See the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for the capabilities this extension covers. |
+| `io.modelcontextprotocol/ui` | [MCP Apps](../documentation/configuration/mcp-apps/index.md) interactive UI resources |
+| `io.modelcontextprotocol/skills` | [Agent Skills](../documentation/configuration/skills/serving.md) discovery through `skills/list` and `skills/get`. The catalogue is server-wide and is [not scoped by group](../documentation/configuration/groups/). |
 
 Disabling an extension removes it from the server's advertised capabilities. To disable specific extensions on the server, pass their URIs via the `--disable-ext` flag:
 
 ```bash
 # Disable the Toolbox v1 extension
 ./toolbox --disable-ext com.google.cloud/toolbox.v1
+
+# Disable Agent Skills, which also stops the server answering skills/list and skills/get
+./toolbox --disable-ext io.modelcontextprotocol/skills
 ```
+
+Extensions are advertised only for MCP protocol version `2026-07-28`. Older versions do not support extensions.
 

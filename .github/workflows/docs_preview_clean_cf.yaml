@@ -28,7 +28,7 @@ jobs:
   clean:
     # Only run for PRs from the same repository to ensure secret access
     if: "${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name }}"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     concurrency:
       # Shared concurrency group with preview staging.
       group: "cf-preview-${{ github.event.number }}"

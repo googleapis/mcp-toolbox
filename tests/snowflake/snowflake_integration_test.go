@@ -35,7 +35,7 @@ var (
 	SnowflakeToolType   = "snowflake-sql"
 	SnowflakeAccount    = os.Getenv("SNOWFLAKE_ACCOUNT")
 	SnowflakeUser       = os.Getenv("SNOWFLAKE_USER")
-	SnowflakePassword   = os.Getenv("SNOWFLAKE_PASS")
+	SnowflakePassword   = os.Getenv("SNOWFLAKE_PASSWORD")
 	SnowflakeDatabase   = os.Getenv("SNOWFLAKE_DATABASE")
 	SnowflakeSchema     = os.Getenv("SNOWFLAKE_SCHEMA")
 	SnowflakeWarehouse  = os.Getenv("SNOWFLAKE_WAREHOUSE")

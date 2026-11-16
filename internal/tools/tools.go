@@ -133,7 +133,6 @@ type Tool interface {
 	EmbedParams(context.Context, parameters.ParamValues, PrimitiveManagerI) (parameters.ParamValues, error)
 	Manifest(sources.Source) (Manifest, error)
 	StaticManifest() Manifest
-	Authorized([]string) bool
 	RequiresClientAuthorization(sources.Source) (bool, error)
 	ToConfig() ToolConfig
 	GetAuthTokenHeaderName(sources.Source) (string, error)
@@ -156,6 +155,14 @@ type Manifest struct {
 	Description  string                         `json:"description"`
 	Parameters   []parameters.ParameterManifest `json:"parameters"`
 	AuthRequired []string                       `json:"authRequired"`
+}
+
+// StructuredToolResult allows a tool to return a concise Content representation
+// for the LLM context window alongside a full StructuredContent object for
+// MCP Apps UI rendering (per SEP-1865).
+type StructuredToolResult struct {
+	Content           any            `json:"content"`
+	StructuredContent map[string]any `json:"structuredContent,omitempty"`
 }
 
 // Helper function that returns if a tool invocation request is authorized
@@ -190,7 +197,7 @@ const (
 	VisibilityApp   ToolVisibility = "app"
 )
 
-// ToolUIMetadata defines the UI-specific metadata for a tool with UI Resource
+// ToolUIMetadata defines the UI-specific metadata for a tool with UI Resource.
 type ToolUIMetadata struct {
 	Resource   string           `yaml:"resource" validate:"required"`
 	Visibility []ToolVisibility `yaml:"visibility,omitempty" validate:"omitempty,dive,oneof=model app"`
@@ -202,11 +209,12 @@ type ToolUIMetadata struct {
 // configs omit description: and rely on a canned per-tool string), so
 // post-Initialize ConfigBase.Description holds the resolved value.
 type ConfigBase struct {
-	Name           string          `yaml:"name"           validate:"required"`
-	Description    string          `yaml:"description"`
-	AuthRequired   []string        `yaml:"authRequired"`
-	ScopesRequired []string        `yaml:"scopesRequired"`
-	UI             *ToolUIMetadata `yaml:"ui,omitempty"`
+	Name           string           `yaml:"name"           validate:"required"`
+	Description    string           `yaml:"description"`
+	AuthRequired   []string         `yaml:"authRequired"`
+	ScopesRequired []string         `yaml:"scopesRequired"`
+	Annotations    *ToolAnnotations `yaml:"annotations,omitempty"`
+	UI             *ToolUIMetadata  `yaml:"ui,omitempty"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
@@ -280,10 +288,6 @@ func (b BaseTool[T]) StaticManifest() Manifest {
 
 func (b BaseTool[T]) GetParameters(_ sources.Source) (parameters.Parameters, error) {
 	return b.StaticParameters, nil
-}
-
-func (b BaseTool[T]) Authorized(verifiedAuthServices []string) bool {
-	return IsAuthorized(b.Cfg.GetAuthRequired(), verifiedAuthServices)
 }
 
 func (b BaseTool[T]) RequiresClientAuthorization(_ sources.Source) (bool, error) {

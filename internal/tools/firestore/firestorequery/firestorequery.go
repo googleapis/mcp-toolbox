@@ -73,8 +73,7 @@ type Config struct {
 	AnalyzeQuery   bool           `yaml:"analyzeQuery"` // Analyze query (boolean, not parameterizable)
 
 	// Parameters for template substitution
-	Parameters  parameters.Parameters  `yaml:"parameters"`
-	Annotations *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Parameters parameters.Parameters `yaml:"parameters"`
 }
 
 // validate interface
