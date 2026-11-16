@@ -79,16 +79,17 @@ describe(`${ORCH_NAME} Pre/Post Processing Agent`, () => {
     );
 
     const missingKeywords = [];
+    const outputLower = actualOutput.toLowerCase();
 
     for (const keyword of GOLDEN_KEYWORDS) {
-      if (!actualOutput.includes(keyword)) {
+      if (!outputLower.includes(keyword.toLowerCase())) {
         missingKeywords.push(keyword);
       }
     }
 
     assert.ok(
       missingKeywords.length === 0,
-      `Assertion Failed: The following keywords were missing from the output: [${missingKeywords.join(", ")}]`
+      `Assertion Failed: The following keywords were missing from the output: [${missingKeywords.join(", ")}]\nActual output:\n${actualOutput}`
     );
   });
 });

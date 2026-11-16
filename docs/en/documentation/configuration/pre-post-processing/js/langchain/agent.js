@@ -31,7 +31,11 @@ const businessRulesMiddleware = createMiddleware({
 
         if (duration > 14) {
           console.log("BLOCKED: Stay too long");
-          return ToolMessage({content:'Error: Maximum stay duration is 14 days.', status:"error"})
+          return new ToolMessage({
+            content: "Error: Maximum stay duration is 14 days.",
+            tool_call_id: request.toolCall.id,
+            status: "error",
+          });
         }
       } catch (e) {
         // Ignore invalid dates
@@ -48,8 +52,8 @@ const enrichmentMiddleware = createMiddleware({
     const toolName = request.toolCall.name;
     
     let content = result;
-    if (typeof result === 'object' && result !== null && result.content) {
-        content = result.content;
+    if (typeof result === 'object' && result !== null && 'content' in result) {
+        content = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
     }
     if (toolName === "book-hotel" && typeof content === 'string' && !content.includes("Error")) {
         const loyaltyBonus = 500;
@@ -97,8 +101,15 @@ async function main() {
         { role: "user", content: query},
       ],
     });
+    const lastMessage = result.messages[result.messages.length - 1];
+    const aiText =
+      typeof lastMessage.text === "string" && lastMessage.text.length > 0
+        ? lastMessage.text
+        : Array.isArray(lastMessage.content)
+          ? lastMessage.content.map((part) => part.text || "").join("")
+          : lastMessage.content;
     console.log("-".repeat(50));
-    console.log(`AI: ${result.messages[result.messages.length-1].content}`);
+    console.log(`AI: ${aiText}`);
   }
 }
 
