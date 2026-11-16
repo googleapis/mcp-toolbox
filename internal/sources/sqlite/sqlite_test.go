@@ -16,6 +16,8 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,6 +26,28 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources/sqlite"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 )
+
+func TestRunSQLPreservesJSONNumberPrecision(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("unable to open SQLite database: %v", err)
+	}
+	defer db.Close()
+
+	source := sqlite.Source{Db: db}
+	got, err := source.RunSQL(context.Background(), "SELECT json_object('id', 9007199254740993) AS payload", nil)
+	if err != nil {
+		t.Fatalf("unable to run SQL: %v", err)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("unable to marshal result: %v", err)
+	}
+	const want = `[{"payload":{"id":9007199254740993}}]`
+	if string(encoded) != want {
+		t.Fatalf("unexpected result: got %s, want %s", encoded, want)
+	}
+}
 
 func TestParseFromYamlSQLite(t *testing.T) {
 	tcs := []struct {
