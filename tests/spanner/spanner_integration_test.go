@@ -100,31 +100,45 @@ func cleanupOldSpannerResources(t *testing.T, ctx context.Context, adminClient *
 
 	var drops []string
 	if schema == "" {
-		_ = dataClient.Single().Query(ctx, spanner.NewStatement(
+		if err := dataClient.Single().Query(ctx, spanner.NewStatement(
 			"SELECT PROPERTY_GRAPH_NAME FROM INFORMATION_SCHEMA.PROPERTY_GRAPHS",
 		)).Do(func(r *spanner.Row) error {
 			var name string
-			if r.Columns(&name) == nil && isOld(name) {
+			if err := r.Columns(&name); err != nil {
+				return err
+			}
+			if isOld(name) {
 				drops = append(drops, "DROP PROPERTY GRAPH IF EXISTS "+name)
 			}
 			return nil
-		})
+		}); err != nil {
+			t.Fatalf("unable to query Spanner property graphs for cleanup: %s", err)
+		}
 	}
-	_ = dataClient.Single().Query(ctx, spanner.NewStatement(
+	if err := dataClient.Single().Query(ctx, spanner.NewStatement(
 		fmt.Sprintf("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '%s' ORDER BY TABLE_NAME", schema),
 	)).Do(func(r *spanner.Row) error {
 		var name string
-		if r.Columns(&name) == nil && isOld(name) {
+		if err := r.Columns(&name); err != nil {
+			return err
+		}
+		if isOld(name) {
 			drops = append(drops, "DROP TABLE IF EXISTS "+name)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("unable to query Spanner tables for cleanup: %s", err)
+	}
 	if len(drops) > 0 {
-		if op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: drops,
-		}); err == nil {
-			_ = op.Wait(ctx)
+		})
+		if err != nil {
+			t.Fatalf("unable to start Spanner cleanup DDL operation: %s", err)
+		}
+		if err := op.Wait(ctx); err != nil {
+			t.Fatalf("Spanner cleanup DDL failed: %s", err)
 		}
 	}
 }
