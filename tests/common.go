@@ -1115,7 +1115,7 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 
 // Finds and drops user tables older than 2 hours in an mssql database.
 func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
-	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'"
+	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL', @whereand = 'AND O.Type = ''U'' AND O.crdate < DATEADD(HOUR, -2, GETDATE())'"
 	if _, err := pool.ExecContext(ctx, disableConstraintsCmd); err != nil {
 		t.Fatalf("Failed to disable MSSQL constraints: %v", err)
 	}
