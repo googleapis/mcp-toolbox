@@ -15,13 +15,20 @@
 package postgresliststoredprocedure_test
 
 import (
+	"context"
+	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresliststoredprocedure"
+	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestParseFromYamlPostgresListStoredProcedure(t *testing.T) {
@@ -91,5 +98,135 @@ func TestParseFromYamlPostgresListStoredProcedure(t *testing.T) {
 			}
 		})
 	}
+}
 
+type mockPostgresSource struct {
+	sources.Source
+	runSQLFunc func(ctx context.Context, statement string, params []any) (any, error)
+}
+
+func (m *mockPostgresSource) PostgresPool() *pgxpool.Pool {
+	return nil
+}
+
+func (m *mockPostgresSource) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
+	if m.runSQLFunc != nil {
+		return m.runSQLFunc(ctx, statement, params)
+	}
+	return nil, nil
+}
+
+type mockIncompatibleSource struct {
+	sources.Source
+}
+
+func TestInvokePostgresListStoredProcedure(t *testing.T) {
+	ctx := context.Background()
+	cfg := postgresliststoredprocedure.Config{
+		ConfigBase: tools.ConfigBase{
+			Name: "test_tool",
+		},
+		Type:   "postgres-list-stored-procedure",
+		Source: "my-pg",
+	}
+
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("unexpected Initialize error: %v", err)
+	}
+
+	t.Run("success", func(t *testing.T) {
+		wantRows := []any{
+			map[string]any{
+				"schema_name": "public",
+				"name":        "my_proc",
+				"owner":       "postgres",
+				"language":    "plpgsql",
+				"definition":  "CREATE PROCEDURE my_proc() ...",
+				"description": "sample procedure",
+			},
+		}
+
+		mockSrc := &mockPostgresSource{
+			runSQLFunc: func(ctx context.Context, stmt string, params []any) (any, error) {
+				return wantRows, nil
+			},
+		}
+
+		params := parameters.ParamValues{
+			parameters.ParamValue{Name: "role_name", Value: "postgres"},
+			parameters.ParamValue{Name: "schema_name", Value: "public"},
+			parameters.ParamValue{Name: "limit", Value: 10},
+		}
+
+		got, toolErr := tool.Invoke(ctx, mockSrc, params, tools.AccessToken(""))
+		if toolErr != nil {
+			t.Fatalf("unexpected Invoke error: %v", toolErr)
+		}
+
+		if diff := cmp.Diff(wantRows, got); diff != "" {
+			t.Fatalf("unexpected result: diff %v", diff)
+		}
+	})
+
+	t.Run("runSQL error (mid-stream iteration error)", func(t *testing.T) {
+		mockSrc := &mockPostgresSource{
+			runSQLFunc: func(ctx context.Context, stmt string, params []any) (any, error) {
+				return nil, errors.New("unable to execute query: connection terminated")
+			},
+		}
+
+		params := parameters.ParamValues{}
+		got, toolErr := tool.Invoke(ctx, mockSrc, params, tools.AccessToken(""))
+		if toolErr == nil {
+			t.Fatalf("expected error from Invoke, got result: %v", got)
+		}
+	})
+
+	t.Run("incompatible source", func(t *testing.T) {
+		incompatibleSrc := &mockIncompatibleSource{}
+		params := parameters.ParamValues{}
+
+		got, toolErr := tool.Invoke(ctx, incompatibleSrc, params, tools.AccessToken(""))
+		if toolErr == nil {
+			t.Fatalf("expected error for incompatible source, got result: %v", got)
+		}
+		var csErr *util.ClientServerError
+		if !errors.As(toolErr, &csErr) {
+			t.Fatalf("expected ClientServerError, got %T: %v", toolErr, toolErr)
+		}
+		if csErr.Code != http.StatusInternalServerError {
+			t.Fatalf("expected status 500, got %d", csErr.Code)
+		}
+	})
+}
+
+func TestValidateSourcePostgresListStoredProcedure(t *testing.T) {
+	ctx := context.Background()
+	cfg := postgresliststoredprocedure.Config{
+		ConfigBase: tools.ConfigBase{
+			Name: "test_tool",
+		},
+		Type:   "postgres-list-stored-procedure",
+		Source: "my-pg",
+	}
+
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("unexpected Initialize error: %v", err)
+	}
+
+	t.Run("compatible source", func(t *testing.T) {
+		mockSrc := &mockPostgresSource{}
+		if err := tool.ValidateSource(mockSrc); err != nil {
+			t.Errorf("unexpected error validating compatible source: %v", err)
+		}
+	})
+
+	t.Run("incompatible source", func(t *testing.T) {
+		incompatibleSrc := &mockIncompatibleSource{}
+		if err := tool.ValidateSource(incompatibleSrc); err == nil {
+			t.Error("expected error validating incompatible source, got nil")
+		}
+	})
 }

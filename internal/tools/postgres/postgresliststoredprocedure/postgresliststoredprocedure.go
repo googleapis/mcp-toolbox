@@ -69,6 +69,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 
 type compatibleSource interface {
 	PostgresPool() *pgxpool.Pool
+	RunSQL(context.Context, string, []any) (any, error)
 }
 
 // validate compatible sources are still compatible
@@ -128,28 +129,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	sliceParams := newParams.AsSlice()
 
-	results, err := source.PostgresPool().Query(ctx, listStoredProcedure, sliceParams...)
+	resp, err := source.RunSQL(ctx, listStoredProcedure, sliceParams)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
-	defer results.Close()
 
-	fields := results.FieldDescriptions()
-	var out []map[string]any
-
-	for results.Next() {
-		values, err := results.Values()
-		if err != nil {
-			return nil, util.NewClientServerError("unable to parse row", http.StatusInternalServerError, err)
-		}
-		rowMap := make(map[string]any)
-		for i, field := range fields {
-			rowMap[string(field.Name)] = values[i]
-		}
-		out = append(out, rowMap)
-	}
-
-	return out, nil
+	return resp, nil
 }
 
 func (t Tool) GetSourceName() string {
