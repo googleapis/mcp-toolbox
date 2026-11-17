@@ -26,6 +26,32 @@ A default value can be specified like `${ENV_NAME:default}`.
 port: ${DB_PORT:3306}
 ```
 
+### Using Google Cloud Secret Manager
+
+Instead of storing plaintext credentials in `tools.yaml` or managing environment variables, you can reference secrets directly in any configuration field using `__REF__("//secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>")`.
+
+```yaml
+kind: source
+name: pg-default
+type: postgres
+host: 127.0.0.1
+port: 5432
+database: flights
+user: app_user
+password: __REF__("//secretmanager.googleapis.com/projects/project1/secrets/pass/versions/latest")
+---
+kind: source
+name: pg-pinned
+type: postgres
+host: 127.0.0.2
+port: 5432
+database: flights
+user: app_user
+password: __REF__("//secretmanager.googleapis.com/projects/project1/secrets/pass/versions/3")
+```
+
+At startup, Toolbox evaluates `${ENV_NAME}` placeholders first, then fetches each unique `__REF__(...)` secret payload from Google Cloud Secret Manager using Application Default Credentials (ADC), verifies its CRC32C checksum, and substitutes it in memory. Make sure the runtime identity has the `roles/secretmanager.secretAccessor` IAM role on each referenced secret.
+
 ### Sources
 
 The `source` kind of your `tools.yaml` defines what data source your

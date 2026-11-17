@@ -178,6 +178,11 @@ func (p *ConfigParser) ParseConfig(ctx context.Context, raw []byte) (Config, err
 	}
 	raw = []byte(output)
 
+	raw, err = ResolveSecretRefsInYAML(ctx, raw, p.AllowMissingEnvVars)
+	if err != nil {
+		return config, fmt.Errorf("error resolving secret references: %w", err)
+	}
+
 	raw, err = ConvertConfig(ctx, raw)
 	if err != nil {
 		return config, fmt.Errorf("error converting config file: %s", err)
