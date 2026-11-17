@@ -149,6 +149,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 }
 
 var _ sources.Source = &Source{}
+var _ sources.OAuthProxySource = &Source{}
 
 type Source struct {
 	Config
@@ -179,6 +180,26 @@ func (s *Source) ToConfig() sources.SourceConfig {
 
 func (s *Source) UseClientAuthorization() bool {
 	return strings.ToLower(s.UseClientOAuth) != "false"
+}
+
+// ClientOAuthEnabled implements sources.OAuthProxySource. It reports whether
+// this Looker source is configured for per-request, browser-supplied OAuth
+// access tokens (use_client_oauth), as opposed to a single client_id/secret
+// credential shared by the whole toolbox process.
+func (s *Source) ClientOAuthEnabled() bool {
+	return s.UseClientAuthorization()
+}
+
+// OAuthAuthorizationEndpoint implements sources.OAuthProxySource. Looker's
+// authorization endpoint lives at /auth under the instance's base URL.
+func (s *Source) OAuthAuthorizationEndpoint() string {
+	return strings.TrimSuffix(s.BaseURL, "/") + "/auth"
+}
+
+// OAuthTokenEndpoint implements sources.OAuthProxySource. Looker's token
+// endpoint lives at /api/token under the instance's base URL.
+func (s *Source) OAuthTokenEndpoint() string {
+	return strings.TrimSuffix(s.BaseURL, "/") + "/api/token"
 }
 
 func (s *Source) GetAuthTokenHeaderName() string {
