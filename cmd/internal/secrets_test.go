@@ -115,6 +115,41 @@ func TestParseInlineSecretRef(t *testing.T) {
 			},
 		},
 		{
+			desc:  "regional secret reference",
+			input: `"//secretmanager.googleapis.com/projects/project1/locations/us-central1/secrets/pass/versions/latest"`,
+			want: SecretRef{
+				Project:  "project1",
+				Location: "us-central1",
+				SecretID: "pass",
+				Version:  "latest",
+			},
+		},
+		{
+			desc:  "domain-scoped project regional reference",
+			input: `'//secretmanager.googleapis.com/projects/example.com:proj-1/locations/europe-west1/secrets/db_pass/versions/2'`,
+			want: SecretRef{
+				Project:  "example.com:proj-1",
+				Location: "europe-west1",
+				SecretID: "db_pass",
+				Version:  "2",
+			},
+		},
+		{
+			desc:    "locations/global is rejected",
+			input:   `"//secretmanager.googleapis.com/projects/project1/locations/global/secrets/pass/versions/latest"`,
+			wantErr: `global secrets must omit '/locations/global'`,
+		},
+		{
+			desc:    "whitespace inside resource segment is rejected",
+			input:   `"//secretmanager.googleapis.com/projects/my project/secrets/pass/versions/latest"`,
+			wantErr: `invalid secret reference`,
+		},
+		{
+			desc:    "query string in version segment is rejected",
+			input:   `"//secretmanager.googleapis.com/projects/project1/secrets/pass/versions/latest?foo=bar"`,
+			wantErr: `invalid secret reference`,
+		},
+		{
 			desc:    "empty reference",
 			input:   `   `,
 			wantErr: `empty secret reference in __REF__()`,
@@ -168,17 +203,51 @@ func TestParseInlineSecretRef(t *testing.T) {
 	}
 }
 
+func TestSecretRefResourceNameAndRegionalEndpoint(t *testing.T) {
+	globalRef := SecretRef{Project: "p1", SecretID: "s1", Version: "latest"}
+	if got, want := globalRef.ResourceName(), "projects/p1/secrets/s1/versions/latest"; got != want {
+		t.Errorf("global ResourceName() = %q, want %q", got, want)
+	}
+
+	regionalRef := SecretRef{Project: "p1", Location: "us-central1", SecretID: "s1", Version: "3"}
+	if got, want := regionalRef.ResourceName(), "projects/p1/locations/us-central1/secrets/s1/versions/3"; got != want {
+		t.Errorf("regional ResourceName() = %q, want %q", got, want)
+	}
+
+	if got, want := regionalSecretManagerEndpoint("us-central1"), "secretmanager.us-central1.rep.googleapis.com:443"; got != want {
+		t.Errorf("regionalSecretManagerEndpoint() = %q, want %q", got, want)
+	}
+}
+
 func TestParseConfig_InlineSecretResolutionWithSafetext(t *testing.T) {
-	fakeClient := &fakeSecretManagerClient{
-		secrets: map[string]*secretmanagerpb.SecretPayload{
-			"projects/project1/secrets/pass/versions/latest": makeSecretPayload("latest-pass"),
-			"projects/project1/secrets/pass/versions/3":      makeSecretPayload("v3-pass"),
-			"projects/project3/secrets/pass/versions/latest": makeSecretPayload(`p#ss: "with" {braces}`),
-			"projects/project1/secrets/num/versions/1":       makeSecretPayload("123456"),
+	clientsByLocation := map[string]*fakeSecretManagerClient{
+		"": {
+			secrets: map[string]*secretmanagerpb.SecretPayload{
+				"projects/project1/secrets/pass/versions/latest": makeSecretPayload("latest-pass"),
+				"projects/project1/secrets/pass/versions/3":      makeSecretPayload("v3-pass"),
+				"projects/project3/secrets/pass/versions/latest": makeSecretPayload(`p#ss: "with" {braces}`),
+				"projects/project1/secrets/num/versions/1":       makeSecretPayload("123456"),
+			},
+		},
+		"us-central1": {
+			secrets: map[string]*secretmanagerpb.SecretPayload{
+				"projects/project1/locations/us-central1/secrets/pass/versions/latest": makeSecretPayload("regional-usc1-pass"),
+			},
+		},
+		"europe-west1": {
+			secrets: map[string]*secretmanagerpb.SecretPayload{
+				"projects/project2/locations/europe-west1/secrets/api-key/versions/2": makeSecretPayload("regional-euw1-key"),
+			},
 		},
 	}
-	restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
-		return fakeClient, nil
+	var initLocations []string
+	restore := SetSecretManagerClientFactoryForTest(func(_ context.Context, location string, _ ...option.ClientOption) (SecretManagerClient, error) {
+		initLocations = append(initLocations, location)
+		c, ok := clientsByLocation[location]
+		if !ok {
+			return nil, fmt.Errorf("unexpected client location %q", location)
+		}
+		return c, nil
 	})
 	t.Cleanup(restore)
 
@@ -216,11 +285,26 @@ sources:
     database: flights
     user: "__REF__(\"//secretmanager.googleapis.com/projects/project1/secrets/num/versions/1\")"
     password: '__REF__("//secretmanager.googleapis.com/projects/project3/secrets/pass/versions/latest")'
+  pg-regional:
+    kind: postgres
+    host: 127.0.0.5
+    port: 5432
+    database: flights
+    user: app_user
+    password: __REF__("//secretmanager.googleapis.com/projects/project1/locations/us-central1/secrets/pass/versions/latest")
+  pg-regional-dedup:
+    kind: postgres
+    host: 127.0.0.6
+    port: 5432
+    database: flights
+    user: app_user
+    password: '__REF__("//secretmanager.googleapis.com/projects/project1/locations/us-central1/secrets/pass/versions/latest")'
   api-source:
     kind: http
     baseUrl: https://api.example.com/
     headers:
       Authorization: Bearer __REF__("//secretmanager.googleapis.com/projects/project1/secrets/pass/versions/3")
+      X-Regional-Key: __REF__("//secretmanager.googleapis.com/projects/project2/locations/europe-west1/secrets/api-key/versions/2")
 tools:
   get_item:
     kind: http
@@ -280,12 +364,31 @@ prompts:
 		t.Errorf("pg-quoted-special-chars password = %q, want %q", pgSpecial.Password, wantSpecial)
 	}
 
+	pgRegional, ok := cfg.Sources["pg-regional"].(pgsrc.Config)
+	if !ok {
+		t.Fatalf("expected pgsrc.Config for pg-regional, got %T", cfg.Sources["pg-regional"])
+	}
+	if pgRegional.Password != "regional-usc1-pass" {
+		t.Errorf("pg-regional password = %q, want %q", pgRegional.Password, "regional-usc1-pass")
+	}
+
+	pgRegionalDedup, ok := cfg.Sources["pg-regional-dedup"].(pgsrc.Config)
+	if !ok {
+		t.Fatalf("expected pgsrc.Config for pg-regional-dedup, got %T", cfg.Sources["pg-regional-dedup"])
+	}
+	if pgRegionalDedup.Password != "regional-usc1-pass" {
+		t.Errorf("pg-regional-dedup password = %q, want %q", pgRegionalDedup.Password, "regional-usc1-pass")
+	}
+
 	httpCfg, ok := cfg.Sources["api-source"].(httpsrc.Config)
 	if !ok {
 		t.Fatalf("expected httpsrc.Config for api-source, got %T", cfg.Sources["api-source"])
 	}
 	if got := httpCfg.DefaultHeaders["Authorization"]; got != "Bearer v3-pass" {
 		t.Errorf("Authorization header = %q, want %q", got, "Bearer v3-pass")
+	}
+	if got := httpCfg.DefaultHeaders["X-Regional-Key"]; got != "regional-euw1-key" {
+		t.Errorf("X-Regional-Key header = %q, want %q", got, "regional-euw1-key")
 	}
 
 	// Verify existing {{.param}} Go templates in HTTP tools and prompts are preserved untouched.
@@ -305,18 +408,38 @@ prompts:
 		t.Errorf("code_review prompt messages = %+v, want {{.code}} preserved", promptCfg.Messages)
 	}
 
-	// Verify deduplication: 4 unique secrets should be accessed once each despite 6 total references.
-	wantAccessed := []string{
+	// Verify one client initialized per unique location ("", "us-central1", "europe-west1").
+	wantLocations := []string{"", "us-central1", "europe-west1"}
+	if diff := cmp.Diff(wantLocations, initLocations); diff != "" {
+		t.Errorf("initialized client locations mismatch (-want +got):\n%s", diff)
+	}
+
+	// Verify deduplication across global and regional clients, and verify all clients are closed.
+	wantGlobalAccessed := []string{
 		"projects/project1/secrets/pass/versions/latest",
 		"projects/project1/secrets/pass/versions/3",
 		"projects/project1/secrets/num/versions/1",
 		"projects/project3/secrets/pass/versions/latest",
 	}
-	if diff := cmp.Diff(wantAccessed, fakeClient.accessed); diff != "" {
-		t.Errorf("accessed secrets mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff(wantGlobalAccessed, clientsByLocation[""].accessed); diff != "" {
+		t.Errorf("global accessed secrets mismatch (-want +got):\n%s", diff)
 	}
-	if !fakeClient.closed {
-		t.Errorf("expected Secret Manager client to be closed")
+	wantUSC1Accessed := []string{
+		"projects/project1/locations/us-central1/secrets/pass/versions/latest",
+	}
+	if diff := cmp.Diff(wantUSC1Accessed, clientsByLocation["us-central1"].accessed); diff != "" {
+		t.Errorf("us-central1 accessed secrets mismatch (-want +got):\n%s", diff)
+	}
+	wantEUW1Accessed := []string{
+		"projects/project2/locations/europe-west1/secrets/api-key/versions/2",
+	}
+	if diff := cmp.Diff(wantEUW1Accessed, clientsByLocation["europe-west1"].accessed); diff != "" {
+		t.Errorf("europe-west1 accessed secrets mismatch (-want +got):\n%s", diff)
+	}
+	for loc, c := range clientsByLocation {
+		if !c.closed {
+			t.Errorf("expected Secret Manager client for location %q to be closed", loc)
+		}
 	}
 }
 
@@ -414,7 +537,7 @@ sources:
 
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
+			restore := SetSecretManagerClientFactoryForTest(func(context.Context, string, ...option.ClientOption) (SecretManagerClient, error) {
 				return &fakeSecretManagerClient{
 					secrets: map[string]*secretmanagerpb.SecretPayload{
 						"projects/p1/secrets/s1/versions/1": makeSecretPayload(tc.secretPayload),
@@ -440,7 +563,7 @@ sources:
 
 func TestParseConfig_SecretResolutionFailFastErrors(t *testing.T) {
 	t.Run("missing secret fails fast", func(t *testing.T) {
-		restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
+		restore := SetSecretManagerClientFactoryForTest(func(context.Context, string, ...option.ClientOption) (SecretManagerClient, error) {
 			return &fakeSecretManagerClient{secrets: map[string]*secretmanagerpb.SecretPayload{}}, nil
 		})
 		t.Cleanup(restore)
@@ -464,7 +587,7 @@ password: __REF__("//secretmanager.googleapis.com/projects/p1/secrets/missing/ve
 
 	t.Run("corrupted CRC32C checksum fails fast", func(t *testing.T) {
 		badCRC := int64(99999)
-		restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
+		restore := SetSecretManagerClientFactoryForTest(func(context.Context, string, ...option.ClientOption) (SecretManagerClient, error) {
 			return &fakeSecretManagerClient{
 				secrets: map[string]*secretmanagerpb.SecretPayload{
 					"projects/p1/secrets/corrupt/versions/1": {
@@ -497,7 +620,7 @@ password: __REF__("//secretmanager.googleapis.com/projects/p1/secrets/corrupt/ve
 	})
 
 	t.Run("invalid UTF-8 secret payload fails fast", func(t *testing.T) {
-		restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
+		restore := SetSecretManagerClientFactoryForTest(func(context.Context, string, ...option.ClientOption) (SecretManagerClient, error) {
 			return &fakeSecretManagerClient{
 				secrets: map[string]*secretmanagerpb.SecretPayload{
 					"projects/p1/secrets/invalid-utf8/versions/1": makeSecretPayloadBytes([]byte{0xe2, 0x8c}),
@@ -524,7 +647,7 @@ password: __REF__("//secretmanager.googleapis.com/projects/p1/secrets/invalid-ut
 	})
 
 	t.Run("nil secret payload fails fast", func(t *testing.T) {
-		restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
+		restore := SetSecretManagerClientFactoryForTest(func(context.Context, string, ...option.ClientOption) (SecretManagerClient, error) {
 			return &fakeSecretManagerClient{
 				secrets: map[string]*secretmanagerpb.SecretPayload{
 					"projects/p1/secrets/empty/versions/1": nil,
@@ -551,7 +674,7 @@ password: __REF__("//secretmanager.googleapis.com/projects/p1/secrets/empty/vers
 	})
 
 	t.Run("client initialization error fails fast", func(t *testing.T) {
-		restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
+		restore := SetSecretManagerClientFactoryForTest(func(context.Context, string, ...option.ClientOption) (SecretManagerClient, error) {
 			return nil, fmt.Errorf("ADC credentials unavailable")
 		})
 		t.Cleanup(restore)
@@ -612,7 +735,7 @@ password: __REF__("invalid-uri")
 
 func TestOfflineAndMigrateDoNotFetchSecrets(t *testing.T) {
 	clientCalled := false
-	restore := SetSecretManagerClientFactoryForTest(func(context.Context, ...option.ClientOption) (SecretManagerClient, error) {
+	restore := SetSecretManagerClientFactoryForTest(func(context.Context, string, ...option.ClientOption) (SecretManagerClient, error) {
 		clientCalled = true
 		return nil, fmt.Errorf("Secret Manager client should not be called")
 	})

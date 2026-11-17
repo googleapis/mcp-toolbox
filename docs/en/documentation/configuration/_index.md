@@ -28,7 +28,7 @@ port: ${DB_PORT:3306}
 
 ### Using Google Cloud Secret Manager
 
-Instead of storing plaintext credentials in `tools.yaml` or managing environment variables, you can reference secrets directly in any configuration field using `__REF__("//secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>")`.
+You can reference global or regional secrets directly in any configuration field of `tools.yaml` instead of storing plaintext credentials or exporting environment variables. For global secrets, use `__REF__("//secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>")`. For regional secrets, use `__REF__("//secretmanager.googleapis.com/projects/<project>/locations/<location>/secrets/<secret>/versions/<version>")`.
 
 ```yaml
 kind: source
@@ -48,9 +48,18 @@ port: 5432
 database: flights
 user: app_user
 password: __REF__("//secretmanager.googleapis.com/projects/project1/secrets/pass/versions/3")
+---
+kind: source
+name: pg-regional
+type: postgres
+host: 127.0.0.3
+port: 5432
+database: flights
+user: app_user
+password: __REF__("//secretmanager.googleapis.com/projects/project1/locations/us-central1/secrets/pass/versions/latest")
 ```
 
-At startup, Toolbox evaluates `${ENV_NAME}` placeholders first, then fetches each unique `__REF__(...)` secret payload from Google Cloud Secret Manager using Application Default Credentials (ADC), verifies its CRC32C checksum, and substitutes it in memory. Make sure the runtime identity has the `roles/secretmanager.secretAccessor` IAM role on each referenced secret.
+At startup, Toolbox evaluates `${ENV_NAME}` placeholders first and then fetches each unique `__REF__(...)` secret payload using Application Default Credentials (ADC). For regional secret references, Toolbox routes requests directly to the regional endpoint (`secretmanager.<location>.rep.googleapis.com`). Toolbox compares the CRC32C checksum of each secret payload and substitutes the value in memory. Make sure that the runtime identity has the `roles/secretmanager.secretAccessor` IAM role on each referenced secret.
 
 ### Sources
 

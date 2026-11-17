@@ -22,6 +22,7 @@ import (
 	"hash/crc32"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -40,9 +41,10 @@ import (
 const refKey = "__REF__"
 
 var (
-	refOpenRegex           = regexp.MustCompile(`__REF__\s*\(`)
-	rawRefTokenRegex       = regexp.MustCompile(`__REF__\s*\([^)]*\)`)
-	secretResourceURIRegex = regexp.MustCompile(`^//secretmanager\.googleapis\.com/projects/([^/]+)/secrets/([^/]+)/versions/([^/]+)$`)
+	refOpenRegex                   = regexp.MustCompile(`__REF__\s*\(`)
+	rawRefTokenRegex               = regexp.MustCompile(`__REF__\s*\([^)]*\)`)
+	globalSecretResourceURIRegex   = regexp.MustCompile(`^//secretmanager\.googleapis\.com/projects/([a-zA-Z0-9._:-]+)/secrets/([a-zA-Z0-9_-]+)/versions/([a-zA-Z0-9_-]+)$`)
+	regionalSecretResourceURIRegex = regexp.MustCompile(`^//secretmanager\.googleapis\.com/projects/([a-zA-Z0-9._:-]+)/locations/([a-zA-Z0-9_-]+)/secrets/([a-zA-Z0-9_-]+)/versions/([a-zA-Z0-9_-]+)$`)
 )
 
 // SecretManagerClient abstracts the Google Cloud Secret Manager client for testing.
@@ -51,14 +53,24 @@ type SecretManagerClient interface {
 	Close() error
 }
 
-// newSecretManagerClient creates a Google Cloud Secret Manager client using ADC.
-var newSecretManagerClient = func(ctx context.Context, opts ...option.ClientOption) (SecretManagerClient, error) {
+func regionalSecretManagerEndpoint(location string) string {
+	return fmt.Sprintf("secretmanager.%s.rep.googleapis.com:443", location)
+}
+
+// newSecretManagerClient creates a Global or Regional Google Cloud Secret Manager client using ADC.
+// When location is non-empty, requests are routed to the regional endpoint
+// (secretmanager.<location>.rep.googleapis.com:443).
+var newSecretManagerClient = func(ctx context.Context, location string, opts ...option.ClientOption) (SecretManagerClient, error) {
+	if location != "" {
+		opts = slices.Clone(opts)
+		opts = append(opts, option.WithEndpoint(regionalSecretManagerEndpoint(location)))
+	}
 	return secretmanager.NewClient(ctx, opts...)
 }
 
 // SetSecretManagerClientFactoryForTest overrides the Secret Manager client factory in tests
 // and returns a restore function.
-func SetSecretManagerClientFactoryForTest(fn func(ctx context.Context, opts ...option.ClientOption) (SecretManagerClient, error)) func() {
+func SetSecretManagerClientFactoryForTest(fn func(ctx context.Context, location string, opts ...option.ClientOption) (SecretManagerClient, error)) func() {
 	orig := newSecretManagerClient
 	newSecretManagerClient = fn
 	return func() {
@@ -69,12 +81,16 @@ func SetSecretManagerClientFactoryForTest(fn func(ctx context.Context, opts ...o
 // SecretRef represents a parsed inline __REF__(...) Secret Manager reference.
 type SecretRef struct {
 	Project  string
+	Location string // empty for Global Secret Manager, non-empty for Regional Secret Manager
 	SecretID string
 	Version  string
 }
 
 // ResourceName returns the Secret Manager secret version resource path.
 func (r SecretRef) ResourceName() string {
+	if r.Location != "" {
+		return fmt.Sprintf("projects/%s/locations/%s/secrets/%s/versions/%s", r.Project, r.Location, r.SecretID, r.Version)
+	}
 	return fmt.Sprintf("projects/%s/secrets/%s/versions/%s", r.Project, r.SecretID, r.Version)
 }
 
@@ -85,7 +101,8 @@ func randomTemplateVarID() string {
 
 // ParseInlineSecretRef parses the inner expression inside __REF__(...).
 // Supports matching double quotes, matching single quotes, or unquoted URI strings of the form:
-// //secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>
+//   - //secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>
+//   - //secretmanager.googleapis.com/projects/<project>/locations/<location>/secrets/<secret>/versions/<version>
 func ParseInlineSecretRef(rawInner string) (SecretRef, error) {
 	trimmed := strings.TrimSpace(rawInner)
 	if trimmed == "" {
@@ -111,19 +128,34 @@ func ParseInlineSecretRef(rawInner string) (SecretRef, error) {
 		}
 	}
 
-	m := secretResourceURIRegex.FindStringSubmatch(uri)
-	if m == nil {
-		return SecretRef{}, fmt.Errorf(
-			"invalid secret reference %q in __REF__(...): expected \"//secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>\"",
-			uri,
-		)
+	if m := regionalSecretResourceURIRegex.FindStringSubmatch(uri); m != nil {
+		if m[2] == "global" {
+			return SecretRef{}, fmt.Errorf(
+				"invalid secret reference %q in __REF__(...): global secrets must omit '/locations/global' and use \"//secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>\"",
+				uri,
+			)
+		}
+		return SecretRef{
+			Project:  m[1],
+			Location: m[2],
+			SecretID: m[3],
+			Version:  m[4],
+		}, nil
 	}
 
-	return SecretRef{
-		Project:  m[1],
-		SecretID: m[2],
-		Version:  m[3],
-	}, nil
+	if m := globalSecretResourceURIRegex.FindStringSubmatch(uri); m != nil {
+		return SecretRef{
+			Project:  m[1],
+			Location: "",
+			SecretID: m[2],
+			Version:  m[3],
+		}, nil
+	}
+
+	return SecretRef{}, fmt.Errorf(
+		"invalid secret reference %q in __REF__(...): expected \"//secretmanager.googleapis.com/projects/<project>/secrets/<secret>/versions/<version>\" or \"//secretmanager.googleapis.com/projects/<project>/locations/<location>/secrets/<secret>/versions/<version>\"",
+		uri,
+	)
 }
 
 // findInlineSecretRefs locates and validates all __REF__(...) placeholders within a decoded YAML string value.
@@ -171,23 +203,32 @@ func FetchSecretRefs(ctx context.Context, refs []SecretRef) (map[string]string, 
 		}
 	}
 
-	var clientOpts []option.ClientOption
+	var baseOpts []option.ClientOption
 	if ua, err := util.UserAgentFromContext(ctx); err == nil && ua != "" {
-		clientOpts = append(clientOpts, option.WithUserAgent(ua))
+		baseOpts = append(baseOpts, option.WithUserAgent(ua))
 	}
 
-	client, err := newSecretManagerClient(ctx, clientOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize Secret Manager client: %w", err)
-	}
+	clients := make(map[string]SecretManagerClient)
 	defer func() {
-		_ = client.Close()
+		for _, c := range clients {
+			_ = c.Close()
+		}
 	}()
 
 	crc32cTable := crc32.MakeTable(crc32.Castagnoli)
 	resolved := make(map[string]string, len(uniqueRefs))
 
 	for _, ref := range uniqueRefs {
+		client, ok := clients[ref.Location]
+		if !ok {
+			var err error
+			client, err = newSecretManagerClient(ctx, ref.Location, baseOpts...)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize Secret Manager client: %w", err)
+			}
+			clients[ref.Location] = client
+		}
+
 		resName := ref.ResourceName()
 		resp, err := client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
 			Name: resName,
