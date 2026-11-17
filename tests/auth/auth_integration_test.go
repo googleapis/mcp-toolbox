@@ -546,7 +546,7 @@ func TestMcpAuthPRMURLWithPath(t *testing.T) {
 	}
 
 	// Verify WWW-Authenticate header challenge advertises the RFC 9728 §3.1 PRM URL
-	mcpURL := fmt.Sprintf("http://127.0.0.1:%d/mcp", port)
+	mcpURL := baseURL
 	mcpResp, err := http.Get(mcpURL)
 	if err != nil {
 		t.Fatalf("failed to send unauthenticated MCP request: %v", err)
