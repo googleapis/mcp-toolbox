@@ -57,7 +57,7 @@ const listIndexesStatement = `
         JOIN pg_catalog.pg_stat_all_indexes s
             ON i.oid = s.indexrelid
         WHERE
-            t.relkind = 'r'
+            t.relkind IN ('r', 'm')
             AND s.schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
             AND s.schemaname NOT LIKE 'pg_temp_%'
     )
