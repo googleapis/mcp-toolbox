@@ -11,6 +11,15 @@
 -- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
+CREATE TABLE IF NOT EXISTS $TABLE_NAME (
+  id            INTEGER NOT NULL PRIMARY KEY,
+  name          VARCHAR NOT NULL,
+  location      VARCHAR NOT NULL,
+  price_tier    VARCHAR NOT NULL,
+  checkin_date  DATE    NOT NULL,
+  checkout_date DATE    NOT NULL,
+  booked        BIT     NOT NULL
+);
 
 TRUNCATE TABLE $TABLE_NAME;
 
