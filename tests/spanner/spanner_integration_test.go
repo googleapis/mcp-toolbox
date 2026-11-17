@@ -30,7 +30,6 @@ import (
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 )
@@ -85,10 +84,6 @@ func stopSpannerServer(ctx context.Context, cmd *tests.CmdExec) {
 	defer exitCancel()
 	_ = cmd.Wait(exitCtx)
 	http.DefaultClient.CloseIdleConnections()
-}
-
-func newSpannerTestResourceName(prefix string) string {
-	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", ""))
 }
 
 func cleanupOldSpannerResources(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dataClient *spanner.Client, dbString, schema string) {
@@ -357,7 +352,9 @@ func setupSpannerPgVectorTable(t *testing.T, ctx context.Context, adminClient *d
 	}
 
 	return tableName, func(t *testing.T) {
-		op, err = adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		op, err = adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
 		})
@@ -365,7 +362,7 @@ func setupSpannerPgVectorTable(t *testing.T, ctx context.Context, adminClient *d
 			t.Errorf("unable to start drop %s operation: %s", tableName, err)
 			return
 		}
-		opErr := op.Wait(ctx)
+		opErr := op.Wait(teardownCtx)
 		if opErr != nil {
 			t.Errorf("Teardown failed: %s", opErr)
 		}
