@@ -2351,6 +2351,15 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 	cleanup := setupPostgresIndex(t, ctx, pool, schemaName, tableName)
 	defer cleanup(t)
 
+	// Materialized view with an index; it is dropped together with the schema in cleanup.
+	mviewName := "mview1_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %s.%s AS SELECT id, email FROM %s.%s;", schemaName, mviewName, schemaName, tableName)); err != nil {
+		t.Fatalf("unable to create materialized view %s: %v", mviewName, err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE UNIQUE INDEX %s_id_idx ON %s.%s (id);", mviewName, schemaName, mviewName)); err != nil {
+		t.Fatalf("unable to create index %s_id_idx: %v", mviewName, err)
+	}
+
 	// Primary key index
 	wantIndexPK := map[string]any{
 		"schema_name":      schemaName,
@@ -2388,6 +2397,18 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 
 	allWantIndexes := []map[string]any{wantIndexEmail, wantIndexName, wantIndexPK}
 
+	// Unique index on the materialized view
+	wantIndexMView := map[string]any{
+		"schema_name":      schemaName,
+		"table_name":       mviewName,
+		"index_name":       mviewName + "_id_idx",
+		"index_type":       "btree",
+		"is_unique":        true,
+		"is_primary":       false,
+		"is_used":          false,
+		"index_definition": fmt.Sprintf("CREATE UNIQUE INDEX %s_id_idx ON %s.%s USING btree (id)", mviewName, schemaName, mviewName),
+	}
+
 	invokeTcs := []struct {
 		name           string
 		requestBody    io.Reader
@@ -2406,7 +2427,13 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 			name:           "list_indexes for a specific schema",
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s"}`, schemaName)),
 			wantStatusCode: http.StatusOK,
-			want:           allWantIndexes,
+			want:           []map[string]any{wantIndexMView, wantIndexEmail, wantIndexName, wantIndexPK},
+		},
+		{
+			name:           "list_indexes for a materialized view",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s"}`, schemaName, mviewName)),
+			wantStatusCode: http.StatusOK,
+			want:           []map[string]any{wantIndexMView},
 		},
 		{
 			name:           "list_indexes with non-existent schema",
