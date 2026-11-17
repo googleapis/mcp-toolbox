@@ -20,7 +20,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -35,11 +37,23 @@ import (
 	"github.com/googleapis/mcp-toolbox/tests"
 )
 
+func getFreePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to allocate free port: %v", err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
 // TestMcpAuth test for MCP Authorization
 func TestMcpAuth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
+	port := getFreePort(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	// Set up generic auth mock server
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -108,7 +122,7 @@ func TestMcpAuth(t *testing.T) {
 			},
 		},
 	}
-	args := []string{"--toolbox-url=http://127.0.0.1:5000"}
+	args := []string{fmt.Sprintf("--toolbox-url=%s", baseURL), fmt.Sprintf("--port=%d", port)}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
@@ -123,8 +137,8 @@ func TestMcpAuth(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	apiSSE := "http://127.0.0.1:5000/mcp/sse"
-	apiMCP := "http://127.0.0.1:5000/mcp"
+	apiSSE := fmt.Sprintf("%s/mcp/sse", baseURL)
+	apiMCP := fmt.Sprintf("%s/mcp", baseURL)
 
 	// Generate invalid token (wrong scopes)
 	invalidToken := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
@@ -184,7 +198,8 @@ func TestMcpAuth(t *testing.T) {
 			token:          "",
 			wantStatusCode: http.StatusUnauthorized,
 			checkWWWAuth: func(t *testing.T, authHeader string) {
-				if !strings.Contains(authHeader, `resource_metadata="http://127.0.0.1:5000/.well-known/oauth-protected-resource"`) || !strings.Contains(authHeader, `scope="read:files"`) {
+				expectedMeta := fmt.Sprintf(`resource_metadata="%s/.well-known/oauth-protected-resource"`, baseURL)
+				if !strings.Contains(authHeader, expectedMeta) || !strings.Contains(authHeader, `scope="read:files"`) {
 					t.Fatalf("expected WWW-Authenticate header to contain resource_metadata and scope, got: %s", authHeader)
 				}
 			},
@@ -194,7 +209,8 @@ func TestMcpAuth(t *testing.T) {
 			token:          invalidSignedString,
 			wantStatusCode: http.StatusForbidden,
 			checkWWWAuth: func(t *testing.T, authHeader string) {
-				if !strings.Contains(authHeader, `resource_metadata="http://127.0.0.1:5000/.well-known/oauth-protected-resource"`) || !strings.Contains(authHeader, `scope="read:files"`) || !strings.Contains(authHeader, `error="insufficient_scope"`) {
+				expectedMeta := fmt.Sprintf(`resource_metadata="%s/.well-known/oauth-protected-resource"`, baseURL)
+				if !strings.Contains(authHeader, expectedMeta) || !strings.Contains(authHeader, `scope="read:files"`) || !strings.Contains(authHeader, `error="insufficient_scope"`) {
 					t.Fatalf("expected WWW-Authenticate header to contain error, scope, and resource_metadata, got: %s", authHeader)
 				}
 			},
@@ -339,10 +355,13 @@ func TestGoogleOAuthValidation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
+	port := getFreePort(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+
 	// Get access token
 	accessToken, err := sources.GetIAMAccessToken(ctx)
 	if err != nil {
-		t.Errorf("error getting access token from ADC: %s", err)
+		t.Fatalf("error getting access token from ADC: %s", err)
 	}
 
 	// Call tokeninfo to get audience
@@ -381,7 +400,7 @@ func TestGoogleOAuthValidation(t *testing.T) {
 		"tools": map[string]any{},
 	}
 
-	args := []string{"--toolbox-url=http://127.0.0.1:5006", "--port=5006"}
+	args := []string{fmt.Sprintf("--toolbox-url=%s", baseURL), fmt.Sprintf("--port=%d", port)}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
@@ -396,7 +415,7 @@ func TestGoogleOAuthValidation(t *testing.T) {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
-	api := "http://127.0.0.1:5006/mcp/sse"
+	api := fmt.Sprintf("%s/mcp/sse", baseURL)
 
 	req, _ := http.NewRequest(http.MethodGet, api, nil)
 	req.Header.Add("Authorization", "Bearer "+accessToken)
@@ -418,6 +437,9 @@ func TestGoogleOAuthValidationNoClientIDOrAudienceFails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
+	port := getFreePort(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+
 	toolsFile := map[string]any{
 		"sources": map[string]any{},
 		"authServices": map[string]any{
@@ -429,7 +451,7 @@ func TestGoogleOAuthValidationNoClientIDOrAudienceFails(t *testing.T) {
 		"tools": map[string]any{},
 	}
 
-	args := []string{"--toolbox-url=http://127.0.0.1:5007", "--port=5007"}
+	args := []string{fmt.Sprintf("--toolbox-url=%s", baseURL), fmt.Sprintf("--port=%d", port)}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
@@ -450,6 +472,9 @@ func TestGoogleOAuthValidationNoClientIDOrAudienceFails(t *testing.T) {
 func TestMcpAuthPRMURLWithPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+
+	port := getFreePort(t)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d/mcp", port)
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -494,7 +519,7 @@ func TestMcpAuthPRMURLWithPath(t *testing.T) {
 		},
 		"tools": map[string]any{},
 	}
-	args := []string{"--toolbox-url=http://127.0.0.1:5008/mcp", "--port=5008"}
+	args := []string{fmt.Sprintf("--toolbox-url=%s", baseURL), fmt.Sprintf("--port=%d", port)}
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
@@ -510,7 +535,7 @@ func TestMcpAuthPRMURLWithPath(t *testing.T) {
 	}
 
 	// Verify PRM document is served at the RFC 9728 §3.1 path
-	prmURL := "http://127.0.0.1:5008/.well-known/oauth-protected-resource/mcp"
+	prmURL := fmt.Sprintf("http://127.0.0.1:%d/.well-known/oauth-protected-resource/mcp", port)
 	prmResp, err := http.Get(prmURL)
 	if err != nil {
 		t.Fatalf("failed to fetch PRM document: %v", err)
@@ -521,7 +546,7 @@ func TestMcpAuthPRMURLWithPath(t *testing.T) {
 	}
 
 	// Verify WWW-Authenticate header challenge advertises the RFC 9728 §3.1 PRM URL
-	mcpURL := "http://127.0.0.1:5008/mcp"
+	mcpURL := fmt.Sprintf("http://127.0.0.1:%d/mcp", port)
 	mcpResp, err := http.Get(mcpURL)
 	if err != nil {
 		t.Fatalf("failed to send unauthenticated MCP request: %v", err)
@@ -531,7 +556,7 @@ func TestMcpAuthPRMURLWithPath(t *testing.T) {
 		t.Fatalf("expected MCP status 401, got %d", mcpResp.StatusCode)
 	}
 	authHeader := mcpResp.Header.Get("WWW-Authenticate")
-	expectedMetadata := `resource_metadata="http://127.0.0.1:5008/.well-known/oauth-protected-resource/mcp"`
+	expectedMetadata := fmt.Sprintf(`resource_metadata="http://127.0.0.1:%d/.well-known/oauth-protected-resource/mcp"`, port)
 	if !strings.Contains(authHeader, expectedMetadata) {
 		t.Fatalf("expected WWW-Authenticate header to contain %q, got: %s", expectedMetadata, authHeader)
 	}
