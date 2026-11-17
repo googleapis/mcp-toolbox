@@ -18,6 +18,7 @@ require (
 	cloud.google.com/go/longrunning v1.4.1
 	cloud.google.com/go/monitoring v1.32.1
 	cloud.google.com/go/resourcemanager v1.18.1
+	cloud.google.com/go/secretmanager v1.22.0
 	cloud.google.com/go/spanner v1.96.1
 	cloud.google.com/go/storage v1.70.0
 	cloud.google.com/go/trace v1.18.1
@@ -47,6 +48,7 @@ require (
 	github.com/godror/godror v0.51.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
+	github.com/google/safetext v0.1.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/jackc/pgx/v5 v5.12.0
@@ -237,6 +239,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect
+	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
@@ -289,7 +292,9 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
+	mvdan.cc/sh/v3 v3.14.1 // indirect
 )
