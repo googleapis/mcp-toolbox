@@ -435,7 +435,7 @@ func (t *pulseTool) checkLegacyFeatures(ctx context.Context, source compatibleSo
 		logger.ErrorContext(ctx, err.Error())
 		return []map[string]string{{"Feature": "Unable to pull legacy features due to SDK error"}}, nil
 	}
-	var legacyFeatures []map[string]string
+	legacyFeatures := []map[string]string{}
 	for _, f := range features {
 		if *f.Enabled {
 			legacyFeatures = append(legacyFeatures, map[string]string{"Feature": *f.Name})

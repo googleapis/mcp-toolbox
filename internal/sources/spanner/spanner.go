@@ -28,6 +28,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
 const SourceType string = "spanner"
@@ -46,17 +47,79 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (sources
 	if err := decoder.DecodeContext(ctx, &actual); err != nil {
 		return nil, err
 	}
+	if err := actual.validate(); err != nil {
+		return nil, fmt.Errorf("invalid Spanner configuration: %w", err)
+	}
+	// Spanner Omni ignores project and instance, but the client still needs
+	// them to build the database path.
+	if actual.isOmni() {
+		if actual.Project == "" {
+			actual.Project = omniDefaultName
+		}
+		if actual.Instance == "" {
+			actual.Instance = omniDefaultName
+		}
+	}
 	return actual, nil
 }
 
+// InstanceTypeOmni selects a Spanner Omni deployment instead of Cloud Spanner.
+const InstanceTypeOmni = "omni"
+
+const omniDefaultName = "default"
+
 type Config struct {
-	Name           string          `yaml:"name" validate:"required"`
-	Type           string          `yaml:"type" validate:"required"`
-	Project        string          `yaml:"project" validate:"required"`
-	Instance       string          `yaml:"instance" validate:"required"`
+	Name string `yaml:"name" validate:"required"`
+	Type string `yaml:"type" validate:"required"`
+	// Project and Instance are required for Cloud Spanner and optional for
+	// Spanner Omni.
+	Project        string          `yaml:"project"`
+	Instance       string          `yaml:"instance"`
 	Dialect        sources.Dialect `yaml:"dialect" validate:"required"`
 	Database       string          `yaml:"database" validate:"required"`
 	UseClientOAuth bool            `yaml:"useClientOAuth"`
+	// InstanceType is "cloud" (default) or "omni". The omni-prefixed fields
+	// apply only to Spanner Omni.
+	InstanceType              string `yaml:"instanceType" validate:"omitempty,oneof=cloud omni"`
+	OmniEndpoint              string `yaml:"omniEndpoint"`
+	OmniUsePlainText          bool   `yaml:"omniUsePlainText"`
+	OmniCaCertificateFile     string `yaml:"omniCaCertificateFile"`
+	OmniClientCertificateFile string `yaml:"omniClientCertificateFile"`
+	OmniClientKeyFile         string `yaml:"omniClientKeyFile"`
+	OmniUsername              string `yaml:"omniUsername"`
+	OmniPassword              string `yaml:"omniPassword"`
+}
+
+func (r Config) isOmni() bool {
+	return r.InstanceType == InstanceTypeOmni
+}
+
+func (r Config) validate() error {
+	if !r.isOmni() {
+		if r.Project == "" {
+			return fmt.Errorf("project is required")
+		}
+		if r.Instance == "" {
+			return fmt.Errorf("instance is required")
+		}
+		if r.OmniEndpoint != "" || r.OmniUsePlainText || r.OmniCaCertificateFile != "" || r.OmniClientCertificateFile != "" || r.OmniClientKeyFile != "" || r.OmniUsername != "" || r.OmniPassword != "" {
+			return fmt.Errorf("omniEndpoint, omniUsePlainText, omniCaCertificateFile, omniClientCertificateFile, omniClientKeyFile, omniUsername, and omniPassword require instanceType %q", InstanceTypeOmni)
+		}
+		return nil
+	}
+	switch {
+	case r.OmniEndpoint == "":
+		return fmt.Errorf("omniEndpoint is required when instanceType is %q", r.InstanceType)
+	case r.UseClientOAuth:
+		return fmt.Errorf("useClientOAuth is not supported when instanceType is %q", r.InstanceType)
+	case r.OmniUsePlainText && (r.OmniCaCertificateFile != "" || r.OmniClientCertificateFile != "" || r.OmniClientKeyFile != "" || r.OmniUsername != "" || r.OmniPassword != ""):
+		return fmt.Errorf("omniUsePlainText cannot be combined with TLS certificates or omniUsername/omniPassword")
+	case (r.OmniClientCertificateFile == "") != (r.OmniClientKeyFile == ""):
+		return fmt.Errorf("omniClientCertificateFile and omniClientKeyFile must be set together")
+	case (r.OmniUsername == "") != (r.OmniPassword == ""):
+		return fmt.Errorf("omniUsername and omniPassword must be set together")
+	}
+	return nil
 }
 
 func (r Config) SourceConfigType() string {
@@ -64,7 +127,7 @@ func (r Config) SourceConfigType() string {
 }
 
 func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.Source, error) {
-	client, err := initSpannerClient(ctx, tracer, r.Name, r.Project, r.Instance, r.Database)
+	client, err := initSpannerClient(ctx, tracer, r)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create client: %w", err)
 	}
@@ -199,20 +262,32 @@ func (s *Source) RunSQL(ctx context.Context, readOnly bool, statement string, pa
 	return results, nil
 }
 
-func initSpannerClient(ctx context.Context, tracer trace.Tracer, name, project, instance, dbname string) (*spanner.Client, error) {
+func initSpannerClient(ctx context.Context, tracer trace.Tracer, r Config) (*spanner.Client, error) {
 	//nolint:all // Reassigned ctx
-	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
+	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, r.Name)
 	defer span.End()
 
 	// Configure the connection to the database
-	db := fmt.Sprintf("projects/%s/instances/%s/databases/%s", project, instance, dbname)
+	db := fmt.Sprintf("projects/%s/instances/%s/databases/%s", r.Project, r.Instance, r.Database)
 
 	// Create spanner client
 	userAgent, err := util.UserAgentFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	client, err := spanner.NewClientWithConfig(ctx, db, spanner.ClientConfig{UserAgent: userAgent})
+	config := spanner.ClientConfig{UserAgent: userAgent}
+	var opts []option.ClientOption
+	if r.isOmni() {
+		config.Type = spanner.OMNI
+		config.UsePlainText = r.OmniUsePlainText
+		config.CaCertificateFile = r.OmniCaCertificateFile
+		config.ClientCertificateFile = r.OmniClientCertificateFile
+		config.ClientKeyFile = r.OmniClientKeyFile
+		config.Username = r.OmniUsername
+		config.Password = []byte(r.OmniPassword)
+		opts = append(opts, option.WithEndpoint(r.OmniEndpoint))
+	}
+	client, err := spanner.NewClientWithConfig(ctx, db, config, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new client: %w", err)
 	}
@@ -221,6 +296,9 @@ func initSpannerClient(ctx context.Context, tracer trace.Tracer, name, project, 
 }
 
 func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any, tokenStr string) ([]searchcatalog.DataplexSearchResponse, error) {
+	if s.isOmni() {
+		return nil, fmt.Errorf("search catalog is not supported for Spanner Omni sources")
+	}
 	typeMap := map[string]string{
 		"cloud-spanner-instance": "SERVICE",
 		"cloud-spanner-database": "DATABASE",

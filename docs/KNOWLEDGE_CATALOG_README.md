@@ -1,13 +1,13 @@
 # Knowledge Catalog MCP Server
 
-The Knowledge Catalog (formerly known as Dataplex) Model Context Protocol (MCP) Server gives AI-powered development tools the ability to work with your Google Cloud Knowledge Catalog. It supports searching and looking up entries and aspect types.
+The Knowledge Catalog (formerly known as Dataplex) Model Context Protocol (MCP) Server gives AI-powered development tools the ability to work with your Google Cloud Knowledge Catalog. It supports searching and looking up entries, managing Data Products and Data Assets, and searching data quality scans.
 
 ## Features
 
 An editor configured to use the Knowledge Catalog MCP server can use its AI capabilities to help you:
 
 - **Search Catalog** - Search for entries in Knowledge Catalog
-- **Explore Metadata** - Lookup specific entries, search aspect types, and list/retrieve Data Products and Data Assets
+- **Explore Metadata** - Lookup specific entries and list/retrieve Data Products and Data Assets
 - **Data Quality** - Search for data quality scans
 
 ## Prerequisites
@@ -60,7 +60,6 @@ The Knowledge Catalog MCP server provides the following tools:
 |:------------------------------|:-----------------------------------------------------------------------------------------------------------------------------|
 | `search_entries`              | Search for entries in Knowledge Catalog.                                                                                     |
 | `lookup_entry`                | Retrieve specific subset of metadata (for example, schema, usage, business overview, and contacts) of a specific data asset. |
-| `search_aspect_types`         | Find aspect types relevant to the query.                                                                                     |
 | `lookup_context`              | Retrieve rich metadata regarding one or more data assets along with their relationships.                                     |
 | `search_dq_scans`             | Search for Data Quality scans.                                                                                               |
 | `list_data_products`          | List Data Products for the current project.                                                                                  |

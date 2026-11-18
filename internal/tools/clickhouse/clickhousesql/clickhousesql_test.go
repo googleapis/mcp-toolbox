@@ -250,7 +250,7 @@ func TestToolAuthorized(t *testing.T) {
 				),
 			}
 
-			authorized := tool.Authorized(tt.verifiedAuthServices)
+			authorized := tools.IsAuthorized(tool.GetAuthRequired(), tt.verifiedAuthServices)
 			if authorized != tt.expectedAuthorized {
 				t.Errorf("Expected authorized %t, got %t", tt.expectedAuthorized, authorized)
 			}

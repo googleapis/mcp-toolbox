@@ -155,6 +155,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		if v.GroupLabel != nil {
 			vMap["group_label"] = *v.GroupLabel
 		}
+		if v.Hidden != nil {
+			vMap["hidden"] = *v.Hidden
+		}
 		logger.DebugContext(ctx, "Converted to %v\n", vMap)
 		data = append(data, vMap)
 	}
