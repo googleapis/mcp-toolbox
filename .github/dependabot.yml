@@ -1,0 +1,192 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: 2
+updates:
+  # 1. Core Toolbox Go module (group minor/patch CVEs; leave major bumps separate)
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    groups:
+      go-security:
+        applies-to: security-updates
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+
+  # 2. Go Sample modules (single grouped PR across all Go samples under /docs)
+  - package-ecosystem: "gomod"
+    directories:
+      - "/docs/**/*"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      go-samples-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # 3. Hugo Go modules
+  - package-ecosystem: "gomod"
+    directory: "/.hugo"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      hugo-go-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # 4. JS Sample packages (single grouped PR across all JS samples under /docs)
+  - package-ecosystem: "npm"
+    directories:
+      - "/docs/**/*"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      js-samples-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # 5. Hugo Node tooling
+  - package-ecosystem: "npm"
+    directory: "/.hugo"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      hugo-npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # 6. Python Sample requirements (single grouped PR across all Python samples under /docs)
+  - package-ecosystem: "pip"
+    directories:
+      - "/docs/**/*"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      python-samples-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # 7. PyPI wrapper package build metadata
+  - package-ecosystem: "pip"
+    directory: "/pypi"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      pypi-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # 8. Container base images
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "fix"
+      include: "scope"
+    groups:
+      docker-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # 9. GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 0
+    labels:
+      - "type: process"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      github-actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
