@@ -261,6 +261,77 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "CREATE TEMP MODEL with BigQuery session-prefixed ddlTargetTable succeeds",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_a1b2c3d4e5f6",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "CREATE TEMP MODEL over authorized view with BigQuery session-prefixed ddlTargetTable succeeds",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS (SELECT * FROM `proj.allowed_ds.v`)",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_a1b2c3d4e5f6",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "Session temp object option does not exempt non-anonymous dataset in ddlTargetTable",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "forbidden_ds",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr:     true,
+			wantErrSubs: []string{"access to dataset 'proj.forbidden_ds' is not allowed"},
+		},
+		{
+			name: "Session temp object option does not exempt ReferencedTables even in underscore dataset",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+				{ProjectId: "proj", DatasetId: "_secret_ds", TableId: "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_a1b2c3d4e5f6",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr:     true,
+			wantErrSubs: []string{"access to dataset 'proj._secret_ds' is not allowed"},
+		},
+		{
 			name: "CREATE TEMP MODEL without session temp object option fails on unqualified model name",
 			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
 			referencedTables: []*bigquery.TableReference{
@@ -335,7 +406,11 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
-					if err := json.NewEncoder(w).Encode(&bigquery.Table{Type: "VIEW"}); err != nil {
+					tblType := "TABLE"
+					if strings.HasSuffix(r.URL.Path, "/tables/v") {
+						tblType = "VIEW"
+					}
+					if err := json.NewEncoder(w).Encode(&bigquery.Table{Type: tblType}); err != nil {
 						t.Errorf("failed to encode mock table response: %v", err)
 					}
 					return

@@ -158,6 +158,30 @@ func (o *validateOptions) isSessionTempObject(name string) bool {
 	return false
 }
 
+// isSessionTempTargetTable checks whether a dry-run DdlTargetTable corresponds to
+// a server-generated session temporary object (such as a CREATE TEMP MODEL target).
+// In BigQuery sessions, anonymous session datasets start with "_" and session
+// temporary object IDs are prefixed with "_<session_id_with_underscores>_".
+func (o *validateOptions) isSessionTempTargetTable(projectID string, tableRef *bigqueryrestapi.TableReference) bool {
+	if tableRef == nil || projectID == "" {
+		return false
+	}
+	if !strings.EqualFold(tableRef.ProjectId, projectID) || !strings.HasPrefix(tableRef.DatasetId, "_") {
+		return false
+	}
+	lowerTableID := strings.ToLower(tableRef.TableId)
+	for _, tempName := range o.sessionTempObjects {
+		lowerTemp := strings.ToLower(tempName)
+		if lowerTableID == lowerTemp {
+			return true
+		}
+		if strings.HasPrefix(lowerTableID, "_") && strings.HasSuffix(lowerTableID, "_"+lowerTemp) {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateQueryAgainstAllowedDatasets validates a SQL query against a list of allowed datasets.
 //
 // Why custom SQL parsing (TableParserDetailed & IsAnyTableExplicitlyReferenced) is needed
@@ -305,7 +329,10 @@ func ValidateQueryAgainstAllowedDatasets(
 			addTableRef(tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)
 		}
 	}
-	if tableRef := queryStats.DdlTargetTable; tableRef != nil {
+	// Skip server-generated session temporary DDL targets (e.g. CREATE TEMP MODEL),
+	// which BigQuery places in an anonymous session dataset (_<hex>) with a
+	// session-prefixed table ID (_<session_uuid>_<model_id>).
+	if tableRef := queryStats.DdlTargetTable; tableRef != nil && !vOpts.isSessionTempTargetTable(projectID, tableRef) {
 		addTableRef(tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)
 	}
 	if tableRef := queryStats.DdlDestinationTable; tableRef != nil {
@@ -321,11 +348,6 @@ func ValidateQueryAgainstAllowedDatasets(
 	for ref := range tableRefSet {
 		// Skip validation for specific system functions that BigQuery reports as referenced tables.
 		if IsSystemResource(ref.DatasetID, ref.TableID) {
-			continue
-		}
-		// Skip server-generated session temporary objects (e.g. CREATE TEMP MODEL targets),
-		// which BigQuery places in an anonymous session dataset (_<hex>).
-		if vOpts.isSessionTempObject(ref.TableID) {
 			continue
 		}
 		if !validator.IsDatasetAllowed(ref.ProjectID, ref.DatasetID) {

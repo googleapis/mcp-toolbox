@@ -484,7 +484,7 @@ func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
 						queryStats["ddlTargetTable"] = map[string]any{
 							"projectId": "test-project",
 							"datasetId": "_anon_session_dataset",
-							"tableId":   modelName,
+							"tableId":   "_01234567_89ab_cdef_0123_456789abcdef_" + modelName,
 						}
 					}
 
