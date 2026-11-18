@@ -21,7 +21,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"text/template"
+	"text/template" // NOLINT: renders connection message, not YAML
 	"time"
 
 	"github.com/goccy/go-yaml"

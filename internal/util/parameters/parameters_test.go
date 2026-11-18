@@ -760,6 +760,51 @@ func TestParametersParse(t *testing.T) {
 			},
 		},
 		{
+			name: "string not allowed trailing SQL injection",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("tableName", "table name", parameters.WithStringAllowedValues([]any{"public_users", "public_orders"})),
+			},
+			in: map[string]any{
+				"tableName": "public_users WHERE id = ? UNION SELECT id, secret_token FROM admin_secrets",
+			},
+		},
+		{
+			name: "string not allowed stacked query injection",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("tableName", "table name", parameters.WithStringAllowedValues([]any{"public_users"})),
+			},
+			in: map[string]any{
+				"tableName": "public_users WHERE 1=0; DROP TABLE admin_secrets;",
+			},
+		},
+		{
+			name: "string not allowed alternation prefix bypass",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("tableName", "table name", parameters.WithStringAllowedValues([]any{"public_users|public_orders"})),
+			},
+			in: map[string]any{
+				"tableName": "public_users; DROP TABLE admin_secrets;",
+			},
+		},
+		{
+			name: "string not allowed regex newline injection",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("tableName", "table name", parameters.WithStringAllowedValues([]any{"^public_users.*"})),
+			},
+			in: map[string]any{
+				"tableName": "public_users\nWHERE id = ? UNION SELECT id, secret_token FROM admin_secrets",
+			},
+		},
+		{
+			name: "string not allowed multiline flag newline injection",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("tableName", "table name", parameters.WithStringAllowedValues([]any{"(?m)^public_users$"})),
+			},
+			in: map[string]any{
+				"tableName": "public_users\nDROP TABLE admin_secrets;",
+			},
+		},
+		{
 			name: "string excluded",
 			params: parameters.Parameters{
 				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringExcludedValues([]any{"foo"})),
