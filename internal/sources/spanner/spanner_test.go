@@ -97,6 +97,89 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "omni with mtls",
+			in: `
+			kind: source
+			name: my-spanner-omni
+			type: spanner
+			project: default
+			instance: default
+			database: my_db
+			instanceType: omni
+			omniEndpoint: omni.example.com:15000
+			omniCaCertificateFile: /certs/ca.crt
+			omniClientCertificateFile: /certs/client.crt
+			omniClientKeyFile: /certs/client.key
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-spanner-omni": spanner.Config{
+					Name:                      "my-spanner-omni",
+					Type:                      spanner.SourceType,
+					Project:                   "default",
+					Instance:                  "default",
+					Dialect:                   "googlesql",
+					Database:                  "my_db",
+					InstanceType:              "omni",
+					OmniEndpoint:              "omni.example.com:15000",
+					OmniCaCertificateFile:     "/certs/ca.crt",
+					OmniClientCertificateFile: "/certs/client.crt",
+					OmniClientKeyFile:         "/certs/client.key",
+				},
+			},
+		},
+		{
+			desc: "omni without project and instance",
+			in: `
+			kind: source
+			name: my-spanner-omni
+			type: spanner
+			database: my_db
+			instanceType: omni
+			omniEndpoint: omni.example.com:15000
+			omniCaCertificateFile: /certs/ca.crt
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-spanner-omni": spanner.Config{
+					Name:                  "my-spanner-omni",
+					Type:                  spanner.SourceType,
+					Project:               "default",
+					Instance:              "default",
+					Dialect:               "googlesql",
+					Database:              "my_db",
+					InstanceType:          "omni",
+					OmniEndpoint:          "omni.example.com:15000",
+					OmniCaCertificateFile: "/certs/ca.crt",
+				},
+			},
+		},
+		{
+			desc: "omni with plaintext",
+			in: `
+			kind: source
+			name: my-spanner-omni
+			type: spanner
+			project: default
+			instance: default
+			database: my_db
+			instanceType: omni
+			omniEndpoint: localhost:15000
+			omniUsePlainText: true
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-spanner-omni": spanner.Config{
+					Name:             "my-spanner-omni",
+					Type:             spanner.SourceType,
+					Project:          "default",
+					Instance:         "default",
+					Dialect:          "googlesql",
+					Database:         "my_db",
+					InstanceType:     "omni",
+					OmniEndpoint:     "localhost:15000",
+					OmniUsePlainText: true,
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -154,6 +237,115 @@ func TestFailParseFromYaml(t *testing.T) {
 			instance: my-instance
 			`,
 			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": Key: 'Config.Database' Error:Field validation for 'Database' failed on the 'required' tag",
+		},
+		{
+			desc: "cloud without project",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			instance: my-instance
+			database: my_db
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: project is required",
+		},
+		{
+			desc: "cloud without instance",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			database: my_db
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: instance is required",
+		},
+		{
+			desc: "omni field without omni instance type",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			database: my_db
+			omniEndpoint: localhost:15000
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniEndpoint, omniUsePlainText, omniCaCertificateFile, omniClientCertificateFile, omniClientKeyFile, omniUsername, and omniPassword require instanceType \"omni\"",
+		},
+		{
+			desc: "omni without endpoint",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			database: my_db
+			instanceType: omni
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniEndpoint is required when instanceType is \"omni\"",
+		},
+		{
+			desc: "omni with client oauth",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			database: my_db
+			instanceType: omni
+			omniEndpoint: localhost:15000
+			useClientOAuth: true
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: useClientOAuth is not supported when instanceType is \"omni\"",
+		},
+		{
+			desc: "omni plaintext with certificate",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			database: my_db
+			instanceType: omni
+			omniEndpoint: localhost:15000
+			omniUsePlainText: true
+			omniCaCertificateFile: /certs/ca.crt
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniUsePlainText cannot be combined with TLS certificates or omniUsername/omniPassword",
+		},
+		{
+			desc: "omni client certificate without key",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			database: my_db
+			instanceType: omni
+			omniEndpoint: localhost:15000
+			omniClientCertificateFile: /certs/client.crt
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniClientCertificateFile and omniClientKeyFile must be set together",
+		},
+		{
+			desc: "omni username without password",
+			in: `
+			kind: source
+			name: my-spanner-instance
+			type: spanner
+			project: my-project
+			instance: my-instance
+			database: my_db
+			instanceType: omni
+			omniEndpoint: localhost:15000
+			omniUsername: admin
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-spanner-instance\" as \"spanner\": invalid Spanner configuration: omniUsername and omniPassword must be set together",
 		},
 	}
 	for _, tc := range tcs {

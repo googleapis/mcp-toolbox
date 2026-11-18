@@ -372,9 +372,6 @@ func getPreCheckToolsConfig() map[string]any {
 			"precheck-tool": map[string]any{
 				"type":   preCheckToolType,
 				"source": "my-cloud-sql-source",
-				"authRequired": []string{
-					"https://www.googleapis.com/auth/cloud-platform",
-				},
 			},
 		},
 	}
