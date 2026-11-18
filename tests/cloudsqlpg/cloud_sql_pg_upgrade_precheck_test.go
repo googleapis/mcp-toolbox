@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	sqladmin "google.golang.org/api/sqladmin/v1"
@@ -44,11 +45,14 @@ type preCheckTransport struct {
 }
 
 func (t *preCheckTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if strings.HasPrefix(req.URL.String(), "https://sqladmin.googleapis.com") {
-		req.URL.Scheme = t.url.Scheme
-		req.URL.Host = t.url.Host
+	switch req.URL.Hostname() {
+	case "sqladmin.googleapis.com":
+		clone := req.Clone(req.Context())
+		clone.URL.Scheme, clone.URL.Host = t.url.Scheme, t.url.Host
+		return t.transport.RoundTrip(clone)
+	default:
+		return t.transport.RoundTrip(req)
 	}
-	return t.transport.RoundTrip(req)
 }
 
 type preCheckHandler struct {
@@ -85,6 +89,11 @@ func (h *preCheckHandler) handlePreCheckV1(w http.ResponseWriter, r *http.Reques
 
 	if body.PreCheckMajorVersionUpgradeContext == nil || body.PreCheckMajorVersionUpgradeContext.TargetDatabaseVersion == "" {
 		http.Error(w, "missing targetDatabaseVersion", http.StatusBadRequest)
+		return
+	}
+	if got := body.PreCheckMajorVersionUpgradeContext.TargetDatabaseVersion; got != "POSTGRES_18" {
+		h.t.Errorf("targetDatabaseVersion = %q, want POSTGRES_18", got)
+		http.Error(w, "unexpected targetDatabaseVersion", http.StatusBadRequest)
 		return
 	}
 
@@ -175,6 +184,9 @@ func (h *preCheckHandler) handleOperations(w http.ResponseWriter, r *http.Reques
 		opResponse.PreCheckMajorVersionUpgradeContext = &sqladmin.PreCheckMajorVersionUpgradeContext{
 			PreCheckResponse: result, // This can be nil or empty
 		}
+		if result != nil {
+			opResponse.PreCheckMajorVersionUpgradeContext.ForceSendFields = []string{"PreCheckResponse"}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -195,9 +207,10 @@ type PreCheckAPIResponse struct {
 	Items []PreCheckResultItem `json:"preCheckResponse"`
 }
 
-func TestPreCheckToolEndpoints(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
+func setupPreCheckTest(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	t.Cleanup(cancel)
 
 	handler := &preCheckHandler{
 		t:            t,
@@ -205,40 +218,58 @@ func TestPreCheckToolEndpoints(t *testing.T) {
 		opPollCounts: make(map[string]int),
 	}
 	server := httptest.NewServer(handler)
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	serverURL, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
 
-	originalTransport := http.DefaultClient.Transport
-	if originalTransport == nil {
-		originalTransport = http.DefaultTransport
-	}
-	http.DefaultClient.Transport = &preCheckTransport{
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = &preCheckTransport{
 		transport: originalTransport,
 		url:       serverURL,
 	}
 	t.Cleanup(func() {
-		http.DefaultClient.Transport = originalTransport
+		http.DefaultTransport = originalTransport
 	})
 
-	args := []string{"--enable-api"}
 	toolsFile := getPreCheckToolsConfig()
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("stop toolbox: %v", err)
+		}
+		cmd.Close()
+	})
 
 	waitCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 	_, err = testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
 
+	return ctx
+}
+
+type preCheckTestOptions struct{ useMCP bool }
+
+func withPreCheckMCP(options *preCheckTestOptions) { options.useMCP = true }
+
+func runPreCheckToolCalls(t *testing.T, ctx context.Context, options ...func(*preCheckTestOptions)) {
+	t.Helper()
+	var cfg preCheckTestOptions
+	for _, option := range options {
+		option(&cfg)
+	}
 	tcs := []struct {
 		name        string
 		toolName    string
@@ -264,13 +295,13 @@ func TestPreCheckToolEndpoints(t *testing.T) {
 			name:     "successful precheck - with warnings",
 			toolName: "precheck-tool",
 			body:     `{"project": "p1", "instance": "instance-warnings", "targetDatabaseVersion": "POSTGRES_18"}`,
-			want:     `{"preCheckResponse":[{"actionsRequired":["Check documentation."],"type":"","message":"This is a warning.","messageType":"WARNING"}]}`,
+			want:     `{"preCheckResponse":[{"actionsRequired":["Check documentation."],"message":"This is a warning.","messageType":"WARNING"}]}`,
 		},
 		{
 			name:     "successful precheck - with errors",
 			toolName: "precheck-tool",
 			body:     `{"project": "p1", "instance": "instance-errors", "targetDatabaseVersion": "POSTGRES_18"}`,
-			want:     `{"preCheckResponse":[{"actionsRequired":["Fix this now."],"type":"","message":"This is a critical error.","messageType":"ERROR"}]}`,
+			want:     `{"preCheckResponse":[{"actionsRequired":["Fix this now."],"message":"This is a critical error.","messageType":"ERROR"}]}`,
 		},
 		{
 			name:        "instance not found",
@@ -282,16 +313,22 @@ func TestPreCheckToolEndpoints(t *testing.T) {
 			errorMsg:    "failed to access GCP resource: googleapi: got HTTP response code 403",
 		},
 		{
-			name:     "missing required parameter - project",
-			toolName: "precheck-tool",
-			body:     `{"instance": "instance-ok", "targetDatabaseVersion": "POSTGRES_18"}`,
-			want:     `{"error":"parameter \"project\" is required"}`,
+			name:        "missing required parameter - project",
+			toolName:    "precheck-tool",
+			body:        `{"instance": "instance-ok", "targetDatabaseVersion": "POSTGRES_18"}`,
+			want:        `{"error":"parameter \"project\" is required"}`,
+			expectError: true,
+			errorStatus: http.StatusOK,
+			errorMsg:    `parameter "project" is required`,
 		},
 		{
-			name:     "missing required parameter - instance",
-			toolName: "precheck-tool",
-			body:     `{"project": "p1", "targetDatabaseVersion": "POSTGRES_18"}`, // Missing instance
-			want:     `{"error":"parameter \"instance\" is required"}`,
+			name:        "missing required parameter - instance",
+			toolName:    "precheck-tool",
+			body:        `{"project": "p1", "targetDatabaseVersion": "POSTGRES_18"}`, // Missing instance
+			want:        `{"error":"parameter \"instance\" is required"}`,
+			expectError: true,
+			errorStatus: http.StatusOK,
+			errorMsg:    `parameter "instance" is required`,
 		},
 		{
 			name:     "missing parameter - targetDatabaseVersion",
@@ -304,6 +341,52 @@ func TestPreCheckToolEndpoints(t *testing.T) {
 	for _, tc := range tcs {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			if cfg.useMCP {
+				var arguments map[string]any
+				if err := json.Unmarshal([]byte(tc.body), &arguments); err != nil {
+					t.Fatal(err)
+				}
+				status, response, err := tests.InvokeMCPTool(t, tc.toolName, arguments, map[string]string{"Authorization": "Bearer FAKE_TOKEN"})
+				if tc.errorStatus == http.StatusInternalServerError {
+					if err != nil || status != http.StatusInternalServerError || response == nil || response.Error == nil {
+						t.Fatalf("expected server error, status=%d response=%+v err=%v", status, response, err)
+					}
+					if response.Error.Code != jsonrpc.INTERNAL_ERROR || !strings.Contains(response.Error.Message, tc.errorMsg) {
+						t.Fatalf("error=%q, want %q", response.Error.Message, tc.errorMsg)
+					}
+					return
+				}
+				if err != nil || status != http.StatusOK {
+					t.Fatalf("tools/call status=%d: %v", status, err)
+				}
+				if response.Error != nil {
+					t.Fatalf("unexpected JSON-RPC error: %+v", response.Error)
+				}
+				if response.Result.IsError != tc.expectError {
+					t.Fatalf("isError=%v, want %v: %+v", response.Result.IsError, tc.expectError, response.Result)
+				}
+				content := response.Result.Content
+				if len(content) != 1 || content[0].Type != "text" {
+					t.Fatalf("unexpected content: %+v", content)
+				}
+				if tc.expectError {
+					if !strings.Contains(content[0].Text, tc.errorMsg) {
+						t.Fatalf("error=%q, want %q", content[0].Text, tc.errorMsg)
+					}
+					return
+				}
+				var got, want any
+				if err := json.Unmarshal([]byte(content[0].Text), &got); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal([]byte(tc.want), &want); err != nil {
+					t.Fatal(err)
+				}
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Errorf("result mismatch (-want +got):\n%s", diff)
+				}
+				return
+			}
 			api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", tc.toolName)
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost, api, bytes.NewBufferString(tc.body))
 			if err != nil {
@@ -324,6 +407,22 @@ func TestPreCheckToolEndpoints(t *testing.T) {
 					t.Fatalf("expected status %d but got %d: %s", tc.errorStatus, resp.StatusCode, string(bodyBytes))
 				}
 				bodyBytes, _ := io.ReadAll(resp.Body)
+				if tc.errorStatus == http.StatusOK {
+					var envelope struct {
+						Result string `json:"result"`
+					}
+					if err := json.Unmarshal(bodyBytes, &envelope); err != nil {
+						t.Fatal(err)
+					}
+					bodyBytes = []byte(envelope.Result)
+					var failure struct {
+						Error string `json:"error"`
+					}
+					if err := json.Unmarshal(bodyBytes, &failure); err != nil {
+						t.Fatal(err)
+					}
+					bodyBytes = []byte(failure.Error)
+				}
 				if !strings.Contains(string(bodyBytes), tc.errorMsg) {
 					t.Errorf("expected error message to contain %q, got %s", tc.errorMsg, string(bodyBytes))
 				}
@@ -370,8 +469,9 @@ func getPreCheckToolsConfig() map[string]any {
 		},
 		"tools": map[string]any{
 			"precheck-tool": map[string]any{
-				"type":   preCheckToolType,
-				"source": "my-cloud-sql-source",
+				"type":        preCheckToolType,
+				"source":      "my-cloud-sql-source",
+				"description": "Check PostgreSQL upgrade readiness.",
 			},
 		},
 	}
