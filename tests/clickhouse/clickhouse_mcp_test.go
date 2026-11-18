@@ -93,9 +93,18 @@ func TestClickHouseMCPListTablesTool(t *testing.T) {
 // tests.GetExecuteSQLMCPExpectedTools can't be reused.
 func getClickHouseExecuteSQLMCPExpectedTools() []tests.MCPToolManifest {
 	inputSchema := map[string]any{
-		"type":       "object",
-		"properties": map[string]any{"sql": map[string]any{"type": "string", "description": "The SQL statement to execute."}},
-		"required":   []any{"sql"},
+		"type": "object",
+		"properties": map[string]any{
+			"sql": map[string]any{"type": "string", "description": "The SQL statement to execute."},
+			"params": map[string]any{
+				"type": "object",
+				"description": "Optional query parameters for {name:Type} placeholders in the SQL statement, by name. ClickHouse binds them " +
+					"on the server. Each value is a string in ClickHouse's text format for its type (e.g. \"42\", " +
+					"\"2024-01-31\", \"['a','b']\").",
+				"additionalProperties": map[string]any{"type": "string"},
+			},
+		},
+		"required": []any{"sql"},
 	}
 	return []tests.MCPToolManifest{
 		{Name: "my-exec-sql-tool", Description: "Tool to execute sql", InputSchema: inputSchema},

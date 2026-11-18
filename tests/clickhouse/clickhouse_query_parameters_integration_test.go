@@ -30,9 +30,11 @@ import (
 // binds params on the server: {name:Type} placeholders get typed values, and a
 // value is never read as SQL.
 func TestClickHouseExecuteSQLQueryParameters(t *testing.T) {
-	sourceConfig := getClickHouseVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	setupClickHouseInstance(ctx, t)
+	sourceConfig := getClickHouseVars(t)
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
@@ -50,10 +52,10 @@ func TestClickHouseExecuteSQLQueryParameters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
 	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
