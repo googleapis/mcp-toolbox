@@ -110,10 +110,21 @@ type ServerConfig struct {
 	SkipSourceValidation bool
 	// DisableExt specifies MCP extension URIs disabled on this server.
 	DisableExt []string
+	// DisableExtensionCheck disables client extension capability checks in older MCP protocol versions.
+	DisableExtensionCheck bool
 	// DisableVersionCheck skips checking for newer Toolbox versions on startup.
 	DisableVersionCheck bool
 	// OpenAIAppsChallengeFile specifies the path to a file containing the OpenAI verification challenge token to serve at /.well-known/openai-apps-challenge.
 	OpenAIAppsChallengeFile string
+	// OAuthProxyCACertFile specifies an optional path to a PEM-encoded CA
+	// certificate bundle to trust when the toolbox proxies OAuth token
+	// requests on behalf of a Source implementing sources.OAuthProxySource
+	// (see internal/sources/sources.go). Use this if that source's
+	// authorization server presents a certificate signed by a
+	// private/internal CA that isn't in the system trust store. If unset,
+	// normal system CA verification is used; TLS verification is never
+	// disabled.
+	OAuthProxyCACertFile string
 }
 
 type logFormat string
