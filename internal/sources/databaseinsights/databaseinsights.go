@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -192,25 +193,20 @@ func extractProjectFromPath(path string) string {
 	return ""
 }
 
-func extractLocationFromParent(parent string) string {
-	parts := strings.Split(strings.TrimPrefix(parent, "/"), "/")
-	for i := 0; i < len(parts)-1; i++ {
-		if parts[i] == "locations" {
-			return parts[i+1]
-		}
-	}
-	return ""
-}
+var parentPattern = regexp.MustCompile(`\Aprojects/[a-zA-Z0-9][a-zA-Z0-9.:-]*[a-zA-Z0-9]/locations/([a-z0-9][a-z0-9-]*[a-z0-9])\z`)
 
-func (s *Source) getEndpointForParent(parent string) string {
+func (s *Source) getEndpointForParent(parent string) (string, error) {
+	matches := parentPattern.FindStringSubmatch(parent)
+	if matches == nil || strings.Contains(parent, "..") {
+		return "", fmt.Errorf("invalid parent %q: expected format projects/{project}/locations/{location}", parent)
+	}
 	if s.endpoint != "" && s.endpoint != "https://databaseinsights.googleapis.com" {
-		return s.endpoint
+		return s.endpoint, nil
 	}
-	location := extractLocationFromParent(parent)
-	if location != "" && location != "global" {
-		return fmt.Sprintf("https://%s-databaseinsights.googleapis.com", location)
+	if location := matches[1]; location != "global" {
+		return fmt.Sprintf("https://%s-databaseinsights.googleapis.com", location), nil
 	}
-	return "https://databaseinsights.googleapis.com"
+	return "https://databaseinsights.googleapis.com", nil
 }
 
 // FetchQueryStatsRequest is the payload for fetching query execution stats.
@@ -361,7 +357,11 @@ type BatchQueryIndexRecommendationsResponse struct {
 
 // FetchQueryStats executes the FetchQueryStats REST API method.
 func (s *Source) FetchQueryStats(ctx context.Context, req *FetchQueryStatsRequest) (*FetchQueryStatsResponse, error) {
-	url := fmt.Sprintf("%s/v1beta/%s/queryStats:fetch", s.getEndpointForParent(req.Parent), req.Parent)
+	endpoint, err := s.getEndpointForParent(req.Parent)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/v1beta/%s/queryStats:fetch", endpoint, req.Parent)
 
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
@@ -395,7 +395,11 @@ func (s *Source) FetchQueryStats(ctx context.Context, req *FetchQueryStatsReques
 
 // FetchWaitEventStats executes the FetchWaitEventStats REST API method.
 func (s *Source) FetchWaitEventStats(ctx context.Context, req *FetchWaitEventStatsRequest) (*FetchWaitEventStatsResponse, error) {
-	url := fmt.Sprintf("%s/v1beta/%s/waitEventStats:fetch", s.getEndpointForParent(req.Parent), req.Parent)
+	endpoint, err := s.getEndpointForParent(req.Parent)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/v1beta/%s/waitEventStats:fetch", endpoint, req.Parent)
 
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
@@ -429,7 +433,11 @@ func (s *Source) FetchWaitEventStats(ctx context.Context, req *FetchWaitEventSta
 
 // FetchQueryTimeSeries executes the FetchQueryTimeSeries REST API method.
 func (s *Source) FetchQueryTimeSeries(ctx context.Context, req *FetchQueryTimeSeriesRequest) (*FetchQueryTimeSeriesResponse, error) {
-	url := fmt.Sprintf("%s/v1beta/%s/queryTimeSeries:fetch", s.getEndpointForParent(req.Parent), req.Parent)
+	endpoint, err := s.getEndpointForParent(req.Parent)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/v1beta/%s/queryTimeSeries:fetch", endpoint, req.Parent)
 
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
@@ -463,7 +471,11 @@ func (s *Source) FetchQueryTimeSeries(ctx context.Context, req *FetchQueryTimeSe
 
 // FetchWaitEventTimeSeries executes the FetchWaitEventTimeSeries REST API method.
 func (s *Source) FetchWaitEventTimeSeries(ctx context.Context, req *FetchWaitEventTimeSeriesRequest) (*FetchWaitEventTimeSeriesResponse, error) {
-	url := fmt.Sprintf("%s/v1beta/%s/waitEventTimeSeries:fetch", s.getEndpointForParent(req.Parent), req.Parent)
+	endpoint, err := s.getEndpointForParent(req.Parent)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/v1beta/%s/waitEventTimeSeries:fetch", endpoint, req.Parent)
 
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
@@ -497,7 +509,11 @@ func (s *Source) FetchWaitEventTimeSeries(ctx context.Context, req *FetchWaitEve
 
 // BatchQueryIndexRecommendations executes the BatchQueryIndexRecommendations REST API method.
 func (s *Source) BatchQueryIndexRecommendations(ctx context.Context, req *BatchQueryIndexRecommendationsRequest) (*BatchQueryIndexRecommendationsResponse, error) {
-	url := fmt.Sprintf("%s/v1beta/%s/indexRecommendations:batchQuery", s.getEndpointForParent(req.Parent), req.Parent)
+	endpoint, err := s.getEndpointForParent(req.Parent)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s/v1beta/%s/indexRecommendations:batchQuery", endpoint, req.Parent)
 
 	bodyBytes, err := json.Marshal(req)
 	if err != nil {
