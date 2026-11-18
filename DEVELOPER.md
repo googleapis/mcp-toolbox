@@ -587,7 +587,8 @@ variables for each source.
 * Memorystore Valkey - setup in the test project using a Memorystore for Redis
   standalone instance
   * The Cloud Build service account is a user
-* MySQL - setup in the test project using a Cloud SQL instance
+* MySQL - ephemeral `mysql:8.4` container via testcontainers (set
+  `MYSQL_HOST` to use an existing instance)
 * Neo4j - setup in the test project on a GCE VM
 * Postgres - setup in the test project using an AlloyDB instance
 * Spanner - setup in the test project
