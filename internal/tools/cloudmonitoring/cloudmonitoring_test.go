@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/cloudmonitoring"
@@ -113,12 +114,17 @@ func TestInitialize(t *testing.T) {
 }
 
 type mockSource struct {
+	sources.Source
 	client   *http.Client
 	runQuery func(projectID, query string) (any, error)
 }
 
 func (m *mockSource) SourceType() string {
 	return "cloud-monitoring"
+}
+
+func (m *mockSource) IsReadOnly() bool {
+	return false
 }
 
 func (m *mockSource) Client() *http.Client {
@@ -174,12 +180,12 @@ func TestTool_Invoke(t *testing.T) {
 		t.Fatalf("Initialize() failed: %v", err)
 	}
 
-	params := parameters.NewParamValues(map[string]any{
-		"projectId": "test-project",
-		"query":     "up",
-	})
+	params := parameters.ParamValues{
+		{Name: "projectId", Value: "test-project"},
+		{Name: "query", Value: "up"},
+	}
 
-	resp, toolErr := tool.Invoke(context.Background(), mock, params, nil)
+	resp, toolErr := tool.Invoke(context.Background(), mock, params, "")
 	if toolErr != nil {
 		t.Fatalf("tool.Invoke() failed: %v", toolErr)
 	}
@@ -225,12 +231,12 @@ func TestTool_Invoke_Error(t *testing.T) {
 		t.Fatalf("Initialize() failed: %v", err)
 	}
 
-	params := parameters.NewParamValues(map[string]any{
-		"projectId": "test-project",
-		"query":     "invalid{{{",
-	})
+	params := parameters.ParamValues{
+		{Name: "projectId", Value: "test-project"},
+		{Name: "query", Value: "invalid{{{"},
+	}
 
-	_, toolErr := tool.Invoke(context.Background(), mock, params, nil)
+	_, toolErr := tool.Invoke(context.Background(), mock, params, "")
 	if toolErr == nil {
 		t.Fatalf("expected tool.Invoke() to fail, got nil")
 	}
@@ -254,12 +260,12 @@ func TestTool_Invoke_IncompatibleSource(t *testing.T) {
 		t.Fatalf("Initialize() failed: %v", err)
 	}
 
-	params := parameters.NewParamValues(map[string]any{
-		"projectId": "test-project",
-		"query":     "up",
-	})
+	params := parameters.ParamValues{
+		{Name: "projectId", Value: "test-project"},
+		{Name: "query", Value: "up"},
+	}
 
-	_, toolErr := tool.Invoke(context.Background(), nil, params, nil)
+	_, toolErr := tool.Invoke(context.Background(), nil, params, "")
 	if toolErr == nil {
 		t.Fatalf("expected error with nil source, got nil")
 	}
