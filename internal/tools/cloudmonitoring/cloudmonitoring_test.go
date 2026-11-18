@@ -336,7 +336,7 @@ func TestParseFromYamlCloudMonitoring(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
-			if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(cloudmonitoring.Config{})); diff != "" {
+			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Fatalf("incorrect parse: diff %v", diff)
 			}
 		})
