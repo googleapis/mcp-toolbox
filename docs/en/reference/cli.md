@@ -166,6 +166,37 @@ By default, traffic is unencrypted (HTTP). In production or shared networks, you
   ./toolbox --tls-cert=cert.pem --tls-key=key.pem
   ```
 
+#### Restricting Source and Tool Types
+Two environment variables limit which source and tool types Toolbox will load.
+They apply to every configuration, including `--prebuilt` configs. If the
+configuration contains a source or tool that is not permitted, Toolbox fails to
+start (or rejects a hot-reloaded configuration) and lists every violation. The
+check runs before any source opens a connection.
+
+* `TOOLBOX_ALLOWED_SOURCES`: Comma-separated allowlist of source types (e.g.,
+  `bigquery,spanner`). Any source whose type is not listed is rejected. The
+  `gcp-sources` preset expands to the Google Cloud source types and can be
+  combined with other types.
+* `TOOLBOX_DISALLOWED_TOOLS`: Comma-separated denylist of tool types (e.g.,
+  `bigquery-execute-sql,postgres-execute-sql`). Any tool with a listed type is
+  rejected.
+* Matching is case-insensitive, and surrounding whitespace is ignored. When a
+  variable is unset or empty, it does not restrict anything.
+* Example:
+  ```
+  TOOLBOX_ALLOWED_SOURCES="gcp-sources,sqlite" \
+  TOOLBOX_DISALLOWED_TOOLS="bigquery-execute-sql" \
+  ./toolbox --config tools.yaml
+  ```
+  If `tools.yaml` defines a `postgres` source named `my-pg` used by the tool
+  `list-tables`, Toolbox fails to start with an error like:
+  ```
+  config contains disallowed sources or tools:
+    sources not allowed by TOOLBOX_ALLOWED_SOURCES:
+      - my-pg (type: postgres), used by tools:
+          - list-tables
+  ```
+
 
 ### Transport Configuration
 

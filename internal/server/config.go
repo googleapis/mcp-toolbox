@@ -98,6 +98,13 @@ type ServerConfig struct {
 	AllowedOrigins []string
 	// Specifies a list of hosts permitted to access this server.
 	AllowedHosts []string
+	// AllowedSources lists the source types Toolbox may load. It is populated
+	// from TOOLBOX_ALLOWED_SOURCES; there is no flag. Empty means every source
+	// type is allowed.
+	AllowedSources []string
+	// DisallowedTools lists the tool types Toolbox must not load. It is
+	// populated from TOOLBOX_DISALLOWED_TOOLS; there is no flag.
+	DisallowedTools []string
 	// UserAgentMetadata specifies additional metadata to append to the User-Agent string.
 	UserAgentMetadata []string
 	// PollInterval sets the polling frequency for configuration file updates.
