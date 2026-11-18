@@ -357,7 +357,7 @@ func TestTool_Authorized(t *testing.T) {
 					nil,
 				),
 			}
-			got := tool.Authorized(tt.verifiedAuthServices)
+			got := tools.IsAuthorized(tool.GetAuthRequired(), tt.verifiedAuthServices)
 			if got != tt.want {
 				t.Fatalf("Authorized() = %v, want %v", got, tt.want)
 			}

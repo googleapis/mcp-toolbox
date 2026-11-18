@@ -24,6 +24,7 @@ import (
 	"cloud.google.com/go/cloudsqlconn/sqlserver/mssql"
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	"go.opentelemetry.io/otel/trace"
@@ -115,7 +116,7 @@ func (s *Source) MSSQLDB() *sql.DB {
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
 	results, err := s.MSSQLDB().QueryContext(ctx, statement, params...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to execute query: %w", err)
+		return nil, fmt.Errorf("unable to execute query: %w", mssqlcommon.WithServerErrorDetails(err))
 	}
 	defer results.Close()
 
@@ -148,7 +149,7 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	// Check for errors from iterating over rows or from the query execution itself.
 	// results.Close() is handled by defer.
 	if err := results.Err(); err != nil {
-		return nil, fmt.Errorf("errors encountered during query execution or row processing: %w", err)
+		return nil, fmt.Errorf("errors encountered during query execution or row processing: %w", mssqlcommon.WithServerErrorDetails(err))
 	}
 
 	return out, nil

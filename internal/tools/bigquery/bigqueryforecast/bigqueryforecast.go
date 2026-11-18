@@ -169,6 +169,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("failed to retrieve BigQuery client", http.StatusInternalServerError, err)
 	}
 
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+
 	session, err := source.BigQuerySession()(ctx)
 	if err != nil {
 		return nil, util.NewClientServerError("failed to get BigQuery session", http.StatusInternalServerError, err)
@@ -187,6 +192,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		// that it is a SELECT statement and provide clear error messages before embedding it
 		// in the AI.FORECAST query (which is also validated via dry run below).
 		if len(source.BigQueryAllowedDatasets()) > 0 {
+			logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, historyData))
 			dryRunJob, validationErr := bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, historyData, nil, connProps, source, source.GetMaximumBytesBilled(), false)
 			if validationErr != nil {
 				return nil, validationErr
@@ -235,19 +241,15 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
             horizon => %d%s)`,
 		historyDataSource, dataCol, timestampCol, horizon, idColsArg)
 
+	// Log the query executed for debugging.
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, sql))
+
 	if len(source.BigQueryAllowedDatasets()) > 0 {
 		_, validationErr := bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, sql, nil, connProps, source, source.GetMaximumBytesBilled(), false)
 		if validationErr != nil {
 			return nil, validationErr
 		}
 	}
-
-	// Log the query executed for debugging.
-	logger, err := util.LoggerFromContext(ctx)
-	if err != nil {
-		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
-	}
-	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, sql))
 
 	resp, err := source.RunSQL(ctx, bqClient, sql, "SELECT", nil, connProps, map[string]string{"mcp-toolbox-tool": resourceType})
 	if err != nil {

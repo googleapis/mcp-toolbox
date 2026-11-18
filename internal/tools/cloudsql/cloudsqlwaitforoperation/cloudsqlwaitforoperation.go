@@ -251,11 +251,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	return nil, util.NewClientServerError("exceeded max retries waiting for operation", http.StatusGatewayTimeout, fmt.Errorf("exceeded max retries"))
 }
 
-// Authorized checks if the tool is authorized.
-func (t Tool) Authorized(verifiedAuthServices []string) bool {
-	return true
-}
-
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
 	s, ok := source.(compatibleSource)
 	if !ok {

@@ -139,6 +139,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("failed to retrieve BigQuery client", http.StatusInternalServerError, err)
 	}
 
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool for table `%s.%s.%s`", resourceType, projectId, datasetId, tableId))
+
 	dsHandle := bqClient.DatasetInProject(projectId, datasetId)
 	tableHandle := dsHandle.Table(tableId)
 
@@ -147,7 +153,93 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGcpError(err)
 	}
 
-	return metadata, nil
+	return toCompactTableMetadata(metadata), nil
+}
+
+// compactTableMetadata wraps bigqueryapi.TableMetadata with a compact Schema while preserving top-level field order.
+type compactTableMetadata struct {
+	Name        string                `json:"Name"`
+	Location    string                `json:"Location"`
+	Description string                `json:"Description"`
+	Schema      []*compactFieldSchema `json:"Schema"`
+	*bigqueryapi.TableMetadata
+}
+
+// compactFieldSchema mirrors bigqueryapi.FieldSchema, omitting zero-valued optional fields in JSON.
+type compactFieldSchema struct {
+	Name                   string                        `json:"Name"`
+	Description            string                        `json:"Description,omitempty"`
+	Repeated               bool                          `json:"Repeated,omitempty"`
+	Required               bool                          `json:"Required,omitempty"`
+	Type                   bigqueryapi.FieldType         `json:"Type"`
+	PolicyTags             *bigqueryapi.PolicyTagList    `json:"PolicyTags,omitempty"`
+	Schema                 []*compactFieldSchema         `json:"Schema,omitempty"`
+	MaxLength              int64                         `json:"MaxLength,omitempty"`
+	Precision              int64                         `json:"Precision,omitempty"`
+	Scale                  int64                         `json:"Scale,omitempty"`
+	DefaultValueExpression string                        `json:"DefaultValueExpression,omitempty"`
+	Collation              string                        `json:"Collation,omitempty"`
+	RangeElementType       *bigqueryapi.RangeElementType `json:"RangeElementType,omitempty"`
+	RoundingMode           bigqueryapi.RoundingMode      `json:"RoundingMode,omitempty"`
+	TimestampPrecision     int64                         `json:"TimestampPrecision,omitempty"`
+}
+
+func toCompactTableMetadata(md *bigqueryapi.TableMetadata) *compactTableMetadata {
+	if md == nil {
+		return nil
+	}
+	return &compactTableMetadata{
+		Name:          md.Name,
+		Location:      md.Location,
+		Description:   md.Description,
+		Schema:        toCompactSchema(md.Schema),
+		TableMetadata: md,
+	}
+}
+
+func toCompactSchema(schema bigqueryapi.Schema) []*compactFieldSchema {
+	if schema == nil {
+		return nil
+	}
+	compact := make([]*compactFieldSchema, 0, len(schema))
+	for _, f := range schema {
+		if f == nil {
+			continue
+		}
+		compact = append(compact, toCompactFieldSchema(f))
+	}
+	return compact
+}
+
+func toCompactFieldSchema(f *bigqueryapi.FieldSchema) *compactFieldSchema {
+	if f == nil {
+		return nil
+	}
+	var policyTags *bigqueryapi.PolicyTagList
+	if f.PolicyTags != nil && len(f.PolicyTags.Names) > 0 {
+		policyTags = f.PolicyTags
+	}
+	var rangeElementType *bigqueryapi.RangeElementType
+	if f.RangeElementType != nil && f.RangeElementType.Type != "" {
+		rangeElementType = f.RangeElementType
+	}
+	return &compactFieldSchema{
+		Name:                   f.Name,
+		Description:            f.Description,
+		Repeated:               f.Repeated,
+		Required:               f.Required,
+		Type:                   f.Type,
+		PolicyTags:             policyTags,
+		Schema:                 toCompactSchema(f.Schema),
+		MaxLength:              f.MaxLength,
+		Precision:              f.Precision,
+		Scale:                  f.Scale,
+		DefaultValueExpression: f.DefaultValueExpression,
+		Collation:              f.Collation,
+		RangeElementType:       rangeElementType,
+		RoundingMode:           f.RoundingMode,
+		TimestampPrecision:     f.TimestampPrecision,
+	}
 }
 
 func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {

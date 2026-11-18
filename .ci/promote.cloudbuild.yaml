@@ -1,0 +1,179 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+steps:
+  - id: "setup-airlock-auth"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor: ["-"]
+    script: |
+      #!/usr/bin/env bash
+      set -e
+      EXPECTED_TAG="v$(cat ./cmd/version.txt)"
+      if [[ "${TAG_NAME}" != "${EXPECTED_TAG}" ]]; then
+        echo "ERROR: TAG_NAME ('${TAG_NAME}') does not match v\$(cat ./cmd/version.txt) ('${EXPECTED_TAG}')" >&2
+        exit 1
+      fi
+      TOKEN=$(gcloud auth print-access-token)
+
+      # Write auth files to the persistent /workspace directory
+      echo "machine us-go.pkg.dev login oauth2accesstoken password $TOKEN" > /workspace/.netrc
+      echo "machine us-python.pkg.dev login oauth2accesstoken password $TOKEN" >> /workspace/.netrc
+
+      cat > /workspace/.npmrc <<EOL
+      registry=https://us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:always-auth=true
+      //us-npm.pkg.dev/${_AIRLOCK_AR_PROJECT}/npm-3p-trusted/:_authToken=$TOKEN
+      EOL
+
+      echo "$TOKEN" > /workspace/.airlock_token
+
+  - id: "promote-docker"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor:
+      - "setup-airlock-auth"
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+
+      # Install jq (Required for parsing the API responses)
+      if ! command -v jq >/dev/null 2>&1; then
+        bash .ci/setup_apt.sh ${_AIRLOCK_AR_PROJECT} && apt-get update && apt-get install -y jq
+      fi
+
+      export VERSION="${TAG_NAME}"
+      export PUSH_LATEST="${_PUSH_LATEST}"
+      bash .ci/promote_artifacts.sh "${PROJECT_ID}" "${_REGION}" "${_STAGING_AR_REPO_NAME}" "${_PROD_AR_REPO_NAME}" "toolbox" "${VERSION}"
+
+  - id: "fetch-binaries"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor:
+      - "promote-docker"
+    script: |
+      #!/usr/bin/env bash
+      set -eo pipefail
+      VERSION="v$(cat ./cmd/version.txt)"
+      BUCKET="gs://${_BUCKET_NAME}/${VERSION}"
+
+      REQUIRED_BINS=(
+        "linux/amd64/toolbox"
+        "darwin/arm64/toolbox"
+        "darwin/amd64/toolbox"
+        "windows/amd64/toolbox.exe"
+        "windows/arm64/toolbox.exe"
+      )
+
+      echo "Waiting for signed binaries in ${BUCKET}..."
+      POLL_START=$SECONDS
+      POLL_TIMEOUT=600
+      ALL_READY=false
+      while (( SECONDS - POLL_START < POLL_TIMEOUT )); do
+        MISSING=false
+        for remote_path in "${REQUIRED_BINS[@]}"; do
+          if ! gcloud storage ls "${BUCKET}/${remote_path}" >/dev/null 2>&1; then
+            MISSING=true
+            break
+          fi
+        done
+        if [[ "${MISSING}" == "false" ]]; then
+          echo "All 5 signed binaries found in ${BUCKET}."
+          ALL_READY=true
+          break
+        fi
+        echo "Signed binaries not all present in ${BUCKET} yet; waiting 15s..."
+        sleep 15
+      done
+
+      if [[ "${ALL_READY}" != "true" ]]; then
+        echo "ERROR: Timed out waiting for signed binaries in ${BUCKET}. Ensure binary signing has completed." >&2
+        exit 1
+      fi
+
+      fetch_bin() {
+        local remote_path="$1" local_path="$2"
+        gcloud storage cp "${BUCKET}/${remote_path}" "${local_path}"
+      }
+
+      fetch_bin "linux/amd64/toolbox"       toolbox.linux.amd64
+      fetch_bin "darwin/arm64/toolbox"      toolbox.darwin.arm64
+      fetch_bin "darwin/amd64/toolbox"      toolbox.darwin.amd64
+      fetch_bin "windows/amd64/toolbox.exe" toolbox.windows.amd64
+      fetch_bin "windows/arm64/toolbox.exe" toolbox.windows.arm64
+
+  - id: "publish-npm-to-ar"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/node@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5"
+    waitFor:
+      - "setup-airlock-auth"
+      - "fetch-binaries"
+    env:
+      - "HOME=/workspace"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/publish_npm_to_ar.sh
+
+  - id: "trigger-exit-gate-npm"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor:
+      - "publish-npm-to-ar"
+    env:
+      - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/trigger_exit_gate.sh npm
+
+  - id: "publish-pypi-to-ar"
+    name: "us-docker.pkg.dev/${_AIRLOCK_AR_PROJECT}/docker-3p-trusted/python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9"
+    waitFor:
+      - "setup-airlock-auth"
+      - "fetch-binaries"
+    env:
+      - "HOME=/workspace"
+      - "PIP_INDEX_URL=https://us-python.pkg.dev/${_AIRLOCK_AR_PROJECT}/python-3p-trusted/simple/"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/publish_pypi_to_ar.sh
+
+  - id: "trigger-exit-gate-pypi"
+    name: "gcr.io/cloud-builders/gcloud:latest"
+    waitFor:
+      - "publish-pypi-to-ar"
+    env:
+      - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
+    script: |
+      #!/usr/bin/env bash
+      bash .ci/trigger_exit_gate.sh pypi
+
+options:
+  requestedVerifyOption: VERIFIED
+  automapSubstitutions: true
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+  pool:
+    name: projects/$PROJECT_ID/locations/us-central1/workerPools/run-release
+
+substitutions:
+  _REGION: us-central1
+  _AIRLOCK_AR_PROJECT: artifact-foundry-prod
+  _STAGING_AR_REPO_NAME: toolbox-containers-staging
+  _PROD_AR_REPO_NAME: toolbox
+  _PUSH_LATEST: "false" # Substituted in trigger
+  _BUCKET_NAME: mcp-toolbox-for-databases
+  _EXIT_GATE_PROJECT: "mcp-toolbox"
+  _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
+  _PUSH_TO_EXIT_GATES: "false"
