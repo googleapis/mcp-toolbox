@@ -73,11 +73,12 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	projectIdParameter := parameters.NewStringParameter("project_id", "The id of the project to create the view in.")
 	connectionParameter := parameters.NewStringParameter("connection", "The database connection name.")
+	databaseParameter := parameters.NewStringParameter("database", "The BigQuery project or database where the target table resides. May be required even when using the connection's default database.", parameters.WithStringDefault(""))
 
 	tableDef := parameters.NewMapParameter("table", "Table definition.", "")
 	tablesParameter := parameters.NewArrayParameter("tables", `The tables to generate views for.
 		Each item must be a map with:
-		- schema (string, required)
+		- schema (string, optional)
 		- table_name (string, required)
 		- primary_key (string, optional)
 		- base_view (boolean, optional)
@@ -85,7 +86,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	folderNameParameter := parameters.NewStringParameter("folder_name", "The folder to place the view files in (e.g., 'views').", parameters.WithStringDefault("views"))
 
-	params := parameters.Parameters{projectIdParameter, connectionParameter, tablesParameter, folderNameParameter}
+	params := parameters.Parameters{projectIdParameter, connectionParameter, databaseParameter, tablesParameter, folderNameParameter}
 
 	// finish tool setup
 	return Tool{
@@ -145,6 +146,10 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if !ok {
 		return nil, util.NewAgentError(fmt.Sprintf("'connection' must be a string, got %T", mapParams["connection"]), nil)
 	}
+	database, ok := mapParams["database"].(string)
+	if !ok {
+		return nil, util.NewAgentError(fmt.Sprintf("'database' must be a string, got %T", mapParams["database"]), nil)
+	}
 	folderName, ok := mapParams["folder_name"].(string)
 	if !ok {
 		return nil, util.NewAgentError(fmt.Sprintf("'folder_name' must be a string, got %T", mapParams["folder_name"]), nil)
@@ -161,23 +166,24 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	for _, tRaw := range tablesSlice {
 		t, ok := tRaw.(map[string]any)
 		if !ok {
-			return nil, util.NewClientServerError(fmt.Sprintf("expected map in tables list, got %T", tRaw), http.StatusInternalServerError, nil)
+			return nil, util.NewClientServerError(fmt.Sprintf("expected map in tables list, got %T", tRaw), http.StatusBadRequest, nil)
 		}
 
-		var schema, tableName string
+		var schema *string
+		var tableName string
 		var primaryKey *string
 		var baseView *bool
 		var columns []lookercommon.ProjectGeneratorColumn
 
 		if s, ok := t["schema"].(string); ok {
-			schema = s
+			schema = &s
 		}
 		if tn, ok := t["table_name"].(string); ok {
 			tableName = tn
 		}
 		// Enforce required fields for map input
-		if schema == "" || tableName == "" {
-			return nil, util.NewClientServerError("schema and table_name are required in table map", http.StatusInternalServerError, nil)
+		if tableName == "" {
+			return nil, util.NewClientServerError("table_name is required in table map", http.StatusBadRequest, nil)
 		}
 
 		if pk, ok := t["primary_key"].(string); ok {
@@ -213,6 +219,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		Connection:          connection,
 		FileTypeForExplores: "none",
 		FolderName:          folderName,
+		Database:            database,
 	}
 
 	reqBody := lookercommon.ProjectGeneratorRequestBody{
