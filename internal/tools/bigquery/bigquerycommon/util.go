@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
@@ -358,7 +359,7 @@ func ValidateQueryAgainstAllowedDatasets(
 		// Fail-closed Authorized View verification: confirm via BigQuery Tables API
 		// and dry run that every violating underlying table reference comes from an
 		// allowed view explicitly referenced in the query rather than a parser differential.
-		unexemptedRefs := findUnexemptedViolatingRefs(
+		unexemptedRefs, err := findUnexemptedViolatingRefs(
 			ctx,
 			restService,
 			projectID,
@@ -367,6 +368,13 @@ func ValidateQueryAgainstAllowedDatasets(
 			parsed.TableIDs,
 			violatingRefs,
 		)
+		if err != nil {
+			var gErr *googleapi.Error
+			if errors.As(err, &gErr) {
+				return nil, util.ProcessGcpError(err)
+			}
+			return nil, util.NewAgentError("failed to verify authorized views", err)
+		}
 		if len(unexemptedRefs) > 0 {
 			return nil, notAllowedDatasetsErr(collectViolatingDatasets(unexemptedRefs))
 		}
@@ -419,7 +427,7 @@ func findUnexemptedViolatingRefs(
 	validator DatasetValidator,
 	parsedTableIDs []string,
 	violatingRefs []tableReference,
-) []tableReference {
+) ([]tableReference, error) {
 	var allowedViewRefs []tableReference
 	for _, tableID := range parsedTableIDs {
 		ref, ok := splitFullTableID(tableID)
@@ -434,20 +442,31 @@ func findUnexemptedViolatingRefs(
 		}
 	}
 	if len(allowedViewRefs) == 0 {
-		return violatingRefs
+		return violatingRefs, nil
 	}
 
 	authorizedUnderlying := make(map[tableReference]struct{})
 	for _, viewRef := range allowedViewRefs {
 		tbl, err := restService.Tables.Get(viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID).Context(ctx).Do()
-		if err != nil || tbl == nil || (tbl.Type != "VIEW" && tbl.Type != "MATERIALIZED_VIEW") {
+		if err != nil {
+			var gErr *googleapi.Error
+			if errors.As(err, &gErr) && gErr.Code == http.StatusNotFound {
+				// Non-table objects (such as INFORMATION_SCHEMA or routines) are not views.
+				continue
+			}
+			return nil, fmt.Errorf("failed to inspect candidate view %s.%s.%s: %w", viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID, err)
+		}
+		if tbl == nil || (tbl.Type != "VIEW" && tbl.Type != "MATERIALIZED_VIEW") {
 			continue
 		}
 		cleanFQN := strings.ReplaceAll(fmt.Sprintf("%s.%s.%s", viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID), "`", "")
 		viewSQL := fmt.Sprintf("SELECT * FROM `%s`", cleanFQN)
 		viewJob, err := DryRunQuery(ctx, restService, projectID, location, viewSQL, nil, nil, 0, false)
-		if err != nil || viewJob == nil || viewJob.Statistics == nil || viewJob.Statistics.Query == nil {
-			continue
+		if err != nil {
+			return nil, fmt.Errorf("failed to dry run candidate view %s: %w", cleanFQN, err)
+		}
+		if viewJob == nil || viewJob.Statistics == nil || viewJob.Statistics.Query == nil {
+			return nil, fmt.Errorf("dry run for candidate view %s returned empty statistics", cleanFQN)
 		}
 		for _, tRef := range viewJob.Statistics.Query.ReferencedTables {
 			if tRef != nil && tRef.ProjectId != "" && tRef.DatasetId != "" && tRef.TableId != "" {
@@ -466,7 +485,7 @@ func findUnexemptedViolatingRefs(
 			unexempted = append(unexempted, vRef)
 		}
 	}
-	return unexempted
+	return unexempted, nil
 }
 
 func notAllowedDatasetsErr(datasetFQNs []string) util.ToolboxError {

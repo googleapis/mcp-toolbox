@@ -482,6 +482,7 @@ func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
 		name           string
 		sql            string
 		tableType      string
+		tableGetStatus int
 		mainReferenced []*bigquery.TableReference
 		viewReferenced []*bigquery.TableReference
 		wantErr        bool
@@ -571,6 +572,16 @@ func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
 			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
 		},
 		{
+			name:           "transient 503 error on Tables.Get propagates API error instead of permission error",
+			sql:            "SELECT * FROM proj.allowed_ds.safe_view",
+			tableGetStatus: http.StatusServiceUnavailable,
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr:    true,
+			wantErrSub: "backend unavailable",
+		},
+		{
 			name: "disallowed dry-run table fully backed by referenced authorized view allowed",
 			sql:  "SELECT * FROM proj.allowed_ds.safe_view",
 			mainReferenced: []*bigquery.TableReference{
@@ -587,6 +598,10 @@ func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
+					if tc.tableGetStatus != 0 {
+						http.Error(w, `{"error":{"code":503,"message":"backend unavailable"}}`, tc.tableGetStatus)
+						return
+					}
 					tblType := tc.tableType
 					if tblType == "" {
 						tblType = "VIEW"
