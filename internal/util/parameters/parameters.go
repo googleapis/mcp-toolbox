@@ -726,12 +726,14 @@ func applyEscape(escape, v string) (any, error) {
 		if strings.ContainsRune(v, '"') {
 			return nil, fmt.Errorf("cannot double-quote-escape value containing double quote")
 		}
-		return fmt.Sprintf(`"%s"`, v), nil
+		escaped := strings.ReplaceAll(v, `"`, `""`)
+		return fmt.Sprintf(`"%s"`, escaped), nil
 	case escapeSingleQuotes:
 		if strings.ContainsRune(v, '\'') {
 			return nil, fmt.Errorf("cannot single-quote-escape value containing single quote")
 		}
-		return fmt.Sprintf(`'%s'`, v), nil
+		escaped := strings.ReplaceAll(v, `'`, `''`)
+		return fmt.Sprintf(`'%s'`, escaped), nil
 	case escapeSquareBrackets:
 		if strings.ContainsAny(v, "[]") {
 			return nil, fmt.Errorf("cannot square-bracket-escape value containing square bracket")
