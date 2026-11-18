@@ -173,6 +173,7 @@ func TestManifest(t *testing.T) {
 		"vis_config",
 		"dashboard_filters",
 		"type",
+		"extension_id",
 		"body_text",
 		"title_text",
 		"subtitle_text",
@@ -249,9 +250,16 @@ func TestInvokeLookerUpdateDashboardElement(t *testing.T) {
 
 	var gotElement v4.WriteDashboardElement
 	var gotElementID string
+	var queryCreated bool
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/api/4.0/queries") {
+			queryCreated = true
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id": "999"}`))
+			return
+		}
 		if strings.Contains(r.URL.Path, "/api/4.0/dashboard_elements/") {
 			parts := strings.Split(r.URL.Path, "/")
 			gotElementID = parts[len(parts)-1]
@@ -298,6 +306,7 @@ func TestInvokeLookerUpdateDashboardElement(t *testing.T) {
 	}
 
 	strPtr := func(s string) *string { return &s }
+	boolPtr := func(b bool) *bool { return &b }
 
 	rawArgs := map[string]any{
 		"dashboard_id":         "78",
@@ -330,6 +339,41 @@ func TestInvokeLookerUpdateDashboardElement(t *testing.T) {
 	if diff := cmp.Diff(want, gotElement); diff != "" {
 		t.Fatalf("WriteDashboardElement mismatch (-want +got):\n%s", diff)
 	}
+
+	t.Run("update extension element", func(t *testing.T) {
+		gotElement = v4.WriteDashboardElement{}
+		queryCreated = false
+
+		rawArgs := map[string]any{
+			"dashboard_id":         "78",
+			"dashboard_element_id": "1485",
+			"type":                 "extension",
+			"extension_id":         "db::new-extension-id",
+			"title_hidden":         true,
+		}
+		params, err := parameters.ParseParams(toolParams, rawArgs, nil)
+		if err != nil {
+			t.Fatalf("ParseParams failed: %v", err)
+		}
+
+		_, toolboxErr := tool.Invoke(ctx, src, params, "mock-token")
+		if toolboxErr != nil {
+			t.Fatalf("unexpected invoke error: %v", toolboxErr)
+		}
+		if queryCreated {
+			t.Errorf("expected no query to be created for extension element")
+		}
+
+		want := v4.WriteDashboardElement{
+			DashboardId: strPtr("78"),
+			Type:        strPtr("extension"),
+			ExtensionId: strPtr("db::new-extension-id"),
+			TitleHidden: boolPtr(true),
+		}
+		if diff := cmp.Diff(want, gotElement); diff != "" {
+			t.Fatalf("WriteDashboardElement mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestInvokeDashboardFilters(t *testing.T) {
