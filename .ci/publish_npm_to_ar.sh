@@ -20,8 +20,9 @@
 # Required CWD: repo root (so npm/server-*/ paths resolve).
 #
 # Binaries (toolbox.<os>.<arch>) are picked up from the workspace if present
-# (versioned-release pipeline) and otherwise downloaded by each package's own
-# prepack script from GCS by version (retry pipeline).
+# (pre-staged from GCS by fetch-binaries in promote.cloudbuild.yaml) and
+# otherwise downloaded by each package's own prepack script from GCS by version
+# (npm_retry.cloudbuild.yaml).
 #
 # Each publish is gated by an "already in AR?" check so the script is safe to
 # re-run after a partial failure.
