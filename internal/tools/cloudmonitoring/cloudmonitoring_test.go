@@ -16,6 +16,12 @@ package cloudmonitoring_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -103,6 +109,162 @@ func TestInitialize(t *testing.T) {
 				t.Errorf("Initialize() manifest mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+type mockSource struct {
+	client   *http.Client
+	runQuery func(projectID, query string) (any, error)
+}
+
+func (m *mockSource) SourceType() string {
+	return "cloud-monitoring"
+}
+
+func (m *mockSource) Client() *http.Client {
+	return m.client
+}
+
+func (m *mockSource) RunQuery(projectID, query string) (any, error) {
+	if m.runQuery != nil {
+		return m.runQuery(projectID, query)
+	}
+	return nil, nil
+}
+
+func TestTool_Invoke(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer server.Close()
+
+	mock := &mockSource{
+		client: server.Client(),
+		runQuery: func(projectID, query string) (any, error) {
+			resp, err := server.Client().Get(server.URL + "?query=" + url.QueryEscape(query))
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return nil, fmt.Errorf("query failed with status %d: %s", resp.StatusCode, string(body))
+			}
+			var res any
+			if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+				return nil, err
+			}
+			return res, nil
+		},
+	}
+
+	cfg := cloudmonitoring.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "test-monitoring-tool",
+			Description: "Query Prometheus metrics in Cloud Monitoring",
+		},
+		Type:   "cloud-monitoring-query-prometheus",
+		Source: "my-monitoring-source",
+	}
+
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("Initialize() failed: %v", err)
+	}
+
+	params := parameters.NewParamValues(map[string]any{
+		"projectId": "test-project",
+		"query":     "up",
+	})
+
+	resp, toolErr := tool.Invoke(context.Background(), mock, params, nil)
+	if toolErr != nil {
+		t.Fatalf("tool.Invoke() failed: %v", toolErr)
+	}
+	if resp == nil {
+		t.Fatalf("expected non-nil response from tool.Invoke()")
+	}
+}
+
+func TestTool_Invoke_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"status":"error","error":"bad promql syntax"}`))
+	}))
+	defer server.Close()
+
+	mock := &mockSource{
+		client: server.Client(),
+		runQuery: func(projectID, query string) (any, error) {
+			resp, err := server.Client().Get(server.URL + "?query=" + url.QueryEscape(query))
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				return nil, fmt.Errorf("query failed with status %d: %s", resp.StatusCode, string(body))
+			}
+			return nil, nil
+		},
+	}
+
+	cfg := cloudmonitoring.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "test-monitoring-tool-err",
+			Description: "Query Prometheus metrics with error",
+		},
+		Type:   "cloud-monitoring-query-prometheus",
+		Source: "my-monitoring-source",
+	}
+
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("Initialize() failed: %v", err)
+	}
+
+	params := parameters.NewParamValues(map[string]any{
+		"projectId": "test-project",
+		"query":     "invalid{{{",
+	})
+
+	_, toolErr := tool.Invoke(context.Background(), mock, params, nil)
+	if toolErr == nil {
+		t.Fatalf("expected tool.Invoke() to fail, got nil")
+	}
+	if strings.Contains(toolErr.Error(), "source used is not compatible") {
+		t.Fatalf("tool failed prematurely due to source incompatibility rather than query error: %v", toolErr)
+	}
+}
+
+func TestTool_Invoke_IncompatibleSource(t *testing.T) {
+	cfg := cloudmonitoring.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "test-incompatible-tool",
+			Description: "Test incompatible source",
+		},
+		Type:   "cloud-monitoring-query-prometheus",
+		Source: "my-monitoring-source",
+	}
+
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("Initialize() failed: %v", err)
+	}
+
+	params := parameters.NewParamValues(map[string]any{
+		"projectId": "test-project",
+		"query":     "up",
+	})
+
+	_, toolErr := tool.Invoke(context.Background(), nil, params, nil)
+	if toolErr == nil {
+		t.Fatalf("expected error with nil source, got nil")
+	}
+	if !strings.Contains(toolErr.Error(), "source used is not compatible") {
+		t.Errorf("expected incompatible source error, got: %v", toolErr)
 	}
 }
 
