@@ -716,6 +716,7 @@ func runGenericAuthMCPInvokeTest(t *testing.T, privateKey *rsa.PrivateKey) {
 	t.Run("invoke generic auth tool with valid token", func(t *testing.T) {
 		// Generate valid token
 		token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+			"iss":   "https://example.com",
 			"aud":   "test-audience",
 			"scope": "read:files",
 			"sub":   "test-user",

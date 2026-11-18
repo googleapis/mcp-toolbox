@@ -247,6 +247,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	client.Timeout = 330 * time.Second
 
+	logger, err := util.LoggerFromContext(ctx)
+	if err != nil {
+		return nil, util.NewClientServerError("error getting logger", http.StatusInternalServerError, err)
+	}
+	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, userQuery))
+
 	// Call the streaming API
 	response, err := getStream(client, caURL, payload, headers, source.GetMaxQueryResultRows())
 	if err != nil {

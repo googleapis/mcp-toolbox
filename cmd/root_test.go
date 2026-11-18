@@ -291,6 +291,13 @@ func TestServerConfigFlags(t *testing.T) {
 			}),
 		},
 		{
+			desc: "disable extension check",
+			args: []string{"--disable-extension-check"},
+			want: withDefaults(server.ServerConfig{
+				DisableExtensionCheck: true,
+			}),
+		},
+		{
 			desc: "disable version check",
 			args: []string{"--disable-version-check"},
 			want: withDefaults(server.ServerConfig{
@@ -572,6 +579,14 @@ func TestResolveWatcherInputs(t *testing.T) {
 		{
 			description:      "default config (root dir)",
 			toolsFile:        "tools.yaml",
+			toolsFiles:       []string{},
+			toolsFolder:      "",
+			wantWatchDirs:    map[string]bool{".": true},
+			wantWatchedFiles: map[string]bool{"tools.yaml": true},
+		},
+		{
+			description:      "no config specified (root dir)",
+			toolsFile:        "",
 			toolsFiles:       []string{},
 			toolsFolder:      "",
 			wantWatchDirs:    map[string]bool{".": true},

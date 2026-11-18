@@ -113,6 +113,50 @@ of your AuthService as defined in your tool configuration file, suffixed with
 
 ![Using Authenticated Parameter GIF](./edit-headers.gif)
 
+## Interactive Tools (MCP Apps)
+
+Toolbox UI supports rendering interactive visual interfaces for tools configured
+with [MCP Apps](../mcp-apps/) resources.
+
+### Identifying App Tools
+
+Tools configured with an associated UI resource (`ui.resource`) display an **APP** badge next to their name in the tool list. Clicking on an app tool loads both the standard tool invocation form and the embedded interactive UI.
+
+### Sandboxed UI Rendering
+
+When an app tool is selected:
+
+1. Toolbox UI retrieves the configured HTML UI resource via `resources/read`.
+2. The UI is mounted inside a sandboxed `<iframe>` with strict isolation policies.
+3. The playground acts as an MCP Apps (SEP-1865) host, completing the initialization handshake (`ui/initialize` and `ui/notifications/initialized`).
+
+### Executing App Tools and Live Updates
+
+When you click **"Run Tool"**:
+
+1. The tool executes on the server and displays the raw JSON output in the response area.
+2. The structured result is simultaneously delivered to the interactive app via the `ui/notifications/tool-result` postMessage notification.
+3. The embedded web application updates in real time to visualize the tool result.
+
+Interactive apps can also invoke tools directly on the server by sending `tools/call` JSON-RPC requests to the host bridge, or adjust container height dynamically via `ui/notifications/size-changed`.
+
+### App Controls
+
+The app container provides interactive controls located in the app header:
+
+- **Fullscreen**: Expands the application container to fill the browser window for in-depth data inspection.
+- **Reload**: Reloads the iframe and re-establishes the host communication bridge.
+
+### Quickstart Example
+
+You can test MCP Apps directly in Toolbox UI using the included generic example:
+
+```bash
+./toolbox --config examples/mcp-apps/tools.yaml --ui
+```
+
+Open `http://localhost:5000/ui`, select the `get_sales_report` tool (marked with the **APP** badge), and click **"Run Tool"** to see the interactive dashboard update with live SQLite data.
+
 ## Navigating the Toolsets Page
 
 Through the toolsets page, users can search for a specific toolset to retrieve
@@ -123,3 +167,4 @@ If the toolset name is not defined within the tools configuration file, an error
 message will be displayed.
 
 ![Toolsets Page](./toolsets.png)
+

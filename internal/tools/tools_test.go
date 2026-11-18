@@ -106,7 +106,7 @@ func TestBaseToolGetters(t *testing.T) {
 	}
 }
 
-func TestBaseToolAuthorized(t *testing.T) {
+func TestIsAuthorized(t *testing.T) {
 	tcs := []struct {
 		desc         string
 		authRequired []string
@@ -122,8 +122,8 @@ func TestBaseToolAuthorized(t *testing.T) {
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
 			b := tools.NewBaseTool(tools.ConfigBase{AuthRequired: tc.authRequired}, nil, tools.Manifest{}, nil)
-			if got := b.Authorized(tc.verified); got != tc.want {
-				t.Errorf("Authorized(%v) = %v, want %v", tc.verified, got, tc.want)
+			if got := tools.IsAuthorized(b.GetAuthRequired(), tc.verified); got != tc.want {
+				t.Errorf("IsAuthorized(%v, %v) = %v, want %v", tc.authRequired, tc.verified, got, tc.want)
 			}
 		})
 	}

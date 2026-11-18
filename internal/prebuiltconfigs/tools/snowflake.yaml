@@ -66,7 +66,7 @@ statement: |
            t.TABLE_TYPE = 'BASE TABLE'
            AND t.TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA')
            AND t.TABLE_SCHEMA = '${SNOWFLAKE_SCHEMA}'
-           AND is_all_tables OR LOWER(T.TABLE_NAME) IN (SELECT table_name FROM filtered_table_names)
+           AND (is_all_tables OR LOWER(T.TABLE_NAME) IN (SELECT table_name FROM filtered_table_names))
    ) -- SELECT * FROM table_info;
    ,
    columns_info AS (

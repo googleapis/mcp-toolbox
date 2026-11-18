@@ -124,9 +124,3 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	return resp, nil
 }
-
-// Authorized is overridden to always allow access; this tool delegates auth
-// enforcement to the underlying GCP credentials.
-func (t Tool) Authorized(verifiedAuthServices []string) bool {
-	return true
-}
