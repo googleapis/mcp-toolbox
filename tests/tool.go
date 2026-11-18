@@ -1750,6 +1750,19 @@ func RunPostgresDatabaseOverviewTest(t *testing.T, ctx context.Context, pool *pg
 			t.Errorf("Expected 'pct_connections_used' to be between 0 and 100, got %f", pctUsed)
 		}
 	}
+
+	// Only client backends count towards max_connections; background
+	// processes (checkpointer, walwriter, autovacuum launcher, ...) do not.
+	// The server refuses connections beyond max_connections, so a correct
+	// count can never exceed it.
+	currentConns, _ := resultRow["current_connections"].(float64)
+	activeConns, _ := resultRow["active_connections"].(float64)
+	if maxConn, ok := resultRow["max_connections"].(float64); ok && currentConns > maxConn {
+		t.Errorf("Expected 'current_connections' (%f) to be at most 'max_connections' (%f)", currentConns, maxConn)
+	}
+	if activeConns > currentConns {
+		t.Errorf("Expected 'active_connections' (%f) to be at most 'current_connections' (%f)", activeConns, currentConns)
+	}
 }
 
 func setupPostgresTrigger(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schemaName, tableName, functionName, triggerName string) func() {
@@ -2099,6 +2112,7 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 	}
 
 	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc1AppName := fmt.Sprintf("test_sleep_tc1_%s", testUUID)
 	tc2AppName := fmt.Sprintf("test_sleep_tc2_%s", testUUID)
 	tc3AppName := fmt.Sprintf("test_sleep_tc3_%s", testUUID)
 
@@ -2123,6 +2137,7 @@ func RunPostgresListActiveQueriesTest(t *testing.T, ctx context.Context, pool *p
 			name:                "invoke list_active_queries when the system is idle",
 			toolName:            "list_active_queries",
 			args:                map[string]any{"exclude_application_names": "wal_uploader"},
+			appName:             tc1AppName,
 			clientSleepSecs:     0,
 			waitSecsBeforeCheck: 0,
 			wantStatusCode:      http.StatusOK,
@@ -2331,6 +2346,15 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 	cleanup := setupPostgresIndex(t, ctx, pool, schemaName, tableName)
 	defer cleanup(t)
 
+	// Materialized view with an index; it is dropped together with the schema in cleanup.
+	mviewName := "mview1_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW %s.%s AS SELECT id, email FROM %s.%s;", schemaName, mviewName, schemaName, tableName)); err != nil {
+		t.Fatalf("unable to create materialized view %s: %v", mviewName, err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE UNIQUE INDEX %s_id_idx ON %s.%s (id);", mviewName, schemaName, mviewName)); err != nil {
+		t.Fatalf("unable to create index %s_id_idx: %v", mviewName, err)
+	}
+
 	// Primary key index
 	wantIndexPK := map[string]any{
 		"schema_name":      schemaName,
@@ -2368,6 +2392,18 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 
 	allWantIndexes := []map[string]any{wantIndexEmail, wantIndexName, wantIndexPK}
 
+	// Unique index on the materialized view
+	wantIndexMView := map[string]any{
+		"schema_name":      schemaName,
+		"table_name":       mviewName,
+		"index_name":       mviewName + "_id_idx",
+		"index_type":       "btree",
+		"is_unique":        true,
+		"is_primary":       false,
+		"is_used":          false,
+		"index_definition": fmt.Sprintf("CREATE UNIQUE INDEX %s_id_idx ON %s.%s USING btree (id)", mviewName, schemaName, mviewName),
+	}
+
 	invokeTcs := []struct {
 		name           string
 		requestBody    io.Reader
@@ -2386,7 +2422,13 @@ func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool
 			name:           "list_indexes for a specific schema",
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s"}`, schemaName)),
 			wantStatusCode: http.StatusOK,
-			want:           allWantIndexes,
+			want:           []map[string]any{wantIndexMView, wantIndexEmail, wantIndexName, wantIndexPK},
+		},
+		{
+			name:           "list_indexes for a materialized view",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s"}`, schemaName, mviewName)),
+			wantStatusCode: http.StatusOK,
+			want:           []map[string]any{wantIndexMView},
 		},
 		{
 			name:           "list_indexes with non-existent schema",
@@ -2792,15 +2834,22 @@ func setUpDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dbName
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf("GRANT %s TO current_user;", dbOwner))
 	if err != nil {
+		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
 		t.Fatalf("failed to grant %s to current_user: %v", dbOwner, err)
 	}
 	_, err = pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", dbName, dbOwner))
 	if err != nil {
+		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
 		t.Fatalf("failed to create %s: %v", dbName, err)
 	}
 	return func() {
-		_, _ = pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP DATABASE IF EXISTS %s;", dbName))
-		_, _ = pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
+		cleanupCtx := context.WithoutCancel(ctx)
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName)); err != nil {
+			t.Errorf("failed to drop database %s: %v", dbName, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner)); err != nil {
+			t.Errorf("failed to drop role %s: %v", dbOwner, err)
+		}
 	}
 }
 
@@ -2838,9 +2887,15 @@ func setupPostgresRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (
 	return adminUser, superUser, normalUser, func(t *testing.T) {
 		t.Helper()
 		cleanupCtx := context.WithoutCancel(ctx)
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser))
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser))
-		_, _ = pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser))
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", normalUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", superUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", adminUser, err)
+		}
 	}
 }
 
@@ -2977,6 +3032,30 @@ func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 			}
 		})
 	}
+
+	// "_" is a LIKE wildcard, so roles such as "pgbouncer" must not be
+	// hidden by the filter that excludes the built-in "pg_" roles.
+	pgPrefixedRole := "pgx" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE ROLE %s NOLOGIN;", pgPrefixedRole)); err != nil {
+		t.Fatalf("unable to create role %s: %v", pgPrefixedRole, err)
+	}
+	defer func() {
+		if _, err := pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", pgPrefixedRole)); err != nil {
+			t.Errorf("unable to drop role %s: %v", pgPrefixedRole, err)
+		}
+	}()
+
+	t.Run("list_roles includes roles starting with pg but not pg_", func(t *testing.T) {
+		const api = "http://127.0.0.1:5000/api/tool/list_roles/invoke"
+		requestBody := bytes.NewBufferString(fmt.Sprintf(`{"role_name": "%s"}`, pgPrefixedRole))
+		resp, respBody := RunRequest(t, http.MethodPost, api, requestBody, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, http.StatusOK, string(respBody))
+		}
+		if !strings.Contains(string(respBody), pgPrefixedRole) {
+			t.Errorf("expected role %q in the response, got: %s", pgPrefixedRole, string(respBody))
+		}
+	})
 }
 
 // RunMySQLListTablesTest run tests against the mysql-list-tables tool
@@ -3226,6 +3305,7 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 	}
 
 	testUUID := strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	tc1QueryTag := fmt.Sprintf("test_mysql_sleep_tc1_%s", testUUID)
 	tc2QueryTag := fmt.Sprintf("test_mysql_sleep_tc2_%s", testUUID)
 	tc3QueryTag := fmt.Sprintf("test_mysql_sleep_tc3_%s", testUUID)
 	tc4QueryTag := fmt.Sprintf("test_mysql_sleep_tc4_%s", testUUID)
@@ -3267,7 +3347,7 @@ func RunMySQLListActiveQueriesTest(t *testing.T, ctx context.Context, pool *sql.
 		{
 			name:                "invoke list_active_queries when the system is idle",
 			requestBody:         bytes.NewBufferString(`{}`),
-			queryTag:            "",
+			queryTag:            tc1QueryTag,
 			clientSleepSecs:     0,
 			waitSecsBeforeCheck: 0,
 			wantStatusCode:      http.StatusOK,
@@ -4074,6 +4154,15 @@ func RunMySQLGetQueryPlanTest(t *testing.T, ctx context.Context, pool *sql.DB, d
 					return
 				}
 
+				if tc.checkResult != nil {
+					if mcpResp.Error != nil {
+						t.Fatalf("get_query_plan returned RPC error: %v", mcpResp.Error)
+					}
+					if mcpResp.Result.IsError {
+						t.Fatalf("get_query_plan returned error result: %+v", mcpResp.Result.Content)
+					}
+				}
+
 				gotObj := getMCPResultText(t, mcpResp)
 				if len(gotObj) == 0 {
 					resultString = "null"
@@ -4613,6 +4702,128 @@ func RunMSSQLListTablesTest(t *testing.T, tableNameParam, tableNameAuth string, 
 	}
 }
 
+// RunMSSQLGetDatabaseObjectSourceCodeTest runs tests against the mssql-get-database-object-source-code tool.
+func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, tableNameAuth string, opts ...ToolExecOption) {
+	config := &ToolExecConfig{}
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	invokeTcs := []struct {
+		name           string
+		args           map[string]any
+		wantStatusCode int
+		wantContains   []string
+		isAgentErr     bool
+	}{
+		{
+			name:           "invoke get_database_object_source_code for tables namesOnly true",
+			args:           map[string]any{"object_type": "tables", "namesOnly": true},
+			wantStatusCode: http.StatusOK,
+			wantContains:   []string{fmt.Sprintf("[dbo].[%s]", tableNameParam), fmt.Sprintf("[dbo].[%s]", tableNameAuth)},
+		},
+		{
+			name:           "invoke get_database_object_source_code for all objects namesOnly true",
+			args:           map[string]any{"object_type": "all", "namesOnly": true},
+			wantStatusCode: http.StatusOK,
+			wantContains:   []string{fmt.Sprintf("[dbo].[%s]", tableNameParam), fmt.Sprintf("[dbo].[%s]", tableNameAuth)},
+		},
+		{
+			name:           "invoke get_database_object_source_code for tables namesOnly false",
+			args:           map[string]any{"object_type": "tables", "namesOnly": false},
+			wantStatusCode: http.StatusOK,
+			wantContains:   []string{"-------------------------------------------------------"},
+		},
+		{
+			name:           "invoke get_database_object_source_code for assemblies",
+			args:           map[string]any{"object_type": "assemblies", "namesOnly": false},
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:           "invoke get_database_object_source_code with invalid object_type",
+			args:           map[string]any{"object_type": "invalid_type"},
+			wantStatusCode: http.StatusOK,
+			isAgentErr:     true,
+		},
+		{
+			name:           "invoke get_database_object_source_code with malformed namesOnly parameter",
+			args:           map[string]any{"namesOnly": "not_a_boolean"},
+			wantStatusCode: http.StatusOK,
+			isAgentErr:     true,
+		},
+	}
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			var resultString string
+
+			if config.isMCP {
+				statusCode, mcpResp, err := InvokeMCPTool(t, "get_database_object_source_code", tc.args, nil)
+				if statusCode != tc.wantStatusCode {
+					t.Fatalf("response status code is not %d, got %d: %v", tc.wantStatusCode, statusCode, err)
+				}
+				if err != nil || mcpResp == nil {
+					t.Fatalf("unable to parse mcp response: %v", err)
+				}
+				// A tool error is reported as a 200 with isError set, so it has
+				// to be inspected rather than inferred from the status code.
+				if mcpResp.Error != nil || mcpResp.Result.IsError {
+					if tc.isAgentErr {
+						return
+					}
+					t.Fatalf("get_database_object_source_code returned an error result: %+v", mcpResp.Result.Content)
+				}
+				if tc.isAgentErr {
+					return
+				}
+				gotObj := getMCPResultText(t, mcpResp)
+				gotBytes, _ := json.Marshal(gotObj)
+				resultString = string(gotBytes)
+			} else {
+				const api = "http://127.0.0.1:5000/api/tool/get_database_object_source_code/invoke"
+				reqBytes, _ := json.Marshal(tc.args)
+
+				resp, respBytes := RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
+
+				if resp.StatusCode != tc.wantStatusCode {
+					t.Fatalf("response status code is not %d, got %d: %s", tc.wantStatusCode, resp.StatusCode, string(respBytes))
+				}
+
+				var bodyWrapper map[string]json.RawMessage
+				if err := json.Unmarshal(respBytes, &bodyWrapper); err != nil {
+					t.Fatalf("error parsing response wrapper: %s, body: %s", err, string(respBytes))
+				}
+
+				resultJSON, ok := bodyWrapper["result"]
+				if !ok {
+					t.Fatal("unable to find 'result' in response body")
+				}
+
+				if err := json.Unmarshal(resultJSON, &resultString); err != nil {
+					resultString = string(resultJSON)
+				}
+			}
+			if tc.wantStatusCode == http.StatusOK {
+				if tc.isAgentErr {
+					var errMap map[string]any
+					if err := json.Unmarshal([]byte(resultString), &errMap); err != nil {
+						t.Fatalf("expected error JSON in result, got: %s", resultString)
+					}
+					if _, ok := errMap["error"]; !ok {
+						t.Fatalf("expected error in response result, got: %s", resultString)
+					}
+					return
+				}
+
+				for _, wantSubstr := range tc.wantContains {
+					if !strings.Contains(resultString, wantSubstr) {
+						t.Errorf("expected result to contain %q, got: %s", wantSubstr, resultString)
+					}
+				}
+			}
+		})
+	}
+}
+
 func CreateAndLockPostgresTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tableName string) func() {
 	_, err := pool.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", pgx.Identifier{tableName}.Sanitize()))
 	if err != nil {
@@ -4889,11 +5100,29 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 		t.Fatalf("unable to run ANALYZE: %s", err)
 	}
 
+	// Inheritance parent with a child table: pg_stats holds two rows per
+	// column for the parent (inherited = false and inherited = true).
+	parentTableName := "parent_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	childTableName := "child_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	inheritanceStmts := []string{
+		fmt.Sprintf(`CREATE TABLE %s.%s (id INT, category TEXT)`, schemaName, parentTableName),
+		fmt.Sprintf(`CREATE TABLE %s.%s () INHERITS (%s.%s)`, schemaName, childTableName, schemaName, parentTableName),
+		fmt.Sprintf(`INSERT INTO %s.%s SELECT g, 'p' || (g %% 3) FROM generate_series(1, 100) g`, schemaName, parentTableName),
+		fmt.Sprintf(`INSERT INTO %s.%s SELECT g, 'c' || (g %% 50) FROM generate_series(1, 900) g`, schemaName, childTableName),
+		fmt.Sprintf(`ANALYZE %s.%s`, schemaName, parentTableName),
+	}
+	for _, stmt := range inheritanceStmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("unable to set up inheritance tables: %s", err)
+		}
+	}
+
 	invokeTcs := []struct {
 		name           string
 		requestBody    io.Reader
 		wantStatusCode int
-		shouldHaveData bool // Whether we expect data in the response
+		shouldHaveData bool     // Whether we expect data in the response
+		wantColumns    []string // If set, the exact sorted column names expected (one row per column)
 	}{
 		{
 			name:           "get cardinality for a specific column",
@@ -4918,6 +5147,13 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "non_existent_schema", "table_name": "%s"}`, tableName)),
 			wantStatusCode: http.StatusOK,
 			shouldHaveData: false,
+		},
+		{
+			name:           "get cardinality for an inheritance parent returns one row per column",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf(`{"schema_name": "%s", "table_name": "%s"}`, schemaName, parentTableName)),
+			wantStatusCode: http.StatusOK,
+			shouldHaveData: true,
+			wantColumns:    []string{"category", "id"},
 		},
 	}
 
@@ -4947,6 +5183,18 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 			var got []map[string]any
 			if err := json.Unmarshal([]byte(resultString), &got); err != nil {
 				t.Fatalf("failed to unmarshal nested result string: %v", err)
+			}
+
+			if tc.wantColumns != nil {
+				gotColumns := []string{}
+				for _, row := range got {
+					columnName, _ := row["column_name"].(string)
+					gotColumns = append(gotColumns, columnName)
+				}
+				sort.Strings(gotColumns)
+				if !reflect.DeepEqual(gotColumns, tc.wantColumns) {
+					t.Fatalf("unexpected columns: got %v, want %v", gotColumns, tc.wantColumns)
+				}
 			}
 
 			// Verify that we got the expected data presence

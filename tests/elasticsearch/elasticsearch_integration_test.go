@@ -115,11 +115,10 @@ func setupElasticsearchInstance(ctx context.Context, t *testing.T) {
 // and the client closed when the test finishes.
 func seedElasticsearchIndex(ctx context.Context, t *testing.T, index string) {
 	t.Helper()
-	esClient, err := elasticsearch.NewBaseClient(elasticsearch.Config{
-		Addresses: []string{EsAddress},
-		Username:  EsUser,
-		Password:  EsPass,
-	})
+	esClient, err := elasticsearch.NewBase(
+		elasticsearch.WithAddresses(EsAddress),
+		elasticsearch.WithBasicAuth(EsUser, EsPass),
+	)
 	if err != nil {
 		t.Fatalf("error creating the Elasticsearch client: %s", err)
 	}

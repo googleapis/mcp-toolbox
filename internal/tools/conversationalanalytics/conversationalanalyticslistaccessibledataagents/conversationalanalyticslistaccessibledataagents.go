@@ -296,7 +296,7 @@ func concatJSONArrays(prev, next json.RawMessage) json.RawMessage {
 // drainResult assembles a drained response. `nextPageToken` is omitted once the
 // drain reached the end of the list.
 func drainResult(extras map[string]json.RawMessage, dataAgents []json.RawMessage, pageToken string) map[string]any {
-	result := make(map[string]any, len(extras)+2)
+	result := make(map[string]any, len(extras))
 	for field, value := range extras {
 		result[field] = value
 	}

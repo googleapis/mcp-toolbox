@@ -32,6 +32,7 @@ import (
 // Cleanups run LIFO, so the server stops before the tables it queries are
 // dropped, and the pool is closed last.
 func setupTiDBMCPServer(t *testing.T, ctx context.Context) string {
+	useTiDB(ctx, t)
 	sourceConfig := getTiDBVars(t)
 
 	pool, err := initTiDBConnectionPool(TiDBHost, TiDBPort, TiDBUser, TiDBPass, TiDBDatabase, false)
@@ -65,13 +66,7 @@ func setupTiDBMCPServer(t *testing.T, ctx context.Context) string {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	// Registered last so it runs first. StartCmd's cleanup only removes the
-	// temporary config file, so Close is what stops the server and closes its
-	// pipes, before the tables it queries are dropped.
-	t.Cleanup(func() {
-		cmd.Close()
-		cleanup()
-	})
+	t.Cleanup(cleanup)
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelWait()

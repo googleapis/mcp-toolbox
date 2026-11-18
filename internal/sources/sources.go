@@ -69,6 +69,62 @@ type Source interface {
 	IsReadOnly() bool
 }
 
+// OAuthProxySource is implemented by a Source whose OAuth authorization
+// server does not send CORS headers on its discovery document or token
+// endpoint. Browsers enforce CORS on both fetch/XHR requests, so a
+// browser-based MCP client cannot complete an OAuth Authorization Code +
+// PKCE flow directly against such a server, even though the same requests
+// work fine from a non-browser HTTP client (curl, a backend service, etc).
+//
+// A Source that implements this interface, and reports
+// ClientOAuthEnabled() == true, has its OAuth discovery document and token
+// endpoint proxied by the toolbox itself (see
+// internal/server/oauth_proxy.go), at:
+//
+//	GET  /.well-known/oauth-authorization-server/oauth-proxy/{sourceName}
+//	POST /oauth-proxy/{sourceName}/token
+//
+// The browser then only ever talks to the toolbox's own origin, which
+// already sends the CORS headers configured via --allowed-origins, and the
+// toolbox forwards the token exchange to the authorization server
+// server-side, where CORS does not apply.
+//
+// A source supplies its own full endpoint URLs rather than a bare base URL
+// plus an assumed path suffix, because different authorization servers use
+// different conventions and the toolbox should not need to guess any
+// source's URL layout.
+type OAuthProxySource interface {
+	Source
+	// ClientOAuthEnabled reports whether this source instance expects the
+	// caller to supply a per-request, browser-obtained OAuth access token,
+	// as opposed to a single credential configured for the whole process.
+	ClientOAuthEnabled() bool
+	// OAuthAuthorizationEndpoint returns the full URL of the authorization
+	// server's authorization endpoint (where the browser is redirected to
+	// authenticate). This is returned as-is in the proxied discovery
+	// document: the initial redirect happens via top-level browser
+	// navigation, which isn't subject to CORS, so it does not need to be
+	// proxied.
+	OAuthAuthorizationEndpoint() string
+	// OAuthTokenEndpoint returns the full URL of the authorization server's
+	// own token endpoint. The toolbox's token proxy forwards requests here
+	// server-side; browser clients never call this URL directly.
+	OAuthTokenEndpoint() string
+}
+
+// OAuthProxyCapabilities can optionally be implemented by an
+// OAuthProxySource to override the default OAuth capabilities advertised in
+// its proxied discovery document (response_types_supported: ["code"],
+// grant_types_supported: ["authorization_code", "refresh_token"],
+// code_challenge_methods_supported: ["S256"]). Most authorization servers
+// matching OAuthProxySource use these defaults and don't need to implement
+// this.
+type OAuthProxyCapabilities interface {
+	OAuthResponseTypesSupported() []string
+	OAuthGrantTypesSupported() []string
+	OAuthCodeChallengeMethodsSupported() []string
+}
+
 // InitConnectionSpan adds a span for database pool connection initialization
 func InitConnectionSpan(ctx context.Context, tracer trace.Tracer, sourceType, sourceName string) (context.Context, trace.Span) {
 	ctx, span := tracer.Start(
