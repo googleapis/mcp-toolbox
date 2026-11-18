@@ -65,18 +65,13 @@ func setupMSSQLMCPServer(t *testing.T, ctx context.Context) (string, string, str
 	tmplSelectCombined, tmplSelectFilterCombined := tests.GetMSSQLTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, MSSQLToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 	toolsFile = tests.AddMSSQLPrebuiltToolConfig(t, toolsFile)
+	toolsFile = addNonCloudMSSQLPrebuiltToolConfig(t, toolsFile)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	// Registered last so it runs first. StartCmd's cleanup only removes the
-	// temporary config file, so Close is what stops the server and closes its
-	// pipes, before the tables it queries are dropped.
-	t.Cleanup(func() {
-		cmd.Close()
-		cleanup()
-	})
+	t.Cleanup(cleanup)
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelWait()
@@ -110,6 +105,18 @@ func TestMSSQLMCPListTools(t *testing.T) {
 			"required": []any{},
 		},
 	})
+	expectedTools = append(expectedTools, tests.MCPToolManifest{
+		Name:        "get_database_object_source_code",
+		Description: "Executes a query to retrieve source code for all coding objects.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"namesOnly":   map[string]any{"default": false, "description": "Optional: Set to true to return only object names instead of full object source code.", "type": "boolean"},
+				"object_type": map[string]any{"default": "all", "description": "Optional: Specify database object type to retrieve. Allowed values: all, functions, tables, procedures, views, triggers, linked_servers, assemblies.", "type": "string"},
+			},
+			"required": []any{},
+		},
+	})
 
 	t.Run("verify tools/list registry returns complete manifest", func(t *testing.T) {
 		tests.RunMCPToolsListMethod(t, expectedTools)
@@ -131,4 +138,5 @@ func TestMSSQLMCPCallTool(t *testing.T) {
 
 	// Run the SQL Server specific tool test over MCP
 	tests.RunMSSQLListTablesTest(t, tableNameParam, tableNameAuth, tests.WithMCPExec())
+	tests.RunMSSQLGetDatabaseObjectSourceCodeTest(t, tableNameParam, tableNameAuth, tests.WithMCPExec())
 }
