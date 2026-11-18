@@ -19,6 +19,8 @@ import (
 	"strings"
 
 	"google.golang.org/api/googleapi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type ErrorCategory string
@@ -88,23 +90,45 @@ func NewClientServerError(msg string, code int, cause error) *ClientServerError 
 // ProcessGcpError catches auth related errors in GCP requests results and return 401/403 error codes
 // Returns AgentError for all other errors
 func ProcessGcpError(err error) ToolboxError {
+	if err == nil {
+		return nil
+	}
+
 	var gErr *googleapi.Error
 	if errors.As(err, &gErr) {
-		if gErr.Code == 401 {
+		switch gErr.Code {
+		case http.StatusUnauthorized:
 			return NewClientServerError(
 				"failed to access GCP resource",
 				http.StatusUnauthorized,
-				err,
+				nil,
 			)
-		}
-		if gErr.Code == 403 {
+		case http.StatusForbidden:
 			return NewClientServerError(
 				"failed to access GCP resource",
 				http.StatusForbidden,
-				err,
+				nil,
 			)
 		}
 	}
+
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.Unauthenticated:
+			return NewClientServerError(
+				"failed to access GCP resource",
+				http.StatusUnauthorized,
+				nil,
+			)
+		case codes.PermissionDenied:
+			return NewClientServerError(
+				"failed to access GCP resource",
+				http.StatusForbidden,
+				nil,
+			)
+		}
+	}
+
 	return NewAgentError("error processing GCP request", err)
 }
 
