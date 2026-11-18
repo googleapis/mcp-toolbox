@@ -64,10 +64,11 @@ func (h *masterCloneInstanceHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	}
 	var body sqladmin.InstancesCloneRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.t.Fatalf("failed to decode request body: %v", err)
-	} else {
-		h.t.Logf("Received request body: %+v", body)
+		h.t.Errorf("failed to decode request body: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+	h.t.Logf("Received request body: %+v", body)
 
 	var expectedBody sqladmin.InstancesCloneRequest
 	var response any
