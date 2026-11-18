@@ -112,20 +112,23 @@ func ProcessGcpError(err error) ToolboxError {
 		}
 	}
 
-	if st, ok := status.FromError(err); ok {
-		switch st.Code() {
-		case codes.Unauthenticated:
-			return NewClientServerError(
-				"failed to access GCP resource",
-				http.StatusUnauthorized,
-				nil,
-			)
-		case codes.PermissionDenied:
-			return NewClientServerError(
-				"failed to access GCP resource",
-				http.StatusForbidden,
-				nil,
-			)
+	var statusErr interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &statusErr) {
+		if st := statusErr.GRPCStatus(); st != nil {
+			switch st.Code() {
+			case codes.Unauthenticated:
+				return NewClientServerError(
+					"failed to access GCP resource",
+					http.StatusUnauthorized,
+					nil,
+				)
+			case codes.PermissionDenied:
+				return NewClientServerError(
+					"failed to access GCP resource",
+					http.StatusForbidden,
+					nil,
+				)
+			}
 		}
 	}
 

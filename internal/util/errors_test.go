@@ -67,6 +67,16 @@ func TestProcessGcpErrorTreatsNonAuthErrorsAsAgentError(t *testing.T) {
 			err:  fmt.Errorf("query failed: %w", status.Error(codes.InvalidArgument, "bad filter")),
 		},
 		{
+			name: "apierror wrapping http bad request",
+			err: func() error {
+				apiErr, _ := apierror.FromError(&googleapi.Error{
+					Code:    http.StatusBadRequest,
+					Message: "Bad Request",
+				})
+				return apiErr
+			}(),
+		},
+		{
 			name: "plain error",
 			err:  errors.New("unexpected transport error"),
 		},
@@ -166,6 +176,11 @@ func TestProcessGcpErrorPreservesAuthFailuresAsScrubbedServerErrors(t *testing.T
 			name:     "apierror wrapping grpc permission denied",
 			err:      mustAPIError(status.Error(codes.PermissionDenied, "denied access to projects/123456789")),
 			wantCode: http.StatusForbidden,
+		},
+		{
+			name:     "joined grpc unauthenticated",
+			err:      errors.Join(errors.New("batch failure"), status.Error(codes.Unauthenticated, "invalid token on projects/123456789")),
+			wantCode: http.StatusUnauthorized,
 		},
 	}
 
