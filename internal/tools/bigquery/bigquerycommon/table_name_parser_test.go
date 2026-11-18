@@ -918,6 +918,44 @@ func TestTableParser(t *testing.T) {
 			defaultProjectID: "default-proj",
 			want:             []string{"proj.forbidden_ds.tbl"},
 		},
+		{
+			name:             "unquoted digit-prefixed table after dot is parsed",
+			sql:              "SELECT u.card_pin FROM proj.allowed_ds.v, proj.forbidden_ds.2026_users AS u",
+			defaultProjectID: "default-proj",
+			want:             []string{"proj.allowed_ds.v", "proj.forbidden_ds.2026_users"},
+		},
+		{
+			name:             "unquoted digit-prefixed dataset after dot is parsed",
+			sql:              "SELECT * FROM proj.2026_secret.users",
+			defaultProjectID: "default-proj",
+			want:             []string{"proj.2026_secret.users"},
+		},
+		{
+			name:             "DELETE without FROM extracts target table",
+			sql:              "DELETE proj.forbidden_ds.users WHERE true",
+			defaultProjectID: "default-proj",
+			want:             []string{"proj.forbidden_ds.users"},
+		},
+		{
+			name:             "float literal is not parsed as table identifier",
+			sql:              "SELECT 1.5 FROM proj.allowed_ds.t",
+			defaultProjectID: "default-proj",
+			want:             []string{"proj.allowed_ds.t"},
+		},
+		{
+			name:             "unclosed string literal returns error",
+			sql:              "SELECT 'unclosed FROM proj.forbidden_ds.t",
+			defaultProjectID: "default-proj",
+			wantErr:          true,
+			wantErrMsg:       "unclosed string literal or multiline comment",
+		},
+		{
+			name:             "unclosed multiline comment returns error",
+			sql:              "SELECT /* unclosed FROM proj.forbidden_ds.t",
+			defaultProjectID: "default-proj",
+			wantErr:          true,
+			wantErrMsg:       "unclosed string literal or multiline comment",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1098,11 +1136,25 @@ func TestIsAnyTableExplicitlyReferenced(t *testing.T) {
 			want:           true,
 		},
 		{
-			name:             "wildcard table reference does not match literal table ID",
+			name:             "wildcard table reference matches literal table ID",
 			sql:              "SELECT * FROM `proj.forbidden_ds.events_*`",
 			defaultProjectID: "proj",
 			targetTableIDs:   []string{"proj.forbidden_ds.events_20240101"},
-			want:             false,
+			want:             true,
+		},
+		{
+			name:             "dataset-qualified wildcard table reference matches with default project",
+			sql:              "SELECT * FROM `forbidden_ds.events_*`",
+			defaultProjectID: "proj",
+			targetTableIDs:   []string{"proj.forbidden_ds.events_20240101"},
+			want:             true,
+		},
+		{
+			name:             "unquoted digit-prefixed table after dot matches target",
+			sql:              "SELECT u.card_pin FROM proj.allowed_ds.v, proj.forbidden_ds.2026_users AS u",
+			defaultProjectID: "proj",
+			targetTableIDs:   []string{"proj.forbidden_ds.2026_users"},
+			want:             true,
 		},
 	}
 
@@ -1117,6 +1169,13 @@ func TestIsAnyTableExplicitlyReferenced(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("unclosed string literal returns error", func(t *testing.T) {
+		_, err := bigquerycommon.IsAnyTableExplicitlyReferenced("SELECT 'unclosed FROM p.forbidden_ds.t", "p", []string{"p.forbidden_ds.t"})
+		if err == nil || !strings.Contains(err.Error(), "unclosed string literal or multiline comment") {
+			t.Fatalf("expected unclosed literal error, got %v", err)
+		}
+	})
 }
 
 func TestTableParserDetailed(t *testing.T) {

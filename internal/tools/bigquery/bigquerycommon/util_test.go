@@ -334,6 +334,12 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
+					if err := json.NewEncoder(w).Encode(&bigquery.Table{Type: "VIEW"}); err != nil {
+						t.Errorf("failed to encode mock table response: %v", err)
+					}
+					return
+				}
 				job := &bigquery.Job{
 					Statistics: &bigquery.JobStatistics{
 						Query: &bigquery.JobStatistics2{
@@ -475,6 +481,7 @@ func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
 	testCases := []struct {
 		name           string
 		sql            string
+		tableType      string
 		mainReferenced []*bigquery.TableReference
 		viewReferenced []*bigquery.TableReference
 		wantErr        bool
@@ -530,6 +537,40 @@ func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
 			wantErrSub: "access to dataset 'proj.secret_cards_ds' is not allowed",
 		},
 		{
+			name:      "non-view TABLE in allowed dataset cannot exempt disallowed base table",
+			sql:       "SELECT * FROM proj.allowed_ds.regular_table",
+			tableType: "TABLE",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "piggyback direct read of digit-prefixed underlying table rejected",
+			sql:  "SELECT u.card_pin FROM proj.allowed_ds.user_names_view, proj.forbidden_ds.2026_users AS u",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "2026_users"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "2026_users"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "DELETE without FROM targeting forbidden dataset rejected",
+			sql:  "DELETE proj.forbidden_ds.users WHERE true",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "users"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
 			name: "disallowed dry-run table fully backed by referenced authorized view allowed",
 			sql:  "SELECT * FROM proj.allowed_ds.safe_view",
 			mainReferenced: []*bigquery.TableReference{
@@ -545,12 +586,25 @@ func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
+					tblType := tc.tableType
+					if tblType == "" {
+						tblType = "VIEW"
+					}
+					_ = json.NewEncoder(w).Encode(&bigquery.Table{Type: tblType})
+					return
+				}
 				var reqJob bigquery.Job
 				_ = json.NewDecoder(r.Body).Decode(&reqJob)
 				refs := tc.mainReferenced
-				if reqJob.Configuration != nil && reqJob.Configuration.Query != nil &&
-					strings.HasPrefix(reqJob.Configuration.Query.Query, "SELECT 1 FROM ") {
-					refs = tc.viewReferenced
+				if reqJob.Configuration != nil && reqJob.Configuration.Query != nil {
+					q := reqJob.Configuration.Query.Query
+					if strings.Contains(strings.ToUpper(q), "WHERE FALSE") {
+						t.Errorf("view verification dry run must not use WHERE FALSE (causes BigQuery column/table pruning): %s", q)
+					}
+					if strings.HasPrefix(q, "SELECT * FROM `proj.allowed_ds.") {
+						refs = tc.viewReferenced
+					}
 				}
 				job := &bigquery.Job{
 					Statistics: &bigquery.JobStatistics{

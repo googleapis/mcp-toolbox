@@ -92,6 +92,7 @@ var tableFollowsKeywords = map[string]bool{
 	"from":   true,
 	"join":   true,
 	"update": true,
+	"delete": true, // DELETE target_table (FROM is optional in GoogleSQL)
 	"into":   true, // INSERT INTO, MERGE INTO
 	"table":  true, // CREATE TABLE, ALTER TABLE
 	"model":  true, // ML.GET_INSIGHTS(MODEL ...)
@@ -706,6 +707,11 @@ func parseSQL(
 			}
 		}
 	}
+	switch state {
+	case stateNormal, stateInSingleLineCommentDash, stateInSingleLineCommentHash:
+	default:
+		return 0, fmt.Errorf("unclosed string literal or multiline comment")
+	}
 	if inSubquery {
 		return 0, fmt.Errorf("unclosed subquery parenthesis")
 	}
@@ -767,14 +773,13 @@ func IsAnyTableExplicitlyReferenced(sql, defaultProjectID string, targetTableIDs
 					fullID := strings.ToLower(strings.Join(parts, "."))
 					for _, target := range targets {
 						cleanTarget := target.cleanTarget
-						// Exact match or as a prefix for column references.
-						if fullID == cleanTarget || strings.HasPrefix(fullID, cleanTarget+".") {
+						if matchesTableTarget(fullID, cleanTarget) {
 							return true, nil
 						}
 						// Try matching with the default project ID prefix.
 						if cleanDefaultProjectID != "" {
 							withDefault := cleanDefaultProjectID + "." + fullID
-							if withDefault == cleanTarget || strings.HasPrefix(withDefault, cleanTarget+".") {
+							if matchesTableTarget(withDefault, cleanTarget) {
 								return true, nil
 							}
 						}
@@ -870,7 +875,31 @@ func IsAnyTableExplicitlyReferenced(sql, defaultProjectID string, targetTableIDs
 		i++
 	}
 
+	switch state {
+	case stateNormal, stateInSingleLineCommentDash, stateInSingleLineCommentHash:
+	default:
+		return false, fmt.Errorf("unclosed string literal or multiline comment")
+	}
+
 	return false, nil
+}
+
+// matchesTableTarget checks whether an identifier (already lowercased and
+// stripped of backticks) matches a target table ID exactly, as a column
+// reference prefix, or as a BigQuery wildcard table prefix (e.g. events_*).
+func matchesTableTarget(candidate, cleanTarget string) bool {
+	if candidate == cleanTarget || strings.HasPrefix(candidate, cleanTarget+".") {
+		return true
+	}
+	if strings.HasSuffix(candidate, "*") {
+		prefix := strings.TrimSuffix(candidate, "*")
+		// Require at least project.dataset. prefix (2 dots) before wildcard matching
+		// so bare "*" or unqualified prefixes do not match unrelated tables.
+		if strings.Count(prefix, ".") >= 2 && strings.HasPrefix(cleanTarget, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseIdentifierSequence parses a sequence of dot-separated identifiers.
@@ -919,7 +948,7 @@ func parseIdentifierSequence(runes []rune) ([]string, int, error) {
 				return nil, 0, fmt.Errorf("backslash escapes in backtick identifiers are not allowed")
 			}
 			consumed = end + 2
-		} else if unicode.IsLetter(runes[totalConsumed]) || runes[totalConsumed] == '_' {
+		} else if unicode.IsLetter(runes[totalConsumed]) || runes[totalConsumed] == '_' || (len(parts) > 0 && unicode.IsNumber(runes[totalConsumed])) {
 			end := totalConsumed
 			for end < len(runes) && (unicode.IsLetter(runes[end]) || unicode.IsNumber(runes[end]) || runes[end] == '_' || runes[end] == '-') {
 				end++

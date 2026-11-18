@@ -355,16 +355,14 @@ func ValidateQueryAgainstAllowedDatasets(
 				unqualRef), nil)
 		}
 
-		// Fail-closed Authorized View verification: confirm via BigQuery dry run that
-		// every violating underlying table reference comes from an allowed view
-		// explicitly referenced in the query rather than a parser differential.
+		// Fail-closed Authorized View verification: confirm via BigQuery Tables API
+		// and dry run that every violating underlying table reference comes from an
+		// allowed view explicitly referenced in the query rather than a parser differential.
 		unexemptedRefs := findUnexemptedViolatingRefs(
 			ctx,
 			restService,
 			projectID,
 			location,
-			connProps,
-			maximumBytesBilled,
 			validator,
 			parsed.TableIDs,
 			violatingRefs,
@@ -418,8 +416,6 @@ func findUnexemptedViolatingRefs(
 	restService *bigqueryrestapi.Service,
 	projectID string,
 	location string,
-	connProps []*bigqueryapi.ConnectionProperty,
-	maximumBytesBilled int64,
 	validator DatasetValidator,
 	parsedTableIDs []string,
 	violatingRefs []tableReference,
@@ -443,9 +439,13 @@ func findUnexemptedViolatingRefs(
 
 	authorizedUnderlying := make(map[tableReference]struct{})
 	for _, viewRef := range allowedViewRefs {
+		tbl, err := restService.Tables.Get(viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID).Context(ctx).Do()
+		if err != nil || tbl == nil || (tbl.Type != "VIEW" && tbl.Type != "MATERIALIZED_VIEW") {
+			continue
+		}
 		cleanFQN := strings.ReplaceAll(fmt.Sprintf("%s.%s.%s", viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID), "`", "")
-		viewSQL := fmt.Sprintf("SELECT 1 FROM `%s` WHERE FALSE", cleanFQN)
-		viewJob, err := DryRunQuery(ctx, restService, projectID, location, viewSQL, nil, connProps, maximumBytesBilled, false)
+		viewSQL := fmt.Sprintf("SELECT * FROM `%s`", cleanFQN)
+		viewJob, err := DryRunQuery(ctx, restService, projectID, location, viewSQL, nil, nil, 0, false)
 		if err != nil || viewJob == nil || viewJob.Statistics == nil || viewJob.Statistics.Query == nil {
 			continue
 		}
