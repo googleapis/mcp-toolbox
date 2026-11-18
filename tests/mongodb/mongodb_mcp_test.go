@@ -40,7 +40,6 @@ func startMongoDBMCPServer(t *testing.T, ctx context.Context) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	t.Cleanup(cleanup)
-	t.Cleanup(cmd.Close)
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer waitCancel()
