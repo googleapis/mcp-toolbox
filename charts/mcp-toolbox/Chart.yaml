@@ -17,7 +17,7 @@ name: mcp-toolbox
 description: MCP Toolbox for Databases, an open source MCP server for databases.
 type: application
 version: 0.1.0
-appVersion: "1.15.0"
+appVersion: "1.17.0" # x-release-please-version
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/googleapis/mcp-toolbox
 sources:

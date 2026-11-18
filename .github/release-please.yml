@@ -41,6 +41,7 @@ extraFiles:
     "docs/en/documentation/connect-to/ides/oracle_mcp.md",
     "gemini-extension.json",
     "pypi/src/toolbox_server/__init__.py",
+    "charts/mcp-toolbox/Chart.yaml",
     { "type": "json", "path": "server.json", "jsonpath": "$.version" },
     {
       "type": "json",
