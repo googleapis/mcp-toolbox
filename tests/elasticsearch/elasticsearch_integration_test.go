@@ -247,7 +247,6 @@ func TestElasticsearchToolEndpoints(t *testing.T) {
 		t.Fatalf("failed to start cmd: %v", err)
 	}
 	t.Cleanup(cleanup)
-	t.Cleanup(cmd.Close)
 
 	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer waitCancel()
