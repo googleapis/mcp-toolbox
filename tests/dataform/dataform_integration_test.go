@@ -31,31 +31,23 @@ import (
 )
 
 // setupTestProject creates a minimal dataform project using the 'dataform init' CLI.
-// It returns the path to the directory and a cleanup function.
-func setupTestProject(t *testing.T) (string, func()) {
-	tmpDir, err := os.MkdirTemp("", "dataform-project-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	cleanup := func() {
-		os.RemoveAll(tmpDir)
-	}
+// It returns the path to the directory.
+func setupTestProject(t *testing.T) string {
+	tmpDir := t.TempDir()
 
 	cmd := exec.Command("dataform", "init", tmpDir, "test-project-id", "US")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		cleanup()
 		t.Fatalf("Failed to run 'dataform init': %v\nOutput: %s", err, string(output))
 	}
 
 	definitionsDir := filepath.Join(tmpDir, "definitions")
 	exampleSQLX := `config { type: "table" } SELECT 1 AS test_col`
-	err = os.WriteFile(filepath.Join(definitionsDir, "example.sqlx"), []byte(exampleSQLX), 0644)
+	err := os.WriteFile(filepath.Join(definitionsDir, "example.sqlx"), []byte(exampleSQLX), 0644)
 	if err != nil {
-		cleanup()
 		t.Fatalf("Failed to write example.sqlx: %v", err)
 	}
 
-	return tmpDir, cleanup
+	return tmpDir
 }
 
 func TestDataformCompileTool(t *testing.T) {
@@ -63,8 +55,7 @@ func TestDataformCompileTool(t *testing.T) {
 		t.Skip("dataform CLI not found in $PATH, skipping integration test")
 	}
 
-	projectDir, cleanupProject := setupTestProject(t)
-	defer cleanupProject()
+	projectDir := setupTestProject(t)
 
 	toolsFile := map[string]any{
 		"tools": map[string]any{
