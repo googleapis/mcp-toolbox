@@ -596,15 +596,18 @@ func (p *CommonParameter) GetValueFromParam() string {
 	return p.ValueFromParam
 }
 
-// MatchStringOrRegex checks if the input matches the target
+// MatchStringOrRegex checks if the entire input matches the target value or regex pattern.
 func MatchStringOrRegex(input, target any) bool {
 	targetS, ok := target.(string)
 	if !ok {
 		return input == target
 	}
-	re, err := regexp.Compile(targetS)
+	if _, err := regexp.Compile(targetS); err != nil {
+		// if target is not a valid regex, run direct comparison
+		return input == target
+	}
+	re, err := regexp.Compile(`\A(?:` + targetS + `)\z`)
 	if err != nil {
-		// if target is not regex, run direct comparison
 		return input == target
 	}
 	inputS := fmt.Sprintf("%v", input)

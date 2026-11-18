@@ -572,8 +572,8 @@ variables for each source.
 * Cloud SQL SQL Server - setup in the test project
   * The Cloud Build service account is a user
 * Couchbase - setup in the test project via the Marketplace
-* DGraph - using the public dgraph interface <https://play.dgraph.io> for
-  testing
+* DGraph - ephemeral `dgraph/standalone` container via testcontainers (set
+  `DGRAPH_URL` to use an existing instance)
 * Looker
   * The Cloud Build service account is a user for conversational analytics
   * The Looker instance runs under google.com:looker-sandbox.
