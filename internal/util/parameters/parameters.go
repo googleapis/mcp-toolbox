@@ -713,19 +713,30 @@ func (p *StringParameter) Parse(v any) (any, error) {
 }
 
 func applyEscape(escape, v string) (any, error) {
+	if strings.ContainsAny(v, "\\\x00") {
+		return nil, fmt.Errorf("cannot escape value containing backslash or null byte")
+	}
 	switch escape {
 	case escapeBackticks:
-		escaped := strings.ReplaceAll(v, "`", "``")
-		return fmt.Sprintf("`%s`", escaped), nil
+		if strings.ContainsRune(v, '`') {
+			return nil, fmt.Errorf("cannot backtick-escape value containing backtick")
+		}
+		return fmt.Sprintf("`%s`", v), nil
 	case escapeDoubleQuotes:
-		escaped := strings.ReplaceAll(v, `"`, `""`)
-		return fmt.Sprintf(`"%s"`, escaped), nil
+		if strings.ContainsRune(v, '"') {
+			return nil, fmt.Errorf("cannot double-quote-escape value containing double quote")
+		}
+		return fmt.Sprintf(`"%s"`, v), nil
 	case escapeSingleQuotes:
-		escaped := strings.ReplaceAll(v, `'`, `''`)
-		return fmt.Sprintf(`'%s'`, escaped), nil
+		if strings.ContainsRune(v, '\'') {
+			return nil, fmt.Errorf("cannot single-quote-escape value containing single quote")
+		}
+		return fmt.Sprintf(`'%s'`, v), nil
 	case escapeSquareBrackets:
-		escaped := strings.ReplaceAll(v, "]", "]]")
-		return fmt.Sprintf("[%s]", escaped), nil
+		if strings.ContainsAny(v, "[]") {
+			return nil, fmt.Errorf("cannot square-bracket-escape value containing square bracket")
+		}
+		return fmt.Sprintf("[%s]", v), nil
 	default:
 		return nil, fmt.Errorf("%s is not an allowed escaping delimiter", escape)
 	}
