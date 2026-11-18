@@ -470,3 +470,127 @@ func TestValidateQueryAgainstAllowedDatasetsBeforeDryRun(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
+	testCases := []struct {
+		name           string
+		sql            string
+		mainReferenced []*bigquery.TableReference
+		viewReferenced []*bigquery.TableReference
+		wantErr        bool
+		wantErrSub     string
+	}{
+		{
+			name: "triple-quoted backslash escape bypass rejected",
+			sql:  `SELECT '''\'''' FROM proj.forbidden_ds.secret_table -- '`,
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "raw bytes br literal bypass rejected",
+			sql:  `SELECT br'\'' FROM proj.forbidden_ds.secret_table -- '`,
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "backtick hex escape identifier rejected",
+			sql:  "SELECT * FROM `proj`.`\\x73ecret_ds`.`secret_table`",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "secret_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "could not safely analyze query with dataset restrictions",
+		},
+		{
+			name: "disallowed dry-run reference with zero parsed allowed views rejected",
+			sql:  "SELECT 1",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "disallowed dry-run table not backed by referenced authorized view rejected",
+			sql:  "SELECT * FROM proj.allowed_ds.safe_view",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+				{ProjectId: "proj", DatasetId: "secret_cards_ds", TableId: "credit_cards"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.secret_cards_ds' is not allowed",
+		},
+		{
+			name: "disallowed dry-run table fully backed by referenced authorized view allowed",
+			sql:  "SELECT * FROM proj.allowed_ds.safe_view",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var reqJob bigquery.Job
+				_ = json.NewDecoder(r.Body).Decode(&reqJob)
+				refs := tc.mainReferenced
+				if reqJob.Configuration != nil && reqJob.Configuration.Query != nil &&
+					strings.HasPrefix(reqJob.Configuration.Query.Query, "SELECT 1 FROM ") {
+					refs = tc.viewReferenced
+				}
+				job := &bigquery.Job{
+					Statistics: &bigquery.JobStatistics{
+						Query: &bigquery.JobStatistics2{
+							ReferencedTables: refs,
+							StatementType:    "SELECT",
+						},
+					},
+				}
+				_ = json.NewEncoder(w).Encode(job)
+			}))
+			defer server.Close()
+
+			restService, err := bigquery.NewService(context.Background(), option.WithoutAuthentication(), option.WithEndpoint(server.URL))
+			if err != nil {
+				t.Fatalf("failed to create bigquery service: %v", err)
+			}
+
+			_, errToolbox := bigquerycommon.ValidateQueryAgainstAllowedDatasets(
+				context.Background(),
+				restService,
+				"proj",
+				"US",
+				tc.sql,
+				nil,
+				nil,
+				mockDatasetValidator{},
+				0,
+				false,
+			)
+			if tc.wantErr {
+				if errToolbox == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantErrSub)
+				}
+				if !strings.Contains(errToolbox.Error(), tc.wantErrSub) {
+					t.Errorf("error = %q, want it to contain %q", errToolbox.Error(), tc.wantErrSub)
+				}
+			} else if errToolbox != nil {
+				t.Fatalf("unexpected error: %v", errToolbox)
+			}
+		})
+	}
+}

@@ -191,6 +191,69 @@ func hasPrefixFold(r []rune, offset int, prefix string) bool {
 	return true
 }
 
+// matchStringLiteralStart checks if runes[i:] begins a GoogleSQL string or bytes
+// literal (including raw r/R, bytes b/B, and raw bytes br/rb prefixes) and returns
+// the corresponding lexer state and prefix length to consume.
+func matchStringLiteralStart(runes []rune, i int) (parserState, int, bool) {
+	if i >= len(runes) {
+		return stateNormal, 0, false
+	}
+	// 5-char raw bytes triple-quoted prefixes: br''', rb''', br""", rb"""
+	if hasPrefixFold(runes, i, "br'''") || hasPrefixFold(runes, i, "rb'''") {
+		return stateInRawTripleSingleQuoteString, 5, true
+	}
+	if hasPrefixFold(runes, i, `br"""`) || hasPrefixFold(runes, i, `rb"""`) {
+		return stateInRawTripleDoubleQuoteString, 5, true
+	}
+	// 4-char raw string and non-raw bytes triple-quoted prefixes: r''', r""", b''', b"""
+	if hasPrefixFold(runes, i, "r'''") {
+		return stateInRawTripleSingleQuoteString, 4, true
+	}
+	if hasPrefixFold(runes, i, `r"""`) {
+		return stateInRawTripleDoubleQuoteString, 4, true
+	}
+	if hasPrefixFold(runes, i, "b'''") {
+		return stateInTripleSingleQuoteString, 4, true
+	}
+	if hasPrefixFold(runes, i, `b"""`) {
+		return stateInTripleDoubleQuoteString, 4, true
+	}
+	// 3-char raw bytes single/double-quoted prefixes: br', rb', br", rb"
+	if hasPrefixFold(runes, i, "br'") || hasPrefixFold(runes, i, "rb'") {
+		return stateInRawSingleQuoteString, 3, true
+	}
+	if hasPrefixFold(runes, i, `br"`) || hasPrefixFold(runes, i, `rb"`) {
+		return stateInRawDoubleQuoteString, 3, true
+	}
+	// 2-char raw string and non-raw bytes prefixes: r', r", b', b"
+	if hasPrefixFold(runes, i, "r'") {
+		return stateInRawSingleQuoteString, 2, true
+	}
+	if hasPrefixFold(runes, i, `r"`) {
+		return stateInRawDoubleQuoteString, 2, true
+	}
+	if hasPrefixFold(runes, i, "b'") {
+		return stateInSingleQuoteString, 2, true
+	}
+	if hasPrefixFold(runes, i, `b"`) {
+		return stateInDoubleQuoteString, 2, true
+	}
+	// Unprefixed triple, single, and double quotes
+	if hasPrefix(runes, i, "'''") {
+		return stateInTripleSingleQuoteString, 3, true
+	}
+	if hasPrefix(runes, i, `"""`) {
+		return stateInTripleDoubleQuoteString, 3, true
+	}
+	if runes[i] == '\'' {
+		return stateInSingleQuoteString, 1, true
+	}
+	if runes[i] == '"' {
+		return stateInDoubleQuoteString, 1, true
+	}
+	return stateNormal, 0, false
+}
+
 // ParseResult holds the outcome of a lexical scan of a query.
 type ParseResult struct {
 	// TableIDs are fully-qualified project.dataset.table references found in the query.
@@ -343,45 +406,10 @@ func parseSQL(
 				continue
 			}
 
-			// Raw strings must be checked before regular strings.
-			if hasPrefixFold(runes, i, "r'''") {
-				state = stateInRawTripleSingleQuoteString
-				i += 4
-				continue
-			}
-			if hasPrefixFold(runes, i, `r"""`) {
-				state = stateInRawTripleDoubleQuoteString
-				i += 4
-				continue
-			}
-			if hasPrefixFold(runes, i, "r'") {
-				state = stateInRawSingleQuoteString
-				i += 2
-				continue
-			}
-			if hasPrefixFold(runes, i, `r"`) {
-				state = stateInRawDoubleQuoteString
-				i += 2
-				continue
-			}
-			if hasPrefix(runes, i, "'''") {
-				state = stateInTripleSingleQuoteString
-				i += 3
-				continue
-			}
-			if hasPrefix(runes, i, `"""`) {
-				state = stateInTripleDoubleQuoteString
-				i += 3
-				continue
-			}
-			if char == '\'' {
-				state = stateInSingleQuoteString
-				i++
-				continue
-			}
-			if char == '"' {
-				state = stateInDoubleQuoteString
-				i++
+			// Raw and byte string prefixes must be checked before regular strings.
+			if nextState, adv, ok := matchStringLiteralStart(runes, i); ok {
+				state = nextState
+				i += adv
 				continue
 			}
 
@@ -601,6 +629,10 @@ func parseSQL(
 			}
 			i++
 		case stateInTripleSingleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, "'''") {
 				state = stateNormal
 				i += 3
@@ -608,6 +640,10 @@ func parseSQL(
 				i++
 			}
 		case stateInTripleDoubleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, `"""`) {
 				state = stateNormal
 				i += 3
@@ -627,16 +663,30 @@ func parseSQL(
 				i++
 			}
 		case stateInRawSingleQuoteString:
+			// In GoogleSQL, backslash escapes the following character for literal
+			// termination even in raw strings and raw bytes (e.g. r'\'' or br'\'').
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if char == '\'' {
 				state = stateNormal
 			}
 			i++
 		case stateInRawDoubleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if char == '"' {
 				state = stateNormal
 			}
 			i++
 		case stateInRawTripleSingleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, "'''") {
 				state = stateNormal
 				i += 3
@@ -644,6 +694,10 @@ func parseSQL(
 				i++
 			}
 		case stateInRawTripleDoubleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, `"""`) {
 				state = stateNormal
 				i += 3
@@ -697,45 +751,10 @@ func IsAnyTableExplicitlyReferenced(sql, defaultProjectID string, targetTableIDs
 				continue
 			}
 
-			// Handle various BigQuery string literal formats.
-			if hasPrefixFold(runes, i, "r'''") {
-				state = stateInRawTripleSingleQuoteString
-				i += 4
-				continue
-			}
-			if hasPrefixFold(runes, i, `r"""`) {
-				state = stateInRawTripleDoubleQuoteString
-				i += 4
-				continue
-			}
-			if hasPrefixFold(runes, i, "r'") {
-				state = stateInRawSingleQuoteString
-				i += 2
-				continue
-			}
-			if hasPrefixFold(runes, i, `r"`) {
-				state = stateInRawDoubleQuoteString
-				i += 2
-				continue
-			}
-			if hasPrefix(runes, i, "'''") {
-				state = stateInTripleSingleQuoteString
-				i += 3
-				continue
-			}
-			if hasPrefix(runes, i, `"""`) {
-				state = stateInTripleDoubleQuoteString
-				i += 3
-				continue
-			}
-			if char == '\'' {
-				state = stateInSingleQuoteString
-				i++
-				continue
-			}
-			if char == '"' {
-				state = stateInDoubleQuoteString
-				i++
+			// Handle various BigQuery string and bytes literal formats.
+			if nextState, adv, ok := matchStringLiteralStart(runes, i); ok {
+				state = nextState
+				i += adv
 				continue
 			}
 
@@ -782,12 +801,20 @@ func IsAnyTableExplicitlyReferenced(sql, defaultProjectID string, targetTableIDs
 				state = stateNormal
 			}
 		case stateInTripleSingleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, "'''") {
 				state = stateNormal
 				i += 3
 				continue
 			}
 		case stateInTripleDoubleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, `"""`) {
 				state = stateNormal
 				i += 3
@@ -804,20 +831,36 @@ func IsAnyTableExplicitlyReferenced(sql, defaultProjectID string, targetTableIDs
 				continue
 			}
 		case stateInRawSingleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if char == '\'' {
 				state = stateNormal
 			}
 		case stateInRawDoubleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if char == '"' {
 				state = stateNormal
 			}
 		case stateInRawTripleSingleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, "'''") {
 				state = stateNormal
 				i += 3
 				continue
 			}
 		case stateInRawTripleDoubleQuoteString:
+			if char == '\\' {
+				i += 2
+				continue
+			}
 			if hasPrefix(runes, i, `"""`) {
 				state = stateNormal
 				i += 3
@@ -872,6 +915,9 @@ func parseIdentifierSequence(runes []rune) ([]string, int, error) {
 				return nil, 0, fmt.Errorf("unclosed backtick identifier")
 			}
 			part = string(runes[totalConsumed+1 : totalConsumed+end+1])
+			if strings.ContainsRune(part, '\\') {
+				return nil, 0, fmt.Errorf("backslash escapes in backtick identifiers are not allowed")
+			}
 			consumed = end + 2
 		} else if unicode.IsLetter(runes[totalConsumed]) || runes[totalConsumed] == '_' {
 			end := totalConsumed

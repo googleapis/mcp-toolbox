@@ -899,6 +899,25 @@ func TestTableParser(t *testing.T) {
 			wantErr:          true,
 			wantErrMsg:       "query nesting is too deep",
 		},
+		{
+			name:             "backslash escape in backtick identifier is rejected",
+			sql:              "SELECT * FROM `proj`.`\\x73ecret_ds`.`tbl`",
+			defaultProjectID: "default-proj",
+			wantErr:          true,
+			wantErrMsg:       "backslash escapes in backtick identifiers are not allowed",
+		},
+		{
+			name:             "triple single-quoted string with escaped quote does not swallow FROM clause",
+			sql:              `SELECT '''\'''' FROM proj.forbidden_ds.tbl -- '`,
+			defaultProjectID: "default-proj",
+			want:             []string{"proj.forbidden_ds.tbl"},
+		},
+		{
+			name:             "raw bytes br literal with escaped quote does not swallow FROM clause",
+			sql:              `SELECT br'\'' FROM proj.forbidden_ds.tbl -- '`,
+			defaultProjectID: "default-proj",
+			want:             []string{"proj.forbidden_ds.tbl"},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1037,8 +1056,44 @@ func TestIsAnyTableExplicitlyReferenced(t *testing.T) {
 			want:             true,
 		},
 		{
-			name:           "raw string containing a backslash does not desync the lexer",
-			sql:            `SELECT r'\' AS c FROM p.forbidden_ds.t`,
+			name:           "raw string containing escaped backslash does not desync the lexer",
+			sql:            `SELECT r'\\' AS c FROM p.forbidden_ds.t`,
+			targetTableIDs: []string{"p.forbidden_ds.t"},
+			want:           true,
+		},
+		{
+			name:           "raw string containing escaped quote does not desync the lexer",
+			sql:            `SELECT r'\'' AS c FROM p.forbidden_ds.t -- '`,
+			targetTableIDs: []string{"p.forbidden_ds.t"},
+			want:           true,
+		},
+		{
+			name:           "triple single-quoted string with escaped quote does not desync lexer",
+			sql:            `SELECT '''\'''' FROM p.forbidden_ds.t -- '`,
+			targetTableIDs: []string{"p.forbidden_ds.t"},
+			want:           true,
+		},
+		{
+			name:           "triple double-quoted string with escaped quote does not desync lexer",
+			sql:            `SELECT """\"""" FROM p.forbidden_ds.t -- "`,
+			targetTableIDs: []string{"p.forbidden_ds.t"},
+			want:           true,
+		},
+		{
+			name:           "raw bytes br single-quoted literal does not desync lexer",
+			sql:            `SELECT br'\'' FROM p.forbidden_ds.t -- '`,
+			targetTableIDs: []string{"p.forbidden_ds.t"},
+			want:           true,
+		},
+		{
+			name:           "raw bytes rb single-quoted literal does not desync lexer",
+			sql:            `SELECT rb'\'' FROM p.forbidden_ds.t -- '`,
+			targetTableIDs: []string{"p.forbidden_ds.t"},
+			want:           true,
+		},
+		{
+			name:           "bytes b single-quoted literal with escaped quote does not desync lexer",
+			sql:            `SELECT b'\'' FROM p.forbidden_ds.t`,
 			targetTableIDs: []string{"p.forbidden_ds.t"},
 			want:           true,
 		},

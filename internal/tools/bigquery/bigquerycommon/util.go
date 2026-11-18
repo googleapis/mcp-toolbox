@@ -174,7 +174,9 @@ func (o *validateOptions) isSessionTempObject(name string) bool {
 //     explicitly referenced by name in the query text.
 //     - If the user explicitly typed the restricted table name, the query is blocked.
 //     - If the restricted table was NOT named in the query (and all other references are
-//     fully qualified), the access is via an authorized view and is granted exemption.
+//     fully qualified), Toolbox dry-runs each allowed candidate view referenced in the
+//     query and grants an exemption only when every restricted table is backed by one of
+//     those allowed views.
 //
 //  2. Catching Unanalyzable or Ambiguous Operations:
 //     Dry run statistics alone cannot detect every security boundary issue:
@@ -338,16 +340,7 @@ func ValidateQueryAgainstAllowedDatasets(
 			return nil, util.NewAgentError("failed to analyze query for explicit table references", err)
 		}
 		if explicitlyReferenced {
-			var violatingDatasets []string
-			seenDatasets := make(map[string]struct{})
-			for _, ref := range violatingRefs {
-				datasetFQN := fmt.Sprintf("%s.%s", ref.ProjectID, ref.DatasetID)
-				if _, seen := seenDatasets[datasetFQN]; !seen {
-					violatingDatasets = append(violatingDatasets, datasetFQN)
-					seenDatasets[datasetFQN] = struct{}{}
-				}
-			}
-			return nil, notAllowedDatasetsErr(violatingDatasets)
+			return nil, notAllowedDatasetsErr(collectViolatingDatasets(violatingRefs))
 		}
 
 		// Only when all table references in the query are explicit and fully-qualified
@@ -361,9 +354,119 @@ func ValidateQueryAgainstAllowedDatasets(
 					"fully qualify all table names (dataset.table) when dataset restrictions are in place",
 				unqualRef), nil)
 		}
+
+		// Fail-closed Authorized View verification: confirm via BigQuery dry run that
+		// every violating underlying table reference comes from an allowed view
+		// explicitly referenced in the query rather than a parser differential.
+		unexemptedRefs := findUnexemptedViolatingRefs(
+			ctx,
+			restService,
+			projectID,
+			location,
+			connProps,
+			maximumBytesBilled,
+			validator,
+			parsed.TableIDs,
+			violatingRefs,
+		)
+		if len(unexemptedRefs) > 0 {
+			return nil, notAllowedDatasetsErr(collectViolatingDatasets(unexemptedRefs))
+		}
 	}
 
 	return dryRunJob, nil
+}
+
+func collectViolatingDatasets(refs []tableReference) []string {
+	var violatingDatasets []string
+	seenDatasets := make(map[string]struct{})
+	for _, ref := range refs {
+		datasetFQN := fmt.Sprintf("%s.%s", ref.ProjectID, ref.DatasetID)
+		if _, seen := seenDatasets[datasetFQN]; !seen {
+			violatingDatasets = append(violatingDatasets, datasetFQN)
+			seenDatasets[datasetFQN] = struct{}{}
+		}
+	}
+	return violatingDatasets
+}
+
+var safeBQProjectPart = regexp.MustCompile(`^[a-zA-Z0-9_.:-]+$`)
+var safeBQIdentifierPart = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func splitFullTableID(tableID string) (tableReference, bool) {
+	parts := strings.Split(tableID, ".")
+	if len(parts) == 4 && strings.Contains(parts[1], ":") {
+		parts = []string{parts[0] + "." + parts[1], parts[2], parts[3]}
+	}
+	if len(parts) != 3 {
+		return tableReference{}, false
+	}
+	if !safeBQProjectPart.MatchString(parts[0]) ||
+		!safeBQIdentifierPart.MatchString(parts[1]) ||
+		!safeBQIdentifierPart.MatchString(parts[2]) {
+		return tableReference{}, false
+	}
+	return tableReference{
+		ProjectID: parts[0],
+		DatasetID: parts[1],
+		TableID:   parts[2],
+	}, true
+}
+
+func findUnexemptedViolatingRefs(
+	ctx context.Context,
+	restService *bigqueryrestapi.Service,
+	projectID string,
+	location string,
+	connProps []*bigqueryapi.ConnectionProperty,
+	maximumBytesBilled int64,
+	validator DatasetValidator,
+	parsedTableIDs []string,
+	violatingRefs []tableReference,
+) []tableReference {
+	var allowedViewRefs []tableReference
+	for _, tableID := range parsedTableIDs {
+		ref, ok := splitFullTableID(tableID)
+		if !ok {
+			continue
+		}
+		if IsSystemResource(ref.DatasetID, ref.TableID) {
+			continue
+		}
+		if validator.IsDatasetAllowed(ref.ProjectID, ref.DatasetID) {
+			allowedViewRefs = append(allowedViewRefs, ref)
+		}
+	}
+	if len(allowedViewRefs) == 0 {
+		return violatingRefs
+	}
+
+	authorizedUnderlying := make(map[tableReference]struct{})
+	for _, viewRef := range allowedViewRefs {
+		cleanFQN := strings.ReplaceAll(fmt.Sprintf("%s.%s.%s", viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID), "`", "")
+		viewSQL := fmt.Sprintf("SELECT 1 FROM `%s` WHERE FALSE", cleanFQN)
+		viewJob, err := DryRunQuery(ctx, restService, projectID, location, viewSQL, nil, connProps, maximumBytesBilled, false)
+		if err != nil || viewJob == nil || viewJob.Statistics == nil || viewJob.Statistics.Query == nil {
+			continue
+		}
+		for _, tRef := range viewJob.Statistics.Query.ReferencedTables {
+			if tRef != nil && tRef.ProjectId != "" && tRef.DatasetId != "" && tRef.TableId != "" {
+				authorizedUnderlying[tableReference{
+					ProjectID: tRef.ProjectId,
+					DatasetID: tRef.DatasetId,
+					TableID:   tRef.TableId,
+				}] = struct{}{}
+			}
+		}
+	}
+
+	var unexempted []tableReference
+	for _, vRef := range violatingRefs {
+		if _, ok := authorizedUnderlying[vRef]; !ok {
+			unexempted = append(unexempted, vRef)
+		}
+	}
+	return unexempted
 }
 
 func notAllowedDatasetsErr(datasetFQNs []string) util.ToolboxError {
