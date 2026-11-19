@@ -590,7 +590,7 @@ func TestInvokeFilterTemplateSubstitution(t *testing.T) {
 			},
 		},
 		{
-			name: "typed numeric boolean and parameterized operator",
+			name: "typed numeric boolean slice map and parameterized operator",
 			filters: `{
 				"or": [
 					{"field": "age", "op": "{{.operator}}", "value": {"integerValue": "{{.age}}"}},
@@ -598,7 +598,8 @@ func TestInvokeFilterTemplateSubstitution(t *testing.T) {
 						"and": [
 							{"field": "area", "op": "<", "value": {"doubleValue": {{.maxArea}}}},
 							{"field": "active", "op": "==", "value": {"booleanValue": {{.isActive}}}},
-							{"field": "tags", "op": "array-contains", "value": {"stringValue": "__firestore_filter_tmpl_0__"}}
+							{"field": "note", "op": "==", "value": {"stringValue": "{{index .strSlice 0}}"}},
+							{"field": "tags", "op": "in", "value": {"arrayValue": {"values": {{json .tagObjects}}}}}
 						]
 					}
 				]
@@ -608,6 +609,8 @@ func TestInvokeFilterTemplateSubstitution(t *testing.T) {
 				{Name: "age", Value: "25"},
 				{Name: "maxArea", Value: 123.5},
 				{Name: "isActive", Value: true},
+				{Name: "strSlice", Value: []string{"a < b & c > d\n\t\\\""}},
+				{Name: "tagObjects", Value: []any{map[string]any{"stringValue": `tag"1`}}},
 			},
 			wantFilter: firestoreapi.OrFilter{
 				Filters: []firestoreapi.EntityFilter{
@@ -629,9 +632,14 @@ func TestInvokeFilterTemplateSubstitution(t *testing.T) {
 								Value:    true,
 							},
 							firestoreapi.PropertyFilter{
+								Path:     "note",
+								Operator: "==",
+								Value:    "a < b & c > d\n\t\\\"",
+							},
+							firestoreapi.PropertyFilter{
 								Path:     "tags",
-								Operator: "array-contains",
-								Value:    "__firestore_filter_tmpl_0__",
+								Operator: "in",
+								Value:    []any{`tag"1`},
 							},
 						},
 					},

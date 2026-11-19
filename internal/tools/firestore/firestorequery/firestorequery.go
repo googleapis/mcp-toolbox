@@ -182,9 +182,16 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	var filter firestoreapi.EntityFilter
 	// Process and apply filters if template is provided
 	if t.Cfg.Filters != "" {
-		simplifiedFilter, filterErr := parseAndPopulateFilters(t.Cfg.Filters, paramsMap)
-		if filterErr != nil {
-			return nil, filterErr
+		// Apply template substitution to filters with JSON-escaped string parameters
+		filtersJSON, err := parameters.PopulateTemplateWithJSON("filters", t.Cfg.Filters, escapeFilterParamsMap(paramsMap))
+		if err != nil {
+			return nil, util.NewAgentError(fmt.Sprintf("failed to process filters template: %v", err), err)
+		}
+
+		// Parse the simplified filter format
+		var simplifiedFilter SimplifiedFilter
+		if err := json.Unmarshal([]byte(filtersJSON), &simplifiedFilter); err != nil {
+			return nil, util.NewAgentError(fmt.Sprintf("failed to parse filters: %v", err), err)
 		}
 
 		// Convert simplified filter to Firestore filter
@@ -381,232 +388,47 @@ func (t Tool) getLimit(params map[string]any) (int, error) {
 	return limit, nil
 }
 
-// parseAndPopulateFilters parses the filter JSON structure before substituting
-// runtime parameter values so parameter content cannot alter the filter tree.
-func parseAndPopulateFilters(rawFilters string, paramsMap map[string]any) (SimplifiedFilter, util.ToolboxError) {
-	normalizedJSON, placeholders, err := replaceUnquotedFilterTemplates(rawFilters)
-	if err != nil {
-		return SimplifiedFilter{}, util.NewAgentError(fmt.Sprintf("failed to process filters template: %v", err), err)
-	}
+// jsonSafeString escapes string content when interpolated directly via
+// text/template (such as "{{.param}}"), while marshaling the raw string for
+// {{json .param}}.
+type jsonSafeString string
 
-	var simplifiedFilter SimplifiedFilter
-	if err := json.Unmarshal([]byte(normalizedJSON), &simplifiedFilter); err != nil {
-		return SimplifiedFilter{}, util.NewAgentError(fmt.Sprintf("failed to parse filters: %v", err), err)
-	}
-
-	if toolErr := populateSimplifiedFilter(&simplifiedFilter, paramsMap, placeholders); toolErr != nil {
-		return SimplifiedFilter{}, toolErr
-	}
-	return simplifiedFilter, nil
+func (s jsonSafeString) String() string {
+	b, _ := json.Marshal(string(s))
+	return string(b[1 : len(b)-1])
 }
 
-func replaceUnquotedFilterTemplates(rawFilters string) (string, map[string]string, error) {
-	prefix := "__firestore_filter_tmpl_"
-	for strings.Contains(rawFilters, prefix) {
-		prefix += "_"
-	}
-
-	placeholders := make(map[string]string)
-	var out strings.Builder
-	out.Grow(len(rawFilters))
-
-	inString := false
-	escaped := false
-	for i := 0; i < len(rawFilters); i++ {
-		ch := rawFilters[i]
-		if inString {
-			out.WriteByte(ch)
-			if escaped {
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
-			continue
-		}
-
-		if ch == '"' {
-			inString = true
-			out.WriteByte(ch)
-			continue
-		}
-
-		if ch == '{' && i+1 < len(rawFilters) && rawFilters[i+1] == '{' {
-			end, ok := findTemplateActionEnd(rawFilters, i)
-			if !ok {
-				return "", nil, fmt.Errorf("unclosed template action in filters")
-			}
-			token := fmt.Sprintf("%s%d__", prefix, len(placeholders))
-			placeholders[token] = rawFilters[i:end]
-			out.WriteByte('"')
-			out.WriteString(token)
-			out.WriteByte('"')
-			i = end - 1
-			continue
-		}
-
-		out.WriteByte(ch)
-	}
-
-	return out.String(), placeholders, nil
+func (s jsonSafeString) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(s))
 }
 
-func findTemplateActionEnd(s string, start int) (int, bool) {
-	var quote byte
-	escaped := false
-	for i := start + 2; i < len(s); i++ {
-		ch := s[i]
-		if quote != 0 {
-			if quote == '`' {
-				if ch == '`' {
-					quote = 0
-				}
-				continue
-			}
-			if escaped {
-				escaped = false
-				continue
-			}
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == quote {
-				quote = 0
-			}
-			continue
-		}
-		if ch == '/' && i+1 < len(s) && s[i+1] == '*' {
-			commentEnd := strings.Index(s[i+2:], "*/")
-			if commentEnd == -1 {
-				return 0, false
-			}
-			i += 2 + commentEnd + 1
-			continue
-		}
-		if ch == '"' || ch == '\'' || ch == '`' {
-			quote = ch
-			continue
-		}
-		if ch == '}' && i+1 < len(s) && s[i+1] == '}' {
-			return i + 2, true
-		}
+func escapeFilterParamsMap(params map[string]any) map[string]any {
+	out := make(map[string]any, len(params))
+	for k, v := range params {
+		out[k] = escapeFilterParamValue(v)
 	}
-	return 0, false
+	return out
 }
 
-func populateSimplifiedFilter(f *SimplifiedFilter, paramsMap map[string]any, placeholders map[string]string) util.ToolboxError {
-	for i := range f.And {
-		if err := populateSimplifiedFilter(&f.And[i], paramsMap, placeholders); err != nil {
-			return err
-		}
-	}
-	for i := range f.Or {
-		if err := populateSimplifiedFilter(&f.Or[i], paramsMap, placeholders); err != nil {
-			return err
-		}
-	}
-
-	field, err := populateFilterString(f.Field, paramsMap, placeholders)
-	if err != nil {
-		return err
-	}
-	f.Field = field
-
-	op, err := populateFilterString(f.Op, paramsMap, placeholders)
-	if err != nil {
-		return err
-	}
-	f.Op = op
-
-	if f.Value != nil {
-		val, err := populateFilterValue(f.Value, paramsMap, placeholders)
-		if err != nil {
-			return err
-		}
-		f.Value = val
-	}
-	return nil
-}
-
-func populateFilterString(s string, paramsMap map[string]any, placeholders map[string]string) (string, util.ToolboxError) {
-	if expr, ok := placeholders[s]; ok {
-		rendered, err := parameters.PopulateTemplateWithJSON("filters", expr, paramsMap)
-		if err != nil {
-			return "", util.NewAgentError(fmt.Sprintf("failed to process filters template: %v", err), err)
-		}
-		var parsed string
-		if err := json.Unmarshal([]byte(rendered), &parsed); err != nil {
-			return "", util.NewAgentError(fmt.Sprintf("failed to parse filters: %v", err), err)
-		}
-		return parsed, nil
-	}
-	if strings.Contains(s, "{{") {
-		rendered, err := parameters.PopulateTemplateWithJSON("filters", s, paramsMap)
-		if err != nil {
-			return "", util.NewAgentError(fmt.Sprintf("failed to process filters template: %v", err), err)
-		}
-		return rendered, nil
-	}
-	return s, nil
-}
-
-func populateFilterValue(v any, paramsMap map[string]any, placeholders map[string]string) (any, util.ToolboxError) {
+func escapeFilterParamValue(v any) any {
 	switch val := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(val))
-		for k, elem := range val {
-			resolvedKey, err := populateFilterString(k, paramsMap, placeholders)
-			if err != nil {
-				return nil, err
-			}
-			if _, exists := out[resolvedKey]; exists {
-				dupErr := fmt.Errorf("duplicate filter value key %q", resolvedKey)
-				return nil, util.NewAgentError(fmt.Sprintf("failed to parse filters: %v", dupErr), dupErr)
-			}
-			resolvedElem, err := populateFilterValue(elem, paramsMap, placeholders)
-			if err != nil {
-				return nil, err
-			}
-			out[resolvedKey] = resolvedElem
+	case string:
+		return jsonSafeString(val)
+	case []string:
+		out := make([]jsonSafeString, len(val))
+		for i, item := range val {
+			out[i] = jsonSafeString(item)
 		}
-		return out, nil
+		return out
 	case []any:
 		out := make([]any, len(val))
-		for i, elem := range val {
-			resolvedElem, err := populateFilterValue(elem, paramsMap, placeholders)
-			if err != nil {
-				return nil, err
-			}
-			out[i] = resolvedElem
+		for i, item := range val {
+			out[i] = escapeFilterParamValue(item)
 		}
-		return out, nil
-	case string:
-		if expr, ok := placeholders[val]; ok {
-			rendered, err := parameters.PopulateTemplateWithJSON("filters", expr, paramsMap)
-			if err != nil {
-				return nil, util.NewAgentError(fmt.Sprintf("failed to process filters template: %v", err), err)
-			}
-			var parsed any
-			if err := json.Unmarshal([]byte(rendered), &parsed); err != nil {
-				return nil, util.NewAgentError(fmt.Sprintf("failed to parse filters: %v", err), err)
-			}
-			return parsed, nil
-		}
-		if strings.Contains(val, "{{") {
-			rendered, err := parameters.PopulateTemplateWithJSON("filters", val, paramsMap)
-			if err != nil {
-				return nil, util.NewAgentError(fmt.Sprintf("failed to process filters template: %v", err), err)
-			}
-			return rendered, nil
-		}
-		return val, nil
+		return out
+	case map[string]any:
+		return escapeFilterParamsMap(val)
 	default:
-		return v, nil
+		return v
 	}
 }
