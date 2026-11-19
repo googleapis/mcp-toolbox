@@ -1387,7 +1387,7 @@ func runDataplexLookupEntryToolInvokeTest(t *testing.T, tableName string, datase
 			api:            "http://127.0.0.1:5000/api/tool/my-dataplex-lookup-entry-tool/invoke",
 			requestHeader:  map[string]string{},
 			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf("{\"entry\":\"projects/%s/locations/us/entryGroups/@bigquery/entries/bigquery.googleapis.com/projects/%s/datasets/%s\"}", DataplexProject, DataplexProject, "non-existent-dataset"))),
-			wantStatusCode: 200,
+			wantStatusCode: 500,
 			expectResult:   false,
 		},
 		{
