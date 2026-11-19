@@ -66,3 +66,38 @@ func TestEmbedParamsIntoMutationPlainValue(t *testing.T) {
 		t.Fatalf("embedParamsIntoMutation(%q) = %s, want %s", mutation, got, want)
 	}
 }
+
+// A shorter parameter key that is a prefix of a longer one ("$id" vs
+// "$id_name") must not corrupt the longer key. The longest key is matched
+// first at each position, so both are replaced with their own value.
+func TestEmbedParamsIntoMutationPrefixKeys(t *testing.T) {
+	mutation := `_:node <id> $id . _:node <name> $id_name .`
+	paramsMap := map[string]interface{}{
+		"$id":      "1",
+		"$id_name": "bob",
+	}
+
+	got := embedParamsIntoMutation(mutation, paramsMap)
+	want := `_:node <id> "1" . _:node <name> "bob" .`
+
+	if got != want {
+		t.Fatalf("embedParamsIntoMutation did not handle prefix keys\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// A single left-to-right pass means a substituted value that itself contains a
+// parameter-key sequence ("$b") is never re-scanned and must survive verbatim.
+func TestEmbedParamsIntoMutationValueContainingKey(t *testing.T) {
+	mutation := `_:node <a> $a . _:node <b> $b .`
+	paramsMap := map[string]interface{}{
+		"$a": "$b",
+		"$b": "x",
+	}
+
+	got := embedParamsIntoMutation(mutation, paramsMap)
+	want := `_:node <a> "$b" . _:node <b> "x" .`
+
+	if got != want {
+		t.Fatalf("embedParamsIntoMutation corrupted a value containing a key\n got: %s\nwant: %s", got, want)
+	}
+}

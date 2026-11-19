@@ -22,6 +22,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -437,9 +439,33 @@ func escapeRDFLiteral(s string) string {
 }
 
 func embedParamsIntoMutation(mutation string, paramsMap map[string]interface{}) string {
-	for key, value := range paramsMap {
-		escaped := escapeRDFLiteral(fmt.Sprintf("%v", value))
-		mutation = strings.ReplaceAll(mutation, key, fmt.Sprintf(`"%s"`, escaped))
+	if len(paramsMap) == 0 {
+		return mutation
 	}
-	return mutation
+
+	// Sort keys by length descending so that a longer key (e.g. "$id_name") is
+	// matched before a shorter key that is a prefix of it ("$id"). Go's regexp
+	// is leftmost-first, so listing the longest alternatives first yields
+	// longest-match semantics at each position.
+	keys := make([]string, 0, len(paramsMap))
+	for k := range paramsMap {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return len(keys[i]) > len(keys[j])
+	})
+
+	alternatives := make([]string, len(keys))
+	for i, k := range keys {
+		alternatives[i] = regexp.QuoteMeta(k)
+	}
+	re := regexp.MustCompile(strings.Join(alternatives, "|"))
+
+	// Single left-to-right pass: a substituted value is never re-scanned, so an
+	// escaped value that happens to contain a "$key" sequence cannot be
+	// corrupted by a later replacement.
+	return re.ReplaceAllStringFunc(mutation, func(match string) string {
+		escaped := escapeRDFLiteral(fmt.Sprintf("%v", paramsMap[match]))
+		return fmt.Sprintf(`"%s"`, escaped)
+	})
 }
