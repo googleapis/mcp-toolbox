@@ -137,9 +137,8 @@ func (s *Source) RunCypher(ctx context.Context, cypherStr string, params map[str
 		cypherStr = "EXPLAIN " + cypherStr
 	}
 
-	config := neo4j.ExecuteQueryWithDatabase(s.ArcadeDBDatabase())
 	results, err := neo4j.ExecuteQuery[*neo4j.EagerResult](ctx, s.ArcadeDBDriver(), cypherStr, params,
-		neo4j.EagerResultTransformer, config)
+		neo4j.EagerResultTransformer, executeQueryOptions(s.ArcadeDBDatabase(), readOnly)...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -171,6 +170,18 @@ func (s *Source) RunCypher(ctx context.Context, cypherStr string, params map[str
 	}
 
 	return formatRecords(results.Keys, results.Records), nil
+}
+
+// executeQueryOptions returns the neo4j.ExecuteQuery options for a Cypher
+// query. A readOnly query runs in a READ access mode transaction, so an
+// ArcadeDB server that enforces the Bolt access mode rejects any write. Servers
+// that ignore the access mode still get the keyword check in RunCypher.
+func executeQueryOptions(database string, readOnly bool) []neo4j.ExecuteQueryConfigurationOption {
+	opts := []neo4j.ExecuteQueryConfigurationOption{neo4j.ExecuteQueryWithDatabase(database)}
+	if readOnly {
+		opts = append(opts, neo4j.ExecuteQueryWithReadersRouting())
+	}
+	return opts
 }
 
 func (s *Source) RunSQL(ctx context.Context, sqlStr string, params map[string]any, readOnly bool) (any, error) {
