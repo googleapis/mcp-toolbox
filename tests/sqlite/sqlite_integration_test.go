@@ -168,6 +168,96 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
 }
 
+func TestSQLitePrebuiltListTables(t *testing.T) {
+	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer teardownDb(t)
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// The primary key column order (course_id, student_id) differs from the
+	// column declaration order (student_id, course_id).
+	tableName := "pk_order_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	createStmt := fmt.Sprintf("CREATE TABLE %s (student_id INTEGER, course_id INTEGER, grade TEXT, PRIMARY KEY (course_id, student_id));", tableName)
+	if _, err := db.ExecContext(ctx, createStmt); err != nil {
+		t.Fatalf("unable to create test table %s: %s", tableName, err)
+	}
+
+	t.Setenv("SQLITE_DATABASE", sqliteDb)
+	args := []string{"--prebuilt", "sqlite", "--enable-api"}
+	cmd, cleanup, err := tests.StartCmd(ctx, map[string]any{}, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	defer cleanup()
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
+
+	api := "http://127.0.0.1:5000/api/tool/list_tables/invoke"
+	reqBody := strings.NewReader(fmt.Sprintf(`{"table_names": "%s"}`, tableName))
+	resp, respBody := tests.RunRequest(t, http.MethodPost, api, reqBody, map[string]string{"Content-Type": "application/json"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(respBody, &body); err != nil {
+		t.Fatalf("error parsing response body: %s", err)
+	}
+	result, ok := body["result"].(string)
+	if !ok {
+		t.Fatalf("unable to find result in response body: %s", string(respBody))
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(result), &rows); err != nil {
+		t.Fatalf("error parsing result %q: %s", result, err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d: %s", len(rows), result)
+	}
+
+	var details struct {
+		Constraints []struct {
+			ConstraintType    string   `json:"constraint_type"`
+			ConstraintColumns []string `json:"constraint_columns"`
+		} `json:"constraints"`
+	}
+	var detailsJSON []byte
+	switch v := rows[0]["object_details"].(type) {
+	case string:
+		detailsJSON = []byte(v)
+	default:
+		detailsJSON, err = json.Marshal(v)
+		if err != nil {
+			t.Fatalf("unable to marshal object_details: %s", err)
+		}
+	}
+	if err := json.Unmarshal(detailsJSON, &details); err != nil {
+		t.Fatalf("error parsing object_details %s: %s", string(detailsJSON), err)
+	}
+
+	var pkColumns []string
+	for _, c := range details.Constraints {
+		if c.ConstraintType == "PRIMARY KEY" {
+			pkColumns = c.ConstraintColumns
+		}
+	}
+	want := []string{"course_id", "student_id"}
+	if strings.Join(pkColumns, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected PRIMARY KEY constraint_columns: got %v, want %v (object_details: %s)", pkColumns, want, string(detailsJSON))
+	}
+}
+
 func TestSQLiteExecuteSqlTool(t *testing.T) {
 	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
 	if err != nil {
@@ -269,95 +359,5 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 				t.Fatalf("expected body to contain %q, got: %s", tc.wantBody, string(bodyBytes))
 			}
 		})
-	}
-}
-
-func TestSQLitePrebuiltListTables(t *testing.T) {
-	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer teardownDb(t)
-	defer db.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	// The primary key column order (course_id, student_id) differs from the
-	// column declaration order (student_id, course_id).
-	tableName := "pk_order_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	createStmt := fmt.Sprintf("CREATE TABLE %s (student_id INTEGER, course_id INTEGER, grade TEXT, PRIMARY KEY (course_id, student_id));", tableName)
-	if _, err := db.ExecContext(ctx, createStmt); err != nil {
-		t.Fatalf("unable to create test table %s: %s", tableName, err)
-	}
-
-	t.Setenv("SQLITE_DATABASE", sqliteDb)
-	args := []string{"--prebuilt", "sqlite", "--enable-api"}
-	cmd, cleanup, err := tests.StartCmd(ctx, map[string]any{}, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	defer cleanup()
-
-	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
-	defer cancelWait()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
-
-	api := "http://127.0.0.1:5000/api/tool/list_tables/invoke"
-	reqBody := strings.NewReader(fmt.Sprintf(`{"table_names": "%s"}`, tableName))
-	resp, respBody := tests.RunRequest(t, http.MethodPost, api, reqBody, map[string]string{"Content-Type": "application/json"})
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var body map[string]any
-	if err := json.Unmarshal(respBody, &body); err != nil {
-		t.Fatalf("error parsing response body: %s", err)
-	}
-	result, ok := body["result"].(string)
-	if !ok {
-		t.Fatalf("unable to find result in response body: %s", string(respBody))
-	}
-	var rows []map[string]any
-	if err := json.Unmarshal([]byte(result), &rows); err != nil {
-		t.Fatalf("error parsing result %q: %s", result, err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d: %s", len(rows), result)
-	}
-
-	var details struct {
-		Constraints []struct {
-			ConstraintType    string   `json:"constraint_type"`
-			ConstraintColumns []string `json:"constraint_columns"`
-		} `json:"constraints"`
-	}
-	var detailsJSON []byte
-	switch v := rows[0]["object_details"].(type) {
-	case string:
-		detailsJSON = []byte(v)
-	default:
-		detailsJSON, err = json.Marshal(v)
-		if err != nil {
-			t.Fatalf("unable to marshal object_details: %s", err)
-		}
-	}
-	if err := json.Unmarshal(detailsJSON, &details); err != nil {
-		t.Fatalf("error parsing object_details %s: %s", string(detailsJSON), err)
-	}
-
-	var pkColumns []string
-	for _, c := range details.Constraints {
-		if c.ConstraintType == "PRIMARY KEY" {
-			pkColumns = c.ConstraintColumns
-		}
-	}
-	want := []string{"course_id", "student_id"}
-	if strings.Join(pkColumns, ",") != strings.Join(want, ",") {
-		t.Fatalf("unexpected PRIMARY KEY constraint_columns: got %v, want %v (object_details: %s)", pkColumns, want, string(detailsJSON))
 	}
 }
