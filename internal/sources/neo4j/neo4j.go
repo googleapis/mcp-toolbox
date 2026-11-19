@@ -128,9 +128,8 @@ func (s *Source) RunQuery(ctx context.Context, cypherStr string, params map[stri
 		cypherStr = "EXPLAIN " + cypherStr
 	}
 
-	config := neo4j.ExecuteQueryWithDatabase(s.Neo4jDatabase())
 	results, err := neo4j.ExecuteQuery[*neo4j.EagerResult](ctx, s.Neo4jDriver(), cypherStr, params,
-		neo4j.EagerResultTransformer, config)
+		neo4j.EagerResultTransformer, executeQueryOptions(s.Neo4jDatabase(), readOnly)...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
@@ -165,6 +164,18 @@ func (s *Source) RunQuery(ctx context.Context, cypherStr string, params map[stri
 	}
 
 	return out, nil
+}
+
+// executeQueryOptions returns the neo4j.ExecuteQuery options for a query.
+// A readOnly query runs in a READ access mode transaction, so the Neo4j server
+// itself rejects any write, including one that the keyword check in RunQuery
+// misses.
+func executeQueryOptions(database string, readOnly bool) []neo4j.ExecuteQueryConfigurationOption {
+	opts := []neo4j.ExecuteQueryConfigurationOption{neo4j.ExecuteQueryWithDatabase(database)}
+	if readOnly {
+		opts = append(opts, neo4j.ExecuteQueryWithReadersRouting())
+	}
+	return opts
 }
 
 // Recursive function to add plan children

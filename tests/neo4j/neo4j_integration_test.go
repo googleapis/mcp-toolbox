@@ -332,6 +332,21 @@ func TestNeo4jToolEndpoints(t *testing.T) {
 			},
 		},
 		{
+			// The keyword check reads "//" inside the string literal as the start
+			// of a comment, so it classifies this write as a read. Neo4j must still
+			// reject it, because readOnly queries run in a READ access mode
+			// transaction.
+			name:        "invoke readonly tool with write query that the keyword check misses",
+			api:         "http://127.0.0.1:5000/api/tool/my-readonly-execute-cypher-tool/invoke",
+			requestBody: bytes.NewBuffer([]byte(`{"cypher": "WITH 'http://example.com' AS url CREATE (n:TestNode {url: url})"}`)),
+			wantStatus:  http.StatusOK,
+			validateFunc: func(t *testing.T, body string) {
+				if !strings.Contains(body, "Neo.ClientError.Statement.AccessMode") {
+					t.Errorf("expected Neo4j access mode error not found in body: %s", body)
+				}
+			},
+		},
+		{
 			name:        "invoke my-schema-tool",
 			api:         "http://127.0.0.1:5000/api/tool/my-schema-tool/invoke",
 			requestBody: bytes.NewBuffer([]byte(`{}`)),
