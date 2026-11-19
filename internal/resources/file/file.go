@@ -600,6 +600,25 @@ type FileTemplate struct {
 
 var _ resources.ResourceTemplate = (*FileTemplate)(nil)
 
+func resolveTemplateURIPath(fullURI string) (string, error) {
+	parsed, err := url.Parse(fullURI)
+	if err != nil {
+		return "", err
+	}
+	base := parsed.Path
+	// Handle Windows drive letter quirks exclusively on Windows:
+	// If 2 slashes were used (e.g., file://C:/...), parsed.Host contains "C:".
+	// If 3 slashes were used (e.g., file:///C:/...), parsed.Path contains "/C:/...".
+	if runtime.GOOS == "windows" {
+		if len(parsed.Host) == 2 && parsed.Host[1] == ':' && ((parsed.Host[0] >= 'a' && parsed.Host[0] <= 'z') || (parsed.Host[0] >= 'A' && parsed.Host[0] <= 'Z')) {
+			base = parsed.Host + base
+		} else if len(base) > 2 && base[0] == '/' && base[2] == ':' && ((base[1] >= 'a' && base[1] <= 'z') || (base[1] >= 'A' && base[1] <= 'Z')) {
+			base = base[1:]
+		}
+	}
+	return filepath.FromSlash(base), nil
+}
+
 // Read retrieves the file content using template parameters.
 func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, error) {
 	logger, err := util.LoggerFromContext(ctx)
@@ -623,33 +642,40 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 		return nil, fmt.Errorf("security violation: path contains backward traversal components (..) for resource template %q", r.Name)
 	}
 
-	// If the path is relative, reconstruct the full path
-	if !filepath.IsAbs(pathStr) {
-		uriTemplate := r.URITemplate
-		if strings.Contains(uriTemplate, "{path}") {
-			// Interpolate {path} back into the template to capture prefix AND suffix
-			escapedPath := url.PathEscape(pathStr)
-			fullURI := strings.Replace(uriTemplate, "{path}", escapedPath, 1)
-
-			parsed, err := url.Parse(fullURI)
+	// Reconstruct the full path whenever uriTemplate has a prefix or suffix around {path}
+	var templateBoundaryDir string
+	if _, afterScheme, hasScheme := strings.Cut(r.URITemplate, "://"); hasScheme && strings.Contains(afterScheme, "{path}") && afterScheme != "{path}" {
+		beforePath, _, _ := strings.Cut(afterScheme, "{path}")
+		if beforePath != "" && beforePath != "/" {
+			unescaped, err := url.PathUnescape(pathStr)
 			if err != nil {
-				logger.ErrorContext(ctx, fmt.Sprintf("invalid URI reconstructed from template %q: %v", r.Name, err))
-				return nil, fmt.Errorf("invalid URI reconstructed from resource template %q", r.Name)
+				unescaped = pathStr
 			}
+			if strings.HasPrefix(pathStr, "/") || strings.HasPrefix(pathStr, "\\") ||
+				strings.HasPrefix(unescaped, "/") || strings.HasPrefix(unescaped, "\\") ||
+				filepath.IsAbs(pathStr) || filepath.VolumeName(pathStr) != "" {
+				logger.ErrorContext(ctx, fmt.Sprintf("security violation: path %q must be relative for resource template %q", pathStr, r.Name))
+				return nil, fmt.Errorf("security violation: path must be relative for resource template %q", r.Name)
+			}
+		}
 
-			base := parsed.Path
+		escapedPath := url.PathEscape(pathStr)
+		if beforePath == "/" {
+			escapedPath = strings.TrimLeft(url.PathEscape(strings.TrimLeft(pathStr, "/")), "/")
+		}
+		reconstructed, err := resolveTemplateURIPath(strings.Replace(r.URITemplate, "{path}", escapedPath, 1))
+		if err != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("invalid URI reconstructed from template %q: %v", r.Name, err))
+			return nil, fmt.Errorf("invalid URI reconstructed from resource template %q", r.Name)
+		}
+		pathStr = reconstructed
 
-			// Handle Windows drive letter quirks exclusively on Windows:
-			// If 2 slashes were used (e.g., file://C:/...), parsed.Host contains "C:".
-			// If 3 slashes were used (e.g., file:///C:/...), parsed.Path contains "/C:/...".
-			if runtime.GOOS == "windows" {
-				if len(parsed.Host) == 2 && parsed.Host[1] == ':' && ((parsed.Host[0] >= 'a' && parsed.Host[0] <= 'z') || (parsed.Host[0] >= 'A' && parsed.Host[0] <= 'Z')) {
-					base = parsed.Host + base
-				} else if len(base) > 2 && base[0] == '/' && base[2] == ':' && ((base[1] >= 'a' && base[1] <= 'z') || (base[1] >= 'A' && base[1] <= 'Z')) {
-					base = base[1:]
+		if len(r.unresolvedAllowedPaths) == 0 && strings.Contains(beforePath, "/") && beforePath != "/" {
+			if tmplSample, err := resolveTemplateURIPath(strings.Replace(r.URITemplate, "{path}", "_", 1)); err == nil {
+				if dir, err := filepath.Abs(filepath.Dir(tmplSample)); err == nil {
+					templateBoundaryDir = dir
 				}
 			}
-			pathStr = filepath.FromSlash(base)
 		}
 	}
 
@@ -707,6 +733,16 @@ func (r *FileTemplate) Read(ctx context.Context, params map[string]any) (any, er
 	// Second security check on the resolved path to prevent symlink escape attacks
 	if err := checkSandbox(resolvedPath, r.resolvedAllowedPaths); err != nil {
 		return nil, err
+	}
+	if templateBoundaryDir != "" {
+		resolvedBoundary := templateBoundaryDir
+		if evalDir, err := filepath.EvalSymlinks(templateBoundaryDir); err == nil {
+			resolvedBoundary = evalDir
+		}
+		if rel, err := filepath.Rel(resolvedBoundary, resolvedPath); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			logger.ErrorContext(ctx, fmt.Sprintf("security violation: path %q is not within template directory %q for resource template %q", resolvedPath, resolvedBoundary, r.Name))
+			return nil, fmt.Errorf("security violation: path is not within template directory for resource template %q", r.Name)
+		}
 	}
 
 	// Security check for extension on BOTH the requested path and resolved target
