@@ -30,7 +30,6 @@ import (
 	"github.com/goccy/go-yaml/lexer"
 	"github.com/goccy/go-yaml/token"
 	"github.com/google/go-cmp/cmp"
-	"github.com/googleapis/mcp-toolbox/internal/auth/generic"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -516,8 +515,7 @@ func mergeConfigs(files ...Config) (Config, error) {
 	// Ensure only one authService has mcpEnabled = true
 	var mcpEnabledAuthServers []string
 	for name, authService := range merged.AuthServices {
-		// Only generic type has McpEnabled right now
-		if genericService, ok := authService.(generic.Config); ok && genericService.McpEnabled {
+		if authService.IsMCPEnabled() {
 			mcpEnabledAuthServers = append(mcpEnabledAuthServers, name)
 		}
 	}

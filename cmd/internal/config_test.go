@@ -2801,6 +2801,9 @@ func TestMergeConfigs(t *testing.T) {
 	fileMcp2 := Config{
 		AuthServices: server.AuthServiceConfigs{"generic2": generic.Config{Name: "generic2", McpEnabled: true}},
 	}
+	fileMcpGoogle := Config{
+		AuthServices: server.AuthServiceConfigs{"google1": google.Config{Name: "google1", McpEnabled: true}},
+	}
 
 	testCases := []struct {
 		name      string
@@ -2856,6 +2859,12 @@ func TestMergeConfigs(t *testing.T) {
 		{
 			name:      "merge multiple mcp enabled generic",
 			files:     []Config{fileMcp1, fileMcp2},
+			wantErr:   true,
+			errString: "multiple authServices with mcpEnabled=true detected",
+		},
+		{
+			name:      "merge mcp enabled google and generic",
+			files:     []Config{fileMcpGoogle, fileMcp1},
 			wantErr:   true,
 			errString: "multiple authServices with mcpEnabled=true detected",
 		},
