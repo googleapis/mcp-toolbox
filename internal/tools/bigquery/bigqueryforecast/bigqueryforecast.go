@@ -189,17 +189,27 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	trimmedUpperHistoryData := strings.TrimSpace(strings.ToUpper(historyData))
 	if strings.HasPrefix(trimmedUpperHistoryData, "SELECT") || strings.HasPrefix(trimmedUpperHistoryData, "WITH") {
 		// When history_data is a query, we perform a dry run on history_data first to validate
-		// that it is a SELECT statement and provide clear error messages before embedding it
-		// in the AI.FORECAST query (which is also validated via dry run below).
+		// that it is a single SELECT statement before embedding it in the AI.FORECAST query,
+		// whether or not allowedDatasets is configured.
+		logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, historyData))
+		var dryRunJob *bigqueryrestapi.Job
 		if len(source.BigQueryAllowedDatasets()) > 0 {
-			logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, historyData))
-			dryRunJob, validationErr := bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, historyData, nil, connProps, source, source.GetMaximumBytesBilled(), false)
+			var validationErr util.ToolboxError
+			dryRunJob, validationErr = bqutil.ValidateQueryAgainstAllowedDatasets(ctx, restService, bqClient.Project(), bqClient.Location, historyData, nil, connProps, source, source.GetMaximumBytesBilled(), false)
 			if validationErr != nil {
 				return nil, validationErr
 			}
-			if dryRunJob.Statistics.Query.StatementType != "SELECT" {
-				return nil, util.NewAgentError(fmt.Sprintf("the 'history_data' parameter only supports a table ID or a SELECT query. The provided query has statement type '%s'", dryRunJob.Statistics.Query.StatementType), nil)
+		} else {
+			dryRunJob, err = bqutil.DryRunQuery(ctx, restService, bqClient.Project(), bqClient.Location, historyData, nil, connProps, source.GetMaximumBytesBilled(), false)
+			if err != nil {
+				return nil, util.ProcessGcpError(err)
 			}
+		}
+		if dryRunJob.Statistics == nil || dryRunJob.Statistics.Query == nil {
+			return nil, util.NewAgentError("dry run failed to return query statistics", nil)
+		}
+		if dryRunJob.Statistics.Query.StatementType != "SELECT" {
+			return nil, util.NewAgentError(fmt.Sprintf("the 'history_data' parameter only supports a table ID or a SELECT query. The provided query has statement type '%s'", dryRunJob.Statistics.Query.StatementType), nil)
 		}
 		historyDataSource = fmt.Sprintf("(%s)", historyData)
 	} else {

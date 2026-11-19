@@ -396,3 +396,106 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestInvokeQueryHistoryDataMustBeSelect(t *testing.T) {
+	// The mock BigQuery API only answers dry runs. A query containing ';' is
+	// reported as a multi-statement SCRIPT, as BigQuery does.
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Configuration struct {
+				DryRun bool `json:"dryRun"`
+				Query  struct {
+					Query string `json:"query"`
+				} `json:"query"`
+			} `json:"configuration"`
+		}
+		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&body) != nil || !body.Configuration.DryRun {
+			http.Error(w, "not implemented", http.StatusNotFound)
+			return
+		}
+		statementType := "SELECT"
+		if strings.Contains(body.Configuration.Query.Query, ";") {
+			statementType = "SCRIPT"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jobReference": map[string]string{"projectId": "test-project", "jobId": "mock-job-id"},
+			"status":       map[string]any{"state": "DONE"},
+			"statistics":   map[string]any{"query": map[string]any{"statementType": statementType}},
+		})
+	}))
+	defer mockServer.Close()
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("failed to create context with logger: %v", err)
+	}
+	bqClient, err := bigqueryapi.NewClient(ctx, "test-project", option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery client: %v", err)
+	}
+	restService, err := bigqueryrestapi.NewService(ctx, option.WithEndpoint(mockServer.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create mocked BigQuery REST service: %v", err)
+	}
+	tool, err := bigqueryforecast.Config{
+		ConfigBase: tools.ConfigBase{Name: "forecast_tool", Description: "Forecast"},
+		Type:       "bigquery-forecast",
+		Source:     "my-bq-source",
+	}.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+
+	testCases := []struct {
+		name       string
+		input      string
+		wantErrSub string
+	}{
+		{
+			name:       "query that closes AI.FORECAST and appends a statement",
+			input:      "SELECT 1 AS v, CURRENT_TIMESTAMP() AS t), data_col => 'v', timestamp_col => 't', horizon => 1); DROP TABLE prod_dataset.users; --",
+			wantErrSub: "The provided query has statement type 'SCRIPT'",
+		},
+		{
+			name:  "select query",
+			input: "SELECT 1 AS v, CURRENT_TIMESTAMP() AS t",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// No allowedDatasets, so only the dry run guards the query.
+			testSrc := &bigquerycommon.MockSource{Client: bqClient, Service: restService, RunSQLResult: "mocked_forecast_result"}
+			params, err := tool.GetParameters(testSrc)
+			if err != nil {
+				t.Fatalf("failed to get parameters: %v", err)
+			}
+			paramVals, err := parameters.ParseParams(params, map[string]any{
+				"history_data":  tc.input,
+				"timestamp_col": "t",
+				"data_col":      "v",
+				"horizon":       5,
+			}, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing parameters: %v", err)
+			}
+
+			_, err = tool.Invoke(ctx, testSrc, paramVals, "")
+			if tc.wantErrSub != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErrSub) {
+					t.Fatalf("Invoke() error = %v, want error containing %q", err, tc.wantErrSub)
+				}
+				if testSrc.CalledSQL != "" {
+					t.Fatalf("Invoke() ran %q, want no query executed", testSrc.CalledSQL)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(testSrc.CalledSQL, "AI.FORECAST") {
+				t.Fatalf("Invoke() ran %q, want an AI.FORECAST query", testSrc.CalledSQL)
+			}
+		})
+	}
+}
