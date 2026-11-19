@@ -51,6 +51,7 @@ type compatibleSource interface {
 	GetAuthTokenHeaderName() string
 	LookerApiSettings() *rtl.ApiSettings
 	GetLookerSDK(context.Context, string) (*v4.LookerSDK, error)
+	GetLookmlModelExplore(context.Context, *v4.LookerSDK, v4.RequestLookmlModelExplore, string) (v4.LookmlModelExplore, error)
 	LookerShowHiddenFields() bool
 }
 
@@ -132,7 +133,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		ExploreName:     *explore,
 		Fields:          &fields,
 	}
-	resp, err := sdk.LookmlModelExplore(req, source.LookerApiSettings())
+	resp, err := source.GetLookmlModelExplore(ctx, sdk, req, string(accessToken))
 	if err != nil {
 		if strings.Contains(err.Error(), "status=401") {
 			return nil, util.NewClientServerError("unauthorized error", http.StatusUnauthorized, err)
