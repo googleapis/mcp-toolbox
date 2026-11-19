@@ -415,9 +415,31 @@ func checkError(resp []byte) error {
 	return nil
 }
 
+// rdfLiteralEscaper escapes the characters that would otherwise let a value
+// break out of a double-quoted RDF literal, following the ECHAR production of
+// the N-Quads grammar (https://www.w3.org/TR/n-quads/#grammar-production-ECHAR).
+// Backslash is listed first so it is escaped before the sequences that
+// introduce new backslashes.
+var rdfLiteralEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`"`, `\"`,
+	"\n", `\n`,
+	"\r", `\r`,
+	"\t", `\t`,
+)
+
+// escapeRDFLiteral escapes s for safe inclusion inside a double-quoted RDF
+// literal. Without this, a parameter value containing a double quote (or
+// backslash or newline) could terminate the literal early and inject arbitrary
+// content into the mutation sent to Dgraph.
+func escapeRDFLiteral(s string) string {
+	return rdfLiteralEscaper.Replace(s)
+}
+
 func embedParamsIntoMutation(mutation string, paramsMap map[string]interface{}) string {
 	for key, value := range paramsMap {
-		mutation = strings.ReplaceAll(mutation, key, fmt.Sprintf(`"%v"`, value))
+		escaped := escapeRDFLiteral(fmt.Sprintf("%v", value))
+		mutation = strings.ReplaceAll(mutation, key, fmt.Sprintf(`"%s"`, escaped))
 	}
 	return mutation
 }
