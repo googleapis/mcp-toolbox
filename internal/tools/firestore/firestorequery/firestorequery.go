@@ -182,8 +182,8 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	var filter firestoreapi.EntityFilter
 	// Process and apply filters if template is provided
 	if t.Cfg.Filters != "" {
-		// Apply template substitution to filters
-		filtersJSON, err := parameters.PopulateTemplateWithJSON("filters", t.Cfg.Filters, paramsMap)
+		// Apply template substitution to filters with JSON-escaped string parameters
+		filtersJSON, err := parameters.PopulateTemplateWithJSON("filters", t.Cfg.Filters, escapeFilterParamsMap(paramsMap))
 		if err != nil {
 			return nil, util.NewAgentError(fmt.Sprintf("failed to process filters template: %v", err), err)
 		}
@@ -386,4 +386,49 @@ func (t Tool) getLimit(params map[string]any) (int, error) {
 		}
 	}
 	return limit, nil
+}
+
+// jsonSafeString escapes string content when interpolated directly via
+// text/template (such as "{{.param}}"), while marshaling the raw string for
+// {{json .param}}.
+type jsonSafeString string
+
+func (s jsonSafeString) String() string {
+	b, _ := json.Marshal(string(s))
+	return string(b[1 : len(b)-1])
+}
+
+func (s jsonSafeString) MarshalJSON() ([]byte, error) {
+	return json.Marshal(string(s))
+}
+
+func escapeFilterParamsMap(params map[string]any) map[string]any {
+	out := make(map[string]any, len(params))
+	for k, v := range params {
+		out[k] = escapeFilterParamValue(v)
+	}
+	return out
+}
+
+func escapeFilterParamValue(v any) any {
+	switch val := v.(type) {
+	case string:
+		return jsonSafeString(val)
+	case []string:
+		out := make([]jsonSafeString, len(val))
+		for i, item := range val {
+			out[i] = jsonSafeString(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, item := range val {
+			out[i] = escapeFilterParamValue(item)
+		}
+		return out
+	case map[string]any:
+		return escapeFilterParamsMap(val)
+	default:
+		return v
+	}
 }
