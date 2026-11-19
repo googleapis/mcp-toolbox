@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.17.0](https://github.com/googleapis/mcp-toolbox/compare/v1.16.0...v1.17.0) (2026-11-12)
+
+
+### Features
+
+* **server,sources/looker:** Add OAuth discovery/token CORS proxy for client-side OAuth ([#4290](https://github.com/googleapis/mcp-toolbox/issues/4290)) ([5111516](https://github.com/googleapis/mcp-toolbox/commit/5111516d135abd8e85ffa2fa4c7301d9f17ff155))
+* **tool/looker:** Add data app extension, dashboard, and layout tools ([#4411](https://github.com/googleapis/mcp-toolbox/issues/4411)) ([cabb8f5](https://github.com/googleapis/mcp-toolbox/commit/cabb8f56da92cddbda8a29fe37aa76b904941c9e))
+
+
+### Bug Fixes
+
+* **http:** Preserve case-insensitive header precedence ([#4417](https://github.com/googleapis/mcp-toolbox/issues/4417)) ([8d54da0](https://github.com/googleapis/mcp-toolbox/commit/8d54da0d2c4069937f62654f3262f3f46fae850d))
+* **server/mcp:** Include ttlMs and cacheScope in server/discover result ([#4428](https://github.com/googleapis/mcp-toolbox/issues/4428)) ([d373dc1](https://github.com/googleapis/mcp-toolbox/commit/d373dc1e91a35b8d20fa29247a297004498e0feb))
+* **tool/http:** Skip optional header params that were not provided ([#4335](https://github.com/googleapis/mcp-toolbox/issues/4335)) ([79c8c86](https://github.com/googleapis/mcp-toolbox/commit/79c8c86b46d8f0b542c973ec326962a70f80f891))
+* **tool/snowflake-sql:** Scope list_tables name filter to the configured schema ([#4336](https://github.com/googleapis/mcp-toolbox/issues/4336)) ([e9e67d8](https://github.com/googleapis/mcp-toolbox/commit/e9e67d892ae6427efda1fd644eca8f38fca49158))
+
 ## [1.16.0](https://github.com/googleapis/mcp-toolbox/compare/v1.15.0...v1.16.0) (2026-11-05)
 
 

@@ -770,11 +770,8 @@ steps:
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
-      - "MYSQL_DATABASE=$_DATABASE_NAME"
-      - "MYSQL_HOST=$_MYSQL_HOST"
-      - "MYSQL_PORT=$_MYSQL_PORT"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
-    secretEnv: ["MYSQL_USER", "MYSQL_PASS", "CLIENT_ID"]
+    secretEnv: ["CLIENT_ID"]
     volumes:
       - name: "go"
         path: "/gopath"
@@ -824,23 +821,30 @@ steps:
           exit 0
         fi
 
-  # - id: "dgraph"
-  #   name: golang:1
-  #   waitFor: ["compile-test-binary", "detect-changes"]
-  #   entrypoint: /bin/bash
-  #   env:
-  #     - "GOPATH=/gopath"
-  #     - "DGRAPH_URL=$_DGRAPHURL"
-  #   volumes:
-  #     - name: "go"
-  #       path: "/gopath"
-  #   args:
-  #     - -c
-  #     - |
-  #       .ci/test_with_coverage.sh \
-  #         "Dgraph" \
-  #         dgraph \
-  #         dgraph
+  - id: "dgraph"
+    name: golang:1
+    waitFor: ["compile-test-binary", "detect-changes"]
+    entrypoint: /bin/bash
+    env:
+      - "GOPATH=/gopath"
+    volumes:
+      - name: "go"
+        path: "/gopath"
+    args:
+      - -c
+      - |
+        PATTERN="(^|/)dgraph/|$$(cat .ci/core_pattern.txt)"
+
+        if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
+          echo "Changes detected. Running Dgraph tests..."
+          .ci/test_with_coverage.sh \
+            "Dgraph" \
+            dgraph \
+            dgraph
+        else
+          echo "No relevant changes for Dgraph. Skipping shard."
+          exit 0
+        fi
 
   - id: "http"
     name: golang:1
@@ -1394,7 +1398,7 @@ steps:
       - "GOPATH=/gopath"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv:
-      ["CLIENT_ID", "CASSANDRA_USER", "CASSANDRA_PASS", "CASSANDRA_HOST"]
+      ["CLIENT_ID"]
     volumes:
       - name: "go"
         path: "/gopath"
@@ -1727,10 +1731,6 @@ availableSecrets:
       env: CLOUD_SQL_MYSQL_USER
     - versionName: projects/$PROJECT_ID/secrets/cloud_sql_mysql_pass/versions/latest
       env: CLOUD_SQL_MYSQL_PASS
-    - versionName: projects/$PROJECT_ID/secrets/mysql_user/versions/latest
-      env: MYSQL_USER
-    - versionName: projects/$PROJECT_ID/secrets/mysql_pass/versions/latest
-      env: MYSQL_PASS
     - versionName: projects/$PROJECT_ID/secrets/mssql_user/versions/latest
       env: MSSQL_USER
     - versionName: projects/$PROJECT_ID/secrets/mssql_pass/versions/latest
@@ -1781,12 +1781,6 @@ availableSecrets:
       env: SNOWFLAKE_USER
     - versionName: projects/$PROJECT_ID/secrets/snowflake_pass/versions/latest
       env: SNOWFLAKE_PASSWORD
-    - versionName: projects/$PROJECT_ID/secrets/cassandra_user/versions/latest
-      env: CASSANDRA_USER
-    - versionName: projects/$PROJECT_ID/secrets/cassandra_pass/versions/latest
-      env: CASSANDRA_PASS
-    - versionName: projects/$PROJECT_ID/secrets/cassandra_host/versions/latest
-      env: CASSANDRA_HOST
     - versionName: projects/$PROJECT_ID/secrets/oracle_user/versions/latest
       env: ORACLE_USERNAME
     - versionName: projects/$PROJECT_ID/secrets/oracle_pass/versions/latest
@@ -1830,11 +1824,8 @@ substitutions:
   _NEO4J_DATABASE: "neo4j"
   _CLOUD_SQL_MSSQL_INSTANCE: "cloud-sql-mssql-testing"
   _CLOUD_SQL_MYSQL_INSTANCE: "cloud-sql-mysql-testing"
-  _MYSQL_HOST: 127.0.0.1
-  _MYSQL_PORT: "3306"
   _MSSQL_HOST: 127.0.0.1
   _MSSQL_PORT: "1433"
-  _DGRAPHURL: "https://play.dgraph.io"
   _LOOKER_LOCATION: "us"
   _LOOKER_PROJECT: "149671255749"
   _LOOKER_VERIFY_SSL: "true"

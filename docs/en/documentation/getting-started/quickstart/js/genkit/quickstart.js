@@ -40,7 +40,8 @@ export async function main() {
         {
           name: tool.getName(),
           description: tool.getDescription(),
-          inputSchema: tool.getParamSchema(),
+          // @genkit-ai/core validates inputJsonSchema with Ajv (configured for JSON Schema draft-07).
+          inputJsonSchema: tool.getParamSchema().toJSONSchema({ target: "draft-7" }),
         },
         tool
       );
