@@ -1152,6 +1152,7 @@ func TestGroupsListHandler(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		group       string
 		rawBody     []byte
 		body        ListGroupsRequest
 		header      http.Header
@@ -1185,6 +1186,16 @@ func TestGroupsListHandler(t *testing.T) {
 			wantErr:   false,
 			wantNames: []string{"tool1_only", "tool2_only"},
 		},
+		{
+			name:  "group endpoint lists only its own group",
+			group: "tool1_only",
+			body: ListGroupsRequest{
+				Request: jsonrpc.Request{Method: GROUPS_LIST},
+				Params:  RequestParams{Meta: validMeta},
+			},
+			header:    http.Header{"Mcp-Method": []string{GROUPS_LIST}},
+			wantNames: []string{"tool1_only"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1197,7 +1208,8 @@ func TestGroupsListHandler(t *testing.T) {
 					t.Fatalf("unexpected error during marshaling: %v", err)
 				}
 			}
-			got, err := groupsListHandler(ctx, dummyID, primitiveMgr, body, tt.header)
+			urlGroup, _ := primitiveMgr.GetGroup(tt.group)
+			got, err := groupsListHandler(ctx, dummyID, primitiveMgr, urlGroup, body, tt.header)
 
 			if tt.wantErr {
 				if err == nil {
@@ -1276,6 +1288,7 @@ func TestGroupsGetHandler(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		group       string
 		rawBody     []byte
 		body        GetGroupRequest
 		header      http.Header
@@ -1346,6 +1359,47 @@ func TestGroupsGetHandler(t *testing.T) {
 			wantName:  "",
 			wantTools: []string{"no_params", "some_params"},
 		},
+		{
+			name:  "group endpoint returns its own group",
+			group: "tool1_only",
+			body: GetGroupRequest{
+				Request: jsonrpc.Request{Method: GROUPS_GET},
+				Params: GetGroupRequestParams{
+					RequestParams: RequestParams{Meta: validMeta},
+					Name:          "tool1_only",
+				},
+			},
+			header:    http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool1_only"}},
+			wantName:  "tool1_only",
+			wantTools: []string{"no_params"},
+		},
+		{
+			name:  "group endpoint rejects another group",
+			group: "tool1_only",
+			body: GetGroupRequest{
+				Request: jsonrpc.Request{Method: GROUPS_GET},
+				Params: GetGroupRequestParams{
+					RequestParams: RequestParams{Meta: validMeta},
+					Name:          "tool2_only",
+				},
+			},
+			header:      http.Header{"Mcp-Method": []string{GROUPS_GET}, "Mcp-Name": []string{"tool2_only"}},
+			wantErr:     true,
+			errContains: `group with name "tool2_only" does not exist`,
+		},
+		{
+			name:  "group endpoint rejects the default group",
+			group: "tool1_only",
+			body: GetGroupRequest{
+				Request: jsonrpc.Request{Method: GROUPS_GET},
+				Params: GetGroupRequestParams{
+					RequestParams: RequestParams{Meta: validMeta},
+				},
+			},
+			header:      http.Header{"Mcp-Method": []string{GROUPS_GET}},
+			wantErr:     true,
+			errContains: `group with name "" does not exist`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1358,7 +1412,8 @@ func TestGroupsGetHandler(t *testing.T) {
 					t.Fatalf("unexpected error during marshaling: %v", err)
 				}
 			}
-			got, err := groupsGetHandler(ctx, dummyID, primitiveMgr, body, tt.header)
+			urlGroup, _ := primitiveMgr.GetGroup(tt.group)
+			got, err := groupsGetHandler(ctx, dummyID, primitiveMgr, urlGroup, body, tt.header)
 
 			if tt.wantErr {
 				if err == nil {

@@ -62,9 +62,9 @@ func ProcessMethod(ctx context.Context, id jsonrpc.RequestId, method string, g g
 	case PROMPTS_GET:
 		return promptsGetHandler(ctx, id, g, primitiveMgr, body, header)
 	case GROUPS_LIST:
-		return groupsListHandler(ctx, id, primitiveMgr, body, header)
+		return groupsListHandler(ctx, id, primitiveMgr, g, body, header)
 	case GROUPS_GET:
-		return groupsGetHandler(ctx, id, primitiveMgr, body, header)
+		return groupsGetHandler(ctx, id, primitiveMgr, g, body, header)
 	case SKILLS_LIST:
 		return skillsListHandler(ctx, id, primitiveMgr, body, header)
 	case SKILLS_GET:
@@ -833,7 +833,7 @@ func promptsGetHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group,
 
 // groupsListHandler handles the "groups/list" method. It returns every named
 // group's name and description. The default nameless group is omitted.
-func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
+func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, g group.Group, body []byte, header http.Header) (any, error) {
 	// retrieve logger from context
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
@@ -862,6 +862,10 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 	groupsList := primitiveMgr.GroupsList()
 	groups := []Group{}
 	for _, v := range groupsList {
+		// A group endpoint only lists its own group.
+		if g.Name != "" && v.Name != g.Name {
+			continue
+		}
 		groups = append(groups, Group{Name: v.Name, Description: v.Description})
 	}
 	logger.DebugContext(ctx, fmt.Sprintf("returning %d groups", len(groups)))
@@ -886,7 +890,7 @@ func groupsListHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *
 
 // groupsGetHandler handles the "groups/get" method. It returns the named group's
 // tools and prompts.
-func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, body []byte, header http.Header) (any, error) {
+func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *primitives.PrimitiveManager, urlGroup group.Group, body []byte, header http.Header) (any, error) {
 	// retrieve logger from context
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
@@ -926,6 +930,11 @@ func groupsGetHandler(ctx context.Context, id jsonrpc.RequestId, primitiveMgr *p
 		genAIAttrs.GroupName = groupName
 	}
 
+	// A group endpoint only exposes its own group.
+	if urlGroup.Name != "" && groupName != urlGroup.Name {
+		err := fmt.Errorf("invalid group name: group with name %q does not exist", groupName)
+		return jsonrpc.NewError(id, jsonrpc.INVALID_PARAMS, err.Error(), nil), err
+	}
 	g, ok := primitiveMgr.GetGroup(groupName)
 	if !ok {
 		err := fmt.Errorf("invalid group name: group with name %q does not exist", groupName)
