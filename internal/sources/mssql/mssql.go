@@ -22,6 +22,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
+	"github.com/googleapis/mcp-toolbox/internal/tools/mssql/mssqlcommon"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	_ "github.com/microsoft/go-mssqldb"
@@ -74,6 +75,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 	// Verify db connection
 	err = db.PingContext(ctx)
 	if err != nil {
+		db.Close()
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -109,43 +111,54 @@ func (s *Source) MSSQLDB() *sql.DB {
 	return s.Db
 }
 
+// function to lock specific tool to non cloud mssql
+func (s *Source) IsNonCloud() bool {
+	return true
+}
+
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
 	results, err := s.MSSQLDB().QueryContext(ctx, statement, params...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to execute query: %w", err)
+		return nil, fmt.Errorf("unable to execute query: %w", mssqlcommon.WithServerErrorDetails(err))
 	}
 	defer results.Close()
 
-	cols, err := results.Columns()
-	// If Columns() errors, it might be a DDL/DML without an OUTPUT clause.
-	// We proceed, and results.Err() will catch actual query execution errors.
-	// 'out' will remain an empty slice if cols is empty or err is not nil here.
 	out := []any{}
-	if err == nil && len(cols) > 0 {
-		// create an array of values for each column, which can be re-used to scan each row
-		rawValues := make([]any, len(cols))
-		values := make([]any, len(cols))
-		for i := range rawValues {
-			values[i] = &rawValues[i]
+	for {
+		cols, err := results.Columns()
+		// If Columns() errors, it might be a DDL/DML without an OUTPUT clause.
+		// We proceed, and results.Err() will catch actual query execution errors.
+		// 'out' will remain an empty slice if cols is empty or err is not nil here.
+		if err == nil && len(cols) > 0 {
+			// create an array of values for each column, which can be re-used to scan each row
+			rawValues := make([]any, len(cols))
+			values := make([]any, len(cols))
+			for i := range rawValues {
+				values[i] = &rawValues[i]
+			}
+
+			for results.Next() {
+				scanErr := results.Scan(values...)
+				if scanErr != nil {
+					return nil, fmt.Errorf("unable to parse row: %w", scanErr)
+				}
+				row := orderedmap.Row{}
+				for i, name := range cols {
+					row.Add(name, rawValues[i])
+				}
+				out = append(out, row)
+			}
 		}
 
-		for results.Next() {
-			scanErr := results.Scan(values...)
-			if scanErr != nil {
-				return nil, fmt.Errorf("unable to parse row: %w", scanErr)
-			}
-			row := orderedmap.Row{}
-			for i, name := range cols {
-				row.Add(name, rawValues[i])
-			}
-			out = append(out, row)
+		if !results.NextResultSet() {
+			break
 		}
 	}
 
 	// Check for errors from iterating over rows or from the query execution itself.
 	// results.Close() is handled by defer.
 	if err := results.Err(); err != nil {
-		return nil, fmt.Errorf("errors encountered during query execution or row processing: %w", err)
+		return nil, fmt.Errorf("errors encountered during query execution or row processing: %w", mssqlcommon.WithServerErrorDetails(err))
 	}
 
 	return out, nil

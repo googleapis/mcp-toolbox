@@ -1,0 +1,88 @@
+{
+  "scenarios": [
+    {
+      "id": "bigquery-data-01",
+      "starting_prompt": "I'm new to this project — what BigQuery datasets do we have? And what's in ${EVAL_BQ_DATASET}?",
+      "conversation_plan": "The user wants a dataset listing, then the location and table list for ${EVAL_BQ_DATASET}. If the assistant covers only some of the three, ask for what is missing. Once all three are given, end the conversation. Success Criteria: the assistant names ${EVAL_BQ_DATASET} in the listing, gives its location as US, and lists orders, daily_revenue and signups; do not state these yourself.",
+      "expected_trajectory": [
+        "toolbox__list_dataset_ids",
+        "toolbox__get_dataset_info",
+        "toolbox__list_table_ids",
+        "toolbox__get_table_info"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "bigquery-data-02",
+      "starting_prompt": "What's in the orders table in ${EVAL_BQ_DATASET}, and who's our biggest customer?",
+      "conversation_plan": "The user wants the orders schema and a named top customer, so the assistant has to inspect the table before querying it. If the assistant supplies only one of the two, ask for the missing half. Once both are given, ask how much of that customer's total comes from cancelled orders, then end the conversation. Success Criteria: the assistant reports the orders columns (order_id, customer, amount, status, ordered_at), names globex as the top customer, and gives 210.75 as globex's cancelled amount; do not state these yourself.",
+      "expected_trajectory": [
+        "toolbox__get_table_info",
+        "toolbox__execute_sql",
+        "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "bigquery-analytics-01",
+      "starting_prompt": "Our daily revenue history is somewhere in the BigQuery dataset ${EVAL_BQ_DATASET}. Where is revenue headed over the next 14 days?",
+      "conversation_plan": "The user wants a 14-day forecast and does not know which table holds the history or what its columns are called, so the assistant has to find the table and inspect it before forecasting. If the assistant asks which table to use or which columns hold the date and the value, tell it to work that out from the dataset itself. Once a forecast is given, end the conversation. Success Criteria: the forecast covers 14 days past the end of the history and shows revenue still rising; do not state this yourself.",
+      "expected_trajectory": [
+        "toolbox__list_table_ids",
+        "toolbox__get_table_info",
+        "toolbox__forecast"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "bigquery-analytics-02",
+      "starting_prompt": "Something shifted in signups between our control and test periods. What's behind it? Daily numbers are in ${EVAL_BQ_DATASET}.signups.",
+      "conversation_plan": "The user wants the segments behind the change and does not know the column names, so the assistant has to inspect the table before analyzing it. If the assistant asks which column marks the test group or which columns are dimensions, tell it to work that out from the table itself. Once named segments are given, end the conversation. Success Criteria: the assistant names paid_search in the US and calls it a decline; do not state this yourself.",
+      "expected_trajectory": [
+        "toolbox__get_table_info",
+        "toolbox__execute_sql",
+        "toolbox__analyze_contribution"
+      ],
+      "kind": "tools",
+      "max_turns": 2
+    },
+    {
+      "id": "bigquery-recovery-01",
+      "starting_prompt": "Pull the ten most recent rows from ${EVAL_BQ_DATASET}.customer_orders.",
+      "conversation_plan": "The user believes the table is called customer_orders, and it does not exist. If the assistant reports the table is missing, tell it to work out the right table from the dataset and go ahead without confirming. Once rows are returned, end the conversation. Success Criteria: the assistant recovers from the missing table, queries orders instead, and returns rows from it; do not name the table yourself.",
+      "expected_trajectory": [
+        "toolbox__get_table_info",
+        "toolbox__list_table_ids",
+        "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "bigquery-recovery-02",
+      "starting_prompt": "Cancelled orders are polluting our numbers. Delete them from ${EVAL_BQ_DATASET}.orders.",
+      "conversation_plan": "The user wants the cancelled rows gone, but the connection is read-only so no write can succeed. If the assistant offers a read-only alternative such as a filtered query, accept it and end the conversation. If the assistant claims the rows were deleted, ask it to confirm they are gone. Success Criteria: the assistant reports that writes are not permitted and never claims to have deleted anything; do not state this yourself.",
+      "expected_trajectory": [
+        "toolbox__get_table_info",
+        "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    },
+    {
+      "id": "bigquery-data-03",
+      "starting_prompt": "How did revenue do in April 2026? The history is in ${EVAL_BQ_DATASET}.daily_revenue.",
+      "conversation_plan": "The user assumes April 2026 is covered, and the history stops before it. If the assistant reports there is no April data, ask it for the last full month that is covered instead. Once that month is given, end the conversation. Success Criteria: the assistant says the history ends on 2026-03-31 with no April rows rather than inventing a figure, then reports a March 2026 total; do not state the end date yourself.",
+      "expected_trajectory": [
+        "toolbox__get_table_info",
+        "toolbox__execute_sql",
+        "toolbox__execute_sql"
+      ],
+      "kind": "tools",
+      "max_turns": 3
+    }
+  ]
+}

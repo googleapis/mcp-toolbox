@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/dataplex/searchcatalog"
+	"github.com/googleapis/mcp-toolbox/internal/sources/sqlcommenter"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
@@ -102,6 +104,7 @@ type Config struct {
 	MaxQueryResultRows        int                 `yaml:"maxQueryResultRows"`
 	MaximumBytesBilled        int64               `yaml:"maximumBytesBilled" validate:"gte=0"`
 	APIEndpoint               string              `yaml:"apiEndpoint"`
+	SQLCommenter              *bool               `yaml:"sqlCommenter"`
 }
 
 // StringOrStringSlice is a custom type that can unmarshal both a single string
@@ -240,6 +243,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 				dataset := s.Client.DatasetInProject(projectID, datasetID)
 				_, err := dataset.Metadata(ctx)
 				if err != nil {
+					s.Client.Close()
 					if gerr, ok := err.(*googleapi.Error); ok && gerr.Code == http.StatusNotFound {
 						return nil, fmt.Errorf("allowedDataset '%s' not found in project '%s'", datasetID, projectID)
 					}
@@ -423,6 +427,7 @@ func (s *Source) newBigQuerySessionProvider() BigQuerySessionProvider {
 				DryRun: true,
 				Query: &bigqueryrestapi.JobConfigurationQuery{
 					Query:         "SELECT 1",
+					UseLegacySql:  new(bool),
 					CreateSession: true,
 				},
 			},
@@ -524,6 +529,7 @@ func (s *Source) BigQueryAllowedDatasets() []string {
 	for d := range s.AllowedDatasets {
 		datasets = append(datasets, d)
 	}
+	sort.Strings(datasets)
 	return datasets
 }
 
@@ -612,6 +618,10 @@ func (s *Source) RunSQL(ctx context.Context, bqClient *bigqueryapi.Client, state
 	if connProps != nil {
 		query.ConnectionProperties = connProps
 	}
+	// BigQuery attaches SQLCommenter attributes as native job labels rather
+	// than SQL-text comments, so they surface in INFORMATION_SCHEMA.JOBS and
+	// billing exports without query text parsing.
+	labels = sqlcommenter.AppendLabels(ctx, labels, SourceType, s.SQLCommenter)
 	if labels != nil {
 		query.Labels = labels
 	}
@@ -777,12 +787,20 @@ func initBigQueryConnection(
 	}
 
 	if impersonateServiceAccount != "" {
+		baseCred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+			Name:                  name,
+			Scopes:                []string{CloudPlatformScope},
+			SkipQuotaProjectGuard: true,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to prepare base credentials to impersonate %q: %w", impersonateServiceAccount, err)
+		}
 		// Create impersonated credentials token source
 		// This broader scope is needed for tools like conversational analytics
 		cloudPlatformTokenSource, err := impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
 			TargetPrincipal: impersonateServiceAccount,
 			Scopes:          credScopes,
-		})
+		}, option.WithCredentials(baseCred))
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to create impersonated credentials for %q: %w", impersonateServiceAccount, err)
 		}
@@ -793,9 +811,13 @@ func initBigQueryConnection(
 		}
 	} else {
 		// Use default credentials
-		cred, err := google.FindDefaultCredentials(ctx, credScopes...)
+		cred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+			Name:            name,
+			Scopes:          credScopes,
+			QuotaProjectPin: quotaProject,
+		})
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to find default Google Cloud credentials with scopes %v: %w", credScopes, err)
+			return nil, nil, nil, fmt.Errorf("failed to prepare default credentials for BigQuery source %q: %w", name, err)
 		}
 		tokenSource = cred.TokenSource
 		opts = []option.ClientOption{
@@ -933,11 +955,19 @@ func initDataplexConnection(
 		}
 
 		if impersonateServiceAccount != "" {
+			baseCred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+				Name:                  name,
+				Scopes:                []string{CloudPlatformScope},
+				SkipQuotaProjectGuard: true,
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to prepare base credentials to impersonate %q: %w", impersonateServiceAccount, err)
+			}
 			// Create impersonated credentials token source
 			ts, err := impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
 				TargetPrincipal: impersonateServiceAccount,
 				Scopes:          credScopes,
-			})
+			}, option.WithCredentials(baseCred))
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to create impersonated credentials for %q: %w", impersonateServiceAccount, err)
 			}
@@ -947,9 +977,12 @@ func initDataplexConnection(
 			}
 		} else {
 			// Use default credentials
-			cred, err := google.FindDefaultCredentials(ctx, credScopes...)
+			cred, err := sources.NewReloadingDefaultCredentials(ctx, sources.ADCReloadParams{
+				Name:   name,
+				Scopes: credScopes,
+			})
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to find default Google Cloud credentials: %w", err)
+				return nil, nil, fmt.Errorf("failed to prepare default credentials for the Dataplex client of source %q: %w", name, err)
 			}
 			opts = []option.ClientOption{
 				option.WithUserAgent(userAgent),

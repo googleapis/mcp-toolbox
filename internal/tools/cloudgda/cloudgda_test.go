@@ -55,7 +55,6 @@ func TestParseFromYaml(t *testing.T) {
 					spannerReference:
 						databaseReference:
 							projectId:  "cloud-db-nl2sql"
-							region:     "us-central1"
 							instanceId: "evalbench"
 							databaseId: "financial"
 							engine:     "GOOGLE_SQL"
@@ -81,7 +80,6 @@ func TestParseFromYaml(t *testing.T) {
 									SpannerReference: &geminidataanalyticspb.SpannerReference{
 										DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
 											ProjectId:  "cloud-db-nl2sql",
-											Region:     "us-central1",
 											InstanceId: "evalbench",
 											DatabaseId: "financial",
 											Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,
@@ -107,7 +105,7 @@ func TestParseFromYaml(t *testing.T) {
 		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			t.Parallel()
-			_, _, _, got, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
+			_, _, _, got, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -237,7 +235,6 @@ func TestInvoke(t *testing.T) {
 						SpannerReference: &geminidataanalyticspb.SpannerReference{
 							DatabaseReference: &geminidataanalyticspb.SpannerDatabaseReference{
 								ProjectId:  "cloud-db-nl2sql",
-								Region:     "us-central1",
 								InstanceId: "evalbench",
 								DatabaseId: "financial",
 								Engine:     geminidataanalyticspb.SpannerDatabaseReference_GOOGLE_SQL,

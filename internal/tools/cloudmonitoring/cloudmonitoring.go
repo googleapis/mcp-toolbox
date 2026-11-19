@@ -49,9 +49,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 // validate interface
@@ -124,10 +123,4 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGcpError(err)
 	}
 	return resp, nil
-}
-
-// Authorized is overridden to always allow access; this tool delegates auth
-// enforcement to the underlying GCP credentials.
-func (t Tool) Authorized(verifiedAuthServices []string) bool {
-	return true
 }

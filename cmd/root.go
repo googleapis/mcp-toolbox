@@ -39,6 +39,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -138,14 +139,14 @@ func handleDynamicReload(ctx context.Context, cfg server.ServerConfig, s *server
 		panic(err)
 	}
 
-	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap, err := validateReloadEdits(ctx, cfg)
+	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, err := validateReloadEdits(ctx, cfg)
 	if err != nil {
 		errMsg := fmt.Errorf("unable to validate reloaded edits: %w", err)
 		logger.WarnContext(ctx, errMsg.Error())
 		return err
 	}
 
-	s.PrimitiveMgr.SetPrimitives(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap)
+	s.PrimitiveMgr.SetPrimitives(sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap)
 
 	return nil
 }
@@ -153,8 +154,7 @@ func handleDynamicReload(ctx context.Context, cfg server.ServerConfig, s *server
 // validateReloadEdits checks that the reloaded config configs can initialized without failing
 func validateReloadEdits(
 	ctx context.Context, cfg server.ServerConfig,
-) (map[string]sources.Source, map[string]auth.AuthService, map[string]embeddingmodels.EmbeddingModel, map[string]tools.Tool, map[string]prompts.Prompt, map[string]group.Group, error,
-) {
+) (map[string]sources.Source, map[string]auth.AuthService, map[string]embeddingmodels.EmbeddingModel, map[string]tools.Tool, map[string]prompts.Prompt, map[string]resources.Resource, map[string]resources.ResourceTemplate, map[string]group.Group, error) {
 	logger, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		panic(err)
@@ -170,14 +170,14 @@ func validateReloadEdits(
 	ctx, span := instrumentation.Tracer.Start(ctx, "toolbox/server/reload")
 	defer span.End()
 
-	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap, err := server.InitializeConfigs(ctx, cfg)
+	sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, err := server.InitializeConfigs(ctx, cfg)
 	if err != nil {
 		errMsg := fmt.Errorf("unable to initialize reloaded configs: %w", err)
 		logger.WarnContext(ctx, errMsg.Error())
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, nil, err
 	}
 
-	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, groupsMap, nil
+	return sourcesMap, authServicesMap, embeddingModelsMap, toolsMap, promptsMap, resourcesMap, resourceTemplatesMap, groupsMap, nil
 }
 
 // Helper to check if a file has a newer ModTime than stored in the map
@@ -385,8 +385,10 @@ func resolveWatcherInputs(toolsFile string, toolsFiles []string, toolsFolder str
 		relevantFiles = toolsFiles
 	} else if toolsFolder != "" {
 		watchDirs[filepath.Clean(toolsFolder)] = true
-	} else {
+	} else if toolsFile != "" {
 		relevantFiles = []string{toolsFile}
+	} else {
+		relevantFiles = []string{"tools.yaml"}
 	}
 
 	// extract parent dir for relevant files and dedup
@@ -428,7 +430,12 @@ func run(cmd *cobra.Command, opts *internal.ToolboxOptions) error {
 		return err
 	}
 	defer func() {
-		_ = shutdown(ctx)
+		// The signal handler cancels ctx on SIGTERM/SIGINT, so reusing it here
+		// aborts the final telemetry export. Give shutdown its own bounded
+		// context, mirroring the HTTP server shutdown below.
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_ = shutdown(shutdownCtx)
 	}()
 
 	isCustomConfigured, err := opts.LoadConfig(ctx, &internal.ConfigParser{})

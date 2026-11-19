@@ -22,7 +22,7 @@ The tool's behavior regarding these parameters is influenced by the
 - **Without `allowedDatasets` restriction:** The tool can retrieve metadata for
   any dataset specified by the `dataset` and `project` parameters.
 - **With `allowedDatasets` restriction:** Before retrieving metadata, the tool
-  verifies that the requested dataset is in the allowed list. If it is not, the
+  verifies that the requested dataset is in `allowedDatasets`. If it is not, the
   request is denied. If only one dataset is specified in the `allowedDatasets`
   list, it will be used as the default value for the `dataset` parameter.
 

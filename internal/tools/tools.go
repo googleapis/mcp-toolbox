@@ -128,11 +128,11 @@ type Tool interface {
 	GetDescription() string
 	GetAuthRequired() []string
 	GetAnnotations(sources.Source) *ToolAnnotations
+	GetToolUIMetadata() *ToolUIMetadata
 	Invoke(context.Context, sources.Source, parameters.ParamValues, AccessToken) (any, util.ToolboxError)
 	EmbedParams(context.Context, parameters.ParamValues, PrimitiveManagerI) (parameters.ParamValues, error)
 	Manifest(sources.Source) (Manifest, error)
 	StaticManifest() Manifest
-	Authorized([]string) bool
 	RequiresClientAuthorization(sources.Source) (bool, error)
 	ToConfig() ToolConfig
 	GetAuthTokenHeaderName(sources.Source) (string, error)
@@ -157,6 +157,14 @@ type Manifest struct {
 	AuthRequired []string                       `json:"authRequired"`
 }
 
+// StructuredToolResult allows a tool to return a concise Content representation
+// for the LLM context window alongside a full StructuredContent object for
+// MCP Apps UI rendering (per SEP-1865).
+type StructuredToolResult struct {
+	Content           any            `json:"content"`
+	StructuredContent map[string]any `json:"structuredContent,omitempty"`
+}
+
 // Helper function that returns if a tool invocation request is authorized
 func IsAuthorized(authRequiredSources []string, verifiedAuthServices []string) bool {
 	if len(authRequiredSources) == 0 {
@@ -178,6 +186,21 @@ type ToolMeta interface {
 	GetDescription() string
 	GetAuthRequired() []string
 	GetScopesRequired() []string
+	GetToolUIMetadata() *ToolUIMetadata
+}
+
+// ToolVisibility defines the visibility of a tool in the UI.
+type ToolVisibility string
+
+const (
+	VisibilityModel ToolVisibility = "model"
+	VisibilityApp   ToolVisibility = "app"
+)
+
+// ToolUIMetadata defines the UI-specific metadata for a tool with UI Resource.
+type ToolUIMetadata struct {
+	Resource   string           `yaml:"resource" validate:"required"`
+	Visibility []ToolVisibility `yaml:"visibility,omitempty" validate:"omitempty,dive,oneof=model app"`
 }
 
 // ConfigBase owns the YAML fields that every tool's Config shares and that
@@ -186,16 +209,29 @@ type ToolMeta interface {
 // configs omit description: and rely on a canned per-tool string), so
 // post-Initialize ConfigBase.Description holds the resolved value.
 type ConfigBase struct {
-	Name           string   `yaml:"name"           validate:"required"`
-	Description    string   `yaml:"description"`
-	AuthRequired   []string `yaml:"authRequired"`
-	ScopesRequired []string `yaml:"scopesRequired"`
+	Name           string           `yaml:"name"           validate:"required"`
+	Description    string           `yaml:"description"`
+	AuthRequired   []string         `yaml:"authRequired"`
+	ScopesRequired []string         `yaml:"scopesRequired"`
+	Annotations    *ToolAnnotations `yaml:"annotations,omitempty"`
+	UI             *ToolUIMetadata  `yaml:"ui,omitempty"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
 func (c ConfigBase) GetDescription() string      { return c.Description }
 func (c ConfigBase) GetAuthRequired() []string   { return c.AuthRequired }
 func (c ConfigBase) GetScopesRequired() []string { return c.ScopesRequired }
+func (c ConfigBase) GetToolUIMetadata() *ToolUIMetadata {
+	if c.UI == nil {
+		return nil
+	}
+	if len(c.UI.Visibility) == 0 {
+		ui := *c.UI
+		ui.Visibility = []ToolVisibility{VisibilityModel, VisibilityApp}
+		return &ui
+	}
+	return c.UI
+}
 
 // BaseTool provides default implementations of various methods on the Tool
 // interface. Tools embed BaseTool to drop their boilerplate and override
@@ -254,10 +290,6 @@ func (b BaseTool[T]) GetParameters(_ sources.Source) (parameters.Parameters, err
 	return b.StaticParameters, nil
 }
 
-func (b BaseTool[T]) Authorized(verifiedAuthServices []string) bool {
-	return IsAuthorized(b.Cfg.GetAuthRequired(), verifiedAuthServices)
-}
-
 func (b BaseTool[T]) RequiresClientAuthorization(_ sources.Source) (bool, error) {
 	return false, nil
 }
@@ -299,4 +331,8 @@ func ShouldSuppress(ctx context.Context, t Tool, src sources.Source) bool {
 	}
 
 	return false
+}
+
+func (b BaseTool[T]) GetToolUIMetadata() *ToolUIMetadata {
+	return b.Cfg.GetToolUIMetadata()
 }

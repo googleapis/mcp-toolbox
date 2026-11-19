@@ -23,8 +23,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
-	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/bigtable"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
@@ -32,7 +32,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/api/iterator"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 // GetToolsConfig returns a mock tools config file
@@ -668,7 +668,7 @@ func GetPostgresWants() (string, string, string, string) {
 // GetMSSQLWants return the expected wants for mssql
 func GetMSSQLWants() (string, string, string, string) {
 	select1Want := "[{\"\":1}]"
-	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: mssql: Could not find stored procedure 'SELEC'."}],"isError":true}}`
+	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: mssql: Could not find stored procedure 'SELEC'. (2812)"}],"isError":true}}`
 	createTableStatement := `"CREATE TABLE t (id INT IDENTITY(1,1) PRIMARY KEY, name NVARCHAR(MAX))"`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"\":1}"}]}}`
 	return select1Want, mcpMyFailToolWant, createTableStatement, mcpSelect1Want
@@ -1016,7 +1016,7 @@ func TestCloudSQLMySQL_IPTypeParsingFromYAML(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
+			got, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(context.Background(), testutils.FormatYaml(tc.in))
 			if err != nil {
 				t.Fatalf("unable to unmarshal: %s", err)
 			}
@@ -1066,11 +1066,11 @@ func CleanupPostgresTables(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 	}
 }
 
-// Finds and drops all tables in a mysql database.
+// Finds and drops tables older than 2 hours in a mysql database.
 func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	query := `
 	SELECT table_name FROM information_schema.tables
-	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE';`
+	WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' AND create_time < NOW() - INTERVAL 2 HOUR;`
 
 	rows, err := pool.QueryContext(ctx, query)
 	if err != nil {
@@ -1113,48 +1113,19 @@ func CleanupMySQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
 	}
 }
 
-// Finds and drops all tables in an mssql database.
+// Finds and drops user tables older than 2 hours in an mssql database.
 func CleanupMSSQLTables(t *testing.T, ctx context.Context, pool *sql.DB) {
-	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'"
+	disableConstraintsCmd := "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL', @whereand = 'AND O.Type = ''U'' AND O.crdate < DATEADD(HOUR, -2, GETDATE())'"
 	if _, err := pool.ExecContext(ctx, disableConstraintsCmd); err != nil {
 		t.Fatalf("Failed to disable MSSQL constraints: %v", err)
 	}
 
-	// drop 'U' (User Tables)
-	dropTablesCmd := "EXEC sp_MSforeachtable 'DROP TABLE ?', @whereand = 'AND O.Type = ''U'''"
+	// drop 'U' (User Tables) older than 2 hours
+	dropTablesCmd := "EXEC sp_MSforeachtable 'DROP TABLE ?', @whereand = 'AND O.Type = ''U'' AND O.crdate < DATEADD(HOUR, -2, GETDATE())'"
 	if _, err := pool.ExecContext(ctx, dropTablesCmd); err != nil {
 		t.Fatalf("Failed to drop all MSSQL tables: %v", err)
 	}
 
-}
-
-func CleanupBigQueryDatasets(t *testing.T, ctx context.Context, client *bigquery.Client, datasetIDs []string) {
-	for _, id := range datasetIDs {
-		t.Logf("INTEGRATION CLEANUP: Purging dataset %s", id)
-		ds := client.Dataset(id)
-
-		//Delete tables first since Dataset.Delete fails if not empty
-		tableIt := ds.Tables(ctx)
-		for {
-			table, err := tableIt.Next()
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				t.Errorf("INTEGRATION CLEANUP: Failed to iterate tables in %s: %v", id, err)
-				break
-			}
-			if err := table.Delete(ctx); err != nil {
-				t.Errorf("INTEGRATION CLEANUP: Failed to delete table %s: %v", table.TableID, err)
-			}
-		}
-		//delete empty dataset
-		if err := ds.Delete(ctx); err != nil {
-			t.Errorf("INTEGRATION CLEANUP: Failed to delete dataset %s: %v", id, err)
-		} else {
-			t.Logf("INTEGRATION CLEANUP SUCCESS: Wiped dataset %s", id)
-		}
-	}
 }
 
 // finds and deletes all tables in a Bigtable instance that match the uniqueID.
@@ -1176,4 +1147,39 @@ func CleanupBigtableTables(t *testing.T, ctx context.Context, adminClient *bigta
 			}
 		}
 	}
+}
+
+// SetupPostgresTestContainer spins up a generic PostgreSQL-compatible test container.
+func SetupGenericPostgresTestContainer(ctx context.Context, t *testing.T, req testcontainers.ContainerRequest) (string, string, func()) {
+	t.Helper()
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start postgres container: %s", err)
+	}
+
+	cleanup := func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cleanupCancel()
+		if err := container.Terminate(cleanupCtx); err != nil {
+			t.Fatalf("failed to terminate container: %s", err)
+		}
+	}
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get container host: %s", err)
+	}
+
+	mappedPort, err := container.MappedPort(ctx, "5432")
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to get container mapped port: %s", err)
+	}
+
+	return host, mappedPort.Port(), cleanup
 }

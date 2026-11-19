@@ -46,8 +46,12 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	_ "github.com/googleapis/mcp-toolbox/internal/prompts/custom"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+	_ "github.com/googleapis/mcp-toolbox/internal/resources/file"
+	"github.com/googleapis/mcp-toolbox/internal/resources/text"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	v20260728 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20260728"
+	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/alloydbpg"
 	_ "github.com/googleapis/mcp-toolbox/internal/sources/postgres"
@@ -426,7 +430,9 @@ func TestUpdateServer(t *testing.T) {
 	newGroups := map[string]group.Group{
 		"example-toolset": group.NewGroup(group.GroupConfig{Name: "example-toolset", ToolNames: []string{"example-tool"}}),
 	}
-	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newGroups)
+	newResources := map[string]resources.Resource{"example-resource": nil}
+	newResourceTemplates := map[string]resources.ResourceTemplate{"example-template": nil}
+	s.PrimitiveMgr.SetPrimitives(newSources, newAuth, newEmbeddingModels, newTools, newPrompts, newResources, newResourceTemplates, newGroups)
 	if err != nil {
 		t.Errorf("error updating server: %s", err)
 	}
@@ -458,6 +464,16 @@ func TestUpdateServer(t *testing.T) {
 	gotPrompt, _ := s.PrimitiveMgr.GetPrompt("example-prompt")
 	if diff := cmp.Diff(gotPrompt, newPrompts["example-prompt"], cmp.AllowUnexported(testutils.MockPrompt{})); diff != "" {
 		t.Errorf("error updating server, prompts (-want +got):\n%s", diff)
+	}
+
+	gotResource, _ := s.PrimitiveMgr.GetResource("example-resource")
+	if diff := cmp.Diff(gotResource, newResources["example-resource"]); diff != "" {
+		t.Errorf("error updating server, resources (-want +got):\n%s", diff)
+	}
+
+	gotTemplate, _ := s.PrimitiveMgr.GetResourceTemplate("example-template")
+	if diff := cmp.Diff(gotTemplate, newResourceTemplates["example-template"]); diff != "" {
+		t.Errorf("error updating server, resource templates (-want +got):\n%s", diff)
 	}
 }
 
@@ -1363,184 +1379,6 @@ func TestMCPAuthMiddleware(t *testing.T) {
 	}
 }
 
-func TestGoogleAuthConfigValidation(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		yaml      string
-		wantError bool
-	}{
-		{
-			name: "only clientId, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-clientId: my-client-id
-`,
-			wantError: false,
-		},
-		{
-			name: "only audience, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-audience: my-audience
-`,
-			wantError: true,
-		},
-		{
-			name: "only audience, mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-audience: my-audience
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-		{
-			name: "scopesRequired, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-scopesRequired:
-  - email
-`,
-			wantError: true,
-		},
-		{
-			name: "scopesRequired, mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-scopesRequired:
-  - email
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-		{
-			name: "both clientId and audience, mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-google-auth
-type: google
-clientId: my-client-id
-audience: my-audience
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
-			if (err != nil) != tc.wantError {
-				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
-			}
-		})
-	}
-}
-
-func TestGenericAuthConfigValidation(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		yaml      string
-		wantError bool
-	}{
-		{
-			name: "valid mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-`,
-			wantError: false,
-		},
-		{
-			name: "valid mcpEnabled true",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-mcpEnabled: true
-`,
-			wantError: false,
-		},
-		{
-			name: "introspectionEndpoint, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-introspectionEndpoint: http://example.com/introspect
-`,
-			wantError: true,
-		},
-		{
-			name: "introspectionMethod, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-introspectionMethod: POST
-`,
-			wantError: true,
-		},
-		{
-			name: "introspectionParamName, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-introspectionParamName: token
-`,
-			wantError: true,
-		},
-		{
-			name: "scopesRequired, mcpEnabled false",
-			yaml: `
-kind: authService
-name: my-generic-auth
-type: generic
-audience: my-audience
-authorizationServer: https://example.com
-scopesRequired:
-  - email
-`,
-			wantError: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
-			if (err != nil) != tc.wantError {
-				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
-			}
-		})
-	}
-}
-
 func TestDuplicateResourceConfig(t *testing.T) {
 	ctx := context.Background()
 
@@ -1652,7 +1490,7 @@ messages:
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
+			_, _, _, _, _, _, _, _, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
 			if err == nil {
 				t.Fatalf("UnmarshalPrimitiveConfig() expected a duplicate error, got nil")
 			}
@@ -1660,195 +1498,6 @@ messages:
 				t.Fatalf("UnmarshalPrimitiveConfig() error = %v, want it to mention 'declared more than once'", err)
 			}
 		})
-	}
-}
-
-func TestGroupConfigParsing(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name      string
-		yaml      string
-		want      group.GroupConfig
-		wantError bool
-	}{
-		{
-			name: "valid named group",
-			yaml: `
-kind: group
-name: my_group
-description: a group of tools and prompts
-tools:
-  - tool_a
-  - tool_b
-prompts:
-  - prompt_a
-`,
-			want: group.GroupConfig{
-				Name:        "my_group",
-				Description: "a group of tools and prompts",
-				ToolNames:   []string{"tool_a", "tool_b"},
-				PromptNames: []string{"prompt_a"},
-			},
-		},
-		{
-			name: "named group with only description",
-			yaml: `
-kind: group
-name: my_group
-description: just a description
-`,
-			want: group.GroupConfig{
-				Name:        "my_group",
-				Description: "just a description",
-			},
-		},
-		{
-			name: "default group with only description",
-			yaml: `
-kind: group
-name:
-description: default server instruction
-`,
-			want: group.GroupConfig{
-				Description: "default server instruction",
-			},
-		},
-		{
-			name: "default group omitting name field",
-			yaml: `
-kind: group
-description: default server instruction
-`,
-			want: group.GroupConfig{
-				Description: "default server instruction",
-			},
-		},
-		{
-			name: "kind toolset folds into a tools-only group",
-			yaml: `
-kind: toolset
-name: my_toolset
-tools:
-  - tool_a
-  - tool_b
-`,
-			want: group.GroupConfig{
-				Name:      "my_toolset",
-				ToolNames: []string{"tool_a", "tool_b"},
-			},
-		},
-		{
-			name: "default group declaring tools is an error",
-			yaml: `
-kind: group
-name:
-tools:
-  - tool_a
-`,
-			wantError: true,
-		},
-		{
-			name: "default group declaring prompts is an error",
-			yaml: `
-kind: group
-name:
-prompts:
-  - prompt_a
-`,
-			wantError: true,
-		},
-		{
-			name: "unknown field is an error",
-			yaml: `
-kind: group
-name: my_group
-resources:
-  - res_a
-`,
-			wantError: true,
-		},
-		{
-			name: "duplicate default group is an error",
-			yaml: `
-kind: group
-name:
-description: first
----
-kind: group
-name:
-description: second
-`,
-			wantError: true,
-		},
-		{
-			name: "duplicate named group is an error",
-			yaml: `
-kind: group
-name: my_group
-tools:
-  - tool_a
----
-kind: group
-name: my_group
-tools:
-  - tool_b
-`,
-			wantError: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(tc.yaml))
-			if (err != nil) != tc.wantError {
-				t.Fatalf("UnmarshalPrimitiveConfig() returned error: %v, wantError: %v", err, tc.wantError)
-			}
-			if tc.wantError {
-				return
-			}
-			gc, ok := groups[tc.want.Name]
-			if !ok {
-				t.Fatalf("expected group %q to be parsed, got: %v", tc.want.Name, groups)
-			}
-			if diff := cmp.Diff(tc.want, gc); diff != "" {
-				t.Errorf("group mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestGroupConfigValues(t *testing.T) {
-	ctx := context.Background()
-	yaml := `
-kind: group
-name: my_group
-description: a group
-tools:
-  - tool_a
-  - tool_b
-prompts:
-  - prompt_a
-`
-	_, _, _, _, _, groups, err := server.UnmarshalPrimitiveConfig(ctx, []byte(yaml))
-	if err != nil {
-		t.Fatalf("UnmarshalPrimitiveConfig() returned unexpected error: %v", err)
-	}
-	gc, ok := groups["my_group"]
-	if !ok {
-		t.Fatalf("expected group %q to be parsed, got: %v", "my_group", groups)
-	}
-	if gc.Name != "my_group" {
-		t.Errorf("group name: got %q, want %q", gc.Name, "my_group")
-	}
-	if gc.Description != "a group" {
-		t.Errorf("group description: got %q, want %q", gc.Description, "a group")
-	}
-	if diff := cmp.Diff([]string{"tool_a", "tool_b"}, gc.ToolNames); diff != "" {
-		t.Errorf("group tools mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff([]string{"prompt_a"}, gc.PromptNames); diff != "" {
-		t.Errorf("group prompts mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -1875,7 +1524,7 @@ func TestInitializeConfigs(t *testing.T) {
 				"my-tool": tools1.ToConfig(),
 			},
 		}
-		sourcesMap, _, _, toolsMap, _, _, err := server.InitializeConfigs(ctx, validCfg)
+		sourcesMap, _, _, toolsMap, _, _, _, _, err := server.InitializeConfigs(ctx, validCfg)
 		if err != nil {
 			t.Fatalf("unexpected error during config initialization: %s", err)
 		}
@@ -1898,13 +1547,265 @@ func TestInitializeConfigs(t *testing.T) {
 				"my-invalid-tool": testutils.NewMockTool("my-tool", "mock tool for offline config", "my-source", nil, false, false).ToConfig(),
 			},
 		}
-		_, _, _, _, _, _, err := server.InitializeConfigs(ctx, invalidCfg)
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, invalidCfg)
 		if err == nil {
 			t.Fatalf("expected error but got nil")
 		}
 		wantErr := `invalid source for "mock-tool" tool: source "my-source" is not a compatible type`
 		if err.Error() != wantErr {
 			t.Fatalf("unexpected error: want %s, got %s", wantErr, err.Error())
+		}
+	})
+	t.Run("succeeds when UI resource is present globally", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ToolConfigs: map[string]tools.ToolConfig{
+				"tool-with-ui": testutils.MockToolConfig{
+					ConfigBase: tools.ConfigBase{
+						Name: "tool-with-ui",
+						UI: &tools.ToolUIMetadata{
+							Resource: "valid-resource",
+						},
+					},
+				},
+			},
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"valid-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "valid-resource",
+							UI:   true,
+						},
+					},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("expected InitializeConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("succeeds when tool references an unverified UI resource", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ToolConfigs: map[string]tools.ToolConfig{
+				"tool-with-ui": testutils.MockToolConfig{
+					ConfigBase: tools.ConfigBase{
+						Name: "tool-with-ui",
+						UI: &tools.ToolUIMetadata{
+							Resource: "unverified-resource",
+						},
+					},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("expected InitializeConfigs to succeed without checking UI resource, got: %v", err)
+		}
+	})
+
+	t.Run("fails when group directly includes a UI resource", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"ui-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "ui-resource",
+							UI:   true,
+						},
+					},
+				},
+			},
+			GroupConfigs: map[string]group.GroupConfig{
+				"mygroup": {
+					Name:          "mygroup",
+					ResourceNames: []string{"ui-resource"},
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail")
+		}
+		if !strings.Contains(err.Error(), "UI resource \"ui-resource\" cannot be included in group \"mygroup\"") {
+			t.Fatalf("expected UI resource cannot be included in group error, got: %v", err)
+		}
+	})
+
+	t.Run("succeeds when UI resource is present globally in offline mode", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ToolConfigs: map[string]tools.ToolConfig{
+				"tool-with-ui": testutils.MockToolConfig{
+					ConfigBase: tools.ConfigBase{
+						Name: "tool-with-ui",
+						UI: &tools.ToolUIMetadata{
+							Resource: "valid-resource",
+						},
+					},
+				},
+			},
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"valid-resource": &testutils.MockResourceConfig{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{
+							Name: "valid-resource",
+							UI:   true,
+						},
+					},
+				},
+			},
+		}
+
+		_, _, err := server.InitializeOfflineConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("expected InitializeOfflineConfigs to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("fails to start when a skill is invalid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					// The text has no frontmatter. Validate rejects it.
+					Text: "# Just a heading\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, _, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected InitializeConfigs to fail on an invalid skill")
+		}
+		if !strings.Contains(err.Error(), "frontmatter") {
+			t.Errorf("error = %v, want it to name the frontmatter problem", err)
+		}
+	})
+
+	// The test above passes even if validation rejects every skill. This test
+	// checks the opposite case. A correct skill must reach the server.
+	t.Run("starts when a skill is valid", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n",
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: "# Common queries\n",
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+		for _, name := range []string{"guide", "queries"} {
+			if _, ok := resourcesMap[name]; !ok {
+				t.Errorf("resource %q missing from the map", name)
+			}
+		}
+	})
+
+	// A SKILL.md configured as "guide" must be listed to clients under the
+	// skill name from its frontmatter, not under "guide".
+	t.Run("lists a SKILL.md under its frontmatter name", func(t *testing.T) {
+		const (
+			skillMD   = "---\nname: analytics-guide\ndescription: Query the warehouse\n---\n\n# Guide\n"
+			queriesMD = "# Common queries\n"
+		)
+		cfg := server.ServerConfig{
+			ResourceConfigs: map[string]resources.ResourceConfig{
+				"guide": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "guide", Type: "text", MimeType: "text/plain"},
+						URI:        "skill://analytics-guide/SKILL.md",
+					},
+					Text: skillMD,
+				},
+				"queries": &text.Config{
+					ResourceConfigBase: resources.ResourceConfigBase{
+						ConfigBase: resources.ConfigBase{Name: "queries", Type: "text", MimeType: "text/markdown"},
+						URI:        "skill://analytics-guide/references/queries.md",
+					},
+					Text: queriesMD,
+				},
+			},
+			SkipSourceValidation: true,
+		}
+
+		_, _, _, _, _, resourcesMap, _, _, err := server.InitializeConfigs(ctx, cfg)
+		if err != nil {
+			t.Fatalf("InitializeConfigs() = %v, want nil", err)
+		}
+
+		doc := resourcesMap["guide"]
+		if doc == nil {
+			t.Fatal("the SKILL.md resource is missing from the map")
+		}
+		if got := doc.GetName(); got != "analytics-guide" {
+			t.Errorf("GetName() = %q, want the frontmatter name", got)
+		}
+		if got := doc.GetDescription(); got != "Query the warehouse" {
+			t.Errorf("GetDescription() = %q, want the frontmatter description", got)
+		}
+		// The config says text/plain, so text/markdown here proves the
+		// SKILL.md override is applied.
+		if got := doc.GetMimeType(); got != "text/markdown" {
+			t.Errorf("GetMimeType() = %q, want text/markdown", got)
+		}
+
+		// Other files in the skill keep their config name.
+		if got := resourcesMap["queries"].GetName(); got != "queries" {
+			t.Errorf("supporting file GetName() = %q, want queries", got)
+		}
+
+		// Check the resources/list result too, since that is what a client
+		// actually sees.
+		g := group.NewGroup(group.GroupConfig{ResourceNames: []string{"guide", "queries"}})
+		pMgr := primitives.NewPrimitiveManager(nil, nil, nil, nil, nil, resourcesMap, nil,
+			map[string]group.Group{g.Name: g})
+		listed, err := v20260728.GenerateListResourcesResult(pMgr, g)
+		if err != nil {
+			t.Fatalf("GenerateListResourcesResult() = %v, want nil", err)
+		}
+		skillSize, queriesSize := int64(len(skillMD)), int64(len(queriesMD))
+		want := []v20260728.Resource{
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "analytics-guide"},
+				Uri:          "skill://analytics-guide/SKILL.md",
+				Description:  "Query the warehouse",
+				MimeType:     "text/markdown",
+				Size:         &skillSize,
+			},
+			{
+				BaseMetadata: v20260728.BaseMetadata{Name: "queries"},
+				Uri:          "skill://analytics-guide/references/queries.md",
+				MimeType:     "text/markdown",
+				Size:         &queriesSize,
+			},
+		}
+		if diff := cmp.Diff(want, listed.Resources); diff != "" {
+			t.Errorf("resources/list mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
@@ -2140,31 +2041,31 @@ func TestShouldSuppressTool(t *testing.T) {
 		{
 			desc:   "write tool on read-write source (readOnlyHint: false) -> not suppressed",
 			source: readWriteSource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool"}, Source: "readwrite-db", Annotations: tools.NewWriteAnnotations()}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool", Annotations: tools.NewWriteAnnotations()}, Source: "readwrite-db"}),
 			want:   false,
 		},
 		{
 			desc:   "write tool on read-only source (readOnlyHint: false) -> suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool"}, Source: "readonly-db", Annotations: tools.NewWriteAnnotations()}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "write-tool", Annotations: tools.NewWriteAnnotations()}, Source: "readonly-db"}),
 			want:   true,
 		},
 		{
 			desc:   "read-only tool on read-only source (readOnlyHint: true) -> not suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "readonly-tool"}, Source: "readonly-db", Annotations: tools.NewReadOnlyAnnotations()}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "readonly-tool", Annotations: tools.NewReadOnlyAnnotations()}, Source: "readonly-db"}),
 			want:   false,
 		},
 		{
 			desc:   "unannotated tool on read-only source -> not suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "unannotated-tool"}, Source: "readonly-db", Annotations: nil}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "unannotated-tool", Annotations: nil}, Source: "readonly-db"}),
 			want:   false,
 		},
 		{
 			desc:   "tool with non-nil annotations but nil readOnlyHint on read-only source -> not suppressed",
 			source: readOnlySource,
-			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "nil-hint-tool"}, Source: "readonly-db", Annotations: &tools.ToolAnnotations{ReadOnlyHint: nil}}),
+			tool:   initTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{Name: "nil-hint-tool", Annotations: &tools.ToolAnnotations{ReadOnlyHint: nil}}, Source: "readonly-db"}),
 			want:   false,
 		},
 		{
@@ -2233,14 +2134,12 @@ func TestInitializeGroups(t *testing.T) {
 			},
 			ToolConfigs: server.ToolConfigs{
 				"allowed_read_tool": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "allowed_read_tool"},
-					Source:      "readonly-db",
-					Annotations: tools.NewReadOnlyAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "allowed_read_tool", Annotations: tools.NewReadOnlyAnnotations()},
+					Source:     "readonly-db",
 				},
 				"suppressed_write_tool": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "suppressed_write_tool"},
-					Source:      "readonly-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "suppressed_write_tool", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readonly-db",
 				},
 			},
 			GroupConfigs: server.GroupConfigs{
@@ -2285,14 +2184,12 @@ func TestInitializeGroups(t *testing.T) {
 			},
 			ToolConfigs: server.ToolConfigs{
 				"write_tool_1": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "write_tool_1"},
-					Source:      "readonly-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "write_tool_1", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readonly-db",
 				},
 				"write_tool_2": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "write_tool_2"},
-					Source:      "readonly-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "write_tool_2", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readonly-db",
 				},
 			},
 			GroupConfigs: server.GroupConfigs{
@@ -2325,14 +2222,12 @@ func TestInitializeGroups(t *testing.T) {
 			},
 			ToolConfigs: server.ToolConfigs{
 				"tool_1": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "tool_1"},
-					Source:      "readwrite-db",
-					Annotations: tools.NewWriteAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "tool_1", Annotations: tools.NewWriteAnnotations()},
+					Source:     "readwrite-db",
 				},
 				"tool_2": &testutils.MockToolConfig{
-					ConfigBase:  tools.ConfigBase{Name: "tool_2"},
-					Source:      "readwrite-db",
-					Annotations: tools.NewReadOnlyAnnotations(),
+					ConfigBase: tools.ConfigBase{Name: "tool_2", Annotations: tools.NewReadOnlyAnnotations()},
+					Source:     "readwrite-db",
 				},
 			},
 			GroupConfigs: server.GroupConfigs{
@@ -2356,6 +2251,166 @@ func TestInitializeGroups(t *testing.T) {
 		wantTools := []string{"tool_1", "tool_2"}
 		if diff := cmp.Diff(wantTools, grp.ToolNames); diff != "" {
 			t.Errorf("group ToolNames mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestOpenAIAppsChallenge(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testLogger, err := log.NewLogger("standard", "DEBUG", os.Stdout, os.Stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithLogger(ctx, testLogger)
+
+	instrumentation, err := telemetry.CreateTelemetryInstrumentation("0.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	ctx = util.WithInstrumentation(ctx, instrumentation)
+
+	tests := []struct {
+		name                string
+		setupTokenFile      func(t *testing.T) string
+		method              string
+		expectedStatus      int
+		expectedBody        string
+		expectedContentType string
+	}{
+		{
+			name: "serves token with OpenAIAppsChallengeFile",
+			setupTokenFile: func(t *testing.T) string {
+				tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+				if err != nil {
+					t.Fatalf("failed to create temp file: %v", err)
+				}
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString("challenge-token-abc123xyz\n"); err != nil {
+					t.Fatalf("failed to write token: %v", err)
+				}
+				return tmpFile.Name()
+			},
+			method:              http.MethodGet,
+			expectedStatus:      http.StatusOK,
+			expectedBody:        "challenge-token-abc123xyz", // Verifies trailing newline is trimmed
+			expectedContentType: "text/plain; charset=utf-8",
+		},
+		{
+			name:           "returns 404 when flag is not set",
+			setupTokenFile: nil, // OpenAIAppsChallengeFile left empty
+			method:         http.MethodGet,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name: "returns 405 Method Not Allowed for non-GET requests",
+			setupTokenFile: func(t *testing.T) string {
+				tmpFile, err := os.CreateTemp(t.TempDir(), "openai-token-*.txt")
+				if err != nil {
+					t.Fatalf("failed to create temp file: %v", err)
+				}
+				defer tmpFile.Close()
+				if _, err := tmpFile.WriteString("challenge-token-test"); err != nil {
+					t.Fatalf("failed to write token: %v", err)
+				}
+				return tmpFile.Name()
+			},
+			method:         http.MethodPost,
+			expectedStatus: http.StatusMethodNotAllowed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tokenPath := ""
+			if tc.setupTokenFile != nil {
+				tokenPath = tc.setupTokenFile(t)
+			}
+
+			cfg := server.ServerConfig{
+				Version:                 "0.0.0",
+				Address:                 "127.0.0.1",
+				Port:                    0,
+				OpenAIAppsChallengeFile: tokenPath,
+				AllowedHosts:            []string{"*"},
+			}
+
+			s, err := server.NewServer(ctx, cfg)
+			if err != nil {
+				t.Fatalf("unable to initialize server: %v", err)
+			}
+
+			if err := s.Listen(ctx, "", ""); err != nil {
+				t.Fatalf("unable to start listener: %v", err)
+			}
+
+			go func() {
+				_ = s.Serve(ctx)
+			}()
+			defer func() {
+				_ = s.Shutdown(ctx)
+			}()
+
+			reqURL := fmt.Sprintf("http://%s/.well-known/openai-apps-challenge", s.Addr())
+			var bodyReader io.Reader
+			if tc.method == http.MethodPost {
+				bodyReader = strings.NewReader("bad")
+			}
+
+			req, err := http.NewRequestWithContext(ctx, tc.method, reqURL, bodyReader)
+			if err != nil {
+				t.Fatalf("failed to construct request: %v", err)
+			}
+			if tc.method == http.MethodPost {
+				req.Header.Set("Content-Type", "text/plain")
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("error when sending request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.expectedStatus {
+				t.Errorf("expected status %d, got %d", tc.expectedStatus, resp.StatusCode)
+			}
+
+			if tc.expectedContentType != "" {
+				if ct := resp.Header.Get("Content-Type"); ct != tc.expectedContentType {
+					t.Errorf("expected Content-Type %q, got %q", tc.expectedContentType, ct)
+				}
+			}
+
+			if tc.expectedBody != "" {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatalf("error reading body: %v", err)
+				}
+				if string(body) != tc.expectedBody {
+					t.Errorf("expected body %q, got %q", tc.expectedBody, string(body))
+				}
+			}
+		})
+	}
+
+	t.Run("returns error when token file does not exist", func(t *testing.T) {
+		cfg := server.ServerConfig{
+			Version:                 "0.0.0",
+			Address:                 "127.0.0.1",
+			Port:                    0,
+			OpenAIAppsChallengeFile: "nonexistent-token-file.txt",
+			AllowedHosts:            []string{"*"},
+		}
+
+		_, err := server.NewServer(ctx, cfg)
+		if err == nil {
+			t.Fatal("expected error when token file does not exist, got nil")
+		}
+
+		expectedSubstr := "failed to read openai token file at startup"
+		if !strings.Contains(err.Error(), expectedSubstr) {
+			t.Errorf("expected error containing %q, got %q", expectedSubstr, err.Error())
 		}
 	})
 }

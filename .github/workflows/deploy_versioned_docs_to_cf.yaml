@@ -23,17 +23,69 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # This shared concurrency group ensures only one docs deployment runs at a time.
     concurrency:
       group: cf-docs-update
       cancel-in-progress: false
     steps:
       - name: Checkout Code at Tag
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
+
+      - name: Checkout cloudflare-pages branch for pruning
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: cloudflare-pages
+          path: cf-pages-branch
+          persist-credentials: true
+
+      - name: Prune old versions from cloudflare-pages
+        run: |
+          set -euo pipefail
+          
+          # Extract the active versions from the Hugo Config file
+          ACTIVE_VERSIONS=$(grep -oE 'version = "v?[0-9a-zA-Z.-]+"' .hugo/hugo.cloudflare.toml | cut -d'"' -f2)
+          
+          echo "Active versions in TOML:"
+          echo "$ACTIVE_VERSIONS"
+
+          # Navigate into the deployment branch worktree
+          cd cf-pages-branch
+          
+          CHANGES_MADE=false
+          
+          # Loop through all folders starting with 'v'
+          for dir in v[0-9]*/; do
+            [ -d "$dir" ] || continue 
+            
+            VERSION_DIR="${dir%/}"
+
+            if [[ ! "$VERSION_DIR" =~ ^v[0-9]+(\.[0-9]+)+(-[a-zA-Z0-9.-]+)?$ ]]; then
+              continue
+            fi
+            
+            # Check if the folder exists in our Hugo config's versions list
+            if echo "$ACTIVE_VERSIONS" | grep -qx "$VERSION_DIR"; then
+              echo "Keeping active version: $VERSION_DIR"
+            else
+              echo "Removing deleted version: $VERSION_DIR"
+              git rm -r "$VERSION_DIR"
+              CHANGES_MADE=true
+            fi
+          done
+
+          # If anything was deleted, commit and push the clean branch
+          if [ "$CHANGES_MADE" = true ]; then
+            git config user.name "release-please[bot]"
+            git config user.email "55107282+release-please[bot]@users.noreply.github.com"
+            git commit -m "chore: prune older versions from cloudflare-pages"
+            git push origin cloudflare-pages
+          else
+            echo "No old versions to prune."
+          fi
 
       - name: Get Version from Release Tag
         id: get_version
@@ -42,15 +94,15 @@ jobs:
         run: echo "VERSION=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Hugo
-        uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3
+        uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3.2.1
         with:
-          hugo-version: "0.163.3"
+          hugo-version: "0.170.0"
           extended: true
 
       - name: Setup Node
         # zizmor flags setup-node for cache-poisoning on releases, but since we don't pass `cache: npm`, no caching occurs. Safe to ignore.
         # zizmor: ignore[cache-poisoning]
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 
@@ -98,11 +150,11 @@ jobs:
         working-directory: .hugo
 
       - name: Checkout Cloudflare Branch for Root
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: cloudflare-pages
           path: cf-pages-root-temp
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Deploy to root
         env:

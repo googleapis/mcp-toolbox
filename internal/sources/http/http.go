@@ -41,6 +41,13 @@ const maxErrorBodyLogBytes = 1024
 // The default SSRF guard treats it as private and blocks it.
 var cgnatRange = mustParseCIDR("100.64.0.0/10")
 
+// ietfProtocolAssignmentRange is the RFC 6890 "IETF Protocol Assignments"
+// space (192.0.0.0/24). It is not globally routable, so net.IP.IsPrivate
+// reports false for it, but it hosts special-purpose protocol machinery such
+// as the NAT64/DNS64 discovery anycast addresses (RFC 8880) rather than
+// ordinary endpoints. The default SSRF guard treats it as private and blocks it.
+var ietfProtocolAssignmentRange = mustParseCIDR("192.0.0.0/24")
+
 func mustParseCIDR(cidr string) *net.IPNet {
 	_, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -279,7 +286,7 @@ func (g *SSRFGuard) IsIPBlocked(ip net.IP) bool {
 
 	// Default strict RFC 1918 / Link-Local / Loopback protection
 	if !g.AllowPrivateNetworks {
-		if !ip.IsGlobalUnicast() || ip.IsPrivate() || cgnatRange.Contains(ip) {
+		if !ip.IsGlobalUnicast() || ip.IsPrivate() || cgnatRange.Contains(ip) || ietfProtocolAssignmentRange.Contains(ip) {
 			return true
 		}
 	}

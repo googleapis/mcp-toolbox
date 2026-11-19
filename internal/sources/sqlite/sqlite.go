@@ -66,6 +66,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 
 	err = db.PingContext(context.Background())
 	if err != nil {
+		db.Close()
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
@@ -141,9 +142,9 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 			}
 			// Handle JSON data
 			if jsonString, ok := val.(string); ok {
-				var unmarshaledData any
-				if json.Unmarshal([]byte(jsonString), &unmarshaledData) == nil {
-					row.Add(name, unmarshaledData)
+				jsonData := json.RawMessage(jsonString)
+				if json.Valid(jsonData) {
+					row.Add(name, jsonData)
 					continue
 				}
 			}

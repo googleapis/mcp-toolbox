@@ -60,8 +60,8 @@ const listRolesStatement = `
         FROM pg_roles r
     -- Exclude system and internal roles
         WHERE r.rolname NOT LIKE 'cloudsql%'
-        AND r.rolname NOT LIKE 'alloydb_%'
-        AND r.rolname NOT LIKE 'pg_%'
+        AND r.rolname NOT LIKE 'alloydb\_%'
+        AND r.rolname NOT LIKE 'pg\_%'
     )
     SELECT *
     FROM RoleDetails
@@ -92,9 +92,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 var _ tools.ToolConfig = Config{}

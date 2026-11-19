@@ -1,0 +1,454 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package resources_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/goccy/go-yaml"
+	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/util"
+)
+
+func mockFailingFactory(ctx context.Context, name string, decoder *yaml.Decoder) (resources.ResourceConfig, error) {
+	return nil, errors.New("factory error")
+}
+
+func mockNilReturningFactory(ctx context.Context, name string, decoder *yaml.Decoder) (resources.ResourceConfig, error) {
+	return nil, nil
+}
+
+func TestRegister(t *testing.T) {
+	if resources.Register("nilFactory", nil) {
+		t.Errorf("Expected Register to return false for nil factory")
+	}
+
+	if !resources.Register("mockNew", mockFactory) {
+		t.Errorf("Expected Register to return true for new type")
+	}
+
+	if resources.Register("mockNew", mockFactory) {
+		t.Errorf("Expected Register to return false for duplicate type")
+	}
+}
+
+func mockFactory(ctx context.Context, name string, decoder *yaml.Decoder) (resources.ResourceConfig, error) {
+	var cfg testutils.MockResourceConfig
+	cfg.Name = name
+	cfg.Type = "mock"
+	if err := decoder.DecodeContext(ctx, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func TestDecodeConfig(t *testing.T) {
+	resources.Register("mock_success", mockFactory)
+	resources.Register("failing", mockFailingFactory)
+	resources.Register("nilReturn", mockNilReturningFactory)
+
+	t.Run("NilDecoder", func(t *testing.T) {
+		ctx := context.Background()
+		_, err := resources.DecodeConfig(ctx, "mock_success", "testMock", nil)
+		if err == nil {
+			t.Fatalf("Expected error when decoder is nil, got nil")
+		}
+	})
+
+	t.Run("NilReturningFactory", func(t *testing.T) {
+		yamlBytes := []byte("uri: mock://test")
+		decoder := yaml.NewDecoder(bytes.NewReader(yamlBytes))
+		ctx := context.Background()
+		_, err := resources.DecodeConfig(ctx, "nilReturn", "testMock", decoder)
+		if err == nil {
+			t.Fatalf("Expected error when factory returns nil config, got nil")
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		yamlBytes := []byte("uri: mock://test")
+		decoder := yaml.NewDecoder(bytes.NewReader(yamlBytes))
+		ctx := context.Background()
+		cfg, err := resources.DecodeConfig(ctx, "mock_success", "testMock", decoder)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		mockCfg, ok := cfg.(*testutils.MockResourceConfig)
+		if !ok {
+			t.Fatalf("Expected *testutils.MockResourceConfig, got %T", cfg)
+		}
+
+		if mockCfg.Name != "testMock" {
+			t.Errorf("Expected Name 'testMock', got %q", mockCfg.Name)
+		}
+		if mockCfg.Type != "mock" {
+			t.Errorf("Expected Type 'mock', got %q", mockCfg.Type)
+		}
+		if mockCfg.URI != "mock://test" {
+			t.Errorf("Expected URI 'mock://test', got %q", mockCfg.URI)
+		}
+
+	})
+
+	t.Run("UnknownType", func(t *testing.T) {
+		yamlBytes := []byte("uri: mock://test")
+		decoder := yaml.NewDecoder(bytes.NewReader(yamlBytes))
+		ctx := context.Background()
+		_, err := resources.DecodeConfig(ctx, "unknown", "test", decoder)
+		if err == nil {
+			t.Fatalf("Expected error for unknown type, got nil")
+		}
+	})
+
+	t.Run("FactoryError", func(t *testing.T) {
+		yamlBytes := []byte("uri: mock://test")
+		decoder := yaml.NewDecoder(bytes.NewReader(yamlBytes))
+		ctx := context.Background()
+		_, err := resources.DecodeConfig(ctx, "failing", "test", decoder)
+		if err == nil {
+			t.Fatalf("Expected error from failing factory, got nil")
+		}
+	})
+}
+
+func TestValidateScheme(t *testing.T) {
+	tcs := []struct {
+		desc         string
+		uri          string
+		nativeScheme string
+		wantErr      string
+	}{
+		{desc: "native scheme", uri: "file://queries.md", nativeScheme: "file"},
+		{desc: "skill scheme", uri: "skill://analytics-guide/references/queries.md", nativeScheme: "file"},
+		// url.Parse lowercases the scheme, so case never reaches the comparison.
+		{desc: "uppercase native scheme", uri: "FILE://Queries.md", nativeScheme: "file"},
+		{desc: "uppercase skill scheme", uri: "SKILL://Analytics-Guide/queries.md", nativeScheme: "file"},
+		// The helper is not file-specific: any resource type may pass its own scheme.
+		{desc: "other native scheme", uri: "text://greeting", nativeScheme: "text"},
+		{desc: "foreign scheme", uri: "query://queries.md", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "native scheme of another resource", uri: "text://greeting", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "no scheme", uri: "queries.md", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+		{desc: "unparseable uri", uri: "file://\x7f", nativeScheme: "file", wantErr: "must be 'file' or 'skill'"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := resources.ValidateScheme(tc.uri, tc.nativeScheme)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateScheme(%q, %q): got %v, want nil", tc.uri, tc.nativeScheme, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateScheme(%q, %q): got nil, want %q", tc.uri, tc.nativeScheme, tc.wantErr)
+			}
+			if err.Error() != tc.wantErr {
+				t.Errorf("ValidateScheme(%q, %q): got %q, want %q", tc.uri, tc.nativeScheme, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestSkillRoot(t *testing.T) {
+	tcs := []struct {
+		desc     string
+		uri      string
+		wantRoot string
+		want     bool
+	}{
+		{desc: "top-level skill doc", uri: "skill://analytics-guide/SKILL.md", wantRoot: "skill://analytics-guide", want: true},
+		{desc: "nested skill doc", uri: "skill://outer/inner/SKILL.md", wantRoot: "skill://outer/inner", want: true},
+		{desc: "supporting file", uri: "skill://analytics-guide/references/queries.md"},
+		{desc: "skill root", uri: "skill://analytics-guide"},
+		// The cut leaves "skill:/", which has no host and names no skill.
+		{desc: "no owning skill path", uri: "skill://SKILL.md"},
+		{desc: "another scheme", uri: "file://analytics-guide/SKILL.md"},
+		{desc: "no scheme", uri: "analytics-guide/SKILL.md"},
+		{desc: "case differs", uri: "skill://analytics-guide/skill.md"},
+		{desc: "unparseable uri", uri: "skill://\x7f/SKILL.md"},
+		{desc: "empty", uri: ""},
+		// Each decoded path ends with SKILL.md, but the raw uri does not.
+		// Skill discovery rejects these too.
+		{desc: "query", uri: "skill://analytics-guide/SKILL.md?v=2"},
+		{desc: "fragment", uri: "skill://analytics-guide/SKILL.md#intro"},
+		{desc: "percent-encoded dot", uri: "skill://analytics-guide/SKILL%2Emd"},
+		{desc: "percent-encoded separator", uri: "skill://analytics-guide/sub%2FSKILL.md"},
+		// The first segment is empty, so the uri names no skill.
+		{desc: "empty host", uri: "skill:///analytics-guide/SKILL.md"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			root, got := resources.SkillRoot(tc.uri)
+			if got != tc.want || root != tc.wantRoot {
+				t.Errorf("SkillRoot(%q) = %q, %t, want %q, %t", tc.uri, root, got, tc.wantRoot, tc.want)
+			}
+		})
+	}
+}
+
+// TestResourceConfigBaseValidateDynamic checks that Validate accepts dynamic
+// only on a skill's SKILL.md, as it accepts csp and permissions only on a UI
+// resource.
+func TestResourceConfigBaseValidateDynamic(t *testing.T) {
+	const wantErr = "dynamic cannot be configured for resource"
+
+	tcs := []struct {
+		desc    string
+		uri     string
+		dynamic bool
+		wantErr bool
+	}{
+		{desc: "skill doc", uri: "skill://analytics-guide/SKILL.md", dynamic: true},
+		{desc: "nested skill doc", uri: "skill://outer/inner/SKILL.md", dynamic: true},
+		// Normalization runs first, so a URI that differs only in host case matches.
+		{desc: "uppercase host", uri: "skill://Analytics-Guide/SKILL.md", dynamic: true},
+		{desc: "supporting file", uri: "skill://analytics-guide/queries.md", dynamic: true, wantErr: true},
+		{desc: "non-skill scheme", uri: "file://notes.md", dynamic: true, wantErr: true},
+		{desc: "no owning skill path", uri: "skill://SKILL.md", dynamic: true, wantErr: true},
+		// An omitted uri defaults to <type>://<name>, which is never a skill doc.
+		{desc: "omitted uri", dynamic: true, wantErr: true},
+		{desc: "dynamic omitted on a plain resource", uri: "file://notes.md"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := resources.ResourceConfigBase{
+				ConfigBase: resources.ConfigBase{Name: "res", Type: "file"},
+				URI:        tc.uri,
+				Dynamic:    tc.dynamic,
+			}
+			err := cfg.Validate()
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				if cfg.IsDynamic() != tc.dynamic {
+					t.Errorf("IsDynamic() = %t, want %t", cfg.IsDynamic(), tc.dynamic)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() = nil, want an error containing %q", wantErr)
+			}
+			if !strings.Contains(err.Error(), wantErr) {
+				t.Errorf("Validate() = %v, want an error containing %q", err, wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateSkillURI(t *testing.T) {
+	tcs := []struct {
+		desc    string
+		uri     string
+		wantErr string
+	}{
+		{desc: "SKILL.md", uri: "skill://analytics-guide/SKILL.md"},
+		{desc: "nested skill path", uri: "skill://org/team/analytics-guide/SKILL.md"},
+		{desc: "supporting file", uri: "skill://analytics-guide/references/queries.md"},
+		// Only skill:// URIs are checked; other schemes keep their own rules.
+		{desc: "non-skill uri with a query", uri: "text://anything?x=1"},
+		{desc: "non-skill uri with an uppercase name", uri: "file://org/Bad_Name/SKILL.md"},
+		{
+			desc:    "invalid skill name",
+			uri:     "skill://org/Bad_Name/SKILL.md",
+			wantErr: `skill name "Bad_Name" may only contain lowercase letters, digits, and hyphens`,
+		},
+		{
+			desc:    "skill name with consecutive hyphens",
+			uri:     "skill://analytics--guide/SKILL.md",
+			wantErr: `skill name "analytics--guide" contains consecutive hyphens`,
+		},
+		{desc: "query", uri: "skill://analytics-guide/SKILL.md?x=1", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "fragment", uri: "skill://analytics-guide/SKILL.md#top", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "userinfo", uri: "skill://user@analytics-guide/SKILL.md", wantErr: "must be a bare path, with no query, fragment, or userinfo"},
+		{desc: "empty segment", uri: "skill://analytics-guide//SKILL.md", wantErr: "has an empty or relative path segment"},
+		{desc: "relative segment", uri: "skill://analytics-guide/../SKILL.md", wantErr: "has an empty or relative path segment"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			err := resources.ValidateSkillURI(tc.uri)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateSkillURI(%q): got %v, want nil", tc.uri, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateSkillURI(%q): got nil, want %q", tc.uri, tc.wantErr)
+			}
+			if err.Error() != tc.wantErr {
+				t.Errorf("ValidateSkillURI(%q): got %q, want %q", tc.uri, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestGetBaseDirFromContext(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("EmptyContext", func(t *testing.T) {
+		if resources.GetBaseDirFromContext(ctx) != "" {
+			t.Errorf("Expected empty string for empty context")
+		}
+	})
+
+	t.Run("NilContext", func(t *testing.T) {
+		var nilCtx context.Context
+		if resources.GetBaseDirFromContext(nilCtx) != "" {
+			t.Errorf("Expected empty string for nil context")
+		}
+	})
+
+	t.Run("ValidString", func(t *testing.T) {
+		ctxWithDir := context.WithValue(ctx, resources.BaseDirKey, "/test/dir")
+		if resources.GetBaseDirFromContext(ctxWithDir) != "/test/dir" {
+			t.Errorf("Expected '/test/dir', got %q", resources.GetBaseDirFromContext(ctxWithDir))
+		}
+	})
+
+	t.Run("InvalidType", func(t *testing.T) {
+		ctxWithInt := context.WithValue(ctx, resources.BaseDirKey, 12345)
+		if resources.GetBaseDirFromContext(ctxWithInt) != "" {
+			t.Errorf("Expected empty string when base dir is not a string type")
+		}
+	})
+}
+
+func TestResourceConfigBase_YAML(t *testing.T) {
+	yamlStr := `
+name: testName
+type: testType
+uri: file:///test
+description: A test description
+title: A Test Title
+mimeType: text/plain
+annotations:
+  priority: 0.5
+`
+	var cfg resources.ResourceConfigBase
+	if err := yaml.Unmarshal([]byte(yamlStr), &cfg); err != nil {
+		t.Fatalf("Failed to unmarshal ResourceConfigBase: %v", err)
+	}
+
+	if cfg.Name != "testName" {
+		t.Errorf("Expected Name 'testName', got %q", cfg.Name)
+	}
+	if cfg.Type != "testType" {
+		t.Errorf("Expected Type 'testType', got %q", cfg.Type)
+	}
+	if cfg.URI != "file:///test" {
+		t.Errorf("Expected URI 'file:///test', got %q", cfg.URI)
+	}
+	if cfg.Description != "A test description" {
+		t.Errorf("Expected Description 'A test description', got %q", cfg.Description)
+	}
+	if cfg.Title != "A Test Title" {
+		t.Errorf("Expected Title 'A Test Title', got %q", cfg.Title)
+	}
+	if cfg.MimeType != "text/plain" {
+		t.Errorf("Expected MimeType 'text/plain', got %q", cfg.MimeType)
+	}
+	if cfg.Annotations == nil || cfg.Annotations.Priority == nil || *cfg.Annotations.Priority != 0.5 {
+		t.Errorf("Expected annotation priority=0.5, got %v", cfg.Annotations)
+	}
+}
+
+func TestResourceTemplateConfigBase_Validate_SchemeNormalization(t *testing.T) {
+	tests := []struct {
+		name        string
+		uriTemplate string
+		wantErr     bool
+		wantURI     string
+	}{
+		{
+			name:        "UppercaseScheme",
+			uriTemplate: "FILE://Queries/{path}",
+			wantURI:     "file://Queries/{path}",
+		},
+		{
+			name:        "MixedCaseScheme",
+			uriTemplate: "File://queries/{path}",
+			wantURI:     "file://queries/{path}",
+		},
+		{
+			name:        "AlreadyLowercase",
+			uriTemplate: "file://queries/{path}",
+			wantURI:     "file://queries/{path}",
+		},
+		{
+			name:        "NoVariable",
+			uriTemplate: "FILE://static/resource",
+			wantURI:     "file://static/resource",
+		},
+		{
+			name:        "MissingSchemeSeparator",
+			uriTemplate: "not-a-uri",
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := resources.ResourceTemplateConfigBase{
+				ConfigBase:  resources.ConfigBase{Name: "test", Type: "file"},
+				URITemplate: tt.uriTemplate,
+			}
+			err := cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for URITemplate %q, got nil", tt.uriTemplate)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for URITemplate %q: %v", tt.uriTemplate, err)
+			}
+			if cfg.URITemplate != tt.wantURI {
+				t.Errorf("expected normalized URITemplate %q, got %q", tt.wantURI, cfg.URITemplate)
+			}
+		})
+	}
+}
+
+func TestStrictDecoding_Error(t *testing.T) {
+	raw := map[string]any{
+		"name":               "testResource",
+		"type":               "mock_strict",
+		"invalidRandomField": true, // This should trigger the strict decoding error
+	}
+
+	decoder, err := util.NewStrictDecoder(raw)
+	if err != nil {
+		t.Fatalf("Failed to create strict decoder: %v", err)
+	}
+
+	ctx := context.Background()
+	resources.Register("mock_strict", mockFactory)
+
+	_, err = resources.DecodeConfig(ctx, "mock_strict", "testResource", decoder)
+	if err == nil {
+		t.Fatalf("Expected DecodeConfig to return an error for an unknown field 'invalidRandomField', but got nil")
+	}
+}

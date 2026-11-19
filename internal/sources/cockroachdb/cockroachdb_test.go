@@ -16,10 +16,13 @@ package cockroachdb
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/goccy/go-yaml"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestCockroachDBSourceConfig(t *testing.T) {
@@ -221,4 +224,30 @@ func TestConvertParamMapToRawQuery(t *testing.T) {
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+// pgxPoolGoroutines counts live goroutines whose stacks still sit inside
+// pgx (e.g. a pool's background checks for a client nobody closed).
+func pgxPoolGoroutines() int {
+	buf := make([]byte, 2<<20)
+	n := runtime.Stack(buf, true)
+	return strings.Count(string(buf[:n]), "github.com/jackc/pgx/v5")
+}
+
+func TestInitCockroachDBConnectionPoolWithRetryReleasesFailedPools(t *testing.T) {
+	_, err := initCockroachDBConnectionPoolWithRetry(
+		context.Background(),
+		noop.NewTracerProvider().Tracer("cockroachdb-test"),
+		"test-source", "127.0.0.1", "1", "u", "p", "db", nil, 2, time.Millisecond,
+	)
+	if err == nil {
+		t.Fatal("expected the connection to fail against a dead endpoint")
+	}
+	// Give any surviving background goroutines a moment to surface.
+	time.Sleep(500 * time.Millisecond)
+	if n := pgxPoolGoroutines(); n > 0 {
+		b := make([]byte, 2<<20)
+		runtime.Stack(b, true)
+		t.Fatalf("failed Initialize left %d pgx goroutine(s) running in the background:\n%s", n, b[:2<<20])
+	}
 }

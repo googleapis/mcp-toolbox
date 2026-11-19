@@ -45,6 +45,9 @@ const getColumnCardinality = `
         AND s.tablename = $2 -- Parameter for table
         AND n.nspname = $1  -- (same parameter as schema)
         AND s.attname = COALESCE($3, s.attname)
+        -- pg_stats has a second row per column (inherited = true) for
+        -- inheritance parents; partitioned tables only have that one.
+        AND s.inherited = (c.relkind = 'p')
       ORDER BY estimated_cardinality DESC;
 `
 
@@ -69,9 +72,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 var _ tools.ToolConfig = Config{}

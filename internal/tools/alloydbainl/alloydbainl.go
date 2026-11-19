@@ -51,11 +51,10 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase   `yaml:",inline"`
-	Type               string                 `yaml:"type" validate:"required"`
-	Source             string                 `yaml:"source" validate:"required"`
-	NLConfig           string                 `yaml:"nlConfig" validate:"required"`
-	NLConfigParameters parameters.Parameters  `yaml:"nlConfigParameters"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type               string                `yaml:"type" validate:"required"`
+	Source             string                `yaml:"source" validate:"required"`
+	NLConfig           string                `yaml:"nlConfig" validate:"required"`
+	NLConfigParameters parameters.Parameters `yaml:"nlConfigParameters"`
 }
 
 // validate interface

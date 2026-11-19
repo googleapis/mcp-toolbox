@@ -49,11 +49,10 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Commands         [][]string             `yaml:"commands" validate:"required"`
-	Parameters       parameters.Parameters  `yaml:"parameters"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string                `yaml:"type" validate:"required"`
+	Source           string                `yaml:"source" validate:"required"`
+	Commands         [][]string            `yaml:"commands" validate:"required"`
+	Parameters       parameters.Parameters `yaml:"parameters"`
 }
 
 // validate interface
@@ -142,11 +141,11 @@ func replaceCommandsParams(commands [][]string, params parameters.Parameters, pa
 				for _, item := range v.([]any) {
 					// Nested arrays will only be expanded once
 					// e.g., [A, [B, C]]  --> ["A", "[B C]"]
-					newCmd = append(newCmd, fmt.Sprintf("%s", item))
+					newCmd = append(newCmd, fmt.Sprint(item))
 				}
 				continue
 			}
-			newCmd = append(newCmd, fmt.Sprintf("%s", v))
+			newCmd = append(newCmd, fmt.Sprint(v))
 		}
 		newCommands[i] = newCmd
 	}

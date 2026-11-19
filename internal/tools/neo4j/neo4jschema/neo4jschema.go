@@ -63,10 +63,9 @@ type compatibleSource interface {
 // These settings are typically read from a YAML file.
 type Config struct {
 	tools.ConfigBase   `yaml:",inline"`
-	Type               string                 `yaml:"type" validate:"required"`
-	Source             string                 `yaml:"source" validate:"required"`
-	CacheExpireMinutes *int                   `yaml:"cacheExpireMinutes,omitempty"` // Cache expiration time in minutes.
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type               string `yaml:"type" validate:"required"`
+	Source             string `yaml:"source" validate:"required"`
+	CacheExpireMinutes *int   `yaml:"cacheExpireMinutes,omitempty"` // Cache expiration time in minutes.
 }
 
 // Statically verify that Config implements the tools.ToolConfig interface.

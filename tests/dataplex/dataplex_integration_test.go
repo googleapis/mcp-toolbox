@@ -440,9 +440,10 @@ func TestDataplexToolEndpoints(t *testing.T) {
 	}
 
 	// Cleanup older aspect types and data products that may have leaked due to aborted tests
-	cleanupOldAspectTypes(t, ctx, dataplexClient, 1*time.Hour)
-	cleanupOldDataProducts(t, ctx, dataplexDataProductClient, 1*time.Hour)
-	cleanupOldDataScans(t, ctx, dataplexDataScanClient, 1*time.Hour)
+	const cleanupThresholdTime = 30 * time.Minute
+	cleanupOldAspectTypes(t, ctx, dataplexClient, cleanupThresholdTime)
+	cleanupOldDataProducts(t, ctx, dataplexDataProductClient, cleanupThresholdTime)
+	cleanupOldDataScans(t, ctx, dataplexDataScanClient, cleanupThresholdTime)
 
 	datasetName1 := fmt.Sprintf("temp_toolbox_test_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	datasetName2 := fmt.Sprintf("temp_toolbox_test_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))

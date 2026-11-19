@@ -57,7 +57,7 @@ const listIndexesStatement = `
         JOIN pg_catalog.pg_stat_all_indexes s
             ON i.oid = s.indexrelid
         WHERE
-            t.relkind = 'r'
+            t.relkind IN ('r', 'm')
             AND s.schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
             AND s.schemaname NOT LIKE 'pg_temp_%'
     )
@@ -96,9 +96,8 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase `yaml:",inline"`
-	Type             string                 `yaml:"type" validate:"required"`
-	Source           string                 `yaml:"source" validate:"required"`
-	Annotations      *tools.ToolAnnotations `yaml:"annotations,omitempty"`
+	Type             string `yaml:"type" validate:"required"`
+	Source           string `yaml:"source" validate:"required"`
 }
 
 var _ tools.ToolConfig = Config{}
