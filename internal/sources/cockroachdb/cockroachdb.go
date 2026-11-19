@@ -501,6 +501,11 @@ func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tr
 		return nil, fmt.Errorf("unable to parse CockroachDB connection config: %w", err)
 	}
 	if readOnly {
+		// The simple protocol lets one query run several statements, including a
+		// BEGIN READ WRITE that overrides the read-only session default below.
+		if config.ConnConfig.DefaultQueryExecMode == pgx.QueryExecModeSimpleProtocol {
+			return nil, fmt.Errorf("readOnlyMode does not support default_query_exec_mode=simple_protocol")
+		}
 		// Make every connection read-only each time it is handed out, so CockroachDB
 		// rejects writes even if an earlier query changed the session setting.
 		config.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
