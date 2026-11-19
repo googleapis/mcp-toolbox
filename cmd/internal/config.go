@@ -61,13 +61,20 @@ type ConfigParser struct {
 	AllowMissingEnvVars bool
 }
 
-// parseEnv replaces environment variables ${ENV_NAME} with their values.
-// also support ${ENV_NAME:default_value}.
+// parseEnv replaces environment variables in the supported ${ENV_NAME...} forms.
 func (p *ConfigParser) parseEnv(input string) (string, error) {
-	re := regexp.MustCompile(`\$\{(\w+)(:([^}]*))?\}`)
+	re := regexp.MustCompile(`\$\{(\w+)(?:(:-|:\?|:)([^}]*))?\}`)
 
 	if p.EnvVars == nil {
 		p.EnvVars = make(map[string]string)
+	}
+
+	type missingEnvVar struct {
+		name             string
+		message          string
+		line             int
+		column           int
+		requiredNonEmpty bool
 	}
 
 	// Normalize CRLF to LF since goccy/go-yaml lexer counts \r inconsistently across OSes
@@ -85,7 +92,7 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 		}
 	}
 
-	var missing []string
+	var missing []missingEnvVar
 	seenMissing := make(map[string]bool)
 	matches := re.FindAllStringSubmatchIndex(input, -1)
 	var output strings.Builder
@@ -116,11 +123,14 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 		output.WriteString(input[lastIndex:start])
 
 		variableName := input[match[2]:match[3]]
-		defaultValue := ""
-		defaultProvided := match[4] != -1 && match[5] != -1
-		if defaultProvided {
-			defaultValue = input[match[6]:match[7]]
+		operator := ""
+		operand := ""
+		if match[4] != -1 && match[5] != -1 {
+			operator = input[match[4]:match[5]]
+			operand = input[match[6]:match[7]]
 		}
+		defaultProvided := operator == ":" || operator == ":-"
+		requiredNonEmpty := operator == ":?"
 
 		if defaultProvided {
 			p.OptionalEnvVars = append(p.OptionalEnvVars, variableName)
@@ -128,19 +138,33 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 			p.requiredEnvVars = append(p.requiredEnvVars, variableName)
 		}
 
-		if value, found := os.LookupEnv(variableName); found {
+		value, found := os.LookupEnv(variableName)
+		useDefault := defaultProvided && !found
+		if operator == ":-" && value == "" {
+			useDefault = true
+		}
+		missingRequired := requiredNonEmpty && (!found || value == "")
+
+		switch {
+		case found && !useDefault && !missingRequired:
 			p.EnvVars[variableName] = value
 			output.WriteString(value)
-		} else if defaultProvided {
-			p.EnvVars[variableName] = defaultValue
-			output.WriteString(defaultValue)
-		} else {
-			if p.AllowMissingEnvVars {
-				p.EnvVars[variableName] = variableName
-				output.WriteString(variableName)
-			} else if !seenMissing[variableName] {
+		case useDefault:
+			p.EnvVars[variableName] = operand
+			output.WriteString(operand)
+		case p.AllowMissingEnvVars:
+			p.EnvVars[variableName] = variableName
+			output.WriteString(variableName)
+		default:
+			if !seenMissing[variableName] {
 				seenMissing[variableName] = true
-				missing = append(missing, fmt.Sprintf("%q (line %d, column %d)", variableName, line, column))
+				missing = append(missing, missingEnvVar{
+					name:             variableName,
+					message:          operand,
+					line:             line,
+					column:           column,
+					requiredNonEmpty: requiredNonEmpty,
+				})
 			}
 		}
 
@@ -158,11 +182,47 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 	p.OptionalEnvVars = finalOptional
 
 	var err error
-	if len(missing) > 0 {
-		if len(missing) == 1 {
-			err = fmt.Errorf("environment variable not found: %s", missing[0])
+	if len(missing) == 1 {
+		item := missing[0]
+		if item.requiredNonEmpty {
+			message := fmt.Sprintf("required environment variable is unset or empty: %q", item.name)
+			if item.message != "" {
+				message += ": " + item.message
+			}
+			err = fmt.Errorf("%s (line %d, column %d)", message, item.line, item.column)
 		} else {
-			err = fmt.Errorf("environment variables not found:\n  - %s", strings.Join(missing, "\n  - "))
+			err = fmt.Errorf("environment variable not found: %q (line %d, column %d)", item.name, item.line, item.column)
+		}
+	} else if len(missing) > 1 {
+		allLegacyMissing := true
+		for _, item := range missing {
+			if item.requiredNonEmpty {
+				allLegacyMissing = false
+				break
+			}
+		}
+
+		details := make([]string, 0, len(missing))
+		for _, item := range missing {
+			if allLegacyMissing {
+				details = append(details, fmt.Sprintf("%q (line %d, column %d)", item.name, item.line, item.column))
+				continue
+			}
+
+			message := fmt.Sprintf("environment variable not found: %q", item.name)
+			if item.requiredNonEmpty {
+				message = fmt.Sprintf("required environment variable is unset or empty: %q", item.name)
+				if item.message != "" {
+					message += ": " + item.message
+				}
+			}
+			details = append(details, fmt.Sprintf("%s (line %d, column %d)", message, item.line, item.column))
+		}
+
+		if allLegacyMissing {
+			err = fmt.Errorf("environment variables not found:\n  - %s", strings.Join(details, "\n  - "))
+		} else {
+			err = fmt.Errorf("environment variable expansion errors:\n  - %s", strings.Join(details, "\n  - "))
 		}
 	}
 
