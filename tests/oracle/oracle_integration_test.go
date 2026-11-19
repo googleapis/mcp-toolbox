@@ -114,6 +114,24 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 		t.Fatal("Configuration error: 'tools' key is missing or is not a map")
 	}
 
+	// Execute-SQL and template-parameter DDL/DML test helpers execute CREATE, INSERT, and DROP.
+	for _, writeToolName := range []string{
+		"my-exec-sql-tool",
+		"create-table-templateParams-tool",
+		"insert-table-templateParams-tool",
+		"drop-table-templateParams-tool",
+	} {
+		if toolCfg, ok := toolsMap[writeToolName].(map[string]any); ok {
+			toolCfg["readOnly"] = false
+		}
+	}
+
+	toolsMap["my-readonly-exec-sql-tool"] = map[string]any{
+		"type":        "oracle-execute-sql",
+		"source":      "my-instance",
+		"description": "Execute read-only SQL.",
+	}
+
 	toolsMap["my-update-tool"] = map[string]any{
 		"type":        "oracle-sql",
 		"source":      "my-instance",
@@ -150,7 +168,7 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 
 	// Get configs for tests
 	select1Want := "[{\"1\":1}]"
-	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: unable to execute query: dpiStmt_execute: ORA-00900: invalid SQL statement\nHelp: https://docs.oracle.com/error-help/db/ora-00900/"}],"isError":true}}`
+	mcpMyFailToolWant := `{"jsonrpc":"2.0","id":"invoke-fail-tool","result":{"content":[{"type":"text","text":"error processing request: read-only mode violation: only SELECT or WITH queries are allowed in read-only mode"}],"isError":true}}`
 	createTableStatement := `"CREATE TABLE t (id NUMBER GENERATED AS IDENTITY PRIMARY KEY, name VARCHAR2(255))"`
 	mcpSelect1Want := `{"jsonrpc":"2.0","id":"invoke my-auth-required-tool","result":{"content":[{"type":"text","text":"{\"1\":1}"}]}}`
 
@@ -162,13 +180,49 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 		tests.DisableArrayTest(),
 	)
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
-	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	ddlSuccessWant := `{"rows_affected":0,"status":"success"}`
+	insertSuccessWant := `{"rows_affected":1,"status":"success"}`
+	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want,
+		tests.WithExecuteCreateWant(ddlSuccessWant),
+		tests.WithExecuteDropWant(ddlSuccessWant),
+	)
+	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam,
+		tests.WithDdlWant(ddlSuccessWant),
+		tests.WithInsert1Want(insertSuccessWant),
+	)
 
 	// Invoke the 'my-update-tool' and verify the result.
 	testDmlQueries(t, "my-update-tool",
 		`{"name": "UpdatedAlice", "id": 1}`,
 		`\"rows_affected\":1`)
+
+	// Verify read-only execute-sql allows complex SELECTs while blocking DML, DDL, PL/SQL, and FOR UPDATE.
+	testDmlQueries(t, "my-readonly-exec-sql-tool",
+		`{"sql": "-- line comment\n/* block */ WITH cte AS (SELECT 'DROP TABLE x' AS \"s\", n'DELETE' AS ns, q'[UPDATE x]' AS qs, nq'{ALTER x}' AS nqs FROM DUAL) SELECT cte.\"s\", cte.ns, cte.qs, cte.nqs FROM cte"}`,
+		`DROP TABLE x`)
+	testDmlQueries(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "DELETE FROM %s"}`, tableNameParam),
+		`read-only mode violation`)
+	testDmlQueries(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "DROP TABLE %s"}`, tableNameParam),
+		`read-only mode violation`)
+	testDmlQueries(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "SELECT 1 FROM DUAL; DROP TABLE %s"}`, tableNameParam),
+		`read-only mode violation`)
+	testDmlQueries(t, "my-readonly-exec-sql-tool",
+		`{"sql": "WITH FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END; SELECT f() FROM DUAL"}`,
+		`read-only mode violation`)
+	testDmlQueries(t, "my-readonly-exec-sql-tool",
+		fmt.Sprintf(`{"sql": "SELECT * FROM %s FOR UPDATE"}`, tableNameParam),
+		`read-only mode violation`)
+
+	var remainingRows int
+	if err := db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", tableNameParam)).Scan(&remainingRows); err != nil {
+		t.Fatalf("expected %s to remain intact after blocked read-only writes, query failed: %v", tableNameParam, err)
+	}
+	if remainingRows != 4 {
+		t.Fatalf("expected 4 rows in %s after blocked read-only writes, got %d", tableNameParam, remainingRows)
+	}
 }
 
 func setupOracleTable(t *testing.T, ctx context.Context, pool *sql.DB, createStatement, insertStatement, tableName string, params []any) func(*testing.T) {
