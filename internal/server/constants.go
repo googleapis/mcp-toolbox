@@ -14,5 +14,13 @@
 
 package server
 
+import "time"
+
 // DefaultHTTPMaxRequestBytes is the default max size (in bytes) for MCP HTTP request bodies.
 const DefaultHTTPMaxRequestBytes int64 = 10 << 20
+
+// DefaultReadHeaderTimeout is the maximum time allowed to receive the complete
+// HTTP request header from a client. A short deadline prevents Slowloris
+// attacks where an attacker trickles headers to hold connections open
+// indefinitely without consuming server resources for legitimate requests.
+const DefaultReadHeaderTimeout = 10 * time.Second
