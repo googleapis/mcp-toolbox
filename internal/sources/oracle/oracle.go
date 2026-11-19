@@ -143,7 +143,7 @@ func (s *Source) OracleDB() *sql.DB {
 }
 
 func (s *Source) RunSQL(ctx context.Context, statement string, params []any, readOnly bool) (any, error) {
-	if !readOnly {
+	if !readOnly && validateReadOnlySQL(statement) != nil {
 		result, err := s.OracleDB().ExecContext(ctx, statement, params...)
 		if err != nil {
 			return nil, fmt.Errorf("unable to execute DML statement: %w", err)
@@ -159,16 +159,34 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any, rea
 			"rows_affected": rowsAffected,
 		}, nil
 	}
-	rows, err := s.OracleDB().QueryContext(ctx, statement, params...)
+
+	var (
+		rows *sql.Rows
+		tx   *sql.Tx
+		err  error
+	)
+	if readOnly {
+		if err = validateReadOnlySQL(statement); err != nil {
+			return nil, fmt.Errorf("read-only mode violation: %w", err)
+		}
+		tx, err = s.beginReadOnlyTx(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to start read-only transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		rows, err = tx.QueryContext(ctx, statement, params...)
+	} else {
+		rows, err = s.OracleDB().QueryContext(ctx, statement, params...)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
 	defer rows.Close()
 
-	// If Columns() errors, it might be a DDL/DML without an OUTPUT clause.
-	// We proceed, and results.Err() will catch actual query execution errors.
-	// 'out' will remain an empty slice if cols is empty or err is not nil here.
-	cols, _ := rows.Columns()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve columns: %w", err)
+	}
 
 	// Get Column types
 	colTypes, err := rows.ColumnTypes()
@@ -257,6 +275,162 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any, rea
 	}
 
 	return out, nil
+}
+
+func (s *Source) beginReadOnlyTx(ctx context.Context) (*sql.Tx, error) {
+	tx, err := s.OracleDB().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "readonly transaction is not supported") {
+		return tx, err
+	}
+	tx, err = s.OracleDB().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "SET TRANSACTION READ ONLY"); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	return tx, nil
+}
+
+func isIdentByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '$' || b == '#' || b >= 0x80
+}
+
+func qQuoteEnd(open byte) byte {
+	switch open {
+	case '[':
+		return ']'
+	case '{':
+		return '}'
+	case '<':
+		return '>'
+	case '(':
+		return ')'
+	default:
+		return open
+	}
+}
+
+// validateReadOnlySQL ensures the query starts with SELECT or WITH, has no
+// FOR UPDATE locking clause, and contains no non-trailing semicolons (blocking
+// DDL, PL/SQL blocks, WITH FUNCTION/PROCEDURE declarations, and stacked SQL).
+func validateReadOnlySQL(s string) error {
+	firstWord, prevWord, prevDot, sawSemi := "", "", false, false
+	for i, n := 0, len(s); i < n; {
+		ch := s[i]
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v' {
+			i++
+			continue
+		}
+		if ch == '-' && i+1 < n && s[i+1] == '-' {
+			for i += 2; i < n && s[i] != '\n'; i++ {
+			}
+			continue
+		}
+		if ch == '/' && i+1 < n && s[i+1] == '*' {
+			end := strings.Index(s[i+2:], "*/")
+			if end < 0 {
+				return fmt.Errorf("unterminated block comment")
+			}
+			i += end + 4
+			continue
+		}
+		if ch == ';' {
+			if firstWord == "" {
+				return fmt.Errorf("empty SQL statement")
+			}
+			sawSemi = true
+			i++
+			continue
+		}
+		if sawSemi {
+			return fmt.Errorf("multiple SQL statements are not allowed in read-only mode")
+		}
+		if firstWord == "" {
+			if ch == '(' {
+				i++
+				continue
+			}
+			start := i
+			for i < n && isIdentByte(s[i]) {
+				i++
+			}
+			firstWord = strings.ToUpper(s[start:i])
+			if firstWord != "SELECT" && firstWord != "WITH" {
+				return fmt.Errorf("only SELECT or WITH queries are allowed in read-only mode")
+			}
+			prevWord = firstWord
+			continue
+		}
+		qOff := 0
+		if (ch == 'q' || ch == 'Q') && i+2 < n && s[i+1] == '\'' {
+			qOff = 2
+		} else if (ch == 'n' || ch == 'N') && i+3 < n && (s[i+1] == 'q' || s[i+1] == 'Q') && s[i+2] == '\'' {
+			qOff = 3
+		}
+		if qOff > 0 {
+			end := strings.Index(s[i+qOff+1:], string([]byte{qQuoteEnd(s[i+qOff]), '\''}))
+			if end < 0 {
+				return fmt.Errorf("unterminated quoted literal")
+			}
+			i += qOff + 1 + end + 2
+			prevWord, prevDot = "", false
+			continue
+		}
+		if (ch == 'n' || ch == 'N') && i+1 < n && s[i+1] == '\'' {
+			i++
+			ch = '\''
+		}
+		if ch == '\'' || ch == '"' {
+			quote, closed := ch, false
+			for i++; i < n; {
+				if s[i] == quote {
+					i++
+					if i < n && s[i] == quote {
+						i++
+						continue
+					}
+					closed = true
+					break
+				}
+				i++
+			}
+			if !closed {
+				return fmt.Errorf("unterminated quoted string")
+			}
+			prevWord, prevDot = "", false
+			continue
+		}
+		if ch == ':' {
+			for i++; i < n && isIdentByte(s[i]); i++ {
+			}
+			prevWord, prevDot = "", false
+			continue
+		}
+		if isIdentByte(ch) {
+			start := i
+			for i++; i < n && isIdentByte(s[i]); i++ {
+			}
+			if !prevDot {
+				word := strings.ToUpper(s[start:i])
+				if prevWord == "FOR" && word == "UPDATE" {
+					return fmt.Errorf("FOR UPDATE locking clauses are not allowed in read-only mode")
+				}
+				prevWord = word
+			} else {
+				prevWord = ""
+			}
+			prevDot = false
+			continue
+		}
+		prevWord, prevDot = "", ch == '.'
+		i++
+	}
+	if firstWord == "" {
+		return fmt.Errorf("empty SQL statement")
+	}
+	return nil
 }
 
 func buildGoOraConnString(user, password, connectStringBase, walletLocation string) string {
