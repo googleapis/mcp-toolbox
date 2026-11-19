@@ -138,18 +138,22 @@ func (m *mockSource) RunQuery(projectID, query string) (any, error) {
 	return nil, nil
 }
 
+func (m *mockSource) ToConfig() sources.SourceConfig {
+	return nil
+}
+
 func TestTool_Invoke(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
 	}))
-	defer server.Close()
+	defer ts.Close()
 
 	mock := &mockSource{
-		client: server.Client(),
+		client: ts.Client(),
 		runQuery: func(projectID, query string) (any, error) {
-			resp, err := server.Client().Get(server.URL + "?query=" + url.QueryEscape(query))
+			resp, err := ts.Client().Get(ts.URL + "?query=" + url.QueryEscape(query))
 			if err != nil {
 				return nil, err
 			}
@@ -195,16 +199,16 @@ func TestTool_Invoke(t *testing.T) {
 }
 
 func TestTool_Invoke_Error(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"status":"error","error":"bad promql syntax"}`))
 	}))
-	defer server.Close()
+	defer ts.Close()
 
 	mock := &mockSource{
-		client: server.Client(),
+		client: ts.Client(),
 		runQuery: func(projectID, query string) (any, error) {
-			resp, err := server.Client().Get(server.URL + "?query=" + url.QueryEscape(query))
+			resp, err := ts.Client().Get(ts.URL + "?query=" + url.QueryEscape(query))
 			if err != nil {
 				return nil, err
 			}
