@@ -238,7 +238,7 @@ func TestInitCockroachDBConnectionPoolWithRetryReleasesFailedPools(t *testing.T)
 	_, err := initCockroachDBConnectionPoolWithRetry(
 		context.Background(),
 		noop.NewTracerProvider().Tracer("cockroachdb-test"),
-		"test-source", "127.0.0.1", "1", "u", "p", "db", nil, 2, time.Millisecond,
+		"test-source", "127.0.0.1", "1", "u", "p", "db", nil, 2, time.Millisecond, false,
 	)
 	if err == nil {
 		t.Fatal("expected the connection to fail against a dead endpoint")
