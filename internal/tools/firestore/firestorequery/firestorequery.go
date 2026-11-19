@@ -178,6 +178,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewAgentError(fmt.Sprintf("failed to process collection path: %v", err), err)
 	}
+	// Reject absolute or malformed collection paths, matching the validation
+	// applied by the other Firestore collection-path tools.
+	if err := fsUtil.ValidateCollectionPath(collectionPath); err != nil {
+		return nil, util.NewAgentError(fmt.Sprintf("invalid collection path: %v", err), err)
+	}
 
 	var filter firestoreapi.EntityFilter
 	// Process and apply filters if template is provided
