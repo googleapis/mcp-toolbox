@@ -15,12 +15,17 @@
 package bigquery_test
 
 import (
+	"bytes"
 	"context"
 	"math/big"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/sources/bigquery"
@@ -810,5 +815,50 @@ func TestBigQueryAllowedDatasets_Sorted(t *testing.T) {
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Fatalf("iteration %d: BigQueryAllowedDatasets() mismatch (-want +got):\n%s", i, diff)
 		}
+	}
+}
+
+func TestInitialize_SharedSessionWarning(t *testing.T) {
+	credsFile := filepath.Join(t.TempDir(), "creds.json")
+	credsJSON := `{"type":"authorized_user","client_id":"id","client_secret":"secret","refresh_token":"token"}`
+	if err := os.WriteFile(credsFile, []byte(credsJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credsFile)
+
+	tests := []struct {
+		name      string
+		writeMode string
+		wantWarn  bool
+	}{
+		{name: "protected logs shared session warning", writeMode: bigquery.WriteModeProtected, wantWarn: true},
+		{name: "allowed does not log warning", writeMode: bigquery.WriteModeAllowed, wantWarn: false},
+		{name: "blocked does not log warning", writeMode: bigquery.WriteModeBlocked, wantWarn: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			logger, err := log.NewStdLogger(&out, &errOut, "warn")
+			if err != nil {
+				t.Fatalf("unable to create logger: %s", err)
+			}
+			ctx := util.WithUserAgent(util.WithLogger(context.Background(), logger), "test-agent")
+
+			cfg := bigquery.Config{
+				Name:      "test-source",
+				Type:      bigquery.SourceType,
+				Project:   "test-project",
+				WriteMode: tt.writeMode,
+			}
+			if _, err := cfg.Initialize(ctx, noop.NewTracerProvider().Tracer("")); err != nil {
+				t.Fatalf("Initialize() unexpected error: %s", err)
+			}
+
+			gotWarn := strings.Contains(out.String()+errOut.String(), "share a single BigQuery session")
+			if gotWarn != tt.wantWarn {
+				t.Errorf("shared session warning logged = %v, want %v (logs: %q)", gotWarn, tt.wantWarn, out.String()+errOut.String())
+			}
+		})
 	}
 }
