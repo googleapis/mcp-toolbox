@@ -19,106 +19,89 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/googleapis/mcp-toolbox/internal/tools"
-	"github.com/googleapis/mcp-toolbox/internal/tools/cloudmonitoring"
-	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/tests"
 )
 
-func newTestTool(t *testing.T, ctx context.Context, toolType string) cloudmonitoring.Tool {
+type monitoringTransport struct {
+	backend *url.URL
+	next    http.RoundTripper
+}
+
+func (m monitoringTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	switch req.URL.Hostname() {
+	case "monitoring.googleapis.com":
+		clone := req.Clone(req.Context())
+		clone.URL.Scheme, clone.URL.Host = m.backend.Scheme, m.backend.Host
+		return m.next.RoundTrip(clone)
+	case "127.0.0.1", "localhost":
+		return m.next.RoundTrip(req)
+	default:
+		return nil, fmt.Errorf("unexpected external request to %s", req.URL.Host)
+	}
+}
+
+// The fixture exercises the real source and MCP server with a local Monitoring
+// backend. It does not validate Google credentials or service availability.
+func setupCloudMonitoringTest(t *testing.T) *atomic.Int32 {
 	t.Helper()
-	cfg := cloudmonitoring.Config{
-		ConfigBase: tools.ConfigBase{
-			Name:        "test-cloudmonitoring",
-			Description: "Test Cloudmonitoring Tool",
-		},
-		Type:   toolType,
-		Source: "test-source",
-	}
-	toolIface, err := cfg.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("Initialize() error = %v", err)
-	}
-	return toolIface.(cloudmonitoring.Tool)
-}
-
-func TestTool_Invoke(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	// Mock the monitoring server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/projects/test-project/location/global/prometheus/api/v1/query" {
-			http.Error(w, "not found", http.StatusNotFound)
+	calls := new(atomic.Int32)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/projects/test-project/location/global/prometheus/api/v1/query" {
+			t.Errorf("unexpected backend request: %s %s", r.Method, r.URL)
+			http.Error(w, "unexpected request", http.StatusBadRequest)
 			return
 		}
-		query := r.URL.Query().Get("query")
-		if query != "up" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
+		switch r.URL.Query().Get("query") {
+		case "up":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"success","data":{"resultType":"vector","result":[]}}`)
+		case "backend-error":
+			http.Error(w, "monitoring backend unavailable", http.StatusInternalServerError)
+		default:
+			t.Errorf("unexpected query: %s", r.URL.RawQuery)
+			http.Error(w, "unexpected query", http.StatusBadRequest)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"status":"success","data":{"resultType":"vector","result":[]}}`)
 	}))
-	defer server.Close()
-
-	// Create a new observability tool
-	tool := newTestTool(t, ctx, "cloud-monitoring-query-prometheus")
-
-	// Define the test parameters
-	params := parameters.ParamValues{
-		{Name: "projectId", Value: "test-project"},
-		{Name: "query", Value: "up"},
-	}
-
-	// Invoke the tool
-	result, err := tool.Invoke(ctx, nil, params, "")
+	t.Cleanup(backend.Close)
+	endpoint, err := url.Parse(backend.URL)
 	if err != nil {
-		t.Fatalf("Invoke() error = %v", err)
+		t.Fatal(err)
 	}
-
-	// Check the result
-	expected := map[string]any{
-		"status": "success",
-		"data": map[string]any{
-			"resultType": "vector",
-			"result":     []any{},
-		},
+	original := http.DefaultTransport
+	http.DefaultTransport = monitoringTransport{backend: endpoint, next: original}
+	t.Cleanup(func() { http.DefaultTransport = original })
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	t.Cleanup(cancel)
+	config := map[string]any{
+		"sources": map[string]any{"monitoring": map[string]any{"type": "cloud-monitoring", "useClientOAuth": true}},
+		"tools":   map[string]any{"query-prometheus": map[string]any{"type": "cloud-monitoring-query-prometheus", "source": "monitoring", "description": "Query Prometheus metrics."}},
 	}
-	if diff := cmp.Diff(expected, result); diff != "" {
-		t.Errorf("Invoke() result mismatch (-want +got):\n%s", diff)
+	cmd, cleanup, err := tests.StartCmd(ctx, config)
+	if err != nil {
+		t.Fatalf("start toolbox: %v", err)
 	}
-}
-
-func TestTool_Invoke_Error(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	// Mock the monitoring server to return an error
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	// Create a new observability tool
-	tool := newTestTool(t, ctx, "clou-monitoring-query-prometheus")
-
-	// Define the test parameters
-	params := parameters.ParamValues{
-		{Name: "projectId", Value: "test-project"},
-		{Name: "query", Value: "up"},
+	t.Cleanup(cleanup)
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("stop toolbox: %v", err)
+		}
+		cmd.Close()
+	})
+	waitCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+	defer stop()
+	if out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out); err != nil {
+		t.Fatalf("toolbox did not start: %v\n%s", err, out)
 	}
-
-	// Invoke the tool
-	_, err := tool.Invoke(ctx, nil, params, "")
-	if err == nil {
-		t.Fatal("Invoke() error = nil, want error")
-	}
+	return calls
 }
