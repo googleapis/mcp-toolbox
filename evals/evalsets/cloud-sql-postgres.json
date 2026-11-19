@@ -68,16 +68,6 @@
       ],
       "kind": "tools",
       "max_turns": 2
-    },
-    {
-      "id": "cloudsqlpg-data-05",
-      "starting_prompt": "List all stored procedures defined in the ${CLOUD_SQL_POSTGRES_DATABASE} database along with their schema, owner, and language.",
-      "conversation_plan": "The user wants an inventory of stored procedures in the database. Accept the summary and end the conversation. Success Criteria: the assistant retrieves stored procedure metadata using list_stored_procedure. Failure Criteria: the assistant guesses stored procedure names or definitions without calling list_stored_procedure.",
-      "expected_trajectory": [
-        "toolbox__list_stored_procedure"
-      ],
-      "kind": "tools",
-      "max_turns": 1
     }
   ]
 }

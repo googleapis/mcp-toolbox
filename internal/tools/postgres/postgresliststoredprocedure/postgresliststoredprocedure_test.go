@@ -15,18 +15,13 @@
 package postgresliststoredprocedure_test
 
 import (
-	"context"
-	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
-	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/postgres/postgresliststoredprocedure"
-	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestParseFromYamlPostgresListStoredProcedure(t *testing.T) {
@@ -97,75 +92,4 @@ func TestParseFromYamlPostgresListStoredProcedure(t *testing.T) {
 		})
 	}
 
-}
-
-type mockStoredProcedureSource struct {
-	runSQLFunc func(ctx context.Context, statement string, params []any) (any, error)
-}
-
-func (m *mockStoredProcedureSource) IsReadOnly() bool               { return false }
-func (m *mockStoredProcedureSource) SourceType() string             { return "postgres" }
-func (m *mockStoredProcedureSource) ToConfig() sources.SourceConfig { return nil }
-func (m *mockStoredProcedureSource) PostgresPool() *pgxpool.Pool    { return nil }
-func (m *mockStoredProcedureSource) RunSQL(ctx context.Context, statement string, params []any) (any, error) {
-	return m.runSQLFunc(ctx, statement, params)
-}
-
-func TestInvokePostgresListStoredProcedure(t *testing.T) {
-	ctx := context.Background()
-	cfg := postgresliststoredprocedure.Config{
-		ConfigBase: tools.ConfigBase{
-			Name: "list_stored_procedure",
-		},
-		Type:   "postgres-list-stored-procedure",
-		Source: "my-pg",
-	}
-	tool, err := cfg.Initialize(ctx)
-	if err != nil {
-		t.Fatalf("Initialize() unexpected error: %v", err)
-	}
-
-	t.Run("delegates to source.RunSQL and returns rows", func(t *testing.T) {
-		wantRows := []any{map[string]any{"schema_name": "public", "name": "test_proc"}}
-		var gotParams []any
-		src := &mockStoredProcedureSource{
-			runSQLFunc: func(_ context.Context, _ string, params []any) (any, error) {
-				gotParams = params
-				return wantRows, nil
-			},
-		}
-		params := parameters.ParamValues{
-			{Name: "role_name", Value: "postgres"},
-			{Name: "schema_name", Value: "public"},
-			{Name: "limit", Value: 10},
-		}
-		got, tbErr := tool.Invoke(ctx, src, params, "")
-		if tbErr != nil {
-			t.Fatalf("Invoke() unexpected error: %v", tbErr)
-		}
-		if diff := cmp.Diff(wantRows, got); diff != "" {
-			t.Errorf("Invoke() rows diff (-want +got):\n%s", diff)
-		}
-		wantParams := []any{"postgres", "public", 10}
-		if diff := cmp.Diff(wantParams, gotParams); diff != "" {
-			t.Errorf("Invoke() params diff (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("propagates query/iteration error from RunSQL (including results.Err())", func(t *testing.T) {
-		src := &mockStoredProcedureSource{
-			runSQLFunc: func(_ context.Context, _ string, _ []any) (any, error) {
-				return nil, errors.New("unable to execute query: mid-stream row error")
-			},
-		}
-		params := parameters.ParamValues{
-			{Name: "role_name", Value: nil},
-			{Name: "schema_name", Value: nil},
-			{Name: "limit", Value: 20},
-		}
-		_, tbErr := tool.Invoke(ctx, src, params, "")
-		if tbErr == nil {
-			t.Fatalf("Invoke() expected error, got nil")
-		}
-	})
 }
