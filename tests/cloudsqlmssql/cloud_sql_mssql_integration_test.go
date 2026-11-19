@@ -117,6 +117,7 @@ func TestCloudSQLMSSQLToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create Cloud SQL connection pool: %s", err)
 	}
+	defer db.Close()
 
 	// cleanup test environment
 	tests.CleanupMSSQLTables(t, ctx, db)
