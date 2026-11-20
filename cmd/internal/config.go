@@ -581,7 +581,7 @@ func GetPathsFromConfigFolder(ctx context.Context, folderPath string) ([]string,
 			return nil
 		}
 
-		ext := filepath.Ext(entry.Name())
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
 		if ext == ".yaml" || ext == ".yml" {
 			allFiles = append(allFiles, path)
 		}
