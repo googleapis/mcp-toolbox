@@ -371,7 +371,7 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 
 			// fsnotify watches directories non-recursively. Add a newly created
 			// directory tree so config files created below it are observed too.
-			if watchingFolder && e.Has(fsnotify.Create) {
+			if watchingFolder && e.Has(fsnotify.Create | fsnotify.Rename) {
 				if info, err := os.Stat(cleanedFilename); err == nil && info.IsDir() {
 					addDirectoryTree(cleanedFilename)
 				}

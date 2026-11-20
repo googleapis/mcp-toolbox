@@ -1308,10 +1308,9 @@ func TestScanWatchedFilesRecursively(t *testing.T) {
 		t.Fatal("scanWatchedFiles() reported no changes for newly discovered files")
 	}
 
-	want := map[string]bool{
-		filepath.Join(folder, "root.yaml"):                    true,
-		filepath.Join(folder, "tools-a/tool-a.yml"):           true,
-		filepath.Join(folder, "tools-b/nested/tool-b.yaml"):   true,
+	want := make(map[string]bool)
+	for _, relativePath := range []string{"root.yaml", "tools-a/tool-a.yml", "tools-b/nested/tool-b.yaml"} {
+		want[filepath.Join(folder, relativePath)] = true
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("scanWatchedFiles() mismatch (-want +got): %s", diff)
@@ -1323,5 +1322,78 @@ func TestScanWatchedFilesRecursively(t *testing.T) {
 	}
 	if changed {
 		t.Error("scanWatchedFiles() reported changes when no files changed")
+	}
+}
+
+
+func TestNestedDirectoryEdit(t *testing.T) {
+	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Minute)
+	defer cancelCtx()
+
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	defer pr.Close()
+
+	root := t.TempDir()
+	existingDir := filepath.Join(root, "existing")
+	if err := os.Mkdir(existingDir, 0755); err != nil {
+		t.Fatalf("failed to create existing nested directory: %v", err)
+	}
+
+	logger, err := log.NewStdLogger(pw, pw, "DEBUG")
+	if err != nil {
+		t.Fatalf("failed to setup logger: %s", err)
+	}
+	ctx = util.WithLogger(ctx, logger)
+
+	instrumentation, err := telemetry.CreateTelemetryInstrumentation(versionString)
+	if err != nil {
+		t.Fatalf("failed to setup instrumentation: %s", err)
+	}
+	ctx = util.WithInstrumentation(ctx, instrumentation)
+
+	mockServer := &server.Server{}
+	go watchChanges(ctx, map[string]bool{root: true}, map[string]bool{}, mockServer, &internal.ToolboxOptions{})
+
+	escapedPath := func(path string) string {
+		path = strings.ReplaceAll(filepath.Clean(path), `\\`, `\\\\*\\`)
+		return path.Clean(path)
+	}
+
+	rootPattern := regexp.MustCompile(fmt.Sprintf(`DEBUG "Added directory %s to watcher."`, escapedPath(root)))
+	if out, err := testutils.WaitForString(ctx, rootPattern, pr); err != nil {
+		t.Fatalf("timeout waiting for root watcher: %s\\noutput:\\n%s", err, out)
+	}
+
+	existingPattern := regexp.MustCompile(fmt.Sprintf(`DEBUG "Added directory %s to watcher."`, escapedPath(existingDir)))
+	if out, err := testutils.WaitForString(ctx, existingPattern, pr); err != nil {
+		t.Fatalf("timeout waiting for existing nested watcher: %s\\noutput:\\n%s", err, out)
+	}
+
+	existingFile := filepath.Join(existingDir, "tools.yaml")
+	if err := os.WriteFile(existingFile, []byte("config"), 0644); err != nil {
+		t.Fatalf("failed to write nested config file: %v", err)
+	}
+	existingEvent := regexp.MustCompile(fmt.Sprintf(`event detected in %s"`, escapedPath(existingFile)))
+	if out, err := testutils.WaitForString(ctx, existingEvent, pr); err != nil {
+		t.Fatalf("nested file event was not detected: %s\\noutput:\\n%s", err, out)
+	}
+
+	newDir := filepath.Join(root, "created-after-start")
+	if err := os.Mkdir(newDir, 0755); err != nil {
+		t.Fatalf("failed to create new nested directory: %v", err)
+	}
+	newDirPattern := regexp.MustCompile(fmt.Sprintf(`DEBUG "Added directory %s to watcher."`, escapedPath(newDir)))
+	if out, err := testutils.WaitForString(ctx, newDirPattern, pr); err != nil {
+		t.Fatalf("new nested directory was not added to watcher: %s\\noutput:\\n%s", err, out)
+	}
+
+	newFile := filepath.Join(newDir, "additional.yml")
+	if err := os.WriteFile(newFile, []byte("config"), 0644); err != nil {
+		t.Fatalf("failed to write config file in new nested directory: %v", err)
+	}
+	newFileEvent := regexp.MustCompile(fmt.Sprintf(`event detected in %s"`, escapedPath(newFile)))
+	if out, err := testutils.WaitForString(ctx, newFileEvent, pr); err != nil {
+		t.Fatalf("config file in newly created directory was not detected: %s\\noutput:\\n%s", err, out)
 	}
 }
