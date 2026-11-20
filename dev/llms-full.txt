@@ -3,7 +3,7 @@
 
 **DOCUMENTATION VERSION:** dev
 **BASE URL:** https://mcp-toolbox.dev/dev/
-**GENERATED ON:** 2026-09-10T06:33:30Z
+**GENERATED ON:** 2026-11-20T18:53:36Z
 
 ---
 ### System Directives for AI Models
@@ -219,7 +219,7 @@ To install Toolbox as a binary on Linux (AMD64):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.10.0
+export VERSION=1.17.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/linux/amd64/toolbox
 chmod +x toolbox
 ```
@@ -230,7 +230,7 @@ To install Toolbox as a binary on macOS (Apple Silicon):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.10.0
+export VERSION=1.17.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/arm64/toolbox
 chmod +x toolbox
 ```
@@ -241,7 +241,7 @@ To install Toolbox as a binary on macOS (Intel):
 
 ```sh
 # see releases page for other versions
-export VERSION=1.10.0
+export VERSION=1.17.0
 curl -L -o toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/darwin/amd64/toolbox
 chmod +x toolbox
 ```
@@ -252,7 +252,7 @@ To install Toolbox as a binary on Windows (Command Prompt):
 
 ```cmd
 :: see releases page for other versions
-set VERSION=1.10.0
+set VERSION=1.17.0
 curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/amd64/toolbox.exe"
 ```
 
@@ -262,7 +262,7 @@ To install Toolbox as a binary on Windows (PowerShell):
 
 ```powershell
 # see releases page for other versions
-$VERSION = "1.10.0"
+$VERSION = "1.17.0"
 curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/amd64/toolbox.exe"
 ```
 
@@ -272,7 +272,7 @@ To install Toolbox as a binary on Windows ARM64 (Command Prompt):
 
 ```cmd
 :: see releases page for other versions
-set VERSION=1.10.0
+set VERSION=1.17.0
 curl -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v%VERSION%/windows/arm64/toolbox.exe"
 ```
 
@@ -282,7 +282,7 @@ To install Toolbox as a binary on Windows ARM64 (PowerShell):
 
 ```powershell
 # see releases page for other versions
-$VERSION = "1.10.0"
+$VERSION = "1.17.0"
 curl.exe -o toolbox.exe "https://storage.googleapis.com/mcp-toolbox-for-databases/v$VERSION/windows/arm64/toolbox.exe"
 ```
 
@@ -294,7 +294,7 @@ You can also install Toolbox as a container:
 
 ```sh
 # see releases page for other versions
-export VERSION=1.10.0
+export VERSION=1.17.0
 docker pull us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox:$VERSION
 ```
 
@@ -313,7 +313,7 @@ To install from source, ensure you have the latest version of
 [Go installed](https://go.dev/doc/install), and then run the following command:
 
 ```sh
-go install github.com/googleapis/mcp-toolbox@v1.10.0
+go install github.com/googleapis/mcp-toolbox@v1.17.0
 ```
 
 {{% /tab %}}
@@ -494,7 +494,7 @@ const ai = genkit({
             apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
         })
     ],
-    model: googleAI.model('gemini-2.0-flash'),
+    model: googleAI.model('gemini-3.8-flash'),
 });
 
 // update the url to point to your server
@@ -1107,7 +1107,7 @@ In this section, we will download Toolbox, configure our tools in a
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -1811,7 +1811,7 @@ tools:
 
 ### Groups
 
-The `group` kind scopes MCP primitives such as **tools** and **prompts**
+The `group` kind scopes MCP primitives such as **tools**, **prompts**, **resources**, and **resource templates**
 together under one name, with a `description` used as group metadata. A toolset
 is a tools-only group, so existing `kind: toolset` configs keep working
 unchanged. See [Groups](./groups/_index.md) for details.
@@ -1819,11 +1819,15 @@ unchanged. See [Groups](./groups/_index.md) for details.
 ```yaml
 kind: group
 name: my_group
-description: Tools and prompts for a specific task.
+description: Tools, prompts, and resources for a specific task.
 tools:
   - my_first_tool
 prompts:
   - my_first_prompt
+resources:
+  - my_first_resource
+resourceTemplates:
+  - my_first_template
 ```
 
 ### Prompts
@@ -1844,6 +1848,41 @@ arguments:
 
 For more details on configuring different types of prompts, see the
 [Prompts](./prompts/_index.md).
+
+### Resources
+
+The `resource` and `resourceTemplate` kinds define read-only content, files, and parameterized URI patterns that can be discovered and retrieved by MCP clients.
+
+```yaml
+kind: resource
+name: database_schema_ddl
+type: text
+description: "Core table definitions and constraints."
+mimeType: "text/x-sql"
+text: |
+  CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL
+  );
+---
+kind: resourceTemplate
+name: server_logs
+type: file
+description: "Application runtime log files."
+uriTemplate: "file:///var/log/{path}"
+allowedPaths:
+  - "/var/log"
+```
+
+For more details on configuring different types of resources, see
+[Resources](./resources/_index.md).
+
+### MCP Apps
+
+Toolbox supports the [MCP Apps](./mcp-apps/) extension (`io.modelcontextprotocol/ui`), allowing standard resources (`kind: resource` or `kind: resourceTemplate`) to function as interactive web applications by setting `ui: true`. Tools can bind to these UI resources so clients render interactive visual interfaces.
+
+For more details, see [MCP Apps](./mcp-apps/).
 
 ### Read-Only Configuration
 
@@ -1905,7 +1944,7 @@ Used for specific tools to enforce authorization or resolve parameters:
 - [**Authenticated Parameters**][auth-params]: Replaces the value of a parameter with a field from an [OIDC][openid-claims] claim. Toolbox will automatically resolve the ID token provided by the client and replace the parameter in the tool call.
 
 ### 2. MCP Authorization
-Used to secure the entire MCP server. The Model Context Protocol supports [MCP Authorization](https://modelcontextprotocol.io/docs/tutorials/security/authorization) to secure interactions between clients and servers. When enabled, all MCP endpoints require a valid token, and you can enforce granular tool-level scope authorization. **Note that this mode is currently only supported when using the `generic` auth service type.**
+Used to secure the entire MCP server. The Model Context Protocol supports [MCP Authorization](https://modelcontextprotocol.io/docs/tutorials/security/authorization) to secure interactions between clients and servers. When enabled, all MCP endpoints require a valid token, and you can enforce granular tool-level scope authorization.
 
 [openid-claims]: https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
 [auth-invoke]: ../tools/_index.md#authorized-invocations-toolbox-native-authorization
@@ -3997,9 +4036,9 @@ result, err := boundTool.Invoke(ctx, map[string]any{})
 Secure parameters require MCP protocol version `2026-07-28` and the `com.google.cloud/toolbox.v1` extension. For more details on extension capabilities and client requirements, see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md).
 
 For in-depth framework integration guides, see:
-* [Python SDK Secure Parameters](../../connect-to/toolbox-sdks/python-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/python-sdk/adk/index.md#secure-parameters) | [LangChain](../../connect-to/toolbox-sdks/python-sdk/langchain/index.md#secure-parameters) | [LlamaIndex](../../connect-to/toolbox-sdks/python-sdk/llamaindex/index.md#secure-parameters))
-* [JavaScript / TypeScript SDK Secure Parameters](../../connect-to/toolbox-sdks/javascript-sdk/core/index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/javascript-sdk/adk/index.md#secure-parameters))
-* [Go SDK Secure Parameters](../../connect-to/toolbox-sdks/go-sdk/core/_index.md#secure-parameters) ([ADK](../../connect-to/toolbox-sdks/go-sdk/tbadk/_index.md#secure-parameters) | [Genkit](../../connect-to/toolbox-sdks/go-sdk/tbgenkit/_index.md#secure-parameters))
+* [Python SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/core/index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/adk/index.md#secure-parameters" >}}) | [LangChain]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/langchain/index.md#secure-parameters" >}}) | [LlamaIndex]({{< relref "documentation/connect-to/toolbox-sdks/python-sdk/llamaindex/index.md#secure-parameters" >}}))
+* [JavaScript / TypeScript SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/javascript-sdk/core/index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/javascript-sdk/adk/index.md#secure-parameters" >}}))
+* [Go SDK Secure Parameters]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/core/_index.md#secure-parameters" >}}) ([ADK]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/tbadk/_index.md#secure-parameters" >}}) | [Genkit]({{< relref "documentation/connect-to/toolbox-sdks/go-sdk/tbgenkit/_index.md#secure-parameters" >}}))
 {{< /notice >}}
 
 ### Authenticated Parameters
@@ -4189,6 +4228,39 @@ Annotations appear in the `tools/list` MCP response:
 You can bind specific arguments to tools at the transport level using URL query parameters. This allows you to restrict clients to specific database instances, projects, or environments dynamically without modifying the server configuration.
 
 For a comprehensive guide, see the [URL Parameter Binding](./url_parameter_binding.md) documentation.
+
+## Tool UI Metadata (MCP Apps)
+
+Tools can be associated with an interactive visual interface provided by an MCP resource (such as an interactive dashboard, custom form, or chart). This capability is part of the [MCP Apps](../mcp-apps/) extension.
+
+UI capabilities are configured directly on standard resources (`kind: resource` or `kind: resourceTemplate`) by setting `ui: true`. Tools reference the target resource by its `name`.
+
+To link a tool to a UI resource, specify the `ui` configuration block:
+
+```yaml
+kind: tool
+name: view_customer_dashboard
+type: postgres-sql
+source: my-pg-instance
+statement: "SELECT * FROM customers WHERE id = $1"
+description: "Retrieves customer information and opens the interactive dashboard."
+parameters:
+  - name: customer_id
+    type: integer
+    description: "The unique ID of the customer."
+ui:
+  resource: customer_dashboard
+  visibility:
+    - model
+    - app
+```
+
+| **field**      | **type**  | **required** | **description**                                                                                                            |
+|----------------|-----------|--------------|----------------------------------------------------------------------------------------------------------------------------|
+| `resource`     | string    | Yes          | The `name` of a configured `resource` or `resourceTemplate` providing the UI for this tool (must have `ui: true`).        |
+| `visibility`   | []string  | No           | Controls who can see the tool. Allowed values are `model` and `app`. Defaults to `["model", "app"]` if omitted.          |
+
+UI resources are strictly global across all groups and cannot be declared in group resources. For details on defining UI resources, Content Security Policy, and device permissions, see the [MCP Apps](../mcp-apps/) documentation.
 
 ## Using tools with MCP Toolbox Client SDKs
 
@@ -4518,40 +4590,50 @@ mySecondToolset, err := client.LoadToolset("my-toolset", ctx)
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Groups
 **URL:** https://mcp-toolbox.dev/dev/documentation/configuration/groups/
-**Description:** Groups let you scope MCP primitives such as tools and prompts together under a single name, with a description used as group metadata.
+**Description:** Groups let you scope MCP primitives such as tools, prompts, resources, and resource templates together under a single name, with a description used as group metadata.
 
 
 
-A Group is a single named collection that scopes MCP primitives together — currently **tools** and **prompts**, with more (such as resources) planned. Where a [Toolset](../toolsets/) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
+A Group is a single named collection that scopes MCP primitives together — including [**tools**](../tools/_index.md), [**prompts**](../prompts/_index.md), [**resources**](../resources/_index.md), and [**resource templates**](../resources/template/_index.md). Where a [Toolset](../toolsets/_index.md) groups only tools, a group bundles these primitives under one name and one MCP endpoint, and carries a `description` that describes the collection.
 
-Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list` and `prompts/list`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
+Connecting to a group's endpoint (`/mcp/{name}`) scopes the corresponding MCP list methods (such as `tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, and `resources/read`) to that group. Groups are also introspectable over MCP through methods which are available on the `com.google.cloud/toolbox.v1` [extension](https://github.com/googleapis/mcp-toolbox/tree/main/extensions).
+
+{{< notice note >}}
+**Agent Skills are not scoped by group.** The `io.modelcontextprotocol/skills` extension defines one server-wide catalogue. `skills/list` and `skills/get` describe every skill on the server. The endpoint of the request does not change the result. The two methods return metadata only: each skill's `SKILL.md` frontmatter, and the URI, digest, and size of each file in the skill. The two methods do not return file content. `resources/list` and `resources/read` return the file content, and the group scopes both of these methods.
+
+Treat a skill's frontmatter as visible to every client of the server. Do not use groups to separate one set of skills from another. The server can show a skill in the catalogue to a group client, and refuse the files of that skill in the same group. To hide the catalogue, disable the extension with `--disable-ext io.modelcontextprotocol/skills`. This also stops `skills/list` and `skills/get` on every endpoint. See [Disabling MCP Extensions](../../../reference/cli.md#disabling-mcp-extensions).
+{{< /notice >}}
 
 ## Defining Groups
 
 Declare a group as a `kind: group` document in your configuration file. A group has the following fields:
 
-| Field         | Required | Description                                                                                    |
-| ------------- | -------- | -----------------------------------------------------------------------------------------------|
-| `name`        | Yes\*    | Unique name for the group. Used as the endpoint path (`/mcp/{name}`).                          |
-| `description` | No       | Human-readable description of the group, surfaced via `groups/list`.                           |
-| `tools`       | No       | List of tool names to include in the group.                                                    |
-| `prompts`     | No       | List of prompt names to include in the group.                                                  |
-| `ttlMs`       | No       | Time-to-live in milliseconds for cached group list responses. ([MCP TTL Spec](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field )). Defaults to `300000` (5 minutes).|
-| `cacheScope`  | No       | Cache visibility for group list responses (either `public` or `private`). ([MCP Cache Scope Spec](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-scope-field)). Defaults to `public`.|
+| Field               | Required | Description                                                                                    |
+| ------------------- | -------- | -----------------------------------------------------------------------------------------------|
+| `name`              | Yes\*    | Unique name for the group. Used as the endpoint path (`/mcp/{name}`).                          |
+| `description`       | No       | Human-readable description of the group, surfaced via `groups/list`.                           |
+| `tools`             | No       | List of tool names to include in the group.                                                    |
+| `prompts`           | No       | List of prompt names to include in the group.                                                  |
+| `resources`         | No       | List of resource names to include in the group.                                                |
+| `resourceTemplates` | No       | List of resource template names to include in the group.                                       |
+| `ttlMs`             | No       | Time-to-live in milliseconds for cached group list responses. ([MCP TTL Spec](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#time-to-live-ttl-field )). Defaults to `300000` (5 minutes).|
+| `cacheScope`        | No       | Cache visibility for group list responses (either `public` or `private`). ([MCP Cache Scope Spec](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching#cache-scope-field)). Defaults to `public`.|
 
 \* `name` is required for every named group. The single [default group](#the-default-group) omits it.
-
-As Toolbox adds support for more MCP primitives, groups will gain corresponding fields (for example, `resources`).
 
 ```yaml
 kind: group
 name: data_analyst
-description: Tools and prompts for exploratory data analysis.
+description: Tools, prompts, and resources for exploratory data analysis.
 tools:
   - list_tables
   - execute_sql
 prompts:
   - summarize_results
+resources:
+  - database_schema
+resourceTemplates:
+  - query_logs
 ---
 kind: group
 name: admin
@@ -4559,19 +4641,21 @@ description: Administrative operations.
 tools:
   - create_user
   - list_users
+resources:
+  - admin_guide
 ttlMs: 3600000
 cacheScope: private
 ```
 
 ## The default group
 
-A single **default (nameless) group** always exists and contains **all** configured primitives (every tool and prompt). Connecting to the default MCP endpoint (`/mcp`) returns everything.
+A single **default (nameless) group** always exists and contains **all** configured primitives (every tool, prompt, resource, and resource template). Connecting to the default MCP endpoint (`/mcp`) returns everything.
 
-You may declare a `kind: group` document with no `name` to set a `description` for the default group. Because the default group always contains everything, it **cannot** declare `tools`, `prompts`, or any other primitive list:
+You may declare a `kind: group` document with no `name` to set a `description` for the default group. Because the default group always contains everything, it **cannot** declare `tools`, `prompts`, `resources`, `resourceTemplates`, or any other primitive list:
 
 ```yaml
 kind: group
-description: All tools and prompts available on this server.
+description: All tools, prompts, and resources available on this server.
 ```
 
 ## Validation rules
@@ -4580,9 +4664,10 @@ At startup, Toolbox validates groups:
 
 - **Unique names.** A named group must have a unique name that satisfies the standard name rules (alphanumeric characters, underscores, and hyphens).
 - **One default group.** Declaring more than one nameless group is an error.
-- **Default group restrictions.** The default group may set only a `description`; declaring `tools`, `prompts`, or any other primitive list on it is an error.
+- **Default group restrictions.** The default group may set only a `description`; declaring `tools`, `prompts`, `resources`, `resourceTemplates`, or any other primitive list on it is an error.
 - **No duplicate names across toolsets and groups.** A `kind: toolset` is parsed as a group, so defining the same name as both a `kind: toolset` and a `kind: group` is a duplicate-name error.
 - **Valid parameters.** If specified, `ttlMs` must be non-negative (>=0), and `cacheScope` must be either `public` or `private`.
+- **No UI resources in groups.** UI resources and UI resource templates (`ui: true`) are strictly global and cannot be included in `resources` or `resourceTemplates` of any group. Attempting to add a UI resource to a group fails startup validation. (See [MCP Apps](../mcp-apps/) for details on linking tools to UI resources.)
 
 ## Relationship to toolsets
 
@@ -4592,7 +4677,7 @@ Groups are a superset of toolsets: a toolset is equivalent to a tools-only group
 - Unrecognized fields on a toolset are rejected at startup instead of being silently ignored.
 - Declaring the same name as both a `kind: toolset` and a `kind: group` is a duplicate-name error; previously the group silently took precedence.
 
-We recommend migrating to a `kind: group` even for tools-only collections, so the configuration matches what Toolbox actually loads and can grow to scope prompts (and, in the future, other primitives) alongside tools. See [Toolsets](../toolsets/) for more.
+We recommend migrating to a `kind: group` even for tools-only collections, so the configuration matches what Toolbox actually loads and can grow to scope prompts, resources, and resource templates alongside tools. See [Toolsets](../toolsets/_index.md) for more.
 
 To convert existing toolsets to groups automatically, run the `migrate` command. It rewrites both nested `toolsets:` blocks and already-flat `kind: toolset` documents to `kind: group`:
 
@@ -4982,6 +5067,646 @@ Refer to the default prompt [Argument Schema](../_index.md#argument-schema).
 
 
 ========================================================================
+## Resources
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Resources
+**URL:** https://mcp-toolbox.dev/dev/documentation/configuration/resources/
+**Description:** Resources allow servers to provide read-only data, files, and contextual content to language models and MCP clients.
+
+
+
+A `resource` represents read-only data or content that can be discovered and retrieved by MCP clients to provide contextual information to Large Language Models (LLMs).
+
+{{< notice note >}}
+You can use [Groups](../groups/) to organize resources and resource templates into collections. When you connect to a group's endpoint `/mcp/{name}`, `resources/list` and `resources/templates/list` return only the items in that group, and `resources/read` strictly enforces that requested URIs belong to that group. The default endpoint `/mcp` provides access to all resources.
+
+Interactive UI resources (`ui: true`) are strictly global: they cannot be added to `groups[].resources` or `groups[].resourceTemplates`, and do not appear in `resources/list` or `resources/templates/list`. They are globally accessible across all endpoints via `resources/read`. See [MCP Apps](../mcp-apps/) for more information.
+{{< /notice >}}
+
+Resources are analogous to file attachments or contextual snippets: they allow the model to inspect data (such as documentation, schema definitions or log files) without needing to invoke executable tools. The Toolbox server implements the following methods from the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/docs/concepts/resources) specification:
+
+- `resources/list`: Discovers all concrete/direct resources defined on the server.
+- `resources/templates/list`: Discovers dynamic resource templates with parameterized URI templates.
+- `resources/read`: Retrieves the content and MIME type of a specific resource by its URI.
+
+Toolbox supports two kinds of resources:
+1. **Static Resources (`kind: resource`)**: Fixed entities with a static URI (such as in-memory text snippets or specific disk files).
+2. **Resource Templates (`kind: resourceTemplate`)**: Dynamic resources that match URI patterns (such as exposing any log file within a directory tree using `{path}`).
+
+```yaml
+kind: resource
+name: database_schema_ddl
+type: text
+description: "Core table definitions and constraints."
+uri: "schema://database/ddl"
+mimeType: "text/x-sql"
+text: |
+  CREATE TABLE customers (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL
+  );
+---
+kind: resource
+name: database_schema
+type: file
+description: "Application database schema definition."
+path: "./schema.sql"
+uri: "file:///app/schema.sql"
+mimeType: "text/plain"
+---
+kind: resourceTemplate
+name: app_logs
+type: file
+description: "Application runtime log files."
+uriTemplate: "file:///logs/{path}"
+allowedPaths:
+  - "./logs"
+```
+
+## Resource Schema (`kind: resource`)
+
+| **field**     | **type**                               | **required** | **description**                                                                                              |
+|---------------|----------------------------------------|--------------|--------------------------------------------------------------------------------------------------------------|
+| `name`        | string                                 | Yes          | Unique identifier for the resource.                                                                          |
+| `type`        | string                                 | Yes          | The type of resource. Supported types: `"text"` and `"file"`.                                                |
+| `uri`         | string                                 | No           | Unique URI for the resource. Defaults to `text://{name}` for text resources, or `file:///{normalized_path}` for file resources. A file resource can also use a `skill://` URI, which makes it part of an [Agent Skill](../skills/serving.md). |
+| `description` | string                                 | No           | A brief explanation of what the resource contains.                                                           |
+| `title`       | string                                 | No           | Human-readable title for the resource.                                                                       |
+| `mimeType`    | string                                 | No           | The MIME type of the content. Defaults to `text/plain` for text; auto-detected from extension or content for files; defaults to `text/html;profile=mcp-app` when `ui: true`. |
+| `ui`          | bool                                   | No           | Set to `true` to designate this resource as an interactive UI app. UI resources are globally accessible and omitted from `resources/list`. See [MCP Apps](../mcp-apps/). |
+| `dynamic`     | bool                                   | No           | Set to `true` on a skill's `SKILL.md` resource to publish the dynamic marker in place of file digests. A dynamic skill publishes no digests, so a client cannot verify what it fetched. Valid only on a `skill://<skill-path>/SKILL.md` URI. See [Serving Skills over MCP](../skills/serving.md). |
+| `annotations` | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
+
+## Resource Template Schema (`kind: resourceTemplate`)
+
+| **field**        | **type**                               | **required** | **description**                                                                                              |
+|------------------|----------------------------------------|--------------|--------------------------------------------------------------------------------------------------------------|
+| `name`           | string                                 | Yes          | Unique identifier for the resource template.                                                                 |
+| `type`           | string                                 | Yes          | The type of resource template. Supported type: `"file"`.                                                     |
+| `uriTemplate`    | string                                 | Yes          | An RFC 6570 URI template. Must contain the `{path}` template variable (e.g., `file:///logs/{path}`).        |
+| `allowedPaths`   | []string                               | No           | Allowed base directories for filesystem sandboxing. Traversal attempts outside these paths are rejected.     |
+| `maxSize`       | int64 / string                         | No           | Maximum allowed file size in bytes (e.g., `5242880` or `5MB`). Defaults to 5MB.                             |
+| `description`    | string                                 | No           | A brief explanation of what the resource template exposes.                                                   |
+| `title`          | string                                 | No           | Human-readable title for the resource template.                                                              |
+| `mimeType`       | string                                 | No           | The default MIME type for content returned by this template. Defaults to `text/html;profile=mcp-app` when `ui: true`. |
+| `ui`             | bool                                   | No           | Set to `true` to designate this resource template as an interactive UI app. UI resource templates are globally accessible and omitted from `resources/templates/list`. See [MCP Apps](../mcp-apps/). |
+| `annotations`    | [Annotations](#annotations-schema)     | No           | Metadata annotations describing priority, audience, and modification time.                                   |
+
+## Annotations Schema
+
+Annotations provide hints to the client about how the resource content should be prioritized and treated.
+
+| **field**      | **type**   | **required** | **description**                                                                                                              |
+|----------------|------------|--------------|------------------------------------------------------------------------------------------------------------------------------|
+| `priority`     | float      | No           | A number between `0.0` (lowest) and `1.0` (highest) indicating the relative importance of the resource. Defaults to `1.0`.    |
+| `audience`     | []string   | No           | Roles that should receive this resource. Allowed values: `"user"`, `"assistant"`.                                           |
+| `lastModified` | string     | No           | An RFC 3339 formatted timestamp indicating when the resource was last modified (computed dynamically for file resources).    |
+
+## Types of Resources
+Toolbox supports the following resource primitives:
+
+- [**Text Resources**](./text/): Static text content embedded directly in your configuration file.
+- [**File Resources**](./file/): Specific files stored on disk and served as read-only resources.
+- [**Resource Templates**](./template/): Parameterized URI templates that dynamically read matching files from sandboxed directories.
+- [**MCP Apps**](../mcp-apps/): Interactive HTML web applications and tool visual interfaces for clients supporting the MCP Apps extension.
+
+
+
+
+
+========================================================================
+## Text
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Resources > Text
+**URL:** https://mcp-toolbox.dev/dev/documentation/configuration/resources/text/
+**Description:** Direct text resources embedded in your configuration.
+
+
+
+Text resources allow you to define static, in-memory content directly within your configuration file. They are ideal for embedding reference tables, schemas, documentation notes, lookup dictionaries, or configuration data that should be supplied to an LLM or client as read-only context.
+
+## Examples
+
+### Basic Text Resource
+
+Here is an example of a minimal text resource. If `uri` is omitted, Toolbox automatically defaults to `text://{name}`.
+
+```yaml
+kind: resource
+name: country_codes
+type: text
+description: "ISO standard country codes and country names."
+text: |
+  US: United States
+  CA: Canada
+  GB: United Kingdom
+  DE: Germany
+  JP: Japan
+```
+
+### Custom URI and Markdown MIME Type
+
+You can specify a custom URI scheme (such as `docs://`) and define a specific MIME type like `text/markdown`:
+
+```yaml
+kind: resource
+name: architecture_doc
+type: text
+title: "System Architecture"
+description: "High-level overview of our microservices architecture."
+uri: "docs://architecture/overview"
+mimeType: "text/markdown"
+text: |
+  # System Architecture Overview
+  
+  - **API Gateway**: Handles incoming client traffic and routing.
+  - **Auth Service**: Issues and validates OAuth tokens.
+  - **Data Service**: Interfaces with PostgreSQL and BigQuery storage.
+```
+
+### Resource with Annotations
+
+You can attach annotations to specify audience and priority for MCP clients:
+
+```yaml
+kind: resource
+name: order_status_codes
+type: text
+title: "Order Status Codes"
+description: "Valid order status codes and definitions."
+uri: "schema://orders/status-codes"
+mimeType: "text/plain"
+text: |
+  PENDING   - Order created, awaiting payment confirmation.
+  CONFIRMED - Payment authorized, order queued for fulfillment.
+  SHIPPED   - Order dispatched with carrier tracking number.
+  DELIVERED - Package received by customer.
+  CANCELLED - Order cancelled prior to shipment.
+annotations:
+  priority: 0.8
+  audience:
+    - assistant
+```
+
+## Reference
+
+### Text Resource Schema
+
+| **field**     | **type**                           | **required** | **description**                                                                                               |
+|---------------|------------------------------------|--------------|---------------------------------------------------------------------------------------------------------------|
+| `name`        | string                             | Yes          | Unique name for the resource.                                                                                 |
+| `type`        | string                             | Yes          | Must be `"text"`.                                                                                             |
+| `text`        | string                             | Yes          | The text content of the resource.                                                                             |
+| `uri`         | string                             | No           | Unique URI identifying the resource. Defaults to `text://{name}` if omitted.                                   |
+| `description` | string                             | No           | A brief explanation of the resource's purpose.                                                                |
+| `title`       | string                             | No           | Human-readable title for client display.                                                                      |
+| `mimeType`    | string                             | No           | MIME type of the text content. Defaults to `text/plain`.                                                      |
+| `annotations` | [Annotations](../_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
+
+## Behaviors
+
+- **Default URI Generation**: When `uri` is not specified, Toolbox generates `text://{name}`. All resource URIs on the server must be globally unique across all resources and templates.
+- **Computed Size**: When queried via `resources/list`, the `size` field is automatically calculated as the byte length of the UTF-8 text string.
+
+
+
+
+========================================================================
+## File
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Resources > File
+**URL:** https://mcp-toolbox.dev/dev/documentation/configuration/resources/file/
+**Description:** Direct file resources exposed from the local filesystem.
+
+
+
+File resources allow you to expose specific files from your local filesystem as read-only MCP resources. This is useful for sharing living configuration files, database schemas, local documentation, or static data files with Large Language Models.
+
+## Examples
+
+### Relative Path Resource
+
+When using relative paths, the path is resolved relative to the directory containing your configuration file.
+
+```yaml
+kind: resource
+name: database_schema
+type: file
+description: "Production PostgreSQL schema definition."
+path: "./schema/schema.sql"
+```
+
+### Absolute Path with Custom URI and Metadata
+
+You can supply an absolute path and override the URI, title, and MIME type:
+
+```yaml
+kind: resource
+name: api_reference
+type: file
+title: "OpenAPI Specification"
+description: "Complete REST API contract in JSON format."
+path: "/var/www/docs/openapi.json"
+uri: "file:///docs/openapi.json"
+mimeType: "application/json"
+annotations:
+  priority: 0.9
+  audience:
+    - assistant
+    - user
+```
+
+### Custom Size Limit
+
+By default, files up to 5MB can be read. You can configure a smaller or larger limit using `maxSize`:
+
+```yaml
+kind: resource
+name: large_data_catalog
+type: file
+description: "Large data catalog CSV."
+path: "./data/catalog.csv"
+maxSize: 10485760 # 10MB limit
+```
+
+## Reference
+
+### File Resource Schema
+
+| **field**     | **type**                           | **required** | **description**                                                                                               |
+|---------------|------------------------------------|--------------|---------------------------------------------------------------------------------------------------------------|
+| `name`        | string                             | Yes          | Unique name for the resource.                                                                                 |
+| `type`        | string                             | Yes          | Must be `"file"`.                                                                                             |
+| `path`        | string                             | Yes          | Path to the file on disk (relative to the config directory or absolute).                                      |
+| `uri`         | string                             | No           | Unique URI identifying the resource. Defaults to `file:///{normalized_path}` if omitted.                       |
+| `maxSize`    | int64 / string                     | No           | Maximum allowed file size in bytes (defaults to 5MB / `5242880` bytes).                                       |
+| `description` | string                             | No           | A brief explanation of what the file contains.                                                                |
+| `title`       | string                             | No           | Human-readable title for client display.                                                                      |
+| `mimeType`    | string                             | No           | MIME type of the content. Auto-detected from file extension or content if omitted.                           |
+| `annotations` | [Annotations](../_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
+
+## Guardrails & Security Model
+
+- **Allowed File Extensions**: To prevent accidental exposure of binaries, executables, or sensitive credentials, Toolbox restricts file resources to known text formats:
+  - `.txt`, `.md`, `.csv`, `.json`, `.yaml`, `.yml`, `.xml`, `.sql`
+  Files with unsupported extensions are rejected during startup validation.
+- **Boot-Time Existence Verification**: The file specified by `path` **must exist** and be readable when the server boots. If the file is missing or inaccessible, the server will fail to start.
+- **Regular Files Only**: The target must be a regular file. Directories, sockets, character/block devices, and named pipes are rejected at startup and runtime.
+- **Directory Traversal and Sandboxing**:
+  - Relative paths are anchored to the directory containing the configuration file.
+  - Symlinks are resolved at boot time and evaluated to verify that they do not escape the configuration base directory.
+- **Time-of-Check to Time-of-Use (TOCTOU) Protection**: On every `resources/read` request, Toolbox verifies that:
+  - The file has not been swapped with a symlink.
+  - The underlying inode/file identity matches what was opened.
+  - The file extension has not changed post-boot.
+- **Dynamic Last-Modified & Size**:
+  - In `resources/list`, `size` is reported directly from disk `FileInfo.Size()`.
+  - In `annotations.lastModified`, the timestamp is dynamically generated on each query from the file's current disk modification time (in RFC 3339 format).
+- **Size Limit & Truncation (`maxSize`)**: If a file exceeds `maxSize` (defaults to 5MB / `5242880` bytes, configurable up to 1GB), Toolbox does not error. Instead, it reads up to `maxSize` bytes, safely cleans incomplete multi-byte UTF-8 sequences at the cut-off boundary, and appends a clear truncation notice:
+  ```text
+  ...[TRUNCATED BY SERVER: Payload exceeded <limit> byte safety limit]...
+  ```
+  This prevents memory exhaustion while still delivering the initial content of large files to the LLM.
+
+
+
+
+
+========================================================================
+## Resource Templates
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Resources > Resource Templates
+**URL:** https://mcp-toolbox.dev/dev/documentation/configuration/resources/template/
+**Description:** Dynamic file resource templates using RFC 6570 URI patterns.
+
+
+
+Resource templates allow you to expose an entire directory tree of files dynamically without defining each file individually. Clients can discover available templates using `resources/templates/list` and read specific files using `resources/read` by supplying a constructed URI.
+
+## Examples
+
+### Project Documentation Template
+
+You can configure a template dedicated to documentation files with a custom `mimeType`. Note that `allowedPaths` can also use relative paths (such as `./docs`), which are automatically resolved relative to the directory containing your configuration file:
+
+```yaml
+kind: resourceTemplate
+name: project_docs
+type: file
+title: "Project Documentation"
+description: "Markdown documentation for the project."
+uriTemplate: "file:///docs/{path}"
+allowedPaths:
+  - "/docs"
+mimeType: "text/markdown"
+```
+
+When queried via `resources/templates/list`, the response includes the defined `mimeType`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "resourceTemplates": [
+      {
+        "name": "project_docs",
+        "title": "Project Documentation",
+        "uriTemplate": "file:///docs/{path}",
+        "description": "Markdown documentation for the project.",
+        "mimeType": "text/markdown",
+        "annotations": {
+          "priority": 1
+        }
+      }
+    ]
+  }
+}
+```
+
+The client can then retrieve markdown documentation using `resources/read`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "resources/read",
+  "params": {
+    "uri": "file:///docs/guide.md"
+  }
+}
+```
+
+## Reference
+
+### Resource Template Schema
+
+| **field**        | **type**                           | **required** | **description**                                                                                               |
+|------------------|------------------------------------|--------------|---------------------------------------------------------------------------------------------------------------|
+| `name`           | string                             | Yes          | Unique name for the resource template.                                                                        |
+| `type`           | string                             | Yes          | Must be `"file"`.                                                                                             |
+| `uriTemplate`    | string                             | Yes          | RFC 6570 URI template. Must contain the `{path}` variable (e.g., `file:///logs/{path}`).                     |
+| `allowedPaths`   | []string                           | No           | Allowed directory trees on disk. Any path resolving outside these boundaries is blocked.                      |
+| `maxSize`       | int64 / string                     | No           | Maximum allowed file size in bytes (defaults to 5MB / `5242880` bytes).                                       |
+| `description`    | string                             | No           | A brief explanation of what the resource template exposes.                                                    |
+| `title`          | string                             | No           | Human-readable title for client display.                                                                      |
+| `mimeType`       | string                             | No           | Default MIME type for content returned by this template.                                                      |
+| `annotations`    | [Annotations](../_index.md#annotations-schema) | No   | Metadata annotations (`priority`, `audience`, `lastModified`).                                                |
+
+## Guardrails & Security Model
+
+- **Strict `{path}` Variable Requirement**: The `uriTemplate` must follow the [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570) specification and **must contain only the `{path}` variable**. Any other template variables (e.g., `{id}`, `{filename}`) will fail validation at startup.
+{{< notice caution >}}
+**Global System Access by Default**: If `allowedPaths` is omitted, the template will have **no sandbox**. It will be able to read **any file on the entire system** that possesses an allowed extension (e.g. `.txt`, `.json`). It is highly recommended to always specify `allowedPaths` to sandbox the template to a specific directory tree.
+{{< /notice >}}
+
+- **Path Traversal Prevention**:
+  - If `allowedPaths` is defined, the target path must resolve strictly within one of the specified allowed directories.
+  - Path traversal attempts using relative segments (such as `../`) or symlink escapes will be blocked with a security violation error.
+- **Hidden File Protection**:
+  - If `allowedPaths` is omitted, access to hidden files and directories (files or directories beginning with `.`) is automatically blocked to prevent accidental exposure of `.env` files, `.ssh` keys, or `.git` directories.
+  - If `allowedPaths` **is** specified, hidden files *are* permitted, provided they reside within the allowed directory boundaries.
+- **Allowed Extensions**:
+  - The requested URI and the resolved disk path must both have an allowed text file extension:
+    - `.txt`, `.md`, `.csv`, `.json`, `.yaml`, `.yml`, `.xml`, `.sql`
+  - Requests for files with unsupported extensions are rejected.
+- **Regular Files Only**:
+  - `resources/read` can only read regular files. If a client provides a URI that resolves to a directory, block device, socket, or pipe, an error is returned.
+- **Size Limits & Truncation (`maxSize`)**:
+  - If a matched file exceeds `maxSize` (defaults to 5MB / `5242880` bytes, configurable up to 1GB), Toolbox does not error. Instead, it reads up to `maxSize` bytes, safely cleans incomplete multi-byte UTF-8 sequences at the cut-off boundary, and appends a clear truncation notice:
+    ```text
+    ...[TRUNCATED BY SERVER: Payload exceeded <limit> byte safety limit]...
+    ```
+    This prevents memory exhaustion while still delivering the initial content of large files to the LLM.
+
+
+
+
+
+========================================================================
+## MCP Apps
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > MCP Apps
+**URL:** https://mcp-toolbox.dev/dev/documentation/configuration/mcp-apps/
+**Description:** Interactive HTML UI resources and tool visual interfaces for MCP clients supporting the MCP Apps extension.
+
+
+
+The [**MCP Apps**](https://github.com/modelcontextprotocol/ext-apps) extension (`io.modelcontextprotocol/ui`) allows MCP servers to serve interactive web applications (HTML/CSS/JS) directly as resources and bind them to tools. When supported by an MCP client, the client can render an interactive user interface alongside or in place of standard tool outputs. For the official protocol specification, schemas, and client SDKs, refer to the [modelcontextprotocol/ext-apps](https://github.com/modelcontextprotocol/ext-apps) repository.
+
+{{< notice note >}}
+**Protocol Version Differences**:
+- **Modern Protocol (`2026-07-28`)**: Supports the official MCP extensions capability negotiation. The server advertises `io.modelcontextprotocol/ui` under `capabilities.extensions` during `server/discover`, and dynamically enables `_meta.ui` on tools when the client also advertises `io.modelcontextprotocol/ui` in its request capabilities.
+- **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**: Toolbox backports `io.modelcontextprotocol/ui` extension capability negotiation to `initialize` and `tools/list` across earlier protocol versions, and provides a `--disable-extension-check` startup flag for legacy clients that do not advertise extension capabilities.
+{{< /notice >}}
+
+## Defining a UI Resource
+
+In Toolbox, UI capabilities are configured directly on standard [resources](../resources/) (`kind: resource` or `kind: resourceTemplate`) by setting `ui: true`.
+
+Any type of resource can function as an interactive MCP App simply by setting `ui: true`. When `ui: true` is set:
+- `mimeType` must be `text/html;profile=mcp-app` (defaults automatically if omitted; explicit non-conforming types are rejected).
+- `uri` defaults to `ui://{name}` if omitted.
+- Security policies (CSP), device permissions, application domain, and container display settings can be configured.
+
+```yaml
+kind: resource
+name: customer_dashboard
+type: file
+path: "./ui/dashboard.html"
+description: "Interactive customer metrics dashboard."
+ui: true
+domain: "https://example.com"
+prefersBorder: true
+csp:
+  connectDomains:
+    - "https://api.example.com"
+  resourceDomains:
+    - "https://cdn.example.com"
+permissions:
+  - clipboardWrite
+```
+
+### UI Resource Configuration
+
+When `ui: true` is enabled on `kind: resource` or `kind: resourceTemplate`, the following fields can be configured:
+
+| **field**       | **type**                                      | **required** | **description**                                                                                           |
+|-----------------|-----------------------------------------------|--------------|-----------------------------------------------------------------------------------------------------------|
+| `ui`            | bool                                          | Yes          | Set to `true` to designate this resource as an interactive MCP UI application.                            |
+| `mimeType`      | string                                        | No           | MIME type of the UI resource. Must be `text/html;profile=mcp-app` (defaults automatically if omitted).  |
+| `domain`        | string                                        | No           | Application domain. Must be a valid absolute URI with an `http` or `https` scheme (e.g., `https://example.com`). |
+| `csp`           | [CSPConfig](#content-security-policy-csp)     | No           | Content Security Policy restricting the domains that the UI app can communicate with or load assets from.|
+| `permissions`   | []string                                      | No           | List of browser device permissions requested by the app (e.g., `camera`, `microphone`, `geolocation`, `clipboardWrite`). |
+| `prefersBorder` | bool                                          | No           | Suggests whether the host client should render a visible border around the app container.                |
+
+### Content Security Policy (CSP)
+
+To safeguard client environments from untrusted origins, Toolbox allows you to define a strict Content Security Policy for your UI resources. All origins must include a valid protocol scheme (`http` or `https`) and host:
+
+| **field**         | **type** | **description**                                                                         |
+|-------------------|----------|-----------------------------------------------------------------------------------------|
+| `connectDomains`  | []string | Allowed origins for fetch and XMLHttpRequest connections (`connect-src`).               |
+| `resourceDomains` | []string | Allowed origins for scripts, styles, images, and fonts (`script-src`, `img-src`, etc.). |
+| `frameDomains`    | []string | Allowed origins for nested iframes (`frame-src`).                                       |
+| `baseUriDomains`  | []string | Allowed origins for document base URIs (`base-uri`).                                    |
+
+### Permissions
+
+The `permissions` field specifies browser capabilities requested by the UI app. The following permissions are supported:
+
+- `camera`: Access to video capture devices.
+- `microphone`: Access to audio capture devices.
+- `geolocation`: Access to geographic location data.
+- `clipboardWrite`: Permission to write text and data to the system clipboard.
+
+## Linking Tools to UI Resources
+
+[Tools](../tools/) can link directly to a UI resource so clients know which visual interface to render when executing the tool.
+
+To associate a tool with a UI resource, add the `ui` block to the tool's configuration:
+
+```yaml
+kind: tool
+name: view_customer_dashboard
+type: postgres-sql
+source: my-db
+statement: "SELECT * FROM customers WHERE id = $1"
+description: "Retrieves customer records and displays an interactive dashboard."
+parameters:
+  - name: customer_id
+    type: integer
+    description: "The unique ID of the customer."
+ui:
+  resource: customer_dashboard
+  visibility:
+    - model
+    - app
+```
+
+### Tool UI Schema
+
+| **field**      | **type**  | **required** | **description**                                                                                                            |
+|----------------|-----------|--------------|----------------------------------------------------------------------------------------------------------------------------|
+| `resource`     | string    | Yes          | The `name` of a configured `resource` or `resourceTemplate` providing the UI for this tool (must have `ui: true`).        |
+| `visibility`   | []string  | No           | Controls who can see the tool. Allowed values are `model` and `app`. Defaults to `["model", "app"]` if omitted.          |
+
+#### Visibility Options
+
+- `model`: The tool is advertised to LLMs for automated tool calling.
+- `app`: The tool is exposed to the interactive UI application for direct invocation.
+- Both (`["model", "app"]`): The default setting, allowing both the model and the UI app to call the tool.
+
+## Global Availability & Group Scoping
+
+Unlike standard tools, prompts, or resources that are scoped to specific [Groups](../groups/), **UI resources are strictly global and cannot be scoped to groups**:
+
+1. **Server-Wide Tool References**: Tools in any group can link to UI resources without needing to declare the UI resource in that group.
+2. **UI Resource Requirement**: Toolbox validates that every `ui.resource` referenced by a tool exists and is explicitly configured as a UI resource (`ui: true`). Referencing a standard (non-UI) resource or template will fail startup validation with an error:
+   ```text
+   resource "<name>" referenced by tool "<tool>" is not a UI resource (ui: true is required)
+   ```
+3. **Forbidden in Groups**: UI resources and UI resource templates (`ui: true`) **cannot** be included in `groups[].resources` or `groups[].resourceTemplates`. Attempting to add a UI resource to a group will fail startup validation with an error:
+   ```text
+   UI resource "<name>" cannot be included in group "<group>": UI resources are globally accessible and cannot be scoped to groups
+   ```
+4. **Omitted from Resource Listing**: UI resources (`ui: true`) are intentionally excluded from `resources/list` and `resources/templates/list` across all endpoints (including the default `/mcp` group endpoint) so they do not clutter standard LLM context. Clients obtain the UI resource URI directly from the tool's manifest metadata and retrieve it via `resources/read`.
+
+## Capability Negotiation & Graceful Degradation
+
+- **Modern Protocol (`2026-07-28`)**: Employs dynamic client capability negotiation to ensure backwards compatibility with standard text-only MCP clients:
+  1. **Client Advertising**: Clients that support interactive apps advertise the extension in their request metadata (`_meta`):
+     ```json
+     {
+       "_meta": {
+         "io.modelcontextprotocol/clientCapabilities": {
+           "extensions": {
+             "io.modelcontextprotocol/ui": {
+               "mimeTypes": ["text/html;profile=mcp-app"]
+             }
+           }
+         }
+       }
+     }
+     ```
+  2. **Graceful Degradation**:
+     - When a client **supports** the UI extension, Toolbox includes UI metadata on tools in `tools/list` under `_meta.ui`:
+       ```json
+       {
+         "name": "view_customer_dashboard",
+         "description": "Retrieves customer records and displays an interactive dashboard.",
+         "_meta": {
+           "ui": {
+             "resourceUri": "ui://customer_dashboard",
+             "visibility": ["model", "app"]
+           }
+         }
+       }
+       ```
+     - When a client **does not support** the UI extension (or omits `io.modelcontextprotocol/ui`), Toolbox automatically strips `_meta.ui` from tool definitions, serving the tool as a standard text-based tool.
+     - All tools continue to return standard structured text output in their `content` array regardless of UI mode.
+
+- **Legacy Protocols (`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`)**:
+  - Toolbox backports client capability advertisement and negotiation to all legacy protocols to support modern clients running on older endpoints:
+    1. **Initialization**: Clients advertise UI capabilities during `initialize` via `capabilities.extensions["io.modelcontextprotocol/ui"]` (with `mimeTypes: ["text/html;profile=mcp-app"]`). When present, Toolbox advertises server UI capability in `InitializeResult.capabilities.extensions["io.modelcontextprotocol/ui"]: {}`. If omitted by the client, server `extensions` is omitted.
+    2. **Per-Request Negotiation**: Clients **should** also advertise UI support in request metadata (`_meta` or `params.capabilities`) on `tools/list`:
+       ```json
+       {
+         "_meta": {
+           "io.modelcontextprotocol/clientCapabilities": {
+             "extensions": {
+               "io.modelcontextprotocol/ui": {
+                 "mimeTypes": ["text/html;profile=mcp-app"]
+               }
+             }
+           }
+         }
+       }
+       ```
+    3. **Graceful Degradation**: When UI capabilities are advertised, Toolbox includes `_meta.ui` on tools in `tools/list`. If the client does not advertise UI support, Toolbox gracefully degrades by omitting `_meta.ui` from tool definitions, ensuring full backward compatibility with standard text-only clients.
+    4. **Bypassing Capability Checks (`--disable-extension-check`)**: For clients on older protocol versions that render MCP Apps without advertising `io.modelcontextprotocol/ui` capabilities during `initialize` or `tools/list`, start Toolbox with `--disable-extension-check`:
+       ```bash
+       ./toolbox --config tools.yaml --disable-extension-check
+       ```
+       When enabled, Toolbox bypasses the client extension capability check in older protocol versions (`2024-11-05` through `2025-11-25`) and always includes `io.modelcontextprotocol/ui` in `InitializeResult.capabilities.extensions` and `_meta.ui` on tools in `tools/list`.
+    5. **Resource Retrieval**: UI documents and security policies remain available via `resources/read` for clients that support rendering MCP Apps.
+
+## Reading UI Resources
+
+When a client or host application requests a UI resource via `resources/read`, Toolbox delivers the HTML document along with the declared security policies in the content item's `_meta.ui`:
+
+```json
+{
+  "contents": [
+    {
+      "uri": "ui://customer_dashboard",
+      "mimeType": "text/html;profile=mcp-app",
+      "text": "<!DOCTYPE html><html>...</html>",
+      "_meta": {
+        "ui": {
+          "csp": {
+            "connectDomains": ["https://api.example.com"],
+            "resourceDomains": ["https://cdn.example.com"]
+          },
+          "permissions": {
+            "clipboardWrite": {}
+          },
+          "domain": "https://example.com",
+          "prefersBorder": true
+        }
+      }
+    }
+  ]
+}
+```
+
+The host application uses this `_meta.ui` payload to configure iframe sandbox policies, enforce Content Security Policy headers, and apply frame boundary styling.
+
+
+
+
+========================================================================
 ## Toolbox UI
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Toolbox UI
@@ -5097,6 +5822,50 @@ of your AuthService as defined in your tool configuration file, suffixed with
 
 ![Using Authenticated Parameter GIF](./edit-headers.gif)
 
+## Interactive Tools (MCP Apps)
+
+Toolbox UI supports rendering interactive visual interfaces for tools configured
+with [MCP Apps](../mcp-apps/) resources.
+
+### Identifying App Tools
+
+Tools configured with an associated UI resource (`ui.resource`) display an **APP** badge next to their name in the tool list. Clicking on an app tool loads both the standard tool invocation form and the embedded interactive UI.
+
+### Sandboxed UI Rendering
+
+When an app tool is selected:
+
+1. Toolbox UI retrieves the configured HTML UI resource via `resources/read`.
+2. The UI is mounted inside a sandboxed `<iframe>` with strict isolation policies.
+3. The playground acts as an MCP Apps (SEP-1865) host, completing the initialization handshake (`ui/initialize` and `ui/notifications/initialized`).
+
+### Executing App Tools and Live Updates
+
+When you click **"Run Tool"**:
+
+1. The tool executes on the server and displays the raw JSON output in the response area.
+2. The structured result is simultaneously delivered to the interactive app via the `ui/notifications/tool-result` postMessage notification.
+3. The embedded web application updates in real time to visualize the tool result.
+
+Interactive apps can also invoke tools directly on the server by sending `tools/call` JSON-RPC requests to the host bridge, or adjust container height dynamically via `ui/notifications/size-changed`.
+
+### App Controls
+
+The app container provides interactive controls located in the app header:
+
+- **Fullscreen**: Expands the application container to fill the browser window for in-depth data inspection.
+- **Reload**: Reloads the iframe and re-establishes the host communication bridge.
+
+### Quickstart Example
+
+You can test MCP Apps directly in Toolbox UI using the included generic example:
+
+```bash
+./toolbox --config examples/mcp-apps/tools.yaml --ui
+```
+
+Open `http://localhost:5000/ui`, select the `get_sales_report` tool (marked with the **APP** badge), and click **"Run Tool"** to see the interactive dashboard update with live SQLite data.
+
 ## Navigating the Toolsets Page
 
 Through the toolsets page, users can search for a specific toolset to retrieve
@@ -5111,12 +5880,31 @@ message will be displayed.
 
 
 
+
 ========================================================================
 ## Agent Skills
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Agent Skills
 **URL:** https://mcp-toolbox.dev/dev/documentation/configuration/skills/
-**Description:** How to generate agent skills from a toolset.
+**Description:** Generate an Agent Skill from a toolset, and serve an Agent Skill over MCP.
+
+
+
+An [Agent Skill](https://agentskills.io/specification) is a directory of files. A
+`SKILL.md` file at the root of that directory holds the skill's name and
+description in YAML frontmatter. Toolbox can generate a skill from your tools, and
+can serve a skill you already have over MCP. The two are independent. Use either
+one alone, or use both.
+
+
+
+
+========================================================================
+## Generating Skills
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Agent Skills > Generating Skills
+**URL:** https://mcp-toolbox.dev/dev/documentation/configuration/skills/generating/
+**Description:** Convert a toolset or a group into a skill package: a SKILL.md and one Node.js script for each tool.
 
 
 
@@ -5250,7 +6038,228 @@ Provide the path to the directory containing the generated skill:
 gemini skills install /path/to/generated-skills/my-skill
 ```
 
-Alternatively, use ~/.gemini/skills as the `--output-dir` to generate the skill straight to the Gemini CLI.
+Alternatively, use `~/.gemini/skills` as the `--output-dir` to generate the skill straight to the Gemini CLI.
+
+
+
+
+========================================================================
+## Serving Skills over MCP
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Documentation > Configuration > Agent Skills > Serving Skills over MCP
+**URL:** https://mcp-toolbox.dev/dev/documentation/configuration/skills/serving/
+**Description:** Publish an Agent Skill you already have through skills/list and skills/get, on the same connection that serves your tools.
+
+
+
+## Overview
+
+Toolbox serves an Agent Skill as a set of ordinary [resources](../resources/). The
+`io.modelcontextprotocol/skills` extension adds two methods on top of them:
+
+- `skills/list` returns every skill the server declares.
+- `skills/get` returns one skill, addressed by the URI of its `SKILL.md`. An
+  unknown URI returns error code `-32602`.
+
+Both methods return metadata only. Each entry carries the `SKILL.md` frontmatter,
+and the URI, `sha256:` digest, and byte size of every file in the skill. The client
+reads the content of a file with `resources/read`, and compares the bytes against
+the digest.
+
+{{< notice note >}}
+Toolbox computes the digests for each request. After you edit a file, the next
+`skills/list` or `skills/get` request publishes the new digest. If you add or
+remove a file of the skill, you change the configuration, so reload the server.
+{{< /notice >}}
+
+Toolbox enables the extension by default. To turn it off, see [Disabling the
+extension](#disabling-the-extension).
+
+Toolbox advertises extensions only for MCP protocol version `2026-07-28`. A client
+on any other version reads the files as ordinary resources.
+
+The skill files are always ordinary resources. `resources/list` and
+`resources/read` return them on every protocol version, whether the extension is
+enabled or disabled.
+
+A client must declare `io.modelcontextprotocol/skills` in
+`_meta.clientCapabilities.extensions` on each `skills/list` and `skills/get`
+request. Without it, both methods return error code `-32021`
+(`MISSING_REQUIRED_CLIENT_CAPABILITY`).
+
+## Defining a skill
+
+### The skill:// convention
+
+A resource joins a skill through its URI. Give the resource a URI of the form
+`skill://<skill-path>/<file>`:
+
+- The resource at `skill://<skill-path>/SKILL.md` declares a skill.
+- Every other resource under the same `skill://<skill-path>/` prefix is a file of
+  that skill.
+
+A `skill://` resource with no `SKILL.md` at its skill path joins no skill.
+Toolbox serves it as an ordinary resource, and logs a warning at startup.
+
+The skill path holds one or more segments. `skill://guide/SKILL.md` and
+`skill://team/guide/SKILL.md` both declare a skill. The frontmatter `name` must
+equal the last segment, so the second one requires `name: guide`.
+
+Only concrete resources (`kind: resource`) become files of a skill. A
+[resource template](../resources/template/) accepts a `skill://` URI template, but
+Toolbox does not count the files it matches as members of a skill.
+
+### Example
+
+Declare one `kind: resource` entry for each file of the skill:
+
+```yaml
+kind: resource
+name: deploy-runbook
+type: file
+description: "How to deploy the billing service."
+path: "./skills/deploy-runbook/SKILL.md"
+uri: "skill://deploy-runbook/SKILL.md"
+---
+kind: resource
+name: deploy-runbook-rollback
+type: file
+description: "Rollback steps for the billing service."
+path: "./skills/deploy-runbook/reference/rollback.md"
+uri: "skill://deploy-runbook/reference/rollback.md"
+```
+
+The `SKILL.md` on disk opens with YAML frontmatter, and its `name` matches the
+skill path:
+
+```markdown
+---
+name: deploy-runbook
+description: "How to deploy the billing service, and how to roll it back."
+---
+
+Read `reference/rollback.md` before you start a rollback.
+```
+
+`skills/list` then returns one entry:
+
+```json
+{
+  "skills": [
+    {
+      "uri": "skill://deploy-runbook/SKILL.md",
+      "frontmatter": {
+        "name": "deploy-runbook",
+        "description": "How to deploy the billing service, and how to roll it back."
+      },
+      "resources": [
+        {
+          "uri": "skill://deploy-runbook/SKILL.md",
+          "digest": "sha256:...",
+          "size": 184
+        },
+        {
+          "uri": "skill://deploy-runbook/reference/rollback.md",
+          "digest": "sha256:...",
+          "size": 2210
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Configuration
+
+A skill uses two fields of the [resource schema](../resources/#resource-schema-kind-resource).
+The **required** column below applies to a skill, not to resources in general.
+
+| **field**   | **type** | **required** | **description**                                                                                                                                       |
+|-------------|----------|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `uri`       | string   | Yes          | Address the resource as `skill://<skill-path>/<file>`. A URI that ends in `/SKILL.md` declares a skill. Other `skill://` URIs are files of a skill.  |
+| `dynamic`   | bool     | No           | Set to `true` on a `SKILL.md` resource to publish the dynamic marker in place of digests. See [Dynamic skills](#dynamic-skills). Defaults to `false`. |
+
+A `type: file` resource is the usual choice, because it serves a file from disk.
+
+### Nested skills
+
+A skill path can contain another skill. `skill://guide/SKILL.md` and
+`skill://guide/api/SKILL.md` declare two skills, and Toolbox lists both.
+
+The specification requires each entry to list every file under its skill path.
+A file of the inner skill is also under the outer skill's path, so it appears in
+both entries. For example, `skill://guide/api/reference.md` appears in the entry
+for `guide` and in the entry for `api`.
+
+### Dynamic skills
+
+Set `dynamic: true` on a `SKILL.md` resource when the content of the skill changes
+faster than a host's load cycle. The entry then publishes the string `"dynamic"`
+in place of the file list.
+
+{{< notice warning >}}
+A dynamic skill publishes no digests, so a client cannot verify the bytes it
+fetched against the catalogue. Use `dynamic: true` only when a stable digest is
+impossible.
+{{< /notice >}}
+
+The [`io.modelcontextprotocol/skills`
+extension](https://modelcontextprotocol.io/extensions/skills/overview#implementation-requirements)
+defines the `"dynamic"` marker and the per-skill limits. Toolbox adds three rules
+for the marker:
+
+- `dynamic` must be mentioned only on the `SKILL.md` resource of a skill. Validation fails here for any other resource.
+- The 512-file limit does not apply, because a dynamic skill publishes no file
+  list. The 16 MiB limit still bounds the read of the `SKILL.md`.
+- A nested dynamic skill makes every enclosing skill dynamic. The outer skill
+  contains the inner files, so its own digests cannot be stable either.
+
+## Validation
+
+Toolbox validates every skill at startup. A skill that breaks a rule fails to
+load. The error message starts with the URI of the skill's `SKILL.md`, followed
+by the rule that the skill breaks.
+
+The `SKILL.md` must follow the [Agent Skills
+specification](https://agentskills.io/specification), and the skill must follow
+the [`io.modelcontextprotocol/skills`
+extension](https://modelcontextprotocol.io/extensions/skills/overview), which
+defines how a server serves a skill. Toolbox adds one rule of its own: no two
+resources declare the same `skill://` URI.
+
+## Skills in other MCP methods
+
+### Skills in resources/list
+
+`resources/list` publishes the frontmatter `name` and `description` of a
+`SKILL.md`, not the Toolbox config's `name` and `description`. Toolbox also reports the
+`mimeType` of a `SKILL.md` as `text/markdown`.
+
+### Skills and groups
+
+The skills catalogue is server-wide. [Groups](../groups/) do not scope
+`skills/list` or `skills/get`, and the endpoint of the request does not change the
+result. Groups do scope `resources/list` and `resources/read`, which return the
+file content.
+
+Treat the skills metadata: skill names and supporting files etc. as visible to all clients.
+
+## Disabling the extension
+
+Pass the extension URI to `--disable-ext`:
+
+```bash
+./toolbox --disable-ext io.modelcontextprotocol/skills
+```
+
+The server then returns error code `-32021` for `skills/list` and `skills/get`
+on any endpoint, and removes the extension from its advertised capabilities.
+`resources/list` and `resources/read` still return the skill files as ordinary
+resources. See
+[Disabling MCP Extensions](../../../reference/cli.md#disabling-mcp-extensions).
+
+Toolbox still validates every skill at startup. A skill that breaks one of the
+[validation rules](#validation) fails the load, with or without the extension.
 
 
 
@@ -10930,7 +11939,7 @@ func main() {
 	}
 
 	// Set up the generative model with the available tool.
-	modelName := "gemini-2.0-flash"
+	modelName := "gemini-3.8-flash"
 
 	query := "Find hotels in Basel with Basel in it's name and share the names with me"
 
@@ -11037,7 +12046,7 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize the Google AI client (LLM).
-	llm, err := googleai.New(ctx, googleai.WithAPIKey(genaiKey), googleai.WithDefaultModel("gemini-1.5-flash"))
+	llm, err := googleai.New(ctx, googleai.WithAPIKey(genaiKey), googleai.WithDefaultModel("gemini-3.8-flash"))
 	if err != nil {
 		log.Fatalf("Failed to create Google AI client: %v", err)
 	}
@@ -11389,7 +12398,7 @@ func main() {
 	// Initialize genkit
   g := genkit.Init(ctx,
 		genkit.WithPlugins(&googlegenai.GoogleAI{}),
-		genkit.WithDefaultModel("googleai/gemini-1.5-flash"),
+		genkit.WithDefaultModel("googleai/gemini-3.8-flash"),
 	)
 
 	// Convert your tool to a Genkit tool.
@@ -12211,23 +13220,23 @@ After you install Looker in the MCP Store, resources and tools from the server a
 
 {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -12599,6 +13608,8 @@ and execute queries against that model.
 
 1. **get_models**: list the LookML models in Looker
 1. **get_explores**: list the explores in a given model
+1. **get_explore**: get detailed metadata, including required filters, for a
+   given explore
 1. **get_dimensions**: list the dimensions in a given explore
 1. **get_measures**: list the measures in a given explore
 1. **get_filters**: list the filters in a given explore
@@ -12620,9 +13631,14 @@ instance and create new saved content.
 1. **run_dashboard**: Run the queries associated with a dashboard and return the
    data
 1. **make_dashboard**: Create a saved dashboard in Looker and return the URL
+1. **update_dashboard**: Update a dashboard container and appearance settings
+1. **update_dashboard_layout**: Update a dashboard layout (tab)
+1. **import_dashboard_from_lookml**: Import a LookML dashboard YAML definition to create or overwrite a saved dashboard in Looker
 1. **add_dashboard_element**: Add a tile to a dashboard
 1. **add_dashboard_filter**: Add a filter to a dashboard
 1. **generate_embed_url**: Generate an embed url for content
+1. **create_data_app_extension**: Create a Data App Extension in Looker
+1. **update_data_app_extension**: Update an existing Data App Extension in Looker
 
 ### Looker Instance Health Tools
 
@@ -12717,23 +13733,23 @@ expose your developer assistant tools to a MySQL instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -13047,23 +14063,23 @@ expose your developer assistant tools to a Neo4j instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -13374,23 +14390,23 @@ to expose your developer assistant tools to an Oracle instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -13723,23 +14739,23 @@ Omni](https://cloud.google.com/alloydb/omni/docs/overview).
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14080,23 +15096,23 @@ instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -14355,6 +15371,7 @@ The following tools are available to the LLM:
 
 1.  **list_tables**: lists tables and descriptions
 1.  **execute_sql**: execute any SQL statement
+1.  **get_database_object_source_code**: retrieves source code and metadata for database objects
 
 {{< notice note >}}
 Prebuilt tools are pre-1.0, so expect some tool changes between versions. LLMs
@@ -14410,23 +15427,23 @@ to expose your developer assistant tools to a SQLite instance:
    <!-- {x-release-please-start-version} -->
    {{< tabpane persist=header >}}
 {{< tab header="linux/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/linux/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/linux/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/arm64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/arm64/toolbox
 {{< /tab >}}
 
 {{< tab header="darwin/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/darwin/amd64/toolbox
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/darwin/amd64/toolbox
 {{< /tab >}}
 
 {{< tab header="windows/amd64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/amd64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/amd64/toolbox.exe
 {{< /tab >}}
 
 {{< tab header="windows/arm64" lang="bash" >}}
-curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/windows/arm64/toolbox.exe
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/windows/arm64/toolbox.exe
 {{< /tab >}}
 {{< /tabpane >}}
     <!-- {x-release-please-end} -->
@@ -17005,6 +18022,7 @@ If you are exporting telemetry using OpenTelemetry, the `traceparent` attribute 
 SQL Commenter is supported on the following database sources:
 
 * `alloydb-postgres`
+* `bigquery` (as [job labels](../../integrations/bigquery/source.md#sql-commenter-job-labels))
 * `cloud-sql-postgres`
 * `cloud-sql-mysql`
 * `postgres`
@@ -18871,6 +19889,49 @@ useClientOAuth: true
 | maxQueryResultRows             |   int    |    false     | The maximum number of rows to return from a query. Defaults to 50. |
 | maximumBytesBilled             |  int64   |    false     | The maximum bytes billed per query. When set, queries that exceed this limit fail before executing. |
 | apiEndpoint                    |  string  |    false     | Override the BigQuery API endpoint. |
+| sqlCommenter                   | boolean  |    false     | Overrides the global `--sql-commenter` flag for this source. When set, it takes priority; when omitted, the global flag applies. See [SQL Commenter: Job Labels](#sql-commenter-job-labels). |
+
+## Advanced Usage
+
+### SQL Commenter: Job Labels
+
+BigQuery does not retain SQL-text comments in its logs, so instead of
+prepending a comment, [SQL Commenter](../../documentation/monitoring/sql_commenter.md)
+attaches the same attributes as native
+[job labels](https://cloud.google.com/bigquery/docs/adding-labels#job-label)
+on every query job executed through the source's SQL execution path — the
+`bigquery-execute-sql`, `bigquery-sql`, `bigquery-forecast`, and
+`bigquery-analyze-contribution` tools. (The internal model-creation
+statement of `bigquery-analyze-contribution` runs outside that path and
+carries only the `mcp-toolbox-tool` label.) Labels appear in
+`INFORMATION_SCHEMA.JOBS`, the Jobs API, audit logs, and billing exports —
+no query text parsing is needed to recover them.
+
+Attribute names and values are sanitized to satisfy BigQuery label
+constraints (lowercase letters, digits, underscores, and dashes; at most 63
+characters): dots in attribute names become underscores (`tool.name` →
+`tool_name`), and any other disallowed character in a value is replaced with
+an underscore (`genai-toolbox/1.1.0` → `genai-toolbox_1_1_0`). Labels set
+explicitly by tools (such as `mcp-toolbox-tool`) always take precedence over
+SQLCommenter attributes on key collisions. Values longer than 63 characters
+are silently truncated, so two values sharing a long prefix can become
+indistinguishable; attributes are applied in sorted name order so any
+collision resolves deterministically. BigQuery's limit of 64 labels per
+job is left to the API to enforce: a job that would exceed it fails with a
+clear error rather than silently dropping telemetry.
+
+For example, to see per-tool bytes billed for agent-issued queries:
+
+```sql
+SELECT
+  (SELECT value FROM UNNEST(labels) WHERE key = 'tool_name') AS tool_name,
+  (SELECT value FROM UNNEST(labels) WHERE key = 'client') AS client,
+  SUM(total_bytes_billed) AS total_bytes_billed
+FROM `region-us`.INFORMATION_SCHEMA.JOBS
+WHERE EXISTS (SELECT 1 FROM UNNEST(labels) WHERE key = 'tool_name')
+GROUP BY tool_name, client
+ORDER BY total_bytes_billed DESC;
+```
 
 
 
@@ -18938,11 +19999,14 @@ the `bigquery` source:
 - **Without `allowedDatasets` restriction:** The tool can use any table or query
   for the `input_data` parameter.
 - **With `allowedDatasets` restriction:** The tool verifies that the
-  `input_data` parameter only accesses tables within the allowed datasets.
+  `input_data` parameter only accesses tables within `allowedDatasets`.
   - If `input_data` is a table ID, the tool checks if the table's dataset is in
-    the allowed list.
-  - If `input_data` is a query, the tool performs a dry run to analyze the query
-    and rejects it if it accesses any table outside the allowed list.
+    `allowedDatasets`.
+  - If `input_data` is a query, the tool performs a dry run to analyze the query.
+    It will reject the query if it explicitly references any table outside
+    `allowedDatasets`. Like [`bigquery-execute-sql`](../bigquery-execute-sql), authorized views are supported:
+    if a referenced table is not explicitly named in the SQL text, it is
+    permitted. Unanalyzable and dataset-level operations are rejected.
 
 
 ## Compatible Sources
@@ -19029,7 +20093,7 @@ The tool's behavior regarding these parameters is influenced by the
 dataset specified in the `table_references` parameter.
 - **With `allowedDatasets` restriction:** Before processing the request, the
   tool verifies that every table in `table_references` belongs to a dataset in
-  the allowed list. If any table is from a dataset that is not in the list, the
+  `allowedDatasets`. If any table is from a dataset that is not listed, the
   request is denied.
 
 
@@ -19098,13 +20162,29 @@ layer of security by controlling which datasets can be accessed:
 - **Without `allowedDatasets` restriction:** The tool can execute any valid
   GoogleSQL query.
 - **With `allowedDatasets` restriction:** Before execution, the tool performs a
-  dry run to analyze the query.
-  It will reject the query if it attempts to access any table outside the
-  allowed `datasets` list. To enforce this restriction, the following operations
-  are also disallowed:
+  dry run to analyze the query. It will reject the query if it explicitly
+  references any table outside `allowedDatasets`.
+
+  **Authorized views are supported.** If the dry run reports that the query
+  reads a table outside `allowedDatasets`, but that table is not named anywhere
+  in the SQL text, the access is treated as an
+  [authorized view](https://cloud.google.com/bigquery/docs/authorized-views)
+  and permitted. This lets you expose a curated view in an allowed dataset that
+  reads from restricted source data. Note that all table names in the query
+  must be fully qualified (`dataset.table` or `project.dataset.table`) to be
+  eligible for authorized view exemptions, as unqualified table names resolved
+  via default datasets cannot be statically verified against `allowedDatasets`.
+
+  To keep the analysis sound, the following operations remain disallowed:
+
   - **Dataset-level operations** (e.g., `CREATE SCHEMA`, `ALTER SCHEMA`).
   - **Unanalyzable operations** where the accessed tables cannot be determined
-    statically (e.g., `EXECUTE IMMEDIATE`, `CREATE PROCEDURE`, `CALL`).
+    statically (e.g., `EXECUTE IMMEDIATE`, `CREATE PROCEDURE`,
+    `CREATE FUNCTION`, `CREATE TABLE FUNCTION`, `CALL`).
+  - **Session variable assignments** (e.g., `SET @@dataset_id = ...`).
+  - **Federated queries** via `EXTERNAL_QUERY`.
+  - **Region-level `INFORMATION_SCHEMA` views** (only dataset-scoped views such
+    as `<dataset>.INFORMATION_SCHEMA.TABLES` are allowed).
 
 > **Note:** This tool is intended for developer assistant workflows with
 > human-in-the-loop and shouldn't be used for production agents.
@@ -19182,11 +20262,14 @@ the `bigquery` source:
 - **Without `allowedDatasets` restriction:** The tool can use any table or query
   for the `history_data` parameter.
 - **With `allowedDatasets` restriction:** The tool verifies that the
-  `history_data` parameter only accesses tables within the allowed datasets.
+  `history_data` parameter only accesses tables within `allowedDatasets`.
   - If `history_data` is a table ID, the tool checks if the table's dataset is
-    in the allowed list.
-  - If `history_data` is a query, the tool performs a dry run to analyze the
-    query and rejects it if it accesses any table outside the allowed list.
+    in `allowedDatasets`.
+  - If `history_data` is a query, the tool performs a dry run to analyze the query.
+    It will reject the query if it explicitly references any table outside
+    `allowedDatasets`. Like [`bigquery-execute-sql`](../bigquery-execute-sql), authorized views are supported:
+    if a referenced table is not explicitly named in the SQL text, it is
+    permitted. Unanalyzable and dataset-level operations are rejected.
 
 
 ## Compatible Sources
@@ -19250,7 +20333,7 @@ The tool's behavior regarding these parameters is influenced by the
 - **Without `allowedDatasets` restriction:** The tool can retrieve metadata for
   any dataset specified by the `dataset` and `project` parameters.
 - **With `allowedDatasets` restriction:** Before retrieving metadata, the tool
-  verifies that the requested dataset is in the allowed list. If it is not, the
+  verifies that the requested dataset is in `allowedDatasets`. If it is not, the
   request is denied. If only one dataset is specified in the `allowedDatasets`
   list, it will be used as the default value for the `dataset` parameter.
 
@@ -19306,7 +20389,7 @@ The tool's behavior regarding these parameters is influenced by the
 - **Without `allowedDatasets` restriction:** The tool can retrieve metadata for
   any table specified by the `table`, `dataset`, and `project` parameters.
 - **With `allowedDatasets` restriction:** Before retrieving metadata, the tool
-  verifies that the requested dataset is in the allowed list. If it is not, the
+  verifies that the requested dataset is in `allowedDatasets`. If it is not, the
   request is denied. If only one dataset is specified in the `allowedDatasets`
   list, it will be used as the default value for the `dataset` parameter.
 
@@ -19412,7 +20495,7 @@ The tool's behavior regarding these parameters is influenced by the
 - **Without `allowedDatasets` restriction:** The tool can list tables from any
 dataset specified by the `dataset` and `project` parameters.
 - **With `allowedDatasets` restriction:** Before listing tables, the tool verifies
-that the requested dataset is in the allowed list. If it is not, the request is
+that the requested dataset is in `allowedDatasets`. If it is not, the request is
 denied. If only one dataset is specified in the `allowedDatasets` list, it
 will be used as the default value for the `dataset` parameter.
 
@@ -20175,7 +21258,7 @@ async def run_application():
             history.append(user_prompt_content)
 
             response = genai_client.models.generate_content(
-                model="gemini-2.0-flash-001",
+                model="gemini-3.8-flash",
                 contents=history,
                 config=GenerateContentConfig(
                     system_instruction=prompt,
@@ -20202,7 +21285,7 @@ async def run_application():
                 history.append(tool_response_content)
 
             response2 = genai_client.models.generate_content(
-                model="gemini-2.0-flash-001",
+                model="gemini-3.8-flash",
                 contents=history,
                 config=GenerateContentConfig(
                     tools=genai_tools,
@@ -20250,8 +21333,8 @@ queries = [
 
 async def main():
     # TODO(developer): replace this with another model if needed
-    model = ChatVertexAI(model_name="gemini-2.0-flash-001")
-    # model = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001")
+    model = ChatVertexAI(model_name="gemini-3.8-flash")
+    # model = ChatGoogleGenerativeAI(model="gemini-3.8-flash")
     # model = ChatAnthropic(model="claude-3-5-sonnet-20240620")
 
     # Load the tools from the Toolbox server
@@ -20304,12 +21387,12 @@ queries = [
 async def main():
     # TODO(developer): replace this with another model if needed
     llm = GoogleGenAI(
-        model="gemini-2.0-flash-001",
+        model="gemini-3.8-flash",
         vertexai_config={"location": "us-central1"},
     )
     # llm = GoogleGenAI(
     #     api_key=os.getenv("GOOGLE_API_KEY"),
-    #     model="gemini-2.0-flash-001",
+    #     model="gemini-3.8-flash",
     # )
     # llm = Anthropic(
     #   model="claude-3-7-sonnet-latest",
@@ -20371,7 +21454,7 @@ prompt = """
 # --- Configure the Agent ---
 
 root_agent = Agent(
-    model='gemini-2.0-flash-001',
+    model='gemini-3.8-flash',
     name='hotel_agent',
     description='A helpful AI assistant that can search and book hotels.',
     instruction=prompt,
@@ -22209,6 +23292,70 @@ description: Update an existing Bigtable table's configuration.
 
 
 ========================================================================
+## Prebuilt Configs
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Bigtable > Prebuilt Configs
+**URL:** https://mcp-toolbox.dev/dev/integrations/bigtable/prebuilt-configs/
+**Description:** Prebuilt configurations for Bigtable.
+
+
+
+
+
+========================================================================
+## Bigtable
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Bigtable > Prebuilt Configs > Bigtable
+**URL:** https://mcp-toolbox.dev/dev/integrations/bigtable/prebuilt-configs/bigtable/
+**Description:** Details of the Bigtable prebuilt configuration.
+
+
+## Bigtable
+
+*   `--prebuilt` value: `bigtable`
+*   **Environment Variables:**
+    *   `BIGTABLE_PROJECT`: The GCP project ID.
+    *   `BIGTABLE_INSTANCE`: The Bigtable instance ID.
+*   **Permissions:**
+    *   **Bigtable Reader** (`roles/bigtable.reader`) to execute SQL queries, list schemas, and get or list instances, clusters, tables, and views.
+    *   **Bigtable Administrator** (`roles/bigtable.admin`) to create, update, or delete instances, clusters, tables, logical views, and materialized views.
+*   **Tools:**
+    *   `execute_sql`: Use this tool to execute a GoogleSQL query on Bigtable.
+    *   `list_schemas`: List all Bigtable schemas, including tables with column family definitions, logical views, and materialized views.
+    *   `list_tables`: List all Bigtable tables in the instance.
+    *   `get_table`: Get details of a Bigtable table.
+    *   `create_table`: Create a new Bigtable table.
+    *   `update_table`: Update an existing Bigtable table's configuration.
+    *   `delete_table`: Delete a Bigtable table.
+    *   `list_instances`: List all Bigtable instances in the project.
+    *   `get_instance`: Get details of a Bigtable instance.
+    *   `create_instance`: Create a new Bigtable instance.
+    *   `update_instance`: Update an existing Bigtable instance.
+    *   `delete_instance`: Delete a Bigtable instance.
+    *   `list_clusters`: List all Bigtable clusters in the instance.
+    *   `get_cluster`: Get details of a Bigtable cluster.
+    *   `create_cluster`: Create a new Bigtable cluster in an instance.
+    *   `update_cluster`: Update the number of nodes in a Bigtable cluster.
+    *   `delete_cluster`: Delete a Bigtable cluster.
+    *   `list_logical_views`: List all Bigtable logical views in the instance.
+    *   `get_logical_view`: Get details of a Bigtable logical view.
+    *   `create_logical_view`: Create a new Bigtable logical view.
+    *   `update_logical_view`: Update an existing Bigtable logical view.
+    *   `delete_logical_view`: Delete a Bigtable logical view.
+    *   `list_materialized_views`: List all existing Bigtable materialized views.
+    *   `get_materialized_view`: Get information about an existing Bigtable materialized view.
+    *   `create_materialized_view`: Create a new Bigtable materialized view.
+    *   `update_materialized_view`: Update an existing Bigtable materialized view.
+    *   `delete_materialized_view`: Delete an existing Bigtable materialized view.
+*   **Toolsets:**
+    *   `admin`: Instance and cluster lifecycle operations (create, get, list, update, delete instances and clusters).
+    *   `data`: Schema discovery (`list_schemas`), SQL query execution (`execute_sql`), and table management (create, get, list, update, delete tables).
+    *   `views`: Logical view and materialized view management (create, get, list, update, delete views).
+
+
+
+
+========================================================================
 ## Cassandra
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Integrations > Cassandra
@@ -22524,9 +23671,17 @@ instead of hardcoding your secrets into the configuration file.
 A `clickhouse-execute-sql` tool executes a SQL statement against a ClickHouse
 database.
 
-`clickhouse-execute-sql` takes one input parameter `sql` and runs the SQL
+`clickhouse-execute-sql` takes an input parameter `sql` and runs the SQL
 statement against the specified `source`. This tool includes query logging
 capabilities for monitoring and debugging purposes.
+
+The optional `params` input binds
+[query parameters](https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters)
+on the server: each `{name:Type}` placeholder in the statement gets the value
+of `params.name`, written in ClickHouse's text format for its type (for example
+`"42"`, `"2024-01-31"` or `"['a','b']"`). ClickHouse parses each value as its
+declared type, so a value never becomes part of the SQL text. Identifiers can be
+bound the same way, for example `{table:Identifier}`.
 
 > **Note:** This tool is intended for developer assistant workflows with
 > human-in-the-loop and shouldn't be used for production agents.
@@ -22538,9 +23693,10 @@ capabilities for monitoring and debugging purposes.
 
 ## Parameters
 
-| **parameter** | **type** | **required** | **description**                                   |
-|---------------|:--------:|:------------:|---------------------------------------------------|
-| sql           |  string  |     true     | The SQL statement to execute against the database |
+| **parameter** | **type** | **required** | **description**                                                         |
+|---------------|:--------:|:------------:|-------------------------------------------------------------------------|
+| sql           |  string  |     true     | The SQL statement to execute against the database                       |
+| params        |   map    |    false     | Query parameters by name, each a string in ClickHouse's text format     |
 
 
 ## Example
@@ -34317,6 +35473,7 @@ useClientOAuth: true
 | type           |  string  |     true     | Must be "cloud-gemini-data-analytics".                                                                                                                                       |
 | projectId      |  string  |     true     | The Google Cloud Project ID where the API is enabled.                                                                                                                        |
 | useClientOAuth | boolean  |    false     | If true, the source uses the token provided by the caller (forwarded to the API). Otherwise, it uses server-side Application Default Credentials (ADC). Defaults to `false`. |
+| readOnly       | boolean  |    false     | When set to `true`, suppresses write-capable tools (such as those that create, update, or delete data agents). Default: `false`.                                             |
 
 
 
@@ -34463,15 +35620,18 @@ One table covers all three kinds; the **applies to** column shows where each
 field is accepted. Supplying a field to a kind that does not accept it is a
 configuration error.
 
-| **field**  |    **type**    | **required** | **applies to**                       | **description**                                                                                            |
-| ---------- | :------------: | :----------: | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| projectId  |     string     |     true     | all                                  | The project the instance belongs to.                                                                       |
-| region     |     string     |     true     | all                                  | The region of the instance, for example `us-central1`.                                                     |
-| clusterId  |     string     |     true     | `alloydb`                            | The AlloyDB cluster id.                                                                                    |
-| instanceId |     string     |     true     | all                                  | The instance id.                                                                                           |
-| databaseId |     string     |     true     | all                                  | The database id.                                                                                           |
-| engine     |     string     |     true     | `cloudSqlReference`, `spannerReference` | `POSTGRESQL` or `MYSQL` for `cloudSqlReference`; `GOOGLE_SQL` or `POSTGRESQL` for `spannerReference`. AlloyDB has no engine field. |
-| tableIds   | list of string |    false     | all                                  | Restricts the query to these tables. All tables in the database are used if unset.                         |
+| **field**               |    **type**    | **required** | **applies to**                          | **description**                                                                                                                    |
+| ----------------------- | :------------: | :----------: | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| projectId               |     string     |     true     | all                                     | The project the instance belongs to.                                                                                               |
+| region                  |     string     |     true     | `cloudSqlReference`, `alloydb`          | The region of the instance, for example `us-central1`. Spanner does not take a region.                                             |
+| clusterId               |     string     |     true     | `alloydb`                               | The AlloyDB cluster id.                                                                                                            |
+| instanceId              |     string     |     true     | all                                     | The instance id.                                                                                                                   |
+| databaseId              |     string     |     true     | all                                     | The database id.                                                                                                                   |
+| engine                  |     string     |     true     | `cloudSqlReference`, `spannerReference` | `POSTGRESQL` or `MYSQL` for `cloudSqlReference`; `GOOGLE_SQL` or `POSTGRESQL` for `spannerReference`. AlloyDB has no engine field.  |
+| tableIds                | list of string |    false     | all                                     | Restricts the query to these tables. All tables in the database are used if unset.                                                 |
+| databaseTableReferences | list of object |    false     | all                                     | Restricts the query to these tables, with optional schema. Each entry takes `tableId` (required) and `schema`. Richer alternative to `tableIds`. |
+| priority                |     string     |    false     | `spannerReference`                      | Spanner request priority: `LOW`, `MEDIUM`, or `HIGH`. Unsupported values are ignored.                                              |
+| requestTag              |     string     |    false     | `spannerReference`                      | Tag attached to all Spanner queries, for identifying and monitoring traffic from this tool.                                        |
 
 ## Advanced Usage
 
@@ -34588,6 +35748,137 @@ description: |
 
 
 ========================================================================
+## conversational-analytics-create-data-agent
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Gemini Data Analytics > Tools > conversational-analytics-create-data-agent
+**URL:** https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-create-data-agent/
+**Description:** A "conversational-analytics-create-data-agent" tool allows creating a new Conversational Analytics data agent.
+
+
+
+## About
+
+A `conversational-analytics-create-data-agent` tool allows you to create
+a new data agent in Conversational Analytics.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Parameters
+
+`conversational-analytics-create-data-agent` accepts the following parameters:
+
+- **`data_agent_id`:** The ID to use for the new data agent. Must start with a lowercase letter, contain only lowercase letters, digits, and hyphens, end with a lowercase letter or digit, and be at most 63 characters long (e.g. `sales-agent`).
+- **`agent_config`:** The JSON representation of the DataAgent resource to create. For the full schema, see the [DataAgent REST resource documentation](https://docs.cloud.google.com/gemini/data-agents/reference/rest/v1/projects.locations.dataAgents#resource:-dataagent).
+
+  Example `agent_config`:
+  ```json
+  {
+    "displayName": "My Support Agent",
+    "description": "An agent that analyzes support tickets.",
+    "dataAnalyticsAgent": {
+      "publishedContext": {
+        "datasourceReferences": {
+          "bq": {
+            "tableReferences": [
+              {
+                "projectId": "my-project",
+                "datasetId": "support_data",
+                "tableId": "tickets"
+              }
+            ]
+          }
+        },
+        "systemInstruction": "You are a helpful assistant."
+      }
+    }
+  }
+  ```
+
+## Example
+
+```yaml
+kind: tool
+name: create_agent
+type: conversational-analytics-create-data-agent
+source: my-conversational-analytics-source
+location: global
+description: |
+  Use this tool to create a new data agent with the specified configuration.
+```
+
+## Output Format
+
+The tool returns the newly created DataAgent object after waiting for the operation to complete successfully. Note that the tool will block and poll for up to 60 seconds. A timeout error does not necessarily mean the creation failed; the operation may still be processing in the background.
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|-------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "conversational-analytics-create-data-agent". |
+| source      |  string  |     true     | Name of the source.                                |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
+| location    |  string  |    false     | The Google Cloud location (default: "global").     |
+| authRequired| []string |    false     | List of auth services required to use the tool.    |
+
+
+
+
+========================================================================
+## conversational-analytics-delete-data-agent
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Gemini Data Analytics > Tools > conversational-analytics-delete-data-agent
+**URL:** https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-delete-data-agent/
+**Description:** A "conversational-analytics-delete-data-agent" tool allows deleting an existing Conversational Analytics data agent.
+
+
+
+## About
+
+A `conversational-analytics-delete-data-agent` tool allows you to delete
+an existing data agent in Conversational Analytics.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Parameters
+
+`conversational-analytics-delete-data-agent` accepts the following parameter:
+
+- **`data_agent_id`:** The ID of the data agent to delete.
+
+## Example
+
+```yaml
+kind: tool
+name: delete_agent
+type: conversational-analytics-delete-data-agent
+source: my-conversational-analytics-source
+location: global
+description: |
+  Use this tool to delete an existing data agent using its ID.
+```
+
+## Output Format
+
+The tool returns the operation response after waiting for the deletion operation to complete successfully. Note that the tool will block and poll for up to 60 seconds.
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|-------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "conversational-analytics-delete-data-agent". |
+| source      |  string  |     true     | Name of the source.                                |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
+| location    |  string  |    false     | The Google Cloud location (default: "global").     |
+| authRequired| []string |    false     | List of auth services required to use the tool.    |
+
+
+
+
+========================================================================
 ## conversational-analytics-get-data-agent-info
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Integrations > Gemini Data Analytics > Tools > conversational-analytics-get-data-agent-info
@@ -34646,11 +35937,19 @@ description: |
 A `conversational-analytics-list-accessible-data-agents` tool allows you to list
 data agents that are accessible.
 
+The Conversational Analytics API returns accessible data agents one page at a
+time. By default this tool hides that: it follows every page itself and returns
+all accessible data agents in a single response. Set `page_size` or `page_token`
+to take over pagination and receive one page at a time instead.
+
 It's compatible with the following sources:
 
 - cloud-gemini-data-analytics
 
-`conversational-analytics-list-accessible-data-agents` does not accept any parameters.
+`conversational-analytics-list-accessible-data-agents` accepts the following parameters:
+
+- **`page_size`** (optional): The maximum number of data agents to return in this call. Must be a positive integer. Only set this to page through the results manually; when both `page_size` and `page_token` are omitted, every page is fetched automatically.
+- **`page_token`** (optional): A `nextPageToken` returned by a previous call, used to fetch the next page. Only set this to page through the results manually.
 
 ## Example
 
@@ -34664,6 +35963,34 @@ description: |
   Use this tool to list available data agents.
 ```
 
+## Output Format
+
+```json
+{
+  "dataAgents": [
+    {
+      "name": "projects/my-project/locations/global/dataAgents/my-agent",
+      "displayName": "My Agent",
+      "createTime": "2026-01-01T00:00:00.000000Z",
+      "updateTime": "2026-01-01T00:00:00.000000Z"
+    }
+  ]
+}
+```
+
+`nextPageToken` is only included when more data agents remain:
+
+- **Without pagination parameters**, the response has no `nextPageToken`,
+  because every page was already fetched. If the automatic fetch reaches its
+  safety limit (100 pages or around 1000 data agents), it returns everything
+  collected so far along with the `nextPageToken` it stopped at, so you can pass
+  that token back as `page_token` to step through the rest. If a page fails or
+  the automatic fetch exceeds its 5 minute budget, the call returns an error
+  rather than a partial list.
+- **With `page_size` or `page_token`**, the response is the API's own page and
+  carries a `nextPageToken` whenever more data agents are available. Pass it
+  back as `page_token` to fetch the next page.
+
 ## Reference
 
 | **field**   | **type** | **required** | **description**                                    |
@@ -34672,6 +35999,74 @@ description: |
 | source      |  string  |     true     | Name of the source.                                |
 | description |  string  |     true     | Description of the tool that is passed to the LLM. |
 | location    |  string  |    false     | The Google Cloud location (default: "global").     |
+
+
+
+========================================================================
+## conversational-analytics-update-data-agent
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Gemini Data Analytics > Tools > conversational-analytics-update-data-agent
+**URL:** https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-update-data-agent/
+**Description:** A "conversational-analytics-update-data-agent" tool allows updating an existing Conversational Analytics data agent.
+
+
+
+## About
+
+A `conversational-analytics-update-data-agent` tool allows you to update
+an existing data agent in Conversational Analytics.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Parameters
+
+`conversational-analytics-update-data-agent` accepts the following parameters:
+
+- **`data_agent_id`:** The ID of the data agent to update.
+- **`agent_config`:** The JSON representation of the DataAgent resource fields to update. For the full schema, see the [DataAgent REST resource documentation](https://docs.cloud.google.com/gemini/data-agents/reference/rest/v1/projects.locations.dataAgents#resource:-dataagent).
+- **`update_mask`:** Comma-separated list of fields to update, using the API's camelCase JSON field names (e.g. `"displayName,description"` or `"dataAnalyticsAgent.publishedContext.systemInstruction"`). Every field listed here must also be present in `agent_config`.
+
+  Example `agent_config`:
+  ```json
+  {
+    "displayName": "Updated Support Agent",
+    "description": "Updated description",
+    "dataAnalyticsAgent": {
+      "publishedContext": {
+        "systemInstruction": "You are a helpful support data analyst."
+      }
+    }
+  }
+  ```
+
+## Example
+
+```yaml
+kind: tool
+name: update_agent
+type: conversational-analytics-update-data-agent
+source: my-conversational-analytics-source
+location: global
+description: |
+  Use this tool to update an existing data agent with the specified configuration and update mask.
+```
+
+## Output Format
+
+The tool returns the updated DataAgent object after waiting for the operation to complete successfully. Note that the tool will block and poll for up to 60 seconds.
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|-------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "conversational-analytics-update-data-agent". |
+| source      |  string  |     true     | Name of the source.                                |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
+| location    |  string  |    false     | The Google Cloud location (default: "global").     |
+| authRequired| []string |    false     | List of auth services required to use the tool.    |
+
 
 
 
@@ -34704,18 +36099,25 @@ description: |
         OAuth access token for authentication. Defaults to `false`.
     *   `CLOUD_GDA_MAX_RESULTS`: (Optional) The maximum number of rows
         to return. Defaults to `50`.
+    *   `CLOUD_GDA_READONLY`: (Optional) When set to `true`, suppresses the
+        write-capable tools (`create_data_agent`, `update_data_agent`, and
+        `delete_data_agent`). Set to `false` to enable them. Defaults to `true`.
 *   **Permissions:**
     *   **Gemini Data Analytics Stateless Chat User (Beta)** (`roles/geminidataanalytics.dataAgentStatelessUser`) to interact with the data agent.
+    *   **Gemini Data Analytics Data Agent Creator / Owner** (`roles/geminidataanalytics.dataAgentCreator`, `roles/geminidataanalytics.dataAgentOwner`) to create, update, or delete data agents.
     *   **BigQuery User** (`roles/bigquery.user`) and **BigQuery Data Viewer** (`roles/bigquery.dataViewer`) on the underlying datasets/tables to allow the data agent to execute queries.
 *   **Tools:**
+    *   `list_accessible_data_agents`: List data agents that are accessible.
+    *   `get_data_agent_info`: Retrieve details about a specific data agent.
     *   `ask_data_agent`: Use this tool to perform natural language data analysis,
         get insights, or answer complex questions using pre-configured data
         sources via a specific Data Agent. For more information on
         required roles, API setup, and IAM configuration, see the setup and
         authentication section of the [Conversational Analytics API
         documentation](https://cloud.google.com/gemini/docs/conversational-analytics-api/overview).
-    *   `get_data_agent_info`: Retrieve details about a specific data agent.
-    *   `list_accessible_data_agents`: List data agents that are accessible.
+    *   `create_data_agent`: Create a new Data Agent for conversational analytics.
+    *   `update_data_agent`: Update an existing Data Agent for conversational analytics.
+    *   `delete_data_agent`: Delete an existing Data Agent in conversational analytics.
 
 
 
@@ -35495,7 +36897,7 @@ This abbreviated syntax works for the qualified predicates except for `label` in
 
 ## Tool: lookup_entry
 ### Request
-1. Always try to limit the size of the response by specifying `aspect_types` parameter. Make sure to include to select view=CUSTOM when using aspect_types parameter. If you do not know the name of the aspect type, use the `search_aspect_types` tool.
+1. Always try to limit the size of the response by specifying the aspect_types parameter. Make sure to select view=CUSTOM when using the aspect_types parameter. If you do not know the name of the aspect type, refer to the list of system aspect types in the Aspect Types section above.
 2. If you do not know the name of the entry, use `search_entries` tool
 ### Response
 1. Unless asked for a specific aspect, respond with all aspects attached to the entry.
@@ -37456,7 +38858,6 @@ The tool returns the updated catalog entry details and aspects:
 *   **Tools:**
     *   `search_entries`: Searches for entries in Knowledge Catalog.
     *   `lookup_entry`: Retrieves a specific entry from Knowledge Catalog.
-    *   `search_aspect_types`: Finds aspect types relevant to the query.
     *   `lookup_context`: Retrieves rich metadata regarding one or more data assets along with their relationships.
     *   `search_dq_scans`: Searches for data quality scans in Dataplex.
     *   `list_data_products`: Lists Data Products across all locations.
@@ -37479,8 +38880,8 @@ The tool returns the updated catalog entry details and aspects:
     *   `get_operation`: Retrieves the status of a Dataplex long-running operation.
     *   `get_run_status`: Retrieves the execution status of the latest background job run.
 *   **Toolsets:**
-    *   `discovery`: Metadata discovery and search toolset (`search_entries`, `lookup_entry`, `search_aspect_types`, `lookup_context`, `search_dq_scans`).
-    *   `data-products`: Data Products and Data Assets curation and management toolset (`search_entries`, `lookup_entry`, `search_aspect_types`, `lookup_context`, `list_data_products`, `get_data_product`, `list_data_assets`, `get_data_asset`, `create_data_product`, `update_data_product`, `create_data_asset`, `update_data_asset`, `update_data_product_aspects`, `get_operation`).
+    *   `discovery`: Metadata discovery and search toolset (`search_entries`, `lookup_entry`, `lookup_context`, `search_dq_scans`).
+    *   `data-products`: Data Products and Data Assets curation and management toolset (`search_entries`, `lookup_entry`, `lookup_context`, `list_data_products`, `get_data_product`, `list_data_assets`, `get_data_asset`, `create_data_product`, `update_data_product`, `create_data_asset`, `update_data_asset`, `update_data_product_aspects`, `get_operation`).
     *   `enrich`: Metadata enrichment pipeline orchestration and execution toolset (`search_entries`, `lookup_entry`, `lookup_context`, `generate_data_insights`, `get_data_insights`, `generate_data_profile`, `get_data_profile`, `discover_metadata`, `get_discovery_results`, `check_data_quality`, `get_data_quality_results`, `get_operation`, `get_run_status`).
 
 
@@ -37851,11 +39252,20 @@ description: |
 
 The `looker-add-dashboard-element` tool creates a new tile (element) within an existing Looker dashboard.
 Tiles are added in the order this tool is called for a given `dashboard_id`.
+It supports query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`), and extension/data app tiles (`extension`).
 
 CRITICAL ORDER OF OPERATIONS:
 1. Create the dashboard using `make_dashboard`.
 2. Add any dashboard-level filters using `add_dashboard_filter`.
 3. Then, add elements (tiles) using this tool.
+
+DATA APP EXTENSION PUBLISHING LIFECYCLE:
+To mount a Data App Extension on a dashboard:
+1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
 
 ## Compatible Sources
 
@@ -37871,28 +39281,48 @@ source: looker-source
 description: |
   This tool creates a new tile (element) within an existing Looker dashboard.
   Tiles are added in the order this tool is called for a given `dashboard_id`.
+  It supports query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`),
+  and extension/data app tiles (`extension`).
 
   CRITICAL ORDER OF OPERATIONS:
   1. Create the dashboard using `make_dashboard`.
   2. Add any dashboard-level filters using `add_dashboard_filter`.
   3. Then, add elements (tiles) using this tool.
 
+  DATA APP EXTENSION PUBLISHING LIFECYCLE:
+  To mount a Data App Extension on a dashboard:
+  1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension using `create_data_app_extension`, obtaining `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension using this tool (`add_dashboard_element`) with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
   Required Parameters:
   - dashboard_id: The ID of the target dashboard, obtained from `make_dashboard`.
-  - model_name, explore_name, fields: These query parameters are inherited
-    from the `query` tool and are required to define the data for the tile.
+  - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` are required to define the query for the tile.
+  - For extension tiles (`type: 'extension'`): `extension_id` is required (e.g. `'db::<id>'` or `'app::<id>'`). For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
 
   Optional Parameters:
-  - title: An optional title for the dashboard tile.
-  - pivots, filters, sorts, limit, query_timezone: These query parameters are
-    inherited from the `query` tool and can be used to customize the tile's query.
+  - type: The type of dashboard element (`'vis'`, `'data'`, `'text'`, or `'extension'`). Note that `'extension'` is automatically inferred when `extension_id` is provided; `'text'` is inferred when `model` and `explore` are empty and `body_text` or `title_text` is provided; otherwise `'vis'` when `vis_config` is non-empty and `'data'` otherwise.
+  - extension_id: The ID of the extension (e.g. `'db::<id>'` from `create_data_app_extension` or `'app::<id>'` from LookML extensions) for `'extension'` tiles. For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
+  - title: An optional title for query-based or extension dashboard tiles.
+  - title_text: The header title text for `'text'` tiles.
+  - subtitle_text: The subtitle text displayed below the title.
+  - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
+  - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `'{"format":"slate"}'`).
+  - note_text: Note text attached to the tile.
+  - note_display: Where the note appears on the tile (`'above'`, `'below'`, or `'hover'`).
+  - note_state: The display state of the note (`'expanded'` or `'collapsed'`).
+  - title_hidden: Whether to hide the tile title (`true`/`false`).
+  - refresh_interval: Auto-refresh interval for the tile (e.g., `'1 hour'`).
+  - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters inherited from the `query` tool to customize a query tile.
   - vis_config: A JSON object defining the visualization settings for this tile.
     The structure and options are the same as for the `query_url` tool's `vis_config`.
 
   Connecting to Dashboard Filters:
   A dashboard element can be connected to one or more dashboard filters (created with
-  `add_dashboard_filter`). To do this, specify the `name` of the dashboard filter
-  and the `field` from the element's query that the filter should apply to.
+  `add_dashboard_filter`). To do this, specify the `dashboard_filter_name` of the dashboard filter
+  and the `field` from the element's query that the filter should apply to in `dashboard_filters`.
   The format for specifying the field is `view_name.field_name`.
 ```
 
@@ -38133,6 +39563,96 @@ description: |
 | type        | string   | true         | Must be "looker-create-dashboard-layout".          |
 | source      | string   | true         | Name of the Looker source.                         |
 | description | string   | true         | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
+## looker-create-data-app-extension
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-create-data-app-extension
+**URL:** https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-create-data-app-extension/
+**Description:** "looker-create-data-app-extension" creates a Data App Extension in Looker with server-enforced dashboard-tile mount points and sandboxed entitlements.
+
+
+
+## About
+
+The `looker-create-data-app-extension` tool creates a Data App
+Extension entity in Looker via `POST /api/4.0/data_app_extension` using the Looker SDK
+transport. Looker enforces dashboard-tile-only mount points and a fixed
+sandboxed core API entitlement profile on the created extension.
+
+NOTE: This tool creates the Extension entity in Looker's database, but does NOT automatically create a dashboard or dashboard tile.
+
+LIFECYCLE / ORDER OF OPERATIONS:
+1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+4. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
+5. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
+It returns the created extension metadata, including `id` and `extension_id`
+(`"db::<id>"`) for mounting on a dashboard tile.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Requirements
+
+* The `inline_extensions` feature must be enabled on the Looker instance.
+* The authenticated Looker user must have `save_content` permission.
+
+## Parameters
+
+| **parameter** | **type** | **required** | **description**                                                                                                 |
+|:--------------|:--------:|:------------:|-----------------------------------------------------------------------------------------------------------------|
+| `label`       |  string  |     true     | The user-friendly display label for the Data App Extension (up to 255 characters).                              |
+| `code`        |  string  |     true     | The uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports (e.g. `/runtime/data-app.js`) must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). Must end with custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;` |
+| `description` |  string  |    false     | Optional description of the Data App Extension.                                                                 |
+| `name`        |  string  |    false     | Optional unique system name matching `[a-zA-Z0-9-_]+`. Leave empty to auto-generate a collision-free name.      |
+
+## Example
+
+```yaml
+kind: tool
+name: create_data_app_extension
+type: looker-create-data-app-extension
+source: looker-source
+description: |
+  This tool creates a Data App Extension entity in Looker with
+  server-enforced dashboard-tile mount points and sandboxed core API entitlements (`POST /api/4.0/data_app_extension`).
+  Requires the `inline_extensions` feature to be enabled on the Looker instance.
+
+  NOTE: This tool creates the Extension entity in Looker's database, but does NOT automatically create a dashboard or dashboard tile.
+
+  LIFECYCLE / ORDER OF OPERATIONS:
+  1. Create or identify the target dashboard using `make_dashboard` (leave folder empty for personal folder) or `get_dashboards`.
+  2. Switch active layout to full bleed using `update_dashboard_layout` (sets `type: "extension"`).
+  3. Configure full-bleed container appearance using `update_dashboard` (sets `show_dashboard_header: false`, `page_side_margins: 0`, `tile_space_between: 0`, `tile_shadow: false`).
+  4. Create the extension entity using this tool (`create_data_app_extension`), which returns `extension_id` (`"db::<uuid>"`).
+  5. Mount the extension onto the dashboard as a tile by calling `add_dashboard_element` with `type: "extension"`, `extension_id: "db::<uuid>"`, and `title_hidden: true`.
+
+  Required Parameters:
+  - label: The user-friendly display label for the Data App Extension (up to 255 characters).
+  - code: The uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports like `/runtime/data-app.js` used during local preview must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). The module must end with the custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;`
+
+  Optional Parameters:
+  - description: Brief description of the Data App Extension.
+  - name: Unique system identifier matching `[a-zA-Z0-9-_]+`. Leave empty to auto-generate a collision-free `data-app-<slug>-<uuid>` name.
+
+  Output:
+  Returns the created Data App Extension metadata JSON, including `id` and `extension_id` (`"db::<id>"`) for dashboard tile mounting.
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|:------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "looker-create-data-app-extension".        |
+| source      |  string  |     true     | Name of the Looker source to execute against.      |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
 
 
 
@@ -38815,7 +40335,7 @@ description: |
 
 ## About
 
-The `looker-get-dashboard` tool retrieves the JSON design of a Looker dashboard by its ID. The output is trimmed to essential fields, excluding alerts and scheduled plans, making it suitable for replicating or analyzing the dashboard structure.
+The `looker-get-dashboard` tool retrieves the JSON design of a Looker dashboard by its ID. The output is trimmed to essential fields (including `certification_metadata`), excluding alerts and scheduled plans, making it suitable for replicating or analyzing the dashboard structure.
 
 ## Compatible Sources
 
@@ -38830,7 +40350,7 @@ type: looker-get-dashboard
 source: looker-source
 description: |
   This tool retrieves the JSON design of a Looker dashboard by its ID.
-  The output is trimmed to essential fields, excluding alerts and scheduled plans,
+  The output is trimmed to essential fields (including certification_metadata), excluding alerts and scheduled plans,
   making it suitable for replicating or analyzing the dashboard structure.
 
   Parameters:
@@ -38860,7 +40380,8 @@ description: |
 ## About
 
 The `looker-get-dashboards` tool searches for a saved Dashboard by
-name or description.
+name or description. It returns each dashboard's `id`, `title`, `description`,
+and `certification_metadata` (if present).
 
 `looker-get-dashboards` takes four parameters, the `title`, `desc`, `limit`
 and `offset`.
@@ -38882,7 +40403,7 @@ name: get_dashboards
 type: looker-get-dashboards
 source: looker-source
 description: |
-  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard.
+  This tool searches for saved dashboards in a Looker instance. It returns a list of JSON objects, each representing a dashboard, including its id, title, description, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by dashboard title (supports wildcards).
@@ -38956,6 +40477,10 @@ description: |
     that can be used directly as filters for that dimension.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a dimension includes a `value_format` or `value_format_name` field, it
+    describes how the dimension's values should be displayed (for example as a
+    currency amount or a percentage). Format any values returned for that
+    dimension accordingly instead of reporting the raw number.
 
 ```
 
@@ -38972,9 +40497,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -38982,6 +40516,102 @@ The response is a json array with the following elements:
 |-------------|:--------:|:------------:|----------------------------------------------------|
 | type        |  string  |     true     | Must be "looker-get-dimensions".                   |
 | source      |  string  |     true     | Name of the source the SQL should execute on.      |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
+## looker-get-explore
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-get-explore
+**URL:** https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-get-explore/
+**Description:** A "looker-get-explore" tool returns detailed metadata for a single explore in a given model from the source.
+
+
+
+## About
+
+A `looker-get-explore` tool returns detailed metadata for a single explore,
+including query constraints such as `always_filter` and
+`conditionally_filter`, as well as `tags` and whether the explore is `hidden`.
+
+Use `looker-get-explores` to cheaply list all explores in a model, then use
+`looker-get-explore` to fetch the full metadata for the specific explore you
+intend to query. The two are kept separate because `looker-get-explores` calls
+the lightweight `lookml_model` endpoint, which only returns a navigation
+summary of each explore, while the constraint fields are only available from
+the heavier `lookml_model_explore` endpoint. Returning them from
+`looker-get-explores` would require one additional API call per explore.
+
+If the source has `show_hidden_explores` set to `false`, requesting a hidden
+explore returns an error.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Parameters
+
+| **parameter** | **type** | **required** | **description**                     |
+|---------------|:--------:|:------------:|-------------------------------------|
+| model         |  string  |     true     | The model containing the explore.   |
+| explore       |  string  |     true     | The explore to get metadata for.    |
+
+## Example
+
+```yaml
+kind: tool
+name: get_explore
+type: looker-get-explore
+source: looker-source
+description: |
+  This tool retrieves detailed metadata about a specific Looker explore, including its
+  constraints and rules (e.g., `always_filter`, `conditionally_filter`, `tags`).
+
+  CRITICAL: You MUST use this tool to inspect the explore's metadata BEFORE generating
+  or running a query. If an explore has mandatory filters defined (like `always_filter`
+  or `conditionally_filter`), your query will fail unless you include them.
+
+  Parameters:
+  - model (required): The name of the LookML model, obtained from `get_models`.
+  - explore (required): The name of the explore within the model, obtained from `get_explores`.
+```
+
+## Output Format
+
+The return type is a single map containing the explore's metadata. Keys are
+omitted when the explore does not define them.
+
+```json
+{
+    "name": "explore name",
+    "description": "explore description",
+    "label": "explore label",
+    "group_label": "group label",
+    "hidden": false,
+    "tags": ["tag1", "tag2"],
+    "always_filter": [
+        {
+            "name": "view_name.field_name",
+            "value": "filter value"
+        }
+    ],
+    "conditionally_filter": [
+        {
+            "name": "view_name.field_name",
+            "value": "filter value"
+        }
+    ]
+}
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|-------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "looker-get-explore".                      |
+| source      |  string  |     true     | Name of the Looker source.                         |
 | description |  string  |     true     | Description of the tool that is passed to the LLM. |
 
 
@@ -39011,7 +40641,8 @@ The return type is an array of maps, each map is formatted like:
     "name": "explore name",
     "description": "explore description",
     "label": "explore label",
-    "group_label": "group label"
+    "group_label": "group label",
+    "hidden": false
 }
 ```
 
@@ -39175,9 +40806,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -39202,7 +40842,8 @@ The response is a json array with the following elements:
 ## About
 
 The `looker-get-looks` tool searches for a saved Look by
-name or description.
+name or description. It returns each Look's `id`, `title`, `description`,
+`model_id`, and `certification_metadata` (if present).
 
 `looker-get-looks` takes four parameters, the `title`, `desc`, `limit`
 and `offset`.
@@ -39225,7 +40866,7 @@ type: looker-get-looks
 source: looker-source
 description: |
   This tool searches for saved Looks (pre-defined queries and visualizations)
-  in a Looker instance. It returns a list of JSON objects, each representing a Look.
+  in a Looker instance. It returns a list of JSON objects, each representing a Look, including its id, title, description, model_id, and certification_metadata (when certified or revoked).
 
   Search Parameters:
   - title (optional): Filter by Look title (supports wildcards).
@@ -39298,6 +40939,10 @@ description: |
     that can be used directly as filters for that measure.
   - If a `suggest_explore` and `suggest_dimension` are provided, you can query
     that specified explore and dimension to retrieve a list of valid filter values.
+  - If a measure includes a `value_format` or `value_format_name` field, it
+    describes how the measure's values should be displayed (for example as a
+    currency amount or a percentage). Format any values returned for that
+    measure accordingly instead of reporting the raw number.
 
 ```
 
@@ -39314,9 +40959,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -39427,9 +41081,18 @@ The response is a json array with the following elements:
   "synonyms": ["synonyms", ...],
   "suggestions": ["suggestion", ...],
   "suggest_explore": "explore",
-  "suggest_dimension": "dimension"
+  "suggest_dimension": "dimension",
+  "value_format": "excel style format string",
+  "value_format_name": "named value format"
 }
 ```
+
+`value_format` is the Excel-style format string defined by the LookML
+[`value_format`](https://cloud.google.com/looker/docs/reference/param-field-value-format)
+parameter, and `value_format_name` is the name of the format defined by the
+LookML
+[`value_format_name`](https://cloud.google.com/looker/docs/reference/param-field-value-format-name)
+parameter. Both keys are omitted when the field does not define them.
 
 ## Reference
 
@@ -39860,6 +41523,67 @@ description: |
 
 
 ========================================================================
+## looker-import-dashboard-from-lookml
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-import-dashboard-from-lookml
+**URL:** https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-import-dashboard-from-lookml/
+**Description:** "looker-import-dashboard-from-lookml" imports a LookML dashboard YAML definition to create or overwrite a user-defined dashboard in Looker.
+
+
+
+## About
+
+The `looker-import-dashboard-from-lookml` tool imports a LookML dashboard YAML
+definition to create or overwrite a user-defined dashboard in Looker.
+
+If a dashboard already exists with the YAML-defined `preferred_slug`, it will be
+overwritten. Otherwise, a new dashboard will be created.
+
+`looker-import-dashboard-from-lookml` takes two parameters:
+
+1. `lookml` (required): The LookML YAML definition of the dashboard to import.
+2. `folder` (optional): The folder ID where the dashboard will be created. If not provided, the user's personal folder will be used for new dashboards, and existing folders are preserved when overwriting via `preferred_slug`.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Example
+
+```yaml
+kind: tool
+name: import_dashboard_from_lookml
+type: looker-import-dashboard-from-lookml
+source: looker-source
+description: |
+  This tool imports a LookML dashboard YAML definition to create or overwrite a
+  user-defined dashboard in Looker.
+
+  If a dashboard already exists with the YAML-defined `preferred_slug`, it will
+  be overwritten. Otherwise, a new dashboard will be created.
+
+  Required Parameters:
+  - lookml (required): Valid LookML dashboard YAML string defining the dashboard, filters, and elements.
+
+  Optional Parameters:
+  - folder (optional): Destination folder ID. If omitted, new dashboards are placed in the user's personal folder and overwritten dashboards remain in their existing folder.
+
+  Output:
+  A JSON object containing a link (`url`) to the imported dashboard and its unique `id`.
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|-------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "looker-import-dashboard-from-lookml"      |
+| source      |  string  |     true     | Name of the Looker source to execute against.      |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
 ## looker-list-agents Tool
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-list-agents Tool
@@ -40042,27 +41766,31 @@ description: |
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-query
 **URL:** https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-query/
-**Description:** "looker-query" runs an inline query using the Looker semantic model.
+**Description:** "looker-query" runs an inline query using the Looker semantic model or executes a saved Looker query by ID/slug.
 
 
 
 ## About
 
-The `looker-query` tool runs a query using the Looker
-semantic model.
+The `looker-query` tool runs an inline query using the Looker
+semantic model or executes a saved Looker query by ID/slug.
 
-`looker-query` takes ten parameters:
+`looker-query` takes the following parameters (provide either `query_id` OR `model` + `explore` + `fields`):
 
-1. the `model`
-2. the `explore`
-3. the `fields` list
-4. an optional set of `filters`
-5. an optional `filter_expression`
-6. an optional `dynamic_fields`
-7. an optional set of `pivots`
-8. an optional set of `sorts`
-9. an optional `limit`
-10. an optional `tz`
+1. an optional `query_id` (numeric ID or slug of a saved query)
+2. the `model` (required if `query_id` is not provided)
+3. the `explore` (required if `query_id` is not provided)
+4. the `fields` list (required if `query_id` is not provided)
+5. an optional set of `filters`
+6. an optional `filter_expression`
+7. an optional `dynamic_fields`
+8. an optional set of `pivots`
+9. an optional set of `sorts`
+10. an optional `limit`
+11. an optional `tz`
+12. an optional `result_format` (`json` or `json_detail`, default `json`)
+13. an optional `vis_config`
+14. an optional `generate_drill_links`
 
 Starting in Looker v25.18, these queries can be identified in Looker's
 System Activity. In the History explore, use the field API Client Name
@@ -40080,12 +41808,13 @@ name: query
 type: looker-query
 source: looker-source
 description: |
-  This tool runs a query against a LookML model and returns the results in JSON format.
+  This tool runs a query against a LookML model or executes a saved query by ID/slug and returns the results in JSON format.
 
-  Required Parameters:
-  - model_name: The name of the LookML model (from `get_models`).
-  - explore_name: The name of the explore (from `get_explores`).
-  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query.
+  Parameters (provide either `query_id` OR `model` + `explore` + `fields`):
+  - query_id (optional): The unique identifier (numeric ID or slug) of a saved Looker query to execute. If provided, `model`, `explore`, and `fields` are not required.
+  - model: The name of the LookML model (from `get_models`). Required if `query_id` is not provided.
+  - explore: The name of the explore (from `get_explores`). Required if `query_id` is not provided.
+  - fields: A list of field names (dimensions, measures, filters, or parameters) to include in the query. Required if `query_id` is not provided.
 
   Optional Parameters:
   - pivots: A list of fields to pivot the results by. These fields must also be included in the `fields` list.
@@ -40098,6 +41827,7 @@ description: |
       (e.g. `first_touch`, not `"first_touch"`).
     - Use `not null` instead of `-NULL`.
     - If a value contains a comma, enclose it in single quotes (e.g., `'New York, NY'`).
+    - To retrieve valid filter values for a suggestible field, use the 'get_field_value_suggestions' tool.
   - filter_expression: A Looker expression filter string (custom filter). This allows complex logic and comparing fields.
     - Reference fields using `${view.field_name}` syntax.
     - Supports logical operators (`AND`, `OR`, `NOT`) and comparison operators.
@@ -40115,7 +41845,10 @@ description: |
       - Custom Measure: `[{"measure": "sum_of_revenue", "label": "Sum of Revenue", "based_on": "training.revenue", "type": "sum", "_type_hint": "number"}]`
   - sorts: A list of fields to sort by, optionally including direction (e.g., `["view.field desc"]`).
   - limit: Row limit (default 500). Use "-1" for unlimited.
-  - query_timezone: specific timezone for the query (e.g. `America/Los_Angeles`).
+  - tz: Specific timezone for the query (e.g. `America/Los_Angeles`).
+  - result_format: Output format (`'json'` or `'json_detail'`, default `'json'`).
+  - vis_config: Optional visualization configuration JSON string to associate with the query response.
+  - generate_drill_links: Optional flag indicating whether to generate drill links in the query result.
 
   Note: Use `get_dimensions`, `get_measures`, `get_filters`, and `get_parameters` to find valid fields.
 
@@ -40859,6 +42592,68 @@ description: |
 
 
 ========================================================================
+## looker-update-dashboard
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-update-dashboard
+**URL:** https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-dashboard/
+**Description:** "looker-update-dashboard" updates an existing Looker dashboard container and its appearance settings.
+
+
+
+## About
+
+The `looker-update-dashboard` tool updates an existing Looker dashboard (`PATCH /api/4.0/dashboards/:id`). It allows updating top-level dashboard properties including `title`, `description`, navigation visibility, refresh interval, and dashboard appearance settings.
+
+When publishing Looker Data Applications, this tool is used to configure the dashboard container for full-bleed rendering by hiding Looker's native top navigation header and zeroing outer page margins and tile spacing.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Example
+
+```yaml
+kind: tool
+name: update_dashboard
+type: looker-update-dashboard
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard (`PATCH /api/4.0/dashboards/:id`).
+  It allows updating top-level dashboard properties such as title, description,
+  visibility, refresh interval, and dashboard appearance settings.
+
+  FULL-BLEED DATA APP APPEARANCE:
+  To configure a dashboard container for full-bleed Data Applications, pass:
+  - `show_dashboard_header: false` (hides Looker's native top navigation bar, title, filter bar, reload icon, and menu)
+  - `page_side_margins: 0` (removes outer dashboard margins)
+  - `tile_space_between: 0` (removes gutter spacing between tiles)
+  - `tile_shadow: false` (removes tile drop shadows)
+
+  Parameters:
+  - dashboard_id (required): The unique identifier of the dashboard to update.
+  - title (optional): Updated dashboard title.
+  - description (optional): Updated dashboard description.
+  - show_dashboard_header (optional): Whether to display Looker's native header bar. Set to false for full-bleed Data Apps.
+  - page_side_margins (optional): Page margin width in pixels (e.g. 0 for full bleed).
+  - tile_space_between (optional): Spacing between tiles in pixels (e.g. 0 for full bleed).
+  - tile_shadow (optional): Whether tiles have drop shadows (e.g. false for full bleed).
+  - appearance (optional): Map of additional appearance styling settings.
+  - hidden (optional): Whether to hide the dashboard in navigation.
+  - refresh_interval (optional): Auto-refresh interval phrase (e.g. '1 hour').
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|:------------|:--------:|:------------:|----------------------------------------------------|
+| type        | string   | true         | Must be "looker-update-dashboard".                 |
+| source      | string   | true         | Name of the Looker source.                         |
+| description | string   | true         | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
 ## looker-update-dashboard-element
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-update-dashboard-element
@@ -40869,7 +42664,7 @@ description: |
 
 ## About
 
-The `looker-update-dashboard-element` tool updates an existing query element (tile) in a Looker dashboard. It reconstructs the query for the element using the provided parameters and updates its title and visualization configuration.
+The `looker-update-dashboard-element` tool updates an existing element (tile) in a Looker dashboard. It supports updating query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`), and extension/data app tiles (`extension`), including notes, subtitles, title visibility, and refresh intervals.
 
 ## Compatible Sources
 
@@ -40883,18 +42678,29 @@ name: update_dashboard_element
 type: looker-update-dashboard-element
 source: looker-source
 description: |
-  This tool updates an existing query element (tile) in a Looker dashboard.
-  It reconstructs the query for the element using the provided parameters
-  and updates its title and visualization configuration.
+  This tool updates an existing element (tile) in a Looker dashboard.
+  It supports updating query-based tiles (`vis`, `data`), text/Markdown/Slate tiles (`text`),
+  and extension/data app tiles (`extension`).
 
   Required Parameters:
   - dashboard_id: The ID of the dashboard containing the element.
   - dashboard_element_id: The ID of the element to update.
-  - model, explore, fields: These query parameters define the data for the tile.
+  - For query tiles (`type` omitted, `'vis'`, or `'data'`): `model`, `explore`, and `fields` define the data for the tile.
 
   Optional Parameters:
-  - title: The new title for the dashboard tile.
-  - pivots, filters, sorts, limit, tz: These query parameters customize the tile's query.
+  - type: The type of dashboard element (`'vis'`, `'data'`, `'text'`, or `'extension'`). Note that `'extension'` is automatically inferred when `extension_id` is provided.
+  - extension_id: The updated extension ID (e.g. `'db::<id>'` from `create_data_app_extension` or `'app::<id>'` from LookML extensions) for `'extension'` tiles. For extension tiles, query fields (`model`, `explore`, `fields`) should be omitted as the extension manages its own queries via the Looker SDK.
+  - title: The new title for query-based or extension dashboard tiles.
+  - title_text: The header title text for `'text'` tiles.
+  - subtitle_text: The subtitle text displayed below the title.
+  - body_text: The text, Markdown, HTML, or Slate JSON body content for `'text'` tiles.
+  - rich_content_json: A JSON string containing properties for rich text (Slate) elements (e.g., `'{"format":"slate"}'`).
+  - note_text: Note text attached to the tile.
+  - note_display: Where the note appears on the tile (`'above'`, `'below'`, or `'hover'`).
+  - note_state: The display state of the note (`'expanded'` or `'collapsed'`).
+  - title_hidden: Whether to hide the tile title (`true`/`false`).
+  - refresh_interval: Auto-refresh interval for the tile (e.g., `'1 hour'`).
+  - pivots, filters, filter_expression, dynamic_fields, sorts, limit, tz: Query parameters that customize a query tile.
   - vis_config: A JSON object defining the visualization settings.
   - dashboard_filters: An array of dashboard filters to connect to this element.
 ```
@@ -40904,6 +42710,58 @@ description: |
 | **field**   | **type** | **required** | **description**                                    |
 |:------------|:--------:|:------------:|----------------------------------------------------|
 | type        | string   | true         | Must be "looker-update-dashboard-element".        |
+| source      | string   | true         | Name of the Looker source.                         |
+| description | string   | true         | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
+## looker-update-dashboard-layout
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-update-dashboard-layout
+**URL:** https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-dashboard-layout/
+**Description:** "looker-update-dashboard-layout" updates an existing Looker dashboard layout (tab), switching layout types or active state.
+
+
+
+## About
+
+The `looker-update-dashboard-layout` tool updates an existing Looker dashboard layout (`PATCH /api/4.0/dashboard_layouts/:id`). It allows changing the layout type, toggling whether the layout is active, or updating the layout display label.
+
+When publishing Looker Data Applications, setting `type: "extension"` configures the layout as a frameless, 100% viewport container for hosting a single Data App Extension tile without 24-column grid constraints.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Example
+
+```yaml
+kind: tool
+name: update_dashboard_layout
+type: looker-update-dashboard-layout
+source: looker-source
+description: |
+  This tool updates an existing Looker dashboard layout (`PATCH /api/4.0/dashboard_layouts/:id`).
+  It allows changing the layout type, toggling whether the layout is active, or updating the tab label.
+
+  DATA APP FULL-BLEED LAYOUT:
+  Setting `type: "extension"` configures the layout as a frameless, 100% viewport container
+  for hosting a single Data App Extension tile without 24-column grid constraints.
+
+  Parameters:
+  - dashboard_layout_id (required): The ID of the dashboard layout to update.
+  - type (optional): Layout type: 'newspaper' (responsive 24-column grid), 'extension' (frameless full-bleed single extension tile), or 'grid'.
+  - active (optional): Whether this layout is the active layout for the dashboard.
+  - label (optional): Display label for this layout tab.
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|:------------|:--------:|:------------:|----------------------------------------------------|
+| type        | string   | true         | Must be "looker-update-dashboard-layout".          |
 | source      | string   | true         | Name of the Looker source.                         |
 | description | string   | true         | Description of the tool that is passed to the LLM. |
 
@@ -40954,6 +42812,92 @@ description: |
 | type        | string   | true         | Must be "looker-update-dashboard-layout-component". |
 | source      | string   | true         | Name of the Looker source.                         |
 | description | string   | true         | Description of the tool that is passed to the LLM. |
+
+
+
+
+========================================================================
+## looker-update-data-app-extension
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > Looker > Tools > looker-update-data-app-extension
+**URL:** https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-data-app-extension/
+**Description:** "looker-update-data-app-extension" updates an existing Data App Extension in Looker while preserving sandboxed mount points and entitlements.
+
+
+
+## About
+
+The `looker-update-data-app-extension` tool updates an existing
+Data App Extension in Looker via `PATCH /api/4.0/data_app_extension/:data_app_extension_id`
+using the Looker SDK transport. Looker preserves the server-enforced
+dashboard-tile mount points and sandboxed core API entitlements across updates.
+
+Updating `code` updates the underlying JavaScript ES module source code payload
+in place. Any dashboards or tiles referencing `db::<id>` will immediately execute
+the updated code on next view without needing to recreate or update the dashboard
+element or modify dashboard layouts.
+
+At least one updatable field (`label`, `code`, `description`, or `name`) must be
+provided when invoking the tool.
+
+## Compatible Sources
+
+{{< compatible-sources >}}
+
+## Requirements
+
+* The `inline_extensions` feature must be enabled on the Looker instance.
+* The authenticated Looker user must own the Data App Extension, have `manage_inline_extensions` permission, or supply a `dashboard_id` for a shared dashboard they have edit access to.
+
+## Parameters
+
+| **parameter**           | **type** | **required** | **description**                                                                                                             |
+|:------------------------|:--------:|:------------:|-----------------------------------------------------------------------------------------------------------------------------|
+| `data_app_extension_id` |  string  |     true     | The ID of the Data App Extension to update (accepts `<id>` or `db::<id>`).                                                  |
+| `label`                 |  string  |    false     | Optional updated display label for the Data App Extension (up to 255 characters).                                           |
+| `code`                  |  string  |    false     | Optional updated uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports (e.g. `/runtime/data-app.js`) must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). Must end with custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;` |
+| `description`           |  string  |    false     | Optional updated description of the Data App Extension.                                                                     |
+| `name`                  |  string  |    false     | Optional updated unique system name matching `[a-zA-Z0-9-_]+`. Usually omitted on update to avoid unique-index collisions.  |
+| `dashboard_id`          |  string  |    false     | Optional ID of the shared dashboard containing this Data App tile. Only needed when updating an extension mounted on a shared dashboard where the user relies on shared-folder contextual permissions. |
+
+## Example
+
+```yaml
+kind: tool
+name: update_data_app_extension
+type: looker-update-data-app-extension
+source: looker-source
+description: |
+  This tool updates an existing Data App Extension in Looker (`PATCH /api/4.0/data_app_extension/:id`)
+  while preserving server-enforced dashboard-tile mount points and sandboxed entitlements.
+
+  IN-PLACE CODE UPDATES:
+  Updating `code` updates the underlying JavaScript ES module source code payload in place. Any dashboards
+  or tiles referencing `db::<id>` will immediately execute the updated code on next view without needing
+  to recreate or update the dashboard element or modify dashboard layouts.
+
+  Required Parameters:
+  - data_app_extension_id: The ID of the Data App Extension to update (accepts `<id>` or `db::<id>`).
+  - At least one updatable field (`label`, `code`, `description`, or `name`) must be provided.
+
+  Optional Parameters:
+  - label: Updated user-friendly display label (up to 255 characters).
+  - code: Updated uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (`<script type="module">`), not CommonJS or an IIFE `bundle.js`. Relative imports like `/runtime/data-app.js` used during local preview must be rewritten to absolute CDN URLs (e.g. `'https://www.gstatic.com/looker-data-apps/versions/1.2.0/data-app.js'` and `'https://www.gstatic.com/looker-data-apps/vendor/lit/3.3.1/lit.mjs'`). The module must end with the custom element registration guard: `if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;`
+  - description: Updated description of the Data App Extension.
+  - name: Updated unique system identifier matching `[a-zA-Z0-9-_]+` (normally omitted to avoid unique-index collisions).
+  - dashboard_id: ID of the shared dashboard containing this Data App tile. Only needed when updating an extension mounted on a shared dashboard where the user relies on shared-folder contextual permissions.
+
+  Output:
+  Returns the updated Data App Extension metadata JSON, including `id` and `extension_id` (`"db::<id>"`).
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                    |
+|:------------|:--------:|:------------:|----------------------------------------------------|
+| type        |  string  |     true     | Must be "looker-update-data-app-extension".        |
+| source      |  string  |     true     | Name of the Looker source to execute against.      |
+| description |  string  |     true     | Description of the tool that is passed to the LLM. |
 
 
 
@@ -41419,7 +43363,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -41580,7 +43524,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -41703,7 +43647,7 @@ In this section, we will download Toolbox and run the Toolbox server.
     <!-- {x-release-please-start-version} -->
     ```bash
     export OS="linux/amd64" # one of linux/amd64, darwin/arm64, darwin/amd64, windows/amd64, or windows/arm64
-    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.10.0/$OS/toolbox
+    curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.17.0/$OS/toolbox
     ```
     <!-- {x-release-please-end} -->
 
@@ -41811,12 +43755,14 @@ In this section, we will download Toolbox and run the Toolbox server.
 *   **Tools:**
     *   `get_models`: Retrieves the list of LookML models.
     *   `get_explores`: Retrieves the list of explores in a model.
+    *   `get_explore`: Retrieves detailed metadata for an explore, including
+        `always_filter` and `conditionally_filter` constraints.
     *   `get_dimensions`: Retrieves the list of dimensions in an explore.
     *   `get_measures`: Retrieves the list of measures in an explore.
     *   `get_filters`: Retrieves the list of filters in an explore.
     *   `get_parameters`: Retrieves the list of parameters in an explore.
     *   `get_field_value_suggestions`: Retrieves distinct value suggestions for a field.
-    *   `query`: Runs a query against the LookML model.
+    *   `query`: Runs an inline query against the LookML model or executes a saved query by ID/slug.
     *   `query_sql`: Generates the SQL for a query.
     *   `query_url`: Generates a URL for a query in Looker.
     *   `get_looks`: Searches for saved looks.
@@ -41825,9 +43771,14 @@ In this section, we will download Toolbox and run the Toolbox server.
     *   `get_dashboards`: Searches for saved dashboards.
     *   `run_dashboard`: Runs the queries associated with a dashboard.
     *   `make_dashboard`: Creates a new dashboard.
+    *   `update_dashboard`: Updates a dashboard container and appearance settings.
+    *   `update_dashboard_layout`: Updates a dashboard layout (tab).
+    *   `import_dashboard_from_lookml`: Imports a dashboard from a LookML YAML definition.
     *   `add_dashboard_element`: Adds a tile to a dashboard.
     *   `add_dashboard_filter`: Adds a filter to a dashboard.
     *   `generate_embed_url`: Generate an embed url for content.
+    *   `create_data_app_extension`: Creates a Data App Extension in Looker.
+    *   `update_data_app_extension`: Updates an existing Data App Extension in Looker.
 
 
 
@@ -49366,6 +51317,10 @@ transactional consistency at global scale, automatic, synchronous replication
 for high availability, and support for two SQL dialects: GoogleSQL (ANSI 2011
 with extensions) and PostgreSQL.
 
+This source also connects to [Spanner Omni][spanner-omni-docs], a
+deploy-anywhere version of Spanner. See [Spanner Omni](#spanner-omni) below, or
+the [Spanner Omni quickstart][spanner-omni-quickstart] to set up a deployment.
+
 If you are new to Spanner, you can try to [create and query a database using
 the Google Cloud console][spanner-quickstart].
 
@@ -49403,6 +51358,9 @@ applying IAM permissions and roles to an identity.
 [set-adc]: https://cloud.google.com/docs/authentication/provide-credentials-adc
 [grant-permissions]: https://cloud.google.com/spanner/docs/grant-permissions
 
+Spanner Omni sources don't use ADC or IAM. See [Spanner Omni](#spanner-omni)
+for the supported connection options.
+
 ## Example
 
 ```yaml
@@ -49417,13 +51375,57 @@ database: "my_db"
 
 ## Reference
 
-| **field** | **type** | **required** | **description**                                                                                                     |
-|-----------|:--------:|:------------:|---------------------------------------------------------------------------------------------------------------------|
-| type      |  string  |     true     | Must be "spanner".                                                                                                  |
-| project   |  string  |     true     | Id of the GCP project that the cluster was created in (e.g. "my-project-id").                                       |
-| instance  |  string  |     true     | Name of the Spanner instance.                                                                                       |
-| database  |  string  |     true     | Name of the database on the Spanner instance                                                                        |
-| dialect   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. Default: `googlesql`. |
+| **field**                 | **type** | **required** | **description**                                                                                                                                     |
+|---------------------------|:--------:|:------------:|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| type                      |  string  |     true     | Must be "spanner".                                                                                                                                  |
+| project                   |  string  |    false     | Id of the GCP project that the cluster was created in (e.g. "my-project-id"). Required for Spanner; optional for Spanner Omni (default: `default`). |
+| instance                  |  string  |    false     | Name of the Spanner instance. Required for Spanner; optional for Spanner Omni (default: `default`).                                                 |
+| database                  |  string  |     true     | Name of the database on the Spanner instance                                                                                                        |
+| dialect                   |  string  |    false     | Name of the dialect type of the Spanner database, must be either `googlesql` or `postgresql`. Default: `googlesql`.                                 |
+| instanceType              |  string  |    false     | Either `cloud` or `omni`. Set to `omni` to connect to a [Spanner Omni][spanner-omni-docs] deployment. Default: `cloud`.                             |
+| omniEndpoint              |  string  |    false     | Spanner Omni API endpoint as `host:port` (e.g. "omni.example.com:15000"). Required when `instanceType` is `omni`.                                   |
+| omniUsePlainText          |   bool   |    false     | Connect to Spanner Omni without TLS. Only for local development. Cannot be combined with certificates or username/password.                         |
+| omniCaCertificateFile     |  string  |    false     | Path to the CA certificate that signed the Spanner Omni API certificate.                                                                            |
+| omniClientCertificateFile |  string  |    false     | Path to a client certificate for Spanner Omni mTLS. Requires `omniClientKeyFile`.                                                                   |
+| omniClientKeyFile         |  string  |    false     | Path to the private key of the client certificate. Requires `omniClientCertificateFile`.                                                            |
+| omniUsername              |  string  |    false     | Spanner Omni username for password authentication. Requires `omniPassword`.                                                                         |
+| omniPassword              |  string  |    false     | Spanner Omni password. Use an environment variable (e.g. `${OMNI_PASSWORD}`) rather than a literal value.                                           |
+
+## Advanced Usage
+
+### Spanner Omni
+
+[Spanner Omni][spanner-omni-docs] is a deploy-anywhere version of Spanner. Set
+`instanceType: omni` and `omniEndpoint` to connect to it. Spanner Omni does not
+use Google Cloud credentials; instead, choose one of the following:
+
+- **TLS:** set `omniCaCertificateFile`.
+- **mTLS:** also set `omniClientCertificateFile` and `omniClientKeyFile`.
+- **Password:** set `omniUsername` and `omniPassword`. Password authentication
+  requires TLS, so also set `omniCaCertificateFile` (or rely on the system trust
+  store) and don't set `omniUsePlainText`.
+- **Plaintext (local development only):** set `omniUsePlainText: true`.
+
+`project` and `instance` are optional for Spanner Omni and default to
+`default`.
+
+```yaml
+kind: source
+name: my-spanner-omni-source
+type: "spanner"
+database: "my_db"
+instanceType: "omni"
+omniEndpoint: "omni.example.com:15000"
+omniCaCertificateFile: "/path/to/ca.crt"
+omniClientCertificateFile: "/path/to/client.crt"
+omniClientKeyFile: "/path/to/client.key"
+```
+
+The `spanner-search-catalog` tool uses Knowledge Catalog and is not supported
+for Spanner Omni sources.
+
+[spanner-omni-docs]: https://docs.cloud.google.com/spanner-omni/overview
+[spanner-omni-quickstart]: https://docs.cloud.google.com/spanner-omni/quickstart
 
 
 
@@ -49507,6 +51509,9 @@ following parameters:
 - `projectIds` - The IDs of the GCP project.
 - `types` - The type of the data. Accepted values are: DATABASE, TABLE, VIEW.
 - `pageSize` - Number of results in the search page. Defaults to `5`.
+
+This tool is not supported for [Spanner Omni](../source.md#spanner-omni)
+sources, because Spanner Omni databases are not registered in Knowledge Catalog.
 
 ## Compatible Sources
 
@@ -50517,6 +52522,55 @@ description: Use this tool to execute sql statement.
 
 
 ========================================================================
+## mssql-get-database-object-source-code
+========================================================================
+**Hierarchy:** MCP Toolbox for Databases > Integrations > SQL Server > Tools > mssql-get-database-object-source-code
+**URL:** https://mcp-toolbox.dev/dev/integrations/mssql/tools/mssql-get-database-object-source-code/
+**Description:** The "mssql-get-database-object-source-code" tool retrieves source code and metadata for objects in a SQL Server database.
+
+
+
+## About
+
+The `mssql-get-database-object-source-code` tool retrieves source code and
+metadata for database objects in a SQL Server database, including stored
+procedures, views, functions, triggers, linked servers, tables, and user-defined
+assemblies.
+
+The tool takes the following input parameters:
+
+- **`namesOnly`** (boolean, optional): Set to `true` to return only object names
+  instead of full object source code or metadata. Default: `false`.
+- **`object_type`** (string, optional): Specify the database object type to
+  retrieve. Allowed values: `all`, `functions`, `tables`, `procedures`, `views`,
+  `triggers`, `linked_servers`, `assemblies`. Default: `all`.
+
+## Compatible Sources
+
+{{< compatible-sources others="integrations/cloud-sql-mssql">}}
+
+## Example
+
+```yaml
+kind: tool
+name: get_database_object_source_code
+type: mssql-get-database-object-source-code
+source: mssql-source
+description: Executes a query to retrieve source code for all coding objects.
+```
+
+## Reference
+
+| **field**   | **type** | **required** | **description**                                      |
+|-------------|:--------:|:------------:|------------------------------------------------------|
+| type        |  string  |     true     | Must be "mssql-get-database-object-source-code".     |
+| source      |  string  |     true     | Name of the source the SQL should execute on.        |
+| description |  string  |     true     | Description of the tool that is passed to the agent. |
+
+
+
+
+========================================================================
 ## mssql-list-tables
 ========================================================================
 **Hierarchy:** MCP Toolbox for Databases > Integrations > SQL Server > Tools > mssql-list-tables
@@ -50717,6 +52771,7 @@ templateParameters:
 *   **Tools:**
     *   `execute_sql`: Executes a SQL query.
     *   `list_tables`: Lists tables in the database.
+    *   `get_database_object_source_code`: Retrieves source code or metadata for database objects.
 
 
 
@@ -52383,6 +54438,7 @@ Configure the Gemini CLI to talk to your local Toolbox MCP server.
 |--------------|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------|
 | `-a`         | `--address`                | Address of the interface the server will listen on.                                                                                                                       | `127.0.0.1` |
 |              | `--disable-ext`            | Specifies MCP extension URIs disabled on this server.                                                                                                                     |             |
+|              | `--disable-extension-check` | Disable client extension capability checks in older MCP protocol versions.                                                                                                | `false`     |
 |              | `--disable-reload`         | Disables dynamic reloading config.                                                                                                                                        |             |
 | `-h`         | `--help`                   | help for toolbox                                                                                                                                                          |             |
 |              | `--http-max-request-bytes` | Maximum MCP HTTP request body size in bytes.                                                                                                                              | `10485760`  |
@@ -52390,6 +54446,7 @@ Configure the Gemini CLI to talk to your local Toolbox MCP server.
 |              | `--log-level`              | Specify the minimum level logged. Allowed: 'DEBUG', 'INFO', 'WARN', 'ERROR'.                                                                                              | `info`      |
 |              | `--logging-format`         | Specify logging format to use. Allowed: 'standard' or 'JSON'.                                                                                                             | `standard`  |
 |              | `--mcp-prm-file`           | Path to a manual Protected Resource Metadata (PRM) JSON file. If provided, overrides auto-generation for MCP Server-Wide Authentication.                                  |             |
+|              | `--openai-apps-challenge-file` | Path to a file containing the OpenAI verification challenge token to serve at `/.well-known/openai-apps-challenge`.                                                       |             |
 | `-p`         | `--port`                   | Port the server will listen on.                                                                                                                                           | `5000`      |
 |              | `--tls-cert`               | Path to the PEM-encoded TLS certificate file.                                                                                                                             |             |
 |              | `--tls-key`                | Path to the PEM-encoded TLS private key file.                                                                                                                             |             |
@@ -52481,7 +54538,7 @@ toolbox skills-generate --name <name> --description <description> --toolset <too
 - `--invocation-mode`: (Optional) Invocation mode for the generated scripts: 'binary' or 'npx' (default: "npx").
 - `--toolbox-version`: (Optional) Version of @toolbox-sdk/server to use for npx approach (defaults to current toolbox version).
 
-For more detailed instructions, see [Generate Agent Skills](../documentation/configuration/skills/_index.md).
+For more detailed instructions, see [Generating Skills](../documentation/configuration/skills/generating.md).
 
 </details>
 
@@ -52617,14 +54674,25 @@ visit [Toolbox UI](../documentation/configuration/toolbox-ui/index.md).
 
 ### Disabling MCP Extensions
 
-By default, Toolbox advertises support for its own custom MCP extensions (e.g., `com.google.cloud/toolbox.v1`) during the client discovery phase. This extension signals to clients that they can leverage Toolbox-specific features that fall outside the official MCP specification (see the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for a list of currently supported capabilities).
+During the client discovery phase, Toolbox advertises the extensions below. One is Toolbox's own; the others are defined by the MCP specification.
+
+| Extension URI | What it provides |
+| :--- | :--- |
+| `com.google.cloud/toolbox.v1` | Toolbox-specific features that fall outside the official MCP specification, such as secure parameters and `groups/*`. See the [Extension README](https://github.com/googleapis/mcp-toolbox/blob/main/extensions/2026-07-28/README.md) for the capabilities this extension covers. |
+| `io.modelcontextprotocol/ui` | [MCP Apps](../documentation/configuration/mcp-apps/index.md) interactive UI resources |
+| `io.modelcontextprotocol/skills` | [Agent Skills](../documentation/configuration/skills/serving.md) discovery through `skills/list` and `skills/get`. The catalogue is server-wide and is [not scoped by group](../documentation/configuration/groups/). |
 
 Disabling an extension removes it from the server's advertised capabilities. To disable specific extensions on the server, pass their URIs via the `--disable-ext` flag:
 
 ```bash
 # Disable the Toolbox v1 extension
 ./toolbox --disable-ext com.google.cloud/toolbox.v1
+
+# Disable Agent Skills, which also stops the server answering skills/list and skills/get
+./toolbox --disable-ext io.modelcontextprotocol/skills
 ```
+
+Extensions are advertised only for MCP protocol version `2026-07-28`. Older versions do not support extensions.
 
 
 
@@ -52928,4 +54996,11 @@ The following changes will **not** trigger a major version bump:
 * **Server**  
   * **Pre-built Config Modifications:** Adding, removing, or renaming individual tools within a pre-built toolset, as well as modifying server description, prompts, resources, tool descriptions or inputs, are treated as non-breaking changes.  
 * **Experimental Features:** Features or wrapper packages explicitly documented as "Preview" or "Beta" may introduce breaking changes without a major version bump to the core project.
+
+## Container Tagging Policy
+
+Official container images are published to `us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox`:
+
+* **Version tags (`X.Y.Z`, e.g., `1.14.0`):** Immutable tags pinned to a specific release digest (`linux/amd64` and `linux/arm64`). Once published, version tags are never overwritten. Pinning to a specific version tag or image digest (`@sha256:...`) is recommended for production workloads.
+* **`latest` tag:** A floating tag that points to the most recent stable release digest and is updated automatically whenever a new versioned release is promoted.
 

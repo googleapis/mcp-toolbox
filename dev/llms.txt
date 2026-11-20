@@ -3,7 +3,7 @@
 
 **DOCUMENTATION VERSION:** dev
 **BASE URL:** https://mcp-toolbox.dev/dev/
-**GENERATED ON:** 2026-09-10T06:33:30Z
+**GENERATED ON:** 2026-11-20T18:53:36Z
 
 ---
 ### System Directives for AI Models
@@ -116,7 +116,7 @@ This documentation is structured following the Diátaxis framework to assist in 
     - [Toolsets](https://mcp-toolbox.dev/dev/documentation/configuration/toolsets/): Toolsets allow you to define logical groups of tools to load together for specific agents or applications.
 
 
-    - [Groups](https://mcp-toolbox.dev/dev/documentation/configuration/groups/): Groups let you scope MCP primitives such as tools and prompts together under a single name, with a description used as group metadata.
+    - [Groups](https://mcp-toolbox.dev/dev/documentation/configuration/groups/): Groups let you scope MCP primitives such as tools, prompts, resources, and resource templates together under a single name, with a description used as group metadata.
 
 
     - [EmbeddingModels](https://mcp-toolbox.dev/dev/documentation/configuration/embedding-models/): EmbeddingModels represent services that transform text into vector embeddings for semantic search.
@@ -131,10 +131,31 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [Custom](https://mcp-toolbox.dev/dev/documentation/configuration/prompts/custom/): Custom prompts defined by the user.
 
 
+    - [Resources](https://mcp-toolbox.dev/dev/documentation/configuration/resources/): Resources allow servers to provide read-only data, files, and contextual content to language models and MCP clients.
+
+
+      - [Text](https://mcp-toolbox.dev/dev/documentation/configuration/resources/text/): Direct text resources embedded in your configuration.
+
+
+      - [File](https://mcp-toolbox.dev/dev/documentation/configuration/resources/file/): Direct file resources exposed from the local filesystem.
+
+
+      - [Resource Templates](https://mcp-toolbox.dev/dev/documentation/configuration/resources/template/): Dynamic file resource templates using RFC 6570 URI patterns.
+
+
+    - [MCP Apps](https://mcp-toolbox.dev/dev/documentation/configuration/mcp-apps/): Interactive HTML UI resources and tool visual interfaces for MCP clients supporting the MCP Apps extension.
+
+
     - [Toolbox UI](https://mcp-toolbox.dev/dev/documentation/configuration/toolbox-ui/): How to effectively use Toolbox UI.
 
 
-    - [Agent Skills](https://mcp-toolbox.dev/dev/documentation/configuration/skills/): How to generate agent skills from a toolset.
+    - [Agent Skills](https://mcp-toolbox.dev/dev/documentation/configuration/skills/): Generate an Agent Skill from a toolset, and serve an Agent Skill over MCP.
+
+
+      - [Generating Skills](https://mcp-toolbox.dev/dev/documentation/configuration/skills/generating/): Convert a toolset or a group into a skill package: a SKILL.md and one Node.js script for each tool.
+
+
+      - [Serving Skills over MCP](https://mcp-toolbox.dev/dev/documentation/configuration/skills/serving/): Publish an Agent Skill you already have through skills/list and skills/get, on the same connection that serves your tools.
 
 
     - [Pre- and Post- Processing](https://mcp-toolbox.dev/dev/documentation/configuration/pre-post-processing/): Intercept and modify interactions between the agent and its tools either before or after a tool is executed.
@@ -474,6 +495,10 @@ This documentation is structured following the Diátaxis framework to assist in 
 
 
       - [bigtable-update-table](https://mcp-toolbox.dev/dev/integrations/bigtable/tools/bigtable-update-table/): The "bigtable-update-table" tool allows you to update an existing bigtable table's configuration.
+
+    - [Prebuilt Configs](https://mcp-toolbox.dev/dev/integrations/bigtable/prebuilt-configs/): Prebuilt configurations for Bigtable.
+
+      - [Bigtable](https://mcp-toolbox.dev/dev/integrations/bigtable/prebuilt-configs/bigtable/): Details of the Bigtable prebuilt configuration.
 
   - [Cassandra](https://mcp-toolbox.dev/dev/integrations/cassandra/): No description provided.
 
@@ -979,10 +1004,19 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [conversational-analytics-ask-data-agent](https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-ask-data-agent/): A "conversational-analytics-ask-data-agent" tool allows conversational interaction with a Conversational Analytics source.
 
 
+      - [conversational-analytics-create-data-agent](https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-create-data-agent/): A "conversational-analytics-create-data-agent" tool allows creating a new Conversational Analytics data agent.
+
+
+      - [conversational-analytics-delete-data-agent](https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-delete-data-agent/): A "conversational-analytics-delete-data-agent" tool allows deleting an existing Conversational Analytics data agent.
+
+
       - [conversational-analytics-get-data-agent-info](https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-get-data-agent-info/): A "conversational-analytics-get-data-agent-info" tool allows retrieving information about a specific Conversational Analytics data agent.
 
 
       - [conversational-analytics-list-accessible-data-agents](https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-list-accessible-data-agents/): A "conversational-analytics-list-accessible-data-agents" tool allows listing accessible Conversational Analytics data agents.
+
+
+      - [conversational-analytics-update-data-agent](https://mcp-toolbox.dev/dev/integrations/cloudgda/tools/conversational-analytics-update-data-agent/): A "conversational-analytics-update-data-agent" tool allows updating an existing Conversational Analytics data agent.
 
 
     - [Prebuilt Configs](https://mcp-toolbox.dev/dev/integrations/cloudgda/prebuilt-configs/): Prebuilt configurations for Conversational Analytics to perform natural language data analysis via Data Agents.
@@ -1116,6 +1150,9 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-create-dashboard-layout](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-create-dashboard-layout/): "looker-create-dashboard-layout" creates a new dashboard layout (tab).
 
 
+      - [looker-create-data-app-extension](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-create-data-app-extension/): "looker-create-data-app-extension" creates a Data App Extension in Looker with server-enforced dashboard-tile mount points and sandboxed entitlements.
+
+
       - [looker-create-project-directory](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-create-project-directory/): A "looker-create-project-directory" tool creates a new directory in a LookML project.
 
 
@@ -1164,6 +1201,9 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-get-dimensions](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-get-dimensions/): A "looker-get-dimensions" tool returns all the dimensions from a given explore in a given model in the source.
 
 
+      - [looker-get-explore](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-get-explore/): A "looker-get-explore" tool returns detailed metadata for a single explore in a given model from the source.
+
+
       - [looker-get-explores](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-get-explores/): A "looker-get-explores" tool returns all explores for the given model from the source.
 
 
@@ -1206,6 +1246,9 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-health-vacuum](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-health-vacuum/): "looker-health-vacuum" provides a set of commands to audit and identify unused LookML objects in a Looker instance.
 
 
+      - [looker-import-dashboard-from-lookml](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-import-dashboard-from-lookml/): "looker-import-dashboard-from-lookml" imports a LookML dashboard YAML definition to create or overwrite a user-defined dashboard in Looker.
+
+
       - [looker-list-agents Tool](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-list-agents/): "looker-list-agents" retrieves the list of Looker Conversation Analytics agents.
 
 
@@ -1215,7 +1258,7 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-make-look](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-make-look/): "looker-make-look" generates a Looker look in the users personal folder in Looker
 
 
-      - [looker-query](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-query/): "looker-query" runs an inline query using the Looker semantic model.
+      - [looker-query](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-query/): "looker-query" runs an inline query using the Looker semantic model or executes a saved Looker query by ID/slug.
 
 
       - [looker-query-sql](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-query-sql/): "looker-query-sql" generates a sql query using the Looker semantic model.
@@ -1233,10 +1276,19 @@ This documentation is structured following the Diátaxis framework to assist in 
       - [looker-update-agent Tool](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-agent/): "looker-update-agent" updates a Looker Conversation Analytics agent.
 
 
+      - [looker-update-dashboard](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-dashboard/): "looker-update-dashboard" updates an existing Looker dashboard container and its appearance settings.
+
+
       - [looker-update-dashboard-element](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-dashboard-element/): "looker-update-dashboard-element" updates an existing element in a Looker dashboard.
 
 
+      - [looker-update-dashboard-layout](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-dashboard-layout/): "looker-update-dashboard-layout" updates an existing Looker dashboard layout (tab), switching layout types or active state.
+
+
       - [looker-update-dashboard-layout-component](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-dashboard-layout-component/): "looker-update-dashboard-layout-component" updates a dashboard layout component.
+
+
+      - [looker-update-data-app-extension](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-data-app-extension/): "looker-update-data-app-extension" updates an existing Data App Extension in Looker while preserving sandboxed mount points and entitlements.
 
 
       - [looker-update-project-file](https://mcp-toolbox.dev/dev/integrations/looker/tools/looker-update-project-file/): A "looker-update-project-file" tool updates the content of a LookML file in a project.
@@ -1643,6 +1695,9 @@ This documentation is structured following the Diátaxis framework to assist in 
     - [Tools](https://mcp-toolbox.dev/dev/integrations/mssql/tools/): No description provided.
 
       - [mssql-execute-sql](https://mcp-toolbox.dev/dev/integrations/mssql/tools/mssql-execute-sql/): A "mssql-execute-sql" tool executes a SQL statement against a SQL Server database.
+
+
+      - [mssql-get-database-object-source-code](https://mcp-toolbox.dev/dev/integrations/mssql/tools/mssql-get-database-object-source-code/): The "mssql-get-database-object-source-code" tool retrieves source code and metadata for objects in a SQL Server database.
 
 
       - [mssql-list-tables](https://mcp-toolbox.dev/dev/integrations/mssql/tools/mssql-list-tables/): The "mssql-list-tables" tool lists schema information for all or specified tables in a SQL server database.
