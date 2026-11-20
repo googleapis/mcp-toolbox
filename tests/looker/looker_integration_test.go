@@ -389,6 +389,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"get_data_app_extension": map[string]any{
+				"type":        "looker-get-data-app-extension",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 			"create_data_app_extension": map[string]any{
 				"type":        "looker-create-data-app-extension",
 				"source":      "my-instance",
@@ -2746,6 +2751,31 @@ func TestLooker(t *testing.T) {
 			},
 		},
 	)
+	tests.RunToolGetTestByName(t, "get_data_app_extension",
+		map[string]any{
+			"get_data_app_extension": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The ID of the Data App Extension to retrieve (accepts '<id>' or 'db::<id>').",
+						"name":         "data_app_extension_id",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Whether to also fetch and include the published JavaScript ES module source code (default true).",
+						"name":         "include_code",
+						"required":     false,
+						"type":         "boolean",
+						"default":      true,
+					},
+				},
+			},
+		},
+	)
 	tests.RunToolGetTestByName(t, "create_data_app_extension",
 		map[string]any{
 			"create_data_app_extension": map[string]any{
@@ -3707,6 +3737,48 @@ func testDataAppExtensionLifecycle(t *testing.T, randstr string) func() {
 		}
 		if gotLabel, _ := updated["label"].(string); gotLabel != updatedLabel {
 			t.Errorf("expected updated label %q, got %q", updatedLabel, gotLabel)
+		}
+
+		// Read back metadata + published JS bundle via get_data_app_extension
+		getReq := map[string]any{
+			"data_app_extension_id": "db::" + id,
+			"include_code":          true,
+		}
+		getBody, err := json.Marshal(getReq)
+		if err != nil {
+			t.Fatalf("error marshaling get request body: %v", err)
+		}
+
+		getURL := "http://127.0.0.1:5000/api/tool/get_data_app_extension/invoke"
+		resp, bodyBytes = tests.RunRequest(t, http.MethodPost, getURL, bytes.NewBuffer(getBody), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("unexpected status code on get: got %d, want %d. Body: %s", resp.StatusCode, http.StatusOK, string(bodyBytes))
+		}
+
+		respMap = nil
+		if err := json.Unmarshal(bodyBytes, &respMap); err != nil {
+			t.Fatalf("error parsing get response body: %v", err)
+		}
+		resultStr, ok = respMap["result"].(string)
+		if !ok {
+			t.Fatalf("expected string result in get response, got: %s", string(bodyBytes))
+		}
+
+		var fetched map[string]any
+		if err := json.Unmarshal([]byte(resultStr), &fetched); err != nil {
+			t.Fatalf("error parsing get result JSON: %v", err)
+		}
+		if errStr, hasErr := fetched["error"].(string); hasErr && errStr != "" {
+			t.Fatalf("get_data_app_extension returned error: %s", errStr)
+		}
+		if extID, _ := fetched["extension_id"].(string); extID != "db::"+id {
+			t.Errorf("expected extension_id %q, got %q", "db::"+id, extID)
+		}
+		if gotLabel, _ := fetched["label"].(string); gotLabel != updatedLabel {
+			t.Errorf("expected fetched label %q, got %q", updatedLabel, gotLabel)
+		}
+		if gotCode, _ := fetched["code"].(string); !strings.Contains(gotCode, "return 'updated';") {
+			t.Errorf("expected fetched code to contain updated source, got %q", gotCode)
 		}
 	})
 
