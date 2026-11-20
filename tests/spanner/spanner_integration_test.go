@@ -19,7 +19,6 @@ package spanner
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -76,14 +75,6 @@ func initSpannerClients(ctx context.Context, project, instance, dbname string) (
 	}
 
 	return dataClient, adminClient, nil
-}
-
-func stopSpannerServer(ctx context.Context, cmd *tests.CmdExec) {
-	cmd.Close()
-	exitCtx, exitCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer exitCancel()
-	_ = cmd.Wait(exitCtx)
-	http.DefaultClient.CloseIdleConnections()
 }
 
 func cleanupOldSpannerResources(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dataClient *spanner.Client, dbString, schema string) {
@@ -241,7 +232,6 @@ func TestSpannerToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
-	defer stopSpannerServer(ctx, cmd)
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -448,7 +438,6 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
 	defer cleanup()
-	defer stopSpannerServer(ctx, cmd)
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
