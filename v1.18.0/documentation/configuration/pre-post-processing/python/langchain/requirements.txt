@@ -1,0 +1,3 @@
+langchain==1.3.9
+langchain-google-genai==4.2.1
+toolbox-langchain==1.0.0
