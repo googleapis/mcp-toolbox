@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -138,7 +140,14 @@ func (s *Source) UseClientAuthorization() bool {
 	return s.UseClientOAuth
 }
 
+// projectIDPattern matches Google Cloud project IDs, including domain-scoped IDs
+// (for example "example.com:my-project") and project numbers.
+var projectIDPattern = regexp.MustCompile(`\A[a-zA-Z0-9][a-zA-Z0-9.:-]*[a-zA-Z0-9]\z`)
+
 func (s *Source) RunQuery(projectID, query string) (any, error) {
+	if !projectIDPattern.MatchString(projectID) || strings.Contains(projectID, "..") {
+		return nil, fmt.Errorf("invalid projectId %q", projectID)
+	}
 	url := fmt.Sprintf("%s/v1/projects/%s/location/global/prometheus/api/v1/query", s.BaseURL(), projectID)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
