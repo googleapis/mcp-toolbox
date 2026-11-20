@@ -1287,6 +1287,8 @@ func TestScanWatchedFilesRecursively(t *testing.T) {
 		"root.yaml",
 		"tools-a/tool-a.yml",
 		"tools-b/nested/tool-b.yaml",
+		"tools-c/UPPER.YAML",
+		"tools-d/upper.YML",
 		"ignored.txt",
 	}
 	for _, relativePath := range relativeFiles {
@@ -1309,7 +1311,7 @@ func TestScanWatchedFilesRecursively(t *testing.T) {
 	}
 
 	want := make(map[string]bool)
-	for _, relativePath := range []string{"root.yaml", "tools-a/tool-a.yml", "tools-b/nested/tool-b.yaml"} {
+	for _, relativePath := range []string{"root.yaml", "tools-a/tool-a.yml", "tools-b/nested/tool-b.yaml", "tools-c/UPPER.YAML", "tools-d/upper.YML"} {
 		want[filepath.Join(folder, relativePath)] = true
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
@@ -1387,7 +1389,7 @@ func TestNestedDirectoryEdit(t *testing.T) {
 		t.Fatalf("new nested directory was not added to watcher: %s\noutput:\n%s", err, out)
 	}
 
-	newFile := filepath.Join(newDir, "additional.yml")
+	newFile := filepath.Join(newDir, "additional.YML")
 	if err := os.WriteFile(newFile, []byte("config"), 0644); err != nil {
 		t.Fatalf("failed to write config file in new nested directory: %v", err)
 	}
