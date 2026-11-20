@@ -170,9 +170,10 @@ statement: |
       ) USING utf8mb4) AS object_details
   FROM
       INFORMATION_SCHEMA.TABLES T
+      CROSS JOIN (SELECT ? AS table_names_param) AS table_filter
   WHERE
       T.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
-      AND (NULLIF(TRIM(?), '') IS NULL OR FIND_IN_SET(T.TABLE_NAME, ?))
+      AND (NULLIF(TRIM(table_filter.table_names_param), '') IS NULL OR FIND_IN_SET(T.TABLE_NAME, table_filter.table_names_param))
       AND T.TABLE_TYPE = 'BASE TABLE'
   ORDER BY
       T.TABLE_SCHEMA, T.TABLE_NAME;
@@ -180,6 +181,7 @@ parameters:
 - name: table_names
   type: string
   description: "Optional: A comma-separated list of table names. If empty, details for all tables in user-accessible schemas will be listed."
+  default: ""
 ---
 kind: toolset
 name: oceanbase_database_tools
