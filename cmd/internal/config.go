@@ -519,6 +519,7 @@ func mergeConfigs(files ...Config) (Config, error) {
 			mcpEnabledAuthServers = append(mcpEnabledAuthServers, name)
 		}
 	}
+	slices.Sort(mcpEnabledAuthServers)
 	if len(mcpEnabledAuthServers) > 1 {
 		return Config{}, fmt.Errorf("multiple authServices with mcpEnabled=true detected: %s. Only one MCP authorization server is currently supported", strings.Join(mcpEnabledAuthServers, ", "))
 	}
@@ -552,14 +553,11 @@ func (p *ConfigParser) LoadAndMergeConfigs(ctx context.Context, filePaths []stri
 	if len(configs) == 0 {
 		return Config{}, fmt.Errorf("no YAML files found")
 	}
-	if len(configs) > 1 {
-		mergedFile, err := mergeConfigs(configs...)
-		if err != nil {
-			return Config{}, fmt.Errorf("unable to merge config files: %w", err)
-		}
-		return mergedFile, nil
+	mergedFile, err := mergeConfigs(configs...)
+	if err != nil {
+		return Config{}, fmt.Errorf("unable to merge config files: %w", err)
 	}
-	return configs[0], nil
+	return mergedFile, nil
 }
 
 // GetPathsFromConfigFolder loads all YAML files from a directory and merges them

@@ -2860,13 +2860,13 @@ func TestMergeConfigs(t *testing.T) {
 			name:      "merge multiple mcp enabled generic",
 			files:     []Config{fileMcp1, fileMcp2},
 			wantErr:   true,
-			errString: "multiple authServices with mcpEnabled=true detected",
+			errString: "multiple authServices with mcpEnabled=true detected: generic1, generic2",
 		},
 		{
 			name:      "merge mcp enabled google and generic",
 			files:     []Config{fileMcpGoogle, fileMcp1},
 			wantErr:   true,
-			errString: "multiple authServices with mcpEnabled=true detected",
+			errString: "multiple authServices with mcpEnabled=true detected: generic1, google1",
 		},
 		{
 			name:  "merge single file",
@@ -3192,5 +3192,31 @@ resourceTemplates:
 	}
 	if tmplContent != "anchored content" {
 		t.Fatalf("expected 'anchored content', got %v", tmplContent)
+	}
+}
+
+func TestLoadAndMergeConfigs_RejectsMultipleMCPEnabledInSingleFile(t *testing.T) {
+	yamlContent := `
+authServices:
+  google1:
+    type: google
+    clientId: testing-id
+    mcpEnabled: true
+  generic1:
+    type: generic
+    mcpEnabled: true
+    authorizationServer: https://auth.example.com
+    audience: https://mcp.example.com
+`
+	toolsYaml := filepath.Join(t.TempDir(), "tools.yaml")
+	if err := os.WriteFile(toolsYaml, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	parser := &ConfigParser{}
+	_, err := parser.LoadAndMergeConfigs(context.Background(), []string{toolsYaml})
+	want := "multiple authServices with mcpEnabled=true detected: generic1, google1"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected error containing %q, got: %v", want, err)
 	}
 }
