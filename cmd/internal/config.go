@@ -30,7 +30,6 @@ import (
 	"github.com/goccy/go-yaml/lexer"
 	"github.com/goccy/go-yaml/token"
 	"github.com/google/go-cmp/cmp"
-	"github.com/googleapis/mcp-toolbox/internal/auth/generic"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -516,11 +515,11 @@ func mergeConfigs(files ...Config) (Config, error) {
 	// Ensure only one authService has mcpEnabled = true
 	var mcpEnabledAuthServers []string
 	for name, authService := range merged.AuthServices {
-		// Only generic type has McpEnabled right now
-		if genericService, ok := authService.(generic.Config); ok && genericService.McpEnabled {
+		if authService.IsMCPEnabled() {
 			mcpEnabledAuthServers = append(mcpEnabledAuthServers, name)
 		}
 	}
+	slices.Sort(mcpEnabledAuthServers)
 	if len(mcpEnabledAuthServers) > 1 {
 		return Config{}, fmt.Errorf("multiple authServices with mcpEnabled=true detected: %s. Only one MCP authorization server is currently supported", strings.Join(mcpEnabledAuthServers, ", "))
 	}
@@ -554,14 +553,11 @@ func (p *ConfigParser) LoadAndMergeConfigs(ctx context.Context, filePaths []stri
 	if len(configs) == 0 {
 		return Config{}, fmt.Errorf("no YAML files found")
 	}
-	if len(configs) > 1 {
-		mergedFile, err := mergeConfigs(configs...)
-		if err != nil {
-			return Config{}, fmt.Errorf("unable to merge config files: %w", err)
-		}
-		return mergedFile, nil
+	mergedFile, err := mergeConfigs(configs...)
+	if err != nil {
+		return Config{}, fmt.Errorf("unable to merge config files: %w", err)
 	}
-	return configs[0], nil
+	return mergedFile, nil
 }
 
 // GetPathsFromConfigFolder loads all YAML files from a directory and merges them
