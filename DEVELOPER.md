@@ -590,6 +590,10 @@ variables for each source.
 * MySQL - ephemeral `mysql:8.4` container via testcontainers (set
   `MYSQL_HOST` to use an existing instance)
 * Neo4j - setup in the test project on a GCE VM
+* OceanBase - ephemeral `oceanbase/oceanbase-ce:4.4.2.1-101000022026050611`
+  container via testcontainers (set `OCEANBASE_HOST`, `OCEANBASE_PORT`,
+  `OCEANBASE_USER`, `OCEANBASE_PASSWORD`, and `OCEANBASE_DATABASE` to use an
+  existing instance)
 * Postgres - setup in the test project using an AlloyDB instance
 * Spanner - setup in the test project
   * The Cloud Build service account is a user
