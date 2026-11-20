@@ -62,6 +62,7 @@ The Looker MCP server provides a wide range of tools. Here are some of the key c
 | `add_dashboard_element` | Adds a tile to a dashboard.                               |
 | `update_dashboard`      | Updates a dashboard container and appearance.             |
 | `update_dashboard_layout` | Updates a dashboard layout (tab).                       |
+| `get_data_app_extension` | Retrieves a Data App Extension and its published JS code. |
 | `create_data_app_extension` | Creates a Data App Extension.                 |
 | `update_data_app_extension` | Updates an existing Data App Extension.         |
 | `health_pulse`          | Checks the status of the Looker instance.                 |

@@ -44,5 +44,6 @@ description: "Details of the Looker prebuilt configuration."
     *   `add_dashboard_element`: Adds a tile to a dashboard.
     *   `add_dashboard_filter`: Adds a filter to a dashboard.
     *   `generate_embed_url`: Generate an embed url for content.
+    *   `get_data_app_extension`: Retrieves metadata and published JavaScript source code for a Data App Extension in Looker.
     *   `create_data_app_extension`: Creates a Data App Extension in Looker.
     *   `update_data_app_extension`: Updates an existing Data App Extension in Looker.

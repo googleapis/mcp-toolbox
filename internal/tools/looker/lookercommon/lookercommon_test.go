@@ -891,3 +891,77 @@ func TestEnsureDataAppMeta(t *testing.T) {
 		t.Fatalf("expected EnsureDataAppMeta to be idempotent, got %q", again)
 	}
 }
+
+func TestGetDataAppExtensionTransport(t *testing.T) {
+	const bundleJS = "export default class SalesApp {};"
+	var bundleRequested bool
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/4.0/login" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "mock-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/4.0/data_app_extension/abc-123":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":        "abc-123",
+				"name":      "data-app-sales-abc",
+				"label":     "Sales App",
+				"user_id":   7,
+				"code_size": len(bundleJS),
+			})
+		case "/api/4.0/inline_extension/abc-123/bundle.js":
+			bundleRequested = true
+			w.Header().Set("Content-Type", "application/javascript")
+			_, _ = w.Write([]byte(bundleJS))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	settings := rtl.ApiSettings{
+		BaseUrl:      ts.URL,
+		ApiVersion:   "4.0",
+		ClientId:     "id",
+		ClientSecret: "secret",
+	}
+	sdk := v4.NewLookerSDK(rtl.NewAuthSession(settings))
+
+	// Metadata only
+	metaOnly, err := lookercommon.GetDataAppExtension(sdk, "db::abc-123", false, &settings)
+	if err != nil {
+		t.Fatalf("GetDataAppExtension(includeCode=false) failed: %v", err)
+	}
+	if bundleRequested {
+		t.Errorf("expected bundle.js not to be requested when includeCode=false")
+	}
+	if metaOnly.ExtensionId != "db::abc-123" || metaOnly.Code != nil {
+		t.Errorf("unexpected metadata-only result: %+v", metaOnly)
+	}
+
+	// Metadata + JS bundle
+	withCode, err := lookercommon.GetDataAppExtension(sdk, "abc-123", true, &settings)
+	if err != nil {
+		t.Fatalf("GetDataAppExtension(includeCode=true) failed: %v", err)
+	}
+	if !bundleRequested {
+		t.Errorf("expected bundle.js to be requested when includeCode=true")
+	}
+	if withCode.ExtensionId != "db::abc-123" {
+		t.Errorf("expected ExtensionId 'db::abc-123', got %q", withCode.ExtensionId)
+	}
+	if withCode.Code == nil || *withCode.Code != bundleJS {
+		t.Errorf("expected Code %q, got %v", bundleJS, withCode.Code)
+	}
+}

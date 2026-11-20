@@ -276,6 +276,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetconnectiontables"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboards"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdataappextension"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdimensions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplore"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplores"
