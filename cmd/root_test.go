@@ -1325,7 +1325,6 @@ func TestScanWatchedFilesRecursively(t *testing.T) {
 	}
 }
 
-
 func TestNestedDirectoryEdit(t *testing.T) {
 	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Minute)
 	defer cancelCtx()
