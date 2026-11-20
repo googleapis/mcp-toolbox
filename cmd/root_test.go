@@ -1355,19 +1355,19 @@ func TestNestedDirectoryEdit(t *testing.T) {
 	mockServer := &server.Server{}
 	go watchChanges(ctx, map[string]bool{root: true}, map[string]bool{}, mockServer, &internal.ToolboxOptions{})
 
-	escapedPath := func(path string) string {
-		path = strings.ReplaceAll(filepath.Clean(path), `\\`, `\\\\*\\`)
-		return path.Clean(path)
+	escapedPath := func(filePath string) string {
+		escaped := strings.ReplaceAll(filepath.Clean(filePath), `\\`, `\\\\*\\`)
+		return path.Clean(escaped)
 	}
 
 	rootPattern := regexp.MustCompile(fmt.Sprintf(`DEBUG "Added directory %s to watcher."`, escapedPath(root)))
 	if out, err := testutils.WaitForString(ctx, rootPattern, pr); err != nil {
-		t.Fatalf("timeout waiting for root watcher: %s\\noutput:\\n%s", err, out)
+		t.Fatalf("timeout waiting for root watcher: %s\noutput:\n%s", err, out)
 	}
 
 	existingPattern := regexp.MustCompile(fmt.Sprintf(`DEBUG "Added directory %s to watcher."`, escapedPath(existingDir)))
 	if out, err := testutils.WaitForString(ctx, existingPattern, pr); err != nil {
-		t.Fatalf("timeout waiting for existing nested watcher: %s\\noutput:\\n%s", err, out)
+		t.Fatalf("timeout waiting for existing nested watcher: %s\noutput:\n%s", err, out)
 	}
 
 	existingFile := filepath.Join(existingDir, "tools.yaml")
@@ -1376,7 +1376,7 @@ func TestNestedDirectoryEdit(t *testing.T) {
 	}
 	existingEvent := regexp.MustCompile(fmt.Sprintf(`event detected in %s"`, escapedPath(existingFile)))
 	if out, err := testutils.WaitForString(ctx, existingEvent, pr); err != nil {
-		t.Fatalf("nested file event was not detected: %s\\noutput:\\n%s", err, out)
+		t.Fatalf("nested file event was not detected: %s\noutput:\n%s", err, out)
 	}
 
 	newDir := filepath.Join(root, "created-after-start")
@@ -1385,7 +1385,7 @@ func TestNestedDirectoryEdit(t *testing.T) {
 	}
 	newDirPattern := regexp.MustCompile(fmt.Sprintf(`DEBUG "Added directory %s to watcher."`, escapedPath(newDir)))
 	if out, err := testutils.WaitForString(ctx, newDirPattern, pr); err != nil {
-		t.Fatalf("new nested directory was not added to watcher: %s\\noutput:\\n%s", err, out)
+		t.Fatalf("new nested directory was not added to watcher: %s\noutput:\n%s", err, out)
 	}
 
 	newFile := filepath.Join(newDir, "additional.yml")
@@ -1394,6 +1394,6 @@ func TestNestedDirectoryEdit(t *testing.T) {
 	}
 	newFileEvent := regexp.MustCompile(fmt.Sprintf(`event detected in %s"`, escapedPath(newFile)))
 	if out, err := testutils.WaitForString(ctx, newFileEvent, pr); err != nil {
-		t.Fatalf("config file in newly created directory was not detected: %s\\noutput:\\n%s", err, out)
+		t.Fatalf("config file in newly created directory was not detected: %s\noutput:\n%s", err, out)
 	}
 }
