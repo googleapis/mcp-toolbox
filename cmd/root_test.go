@@ -1314,7 +1314,7 @@ func TestScanWatchedFilesRecursively(t *testing.T) {
 		filepath.Join(folder, "tools-b/nested/tool-b.yaml"):   true,
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("scanWatchedFiles() mismatch (-want +got):\\n%s", diff)
+		t.Errorf("scanWatchedFiles() mismatch (-want +got): %s", diff)
 	}
 
 	_, changed, err = scanWatchedFiles(true, folder, nil, lastSeen)

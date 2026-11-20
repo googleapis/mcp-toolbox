@@ -3252,6 +3252,6 @@ func TestGetPathsFromConfigFolderRecursively(t *testing.T) {
 		filepath.Join(folder, "tools-b/tool-c.yaml"),
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("GetPathsFromConfigFolder() mismatch (-want +got):\\n%s", diff)
+		t.Errorf("GetPathsFromConfigFolder() mismatch (-want +got): %s", diff)
 	}
 }
