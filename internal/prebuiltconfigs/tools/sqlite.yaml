@@ -28,6 +28,8 @@ name: list_tables
 type: sqlite-sql
 source: sqlite-source
 description: Lists SQLite tables. Use 'output_format' ('simple'/'detailed') and 'table_names' (comma-separated or empty) to control output.
+annotations:
+  readOnlyHint: true
 statement: |
   WITH table_columns AS (
     SELECT
