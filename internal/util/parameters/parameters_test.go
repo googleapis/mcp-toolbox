@@ -1453,6 +1453,21 @@ func TestParametersParse(t *testing.T) {
 			},
 			want: parameters.ParamValues{parameters.ParamValue{Name: "my_map", Value: map[string]any{"key1": "val2"}}},
 		},
+		{
+			name: "valueFromParam copies source declared later",
+			params: parameters.Parameters{
+				&parameters.StringParameter{CommonParameter: parameters.CommonParameter{Name: "my_copy", Type: parameters.TypeString, Desc: "copy of my_string", ValueFromParam: "my_string"}},
+				parameters.NewStringParameter("my_string", "this param is a string"),
+			},
+			in: map[string]any{
+				"my_string": "hello world",
+				"my_copy":   "ignored",
+			},
+			want: parameters.ParamValues{
+				parameters.ParamValue{Name: "my_copy", Value: "hello world"},
+				parameters.ParamValue{Name: "my_string", Value: "hello world"},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1675,6 +1690,19 @@ func TestAuthParametersParse(t *testing.T) {
 			in:        map[string]any{"my_map": map[string]any{"key1": "val1"}},
 			claimsMap: map[string]map[string]any{"my-google-auth-service": {"auth_field": map[string]any{"authed_key": "authed_val"}}},
 			want:      parameters.ParamValues{parameters.ParamValue{Name: "my_map", Value: map[string]any{"authed_key": "authed_val"}}},
+		},
+		{
+			name: "valueFromParam copies claim, not request argument",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringAuth(authServices)),
+				&parameters.StringParameter{CommonParameter: parameters.CommonParameter{Name: "my_copy", Type: parameters.TypeString, Desc: "copy of my_string", ValueFromParam: "my_string"}},
+			},
+			in:        map[string]any{"my_string": "hello world"},
+			claimsMap: map[string]map[string]any{"my-google-auth-service": {"auth_field": "hello"}},
+			want: parameters.ParamValues{
+				parameters.ParamValue{Name: "my_string", Value: "hello"},
+				parameters.ParamValue{Name: "my_copy", Value: "hello"},
+			},
 		},
 	}
 	for _, tc := range tcs {
