@@ -185,7 +185,7 @@ func TestInvoke(t *testing.T) {
 			isTestCol:          "is_test",
 			dimensionIdCols:    []any{"dim1"},
 			wantErr:            true,
-			wantSubstr:         "invalid 'contribution_metric': must not contain single quotes",
+			wantSubstr:         "cannot single-quote-escape value containing single quote",
 		},
 	}
 

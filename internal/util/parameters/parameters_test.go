@@ -873,6 +873,16 @@ func TestParametersParse(t *testing.T) {
 			want: parameters.ParamValues{parameters.ParamValue{Name: "my_string", Value: "[foo]"}},
 		},
 		{
+			name: "string with escape backticks hyphenated identifier",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringEscape("backticks")),
+			},
+			in: map[string]any{
+				"my_string": "my-project.my_dataset.orders",
+			},
+			want: parameters.ParamValues{parameters.ParamValue{Name: "my_string", Value: "`my-project.my_dataset.orders`"}},
+		},
+		{
 			name: "string with escape backticks containing backtick (injection prevention)",
 			params: parameters.Parameters{
 				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringEscape("backticks")),
@@ -880,7 +890,15 @@ func TestParametersParse(t *testing.T) {
 			in: map[string]any{
 				"my_string": "users` OR 1=1--",
 			},
-			want: parameters.ParamValues{parameters.ParamValue{Name: "my_string", Value: "`users`` OR 1=1--`"}},
+		},
+		{
+			name: "string with escape backticks containing backslash-backtick (injection prevention)",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringEscape("backticks")),
+			},
+			in: map[string]any{
+				"my_string": "id\\` FROM dataset.users UNION SELECT * FROM secret",
+			},
 		},
 		{
 			name: "string with escape double quotes containing double quote (injection prevention)",
@@ -890,7 +908,15 @@ func TestParametersParse(t *testing.T) {
 			in: map[string]any{
 				"my_string": `col" OR 1=1--`,
 			},
-			want: parameters.ParamValues{parameters.ParamValue{Name: "my_string", Value: `"col"" OR 1=1--"`}},
+		},
+		{
+			name: "string with escape double quotes containing trailing backslash (injection prevention)",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringEscape("double-quotes")),
+			},
+			in: map[string]any{
+				"my_string": `col\`,
+			},
 		},
 		{
 			name: "string with escape single quotes containing single quote (injection prevention)",
@@ -900,7 +926,15 @@ func TestParametersParse(t *testing.T) {
 			in: map[string]any{
 				"my_string": "val' OR 1=1--",
 			},
-			want: parameters.ParamValues{parameters.ParamValue{Name: "my_string", Value: "'val'' OR 1=1--'"}},
+		},
+		{
+			name: "string with escape single quotes containing backslash-quote (injection prevention)",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringEscape("single-quotes")),
+			},
+			in: map[string]any{
+				"my_string": `\' UNION SELECT * FROM secret`,
+			},
 		},
 		{
 			name: "string with escape square brackets containing closing bracket (injection prevention)",
@@ -910,7 +944,15 @@ func TestParametersParse(t *testing.T) {
 			in: map[string]any{
 				"my_string": "col] OR 1=1--",
 			},
-			want: parameters.ParamValues{parameters.ParamValue{Name: "my_string", Value: "[col]] OR 1=1--]"}},
+		},
+		{
+			name: "string with escape backticks containing null byte (injection prevention)",
+			params: parameters.Parameters{
+				parameters.NewStringParameter("my_string", "this param is a string", parameters.WithStringEscape("backticks")),
+			},
+			in: map[string]any{
+				"my_string": "foo\x00bar",
+			},
 		},
 		{
 			name: "int",
