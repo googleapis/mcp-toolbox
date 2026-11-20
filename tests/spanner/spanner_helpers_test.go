@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -36,6 +37,10 @@ var (
 	SpannerSourceType = "spanner"
 	SpannerToolType   = "spanner-sql"
 )
+
+func newSpannerTestResourceName(prefix string) string {
+	return fmt.Sprintf("%s_%d_%s", prefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", ""))
+}
 
 // getSpannerToolInfo returns statements and param for my-tool for spanner-sql type
 func getSpannerParamToolInfo(tableName string) (string, string, string, string, string, string, map[string]any) {
@@ -97,7 +102,9 @@ func setupSpannerTable(t *testing.T, ctx context.Context, adminClient *database.
 
 	return func(t *testing.T) {
 		// tear down test
-		op, err = adminClient.UpdateDatabaseDdl(context.WithoutCancel(ctx), &databasepb.UpdateDatabaseDdlRequest{
+		teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		op, err = adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
 		})
@@ -106,7 +113,7 @@ func setupSpannerTable(t *testing.T, ctx context.Context, adminClient *database.
 			return
 		}
 
-		opErr := op.Wait(context.WithoutCancel(ctx))
+		opErr := op.Wait(teardownCtx)
 		if opErr != nil {
 			t.Errorf("Teardown failed: %s", opErr)
 		}
@@ -130,7 +137,9 @@ func setupSpannerGraph(t *testing.T, ctx context.Context, adminClient *database.
 
 	return func(t *testing.T) {
 		// tear down test
-		op, err = adminClient.UpdateDatabaseDdl(context.WithoutCancel(ctx), &databasepb.UpdateDatabaseDdlRequest{
+		teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		op, err = adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP PROPERTY GRAPH IF EXISTS %s", graphName)},
 		})
@@ -139,7 +148,7 @@ func setupSpannerGraph(t *testing.T, ctx context.Context, adminClient *database.
 			return
 		}
 
-		opErr := op.Wait(context.WithoutCancel(ctx))
+		opErr := op.Wait(teardownCtx)
 		if opErr != nil {
 			t.Errorf("Teardown failed: %s", opErr)
 		}
@@ -681,7 +690,7 @@ func runSpannerListGraphsTest(t *testing.T, graphName string) {
 
 // setupSpannerVectorTable creates a vector table in Spanner for semantic search testing
 func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string) (string, func(*testing.T)) {
-	tableName := "vector_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableName := newSpannerTestResourceName("vector_table")
 	createStatement := fmt.Sprintf(`CREATE TABLE %s (
 		id INT64,
 		content STRING(MAX),
@@ -701,7 +710,9 @@ func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *dat
 	}
 
 	return tableName, func(t *testing.T) {
-		op, err = adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		op, err = adminClient.UpdateDatabaseDdl(teardownCtx, &databasepb.UpdateDatabaseDdlRequest{
 			Database:   dbString,
 			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
 		})
@@ -709,7 +720,7 @@ func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *dat
 			t.Errorf("unable to start drop %s operation: %s", tableName, err)
 			return
 		}
-		opErr := op.Wait(ctx)
+		opErr := op.Wait(teardownCtx)
 		if opErr != nil {
 			t.Errorf("Teardown failed: %s", opErr)
 		}
