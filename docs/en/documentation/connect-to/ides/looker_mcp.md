@@ -528,6 +528,7 @@ instance and create new saved content.
 1. **generate_embed_url**: Generate an embed url for content
 1. **create_data_app_extension**: Create a Data App Extension in Looker
 1. **update_data_app_extension**: Update an existing Data App Extension in Looker
+1. **publish_data_app**: Publish a new full-bleed Looker Data Application or update an existing one in-place in a single call
 
 ### Looker Instance Health Tools
 

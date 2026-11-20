@@ -46,3 +46,4 @@ description: "Details of the Looker prebuilt configuration."
     *   `generate_embed_url`: Generate an embed url for content.
     *   `create_data_app_extension`: Creates a Data App Extension in Looker.
     *   `update_data_app_extension`: Updates an existing Data App Extension in Looker.
+    *   `publish_data_app`: Publishes a new full-bleed Looker Data Application or updates an existing one in-place in a single call.

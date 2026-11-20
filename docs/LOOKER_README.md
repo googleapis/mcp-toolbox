@@ -64,6 +64,7 @@ The Looker MCP server provides a wide range of tools. Here are some of the key c
 | `update_dashboard_layout` | Updates a dashboard layout (tab).                       |
 | `create_data_app_extension` | Creates a Data App Extension.                 |
 | `update_data_app_extension` | Updates an existing Data App Extension.         |
+| `publish_data_app`          | Publishes or updates a full-bleed Data App in one call. |
 | `health_pulse`          | Checks the status of the Looker instance.                 |
 | `dev_mode`              | Toggles development mode.                                 |
 | `get_projects`          | Lists LookML projects.                                    |

@@ -40,9 +40,10 @@ description: |
   - description (required): A brief description of the dashboard's purpose.
 
   Output:
-  A JSON object containing a link (`url`) to the newly created dashboard and
-  its unique `id`. This `dashboard_id` is crucial for subsequent calls to
-  `add_dashboard_filter` and `add_dashboard_element`.
+  A JSON object containing a link (`url`) to the newly created dashboard,
+  its unique `id`, and its default `dashboard_layout_id` (when available). This
+  `id` and `dashboard_layout_id` can be used in subsequent calls to
+  `add_dashboard_filter`, `add_dashboard_element`, and `update_dashboard_layout`.
 ```
 
 ## Reference

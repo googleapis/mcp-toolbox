@@ -299,6 +299,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerlistgitbranches"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookermakedashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookermakelook"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerpublishdataapp"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquery"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerquerysql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookerqueryurl"

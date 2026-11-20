@@ -195,6 +195,22 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 			data["url"] = *resp.Url
 		}
 	}
+	if resp.DashboardLayouts != nil && len(*resp.DashboardLayouts) > 0 {
+		layouts := *resp.DashboardLayouts
+		var layoutID string
+		for _, l := range layouts {
+			if l.Active != nil && *l.Active && l.Id != nil && *l.Id != "" {
+				layoutID = *l.Id
+				break
+			}
+		}
+		if layoutID == "" && layouts[0].Id != nil && *layouts[0].Id != "" {
+			layoutID = *layouts[0].Id
+		}
+		if layoutID != "" {
+			data["dashboard_layout_id"] = layoutID
+		}
+	}
 	logger.DebugContext(ctx, "data = %v", data)
 
 	return data, nil
