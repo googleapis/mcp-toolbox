@@ -130,6 +130,7 @@ func TestPostgres(t *testing.T) {
 	tableNameParam := "param_table_" + uniqueID
 	tableNameAuth := "auth_table_" + uniqueID
 	tableNameTemplateParam := "template_param_table_" + uniqueID
+	tableNameDataType := "datatype_table_" + uniqueID
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetPostgresSQLParamToolInfo(tableNameParam)
@@ -141,6 +142,11 @@ func TestPostgres(t *testing.T) {
 	teardownTable2 := tests.SetupPostgresSQLTable(t, ctx, pool, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 	defer teardownTable2(t)
 
+	// set up data for data type tools
+	dataTypeInfo := tests.GetPostgresDataTypeToolInfo(tableNameDataType)
+	teardownTable3 := tests.SetupPostgresSQLTable(t, ctx, pool, dataTypeInfo.CreateStatement, dataTypeInfo.InsertStatement, tableNameDataType, nil)
+	defer teardownTable3(t)
+
 	// Set up table for semantic search
 	vectorTableName, tearDownVectorTable := tests.SetupPostgresVectorTable(t, ctx, pool)
 	defer tearDownVectorTable(t)
@@ -151,6 +157,7 @@ func TestPostgres(t *testing.T) {
 	tmplSelectCombined, tmplSelectFilterCombined := tests.GetPostgresSQLTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, PostgresToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 	toolsFile = tests.AddPostgresPrebuiltConfig(t, toolsFile)
+	toolsFile = tests.AddDataTypeToolConfig(t, toolsFile, PostgresToolType, dataTypeInfo.ToolStatements)
 
 	// Add semantic search tool config
 	insertStmt, searchStmt := tests.GetPostgresVectorSearchStmts(vectorTableName)
@@ -179,6 +186,7 @@ func TestPostgres(t *testing.T) {
 	tests.RunMCPToolCallMethod(t, mcpMyFailToolWant, mcpSelect1Want)
 	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	tests.RunDataTypeInvokeTest(t, dataTypeInfo.Wants)
 
 	// Run Postgres prebuilt tool tests
 	tests.RunPostgresListTablesTest(t, tableNameParam, tableNameAuth, PostgresUser)
