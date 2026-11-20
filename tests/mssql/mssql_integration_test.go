@@ -98,13 +98,16 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// cleanup test environment
-	tests.CleanupMSSQLTables(t, ctx, pool)
+	// Generate a unique ID for per-run table isolation
+	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
+	defer func() {
+		tests.CleanupMSSQLTables(t, context.Background(), pool, uniqueID)
+	}()
 
 	// create table name with UUID
-	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	tableNameTemplateParam := "template_param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	tableNameParam := "param_table_" + uniqueID
+	tableNameAuth := "auth_table_" + uniqueID
+	tableNameTemplateParam := "template_param_table_" + uniqueID
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetMSSQLParamToolInfo(tableNameParam)
