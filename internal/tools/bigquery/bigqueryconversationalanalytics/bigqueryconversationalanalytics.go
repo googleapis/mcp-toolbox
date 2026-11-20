@@ -208,6 +208,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 
 	if len(source.BigQueryAllowedDatasets()) > 0 {
+		if len(tableRefs) == 0 {
+			return nil, util.NewAgentError("at least one table reference in 'table_references' is required when dataset restrictions are in place", nil)
+		}
 		for _, tableRef := range tableRefs {
 			if !source.IsDatasetAllowed(tableRef.ProjectID, tableRef.DatasetID) {
 				return nil, util.NewAgentError(fmt.Sprintf("access to dataset '%s.%s' (from table '%s') is not allowed", tableRef.ProjectID, tableRef.DatasetID, tableRef.TableID), nil)

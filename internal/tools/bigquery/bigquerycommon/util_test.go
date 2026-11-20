@@ -261,6 +261,77 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "CREATE TEMP MODEL with BigQuery session-prefixed ddlTargetTable succeeds",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_a1b2c3d4e5f6",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "CREATE TEMP MODEL over authorized view with BigQuery session-prefixed ddlTargetTable succeeds",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS (SELECT * FROM `proj.allowed_ds.v`)",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_a1b2c3d4e5f6",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "Session temp object option does not exempt non-anonymous dataset in ddlTargetTable",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "forbidden_ds",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr:     true,
+			wantErrSubs: []string{"access to dataset 'proj.forbidden_ds' is not allowed"},
+		},
+		{
+			name: "Session temp object option does not exempt ReferencedTables even in underscore dataset",
+			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
+			referencedTables: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "allowed_ds", TableId: "t"},
+				{ProjectId: "proj", DatasetId: "_secret_ds", TableId: "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123"},
+			},
+			ddlTargetTable: &bigquery.TableReference{
+				ProjectId: "proj",
+				DatasetId: "_a1b2c3d4e5f6",
+				TableId:   "_01234567_89ab_cdef_0123_456789abcdef_contribution_analysis_model_123",
+			},
+			statementType: "CREATE_MODEL",
+			opts: []bigquerycommon.ValidateOption{
+				bigquerycommon.WithSessionTempObject("contribution_analysis_model_123"),
+			},
+			wantErr:     true,
+			wantErrSubs: []string{"access to dataset 'proj._secret_ds' is not allowed"},
+		},
+		{
 			name: "CREATE TEMP MODEL without session temp object option fails on unqualified model name",
 			sql:  "CREATE TEMP MODEL contribution_analysis_model_123 OPTIONS(model_type = 'contribution_analysis') AS SELECT * FROM `proj.allowed_ds.t`",
 			referencedTables: []*bigquery.TableReference{
@@ -334,6 +405,16 @@ func TestValidateQueryAgainstAllowedDatasets(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
+					tblType := "TABLE"
+					if strings.HasSuffix(r.URL.Path, "/tables/v") {
+						tblType = "VIEW"
+					}
+					if err := json.NewEncoder(w).Encode(&bigquery.Table{Type: tblType}); err != nil {
+						t.Errorf("failed to encode mock table response: %v", err)
+					}
+					return
+				}
 				job := &bigquery.Job{
 					Statistics: &bigquery.JobStatistics{
 						Query: &bigquery.JobStatistics2{
@@ -466,6 +547,193 @@ func TestValidateQueryAgainstAllowedDatasetsBeforeDryRun(t *testing.T) {
 			}
 			if dryRunCalled != tc.wantDryRun {
 				t.Errorf("dryRunCalled = %v, want %v", dryRunCalled, tc.wantDryRun)
+			}
+		})
+	}
+}
+
+func TestValidateQueryAgainstAllowedDatasetsFailClosed(t *testing.T) {
+	testCases := []struct {
+		name           string
+		sql            string
+		tableType      string
+		tableGetStatus int
+		mainReferenced []*bigquery.TableReference
+		viewReferenced []*bigquery.TableReference
+		wantErr        bool
+		wantErrSub     string
+	}{
+		{
+			name: "triple-quoted backslash escape bypass rejected",
+			sql:  `SELECT '''\'''' FROM proj.forbidden_ds.secret_table -- '`,
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "raw bytes br literal bypass rejected",
+			sql:  `SELECT br'\'' FROM proj.forbidden_ds.secret_table -- '`,
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "backtick hex escape identifier rejected",
+			sql:  "SELECT * FROM `proj`.`\\x73ecret_ds`.`secret_table`",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "secret_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "could not safely analyze query with dataset restrictions",
+		},
+		{
+			name: "disallowed dry-run reference with zero parsed allowed views rejected",
+			sql:  "SELECT 1",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "secret_table"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "disallowed dry-run table not backed by referenced authorized view rejected",
+			sql:  "SELECT * FROM proj.allowed_ds.safe_view",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+				{ProjectId: "proj", DatasetId: "secret_cards_ds", TableId: "credit_cards"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.secret_cards_ds' is not allowed",
+		},
+		{
+			name:      "non-view TABLE in allowed dataset cannot exempt disallowed base table",
+			sql:       "SELECT * FROM proj.allowed_ds.regular_table",
+			tableType: "TABLE",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "piggyback direct read of digit-prefixed underlying table rejected",
+			sql:  "SELECT u.card_pin FROM proj.allowed_ds.user_names_view, proj.forbidden_ds.2026_users AS u",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "2026_users"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "2026_users"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name: "DELETE without FROM targeting forbidden dataset rejected",
+			sql:  "DELETE proj.forbidden_ds.users WHERE true",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "users"},
+			},
+			wantErr:    true,
+			wantErrSub: "access to dataset 'proj.forbidden_ds' is not allowed",
+		},
+		{
+			name:           "transient 503 error on Tables.Get propagates API error instead of permission error",
+			sql:            "SELECT * FROM proj.allowed_ds.safe_view",
+			tableGetStatus: http.StatusServiceUnavailable,
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr:    true,
+			wantErrSub: "backend unavailable",
+		},
+		{
+			name: "disallowed dry-run table fully backed by referenced authorized view allowed",
+			sql:  "SELECT * FROM proj.allowed_ds.safe_view",
+			mainReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			viewReferenced: []*bigquery.TableReference{
+				{ProjectId: "proj", DatasetId: "forbidden_ds", TableId: "base"},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
+					if tc.tableGetStatus != 0 {
+						http.Error(w, `{"error":{"code":503,"message":"backend unavailable"}}`, tc.tableGetStatus)
+						return
+					}
+					tblType := tc.tableType
+					if tblType == "" {
+						tblType = "VIEW"
+					}
+					_ = json.NewEncoder(w).Encode(&bigquery.Table{Type: tblType})
+					return
+				}
+				var reqJob bigquery.Job
+				_ = json.NewDecoder(r.Body).Decode(&reqJob)
+				refs := tc.mainReferenced
+				if reqJob.Configuration != nil && reqJob.Configuration.Query != nil {
+					q := reqJob.Configuration.Query.Query
+					if strings.Contains(strings.ToUpper(q), "WHERE FALSE") {
+						t.Errorf("view verification dry run must not use WHERE FALSE (causes BigQuery column/table pruning): %s", q)
+					}
+					if strings.HasPrefix(q, "SELECT * FROM `proj.allowed_ds.") {
+						refs = tc.viewReferenced
+					}
+				}
+				job := &bigquery.Job{
+					Statistics: &bigquery.JobStatistics{
+						Query: &bigquery.JobStatistics2{
+							ReferencedTables: refs,
+							StatementType:    "SELECT",
+						},
+					},
+				}
+				_ = json.NewEncoder(w).Encode(job)
+			}))
+			defer server.Close()
+
+			restService, err := bigquery.NewService(context.Background(), option.WithoutAuthentication(), option.WithEndpoint(server.URL))
+			if err != nil {
+				t.Fatalf("failed to create bigquery service: %v", err)
+			}
+
+			_, errToolbox := bigquerycommon.ValidateQueryAgainstAllowedDatasets(
+				context.Background(),
+				restService,
+				"proj",
+				"US",
+				tc.sql,
+				nil,
+				nil,
+				mockDatasetValidator{},
+				0,
+				false,
+			)
+			if tc.wantErr {
+				if errToolbox == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantErrSub)
+				}
+				if !strings.Contains(errToolbox.Error(), tc.wantErrSub) {
+					t.Errorf("error = %q, want it to contain %q", errToolbox.Error(), tc.wantErrSub)
+				}
+			} else if errToolbox != nil {
+				t.Fatalf("unexpected error: %v", errToolbox)
 			}
 		})
 	}
