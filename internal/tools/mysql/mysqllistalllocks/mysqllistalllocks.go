@@ -193,12 +193,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("failed to get mysql version", http.StatusInternalServerError, err)
 	}
 
-	var listAllLocksStatement string
-	if strings.HasPrefix(version, "5.7") {
-		listAllLocksStatement = listAllLocksStatement57
-	} else {
-		listAllLocksStatement = listAllLocksStatement8plus
-	}
+	listAllLocksStatement := selectListAllLocksStatement(version)
 
 	logger.DebugContext(ctx, fmt.Sprintf("executing `%s` tool query: %s", resourceType, listAllLocksStatement))
 	sliceParams := []any{table_schema, table_schema, table_name, table_name, limit}
@@ -208,6 +203,17 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 
 	return resp, nil
+}
+
+// selectListAllLocksStatement returns the lock query for the server version.
+// MySQL 8.0 moved the InnoDB lock tables to performance_schema.data_locks.
+// MySQL 5.7 and MariaDB (VERSION() is like "11.4.2-MariaDB") have no
+// data_locks table and still provide information_schema.innodb_locks.
+func selectListAllLocksStatement(version string) string {
+	if strings.HasPrefix(version, "5.7") || strings.Contains(strings.ToLower(version), "mariadb") {
+		return listAllLocksStatement57
+	}
+	return listAllLocksStatement8plus
 }
 
 func (t Tool) GetSourceName() string {
