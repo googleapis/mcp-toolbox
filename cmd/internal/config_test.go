@@ -3228,6 +3228,8 @@ func TestGetPathsFromConfigFolderRecursively(t *testing.T) {
 		"tools-a/tool-a.yml",
 		"tools-a/nested/tool-b.yaml",
 		"tools-b/tool-c.yaml",
+		"tools-c/tool-d.YAML",
+		"tools-d/tool-e.YML",
 		"ignored.txt",
 	}
 	for _, relativePath := range relativeFiles {
@@ -3250,6 +3252,8 @@ func TestGetPathsFromConfigFolderRecursively(t *testing.T) {
 		filepath.Join(folder, "tools-a/nested/tool-b.yaml"),
 		filepath.Join(folder, "tools-a/tool-a.yml"),
 		filepath.Join(folder, "tools-b/tool-c.yaml"),
+		filepath.Join(folder, "tools-c/tool-d.YAML"),
+		filepath.Join(folder, "tools-d/tool-e.YML"),
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("GetPathsFromConfigFolder() mismatch (-want +got): %s", diff)
