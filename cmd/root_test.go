@@ -1356,7 +1356,7 @@ func TestNestedDirectoryEdit(t *testing.T) {
 	go watchChanges(ctx, map[string]bool{root: true}, map[string]bool{}, mockServer, &internal.ToolboxOptions{})
 
 	escapedPath := func(filePath string) string {
-		escaped := strings.ReplaceAll(filepath.Clean(filePath), `\\`, `\\\\*\\`)
+		escaped := strings.ReplaceAll(filepath.Clean(filePath), `\`, `\\\\*\\`)
 		return path.Clean(escaped)
 	}
 
