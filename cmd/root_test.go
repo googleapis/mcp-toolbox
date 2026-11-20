@@ -1280,3 +1280,49 @@ func TestBigtablePrebuiltCLI(t *testing.T) {
 		})
 	}
 }
+
+
+func TestScanWatchedFilesRecursively(t *testing.T) {
+	folder := t.TempDir()
+	relativeFiles := []string{
+		"root.yaml",
+		"tools-a/tool-a.yml",
+		"tools-b/nested/tool-b.yaml",
+		"ignored.txt",
+	}
+	for _, relativePath := range relativeFiles {
+		filePath := filepath.Join(folder, relativePath)
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			t.Fatalf("failed to create config directory: %v", err)
+		}
+		if err := os.WriteFile(filePath, []byte("config"), 0644); err != nil {
+			t.Fatalf("failed to create config file %q: %v", filePath, err)
+		}
+	}
+
+	lastSeen := make(map[string]time.Time)
+	got, changed, err := scanWatchedFiles(true, folder, nil, lastSeen)
+	if err != nil {
+		t.Fatalf("scanWatchedFiles() returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("scanWatchedFiles() reported no changes for newly discovered files")
+	}
+
+	want := map[string]bool{
+		filepath.Join(folder, "root.yaml"):                    true,
+		filepath.Join(folder, "tools-a/tool-a.yml"):           true,
+		filepath.Join(folder, "tools-b/nested/tool-b.yaml"):   true,
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("scanWatchedFiles() mismatch (-want +got):\\n%s", diff)
+	}
+
+	_, changed, err = scanWatchedFiles(true, folder, nil, lastSeen)
+	if err != nil {
+		t.Fatalf("second scanWatchedFiles() returned error: %v", err)
+	}
+	if changed {
+		t.Error("scanWatchedFiles() reported changes when no files changed")
+	}
+}
