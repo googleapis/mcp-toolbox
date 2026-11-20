@@ -201,7 +201,7 @@ func scanWatchedFiles(watchingFolder bool, folderToWatch string, watchedFiles ma
 			if entry.IsDir() {
 				return nil
 			}
-			ext := filepath.Ext(entry.Name())
+			ext := strings.ToLower(filepath.Ext(entry.Name()))
 			if ext != ".yaml" && ext != ".yml" {
 				return nil
 			}
@@ -362,7 +362,7 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 
 			// only check for events which indicate user saved a new config
 			// multiple operations checked due to various file update methods across editors
-			if !e.Has(fsnotify.Write | fsnotify.Create | fsnotify.Rename) {
+			if !e.Has(fsnotify.Write) && !e.Has(fsnotify.Create) && !e.Has(fsnotify.Rename) {
 				continue
 			}
 
@@ -371,14 +371,14 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 
 			// fsnotify watches directories non-recursively. Add a newly created
 			// directory tree so config files created below it are observed too.
-			if watchingFolder && e.Has(fsnotify.Create | fsnotify.Rename) {
+			if watchingFolder && (e.Has(fsnotify.Create) || e.Has(fsnotify.Rename)) {
 				if info, err := os.Stat(cleanedFilename); err == nil && info.IsDir() {
 					addDirectoryTree(cleanedFilename)
 				}
 			}
 
-			folderChanged := watchingFolder &&
-				(strings.HasSuffix(cleanedFilename, ".yaml") || strings.HasSuffix(cleanedFilename, ".yml"))
+			ext := strings.ToLower(filepath.Ext(cleanedFilename))
+			folderChanged := watchingFolder && (ext == ".yaml" || ext == ".yml")
 
 			if folderChanged || watchedFiles[cleanedFilename] {
 				// indicates the write event is on a relevant file
