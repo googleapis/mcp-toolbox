@@ -77,7 +77,7 @@ statement: |
   )
   SELECT
     CASE
-      WHEN '{{.output_format}}' = 'simple' THEN json_object('name', m.name)
+      WHEN ?1 = 'simple' THEN json_object('name', m.name)
       ELSE json_object(
         'schema_name', 'main',
         'object_name', m.name,
@@ -97,10 +97,8 @@ statement: |
   WHERE
     m.type = 'table'
     AND m.name NOT LIKE 'sqlite_%'
-    {{if .table_names}}
-    AND instr(',' || '{{.table_names}}' || ',', ',' || m.name || ',') > 0
-    {{end}};
-templateParameters:
+    AND (?2 = '' OR instr(',' || ?2 || ',', ',' || m.name || ',') > 0);
+parameters:
 - name: output_format
   type: string
   description: "Optional: Use 'simple' to return table names only or use 'detailed' to return the full information schema."
