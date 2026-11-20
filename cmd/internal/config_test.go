@@ -3221,7 +3221,6 @@ authServices:
 	}
 }
 
-
 func TestGetPathsFromConfigFolderRecursively(t *testing.T) {
 	folder := t.TempDir()
 	relativeFiles := []string{
@@ -3236,7 +3235,7 @@ func TestGetPathsFromConfigFolderRecursively(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			t.Fatalf("failed to create config directory: %v", err)
 		}
-		if err := os.WriteFile(path, []byte("kind: source\\n"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("kind: source\n"), 0644); err != nil {
 			t.Fatalf("failed to create config file %q: %v", path, err)
 		}
 	}

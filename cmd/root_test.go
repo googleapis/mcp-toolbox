@@ -1281,7 +1281,6 @@ func TestBigtablePrebuiltCLI(t *testing.T) {
 	}
 }
 
-
 func TestScanWatchedFilesRecursively(t *testing.T) {
 	folder := t.TempDir()
 	relativeFiles := []string{
