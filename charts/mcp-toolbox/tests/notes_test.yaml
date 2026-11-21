@@ -1,0 +1,46 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: notes
+templates:
+  - templates/NOTES.txt
+set:
+  config.toolsYaml: "kind: source"
+tests:
+  - it: does not warn for an internal ClusterIP Service
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING: server.allowedHosts is empty"
+
+  - it: warns when exposed through an Ingress without allowedHosts
+    set:
+      ingress.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "WARNING: server.allowedHosts is empty"
+
+  - it: warns when the Service is not ClusterIP without allowedHosts
+    set:
+      service.type: LoadBalancer
+    asserts:
+      - matchRegexRaw:
+          pattern: "WARNING: server.allowedHosts is empty"
+
+  - it: does not warn when allowedHosts is set
+    set:
+      ingress.enabled: true
+      server.allowedHosts: [toolbox.example.com]
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING: server.allowedHosts is empty"
