@@ -33,8 +33,10 @@ statement: |
     SELECT
       m.name AS table_name,
       json_group_array(json_object('column_name', ti.name, 'data_type', ti.type, 'ordinal_position', ti.cid, 'is_not_nullable', ti."notnull" = 1, 'column_default', ti.dflt_value, 'is_primary_key', ti.pk > 0)) AS details
-    FROM sqlite_master AS m, pragma_table_info(m.name) AS ti
-    WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
+    -- table_xinfo also lists generated columns (hidden = 2 or 3), which table_info omits;
+    -- hidden = 1 marks the hidden columns of virtual tables, which stay excluded.
+    FROM sqlite_master AS m, pragma_table_xinfo(m.name) AS ti
+    WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND ti.hidden <> 1
     GROUP BY m.name
   ),
   table_constraints AS (
