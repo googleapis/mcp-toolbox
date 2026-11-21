@@ -234,6 +234,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/dgraph"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/elasticsearch/elasticsearchesql"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/elasticsearch/elasticsearchexecuteesql"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/elasticsearch/elasticsearchlistindices"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/falkordb/falkordbcypher"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/falkordb/falkordbexecutecypher"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/falkordb/falkordblistgraphs"
