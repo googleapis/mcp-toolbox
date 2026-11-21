@@ -25,7 +25,14 @@ type: elasticsearch-execute-esql
 source: elasticsearch-source
 description: Use this tool to execute ES|QL queries.
 ---
+kind: tool
+name: list_indices
+type: elasticsearch-list-indices
+source: elasticsearch-source
+description: Use this tool to list the indices of the Elasticsearch cluster. Accepts optional comma-separated index names or wildcard patterns.
+---
 kind: toolset
 name: elasticsearch-tools
 tools:
 - execute_esql_query
+- list_indices
