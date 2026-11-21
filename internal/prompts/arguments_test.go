@@ -206,3 +206,101 @@ func TestParseArguments(t *testing.T) {
 		})
 	}
 }
+
+func TestParseArgumentsStringValues(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		parameter parameters.Parameter
+		value     any
+		want      any
+	}{
+		{"integer", parameters.NewIntParameter("value", ""), "3", 3},
+		{"integer zero overrides default", parameters.NewIntParameter("value", "", parameters.WithIntDefault(5)), "0", 0},
+		{"float", parameters.NewFloatParameter("value", ""), "1.25", 1.25},
+		{"float zero overrides default", parameters.NewFloatParameter("value", "", parameters.WithFloatDefault(5)), "0", float64(0)},
+		{"boolean true", parameters.NewBooleanParameter("value", ""), "true", true},
+		{"boolean false overrides default", parameters.NewBooleanParameter("value", "", parameters.WithBooleanDefault(true)), "false", false},
+		{"integer array", parameters.NewArrayParameter("value", "", parameters.NewIntParameter("item", "")), "[0, 3]", []any{0, 3}},
+		{"integer map", parameters.NewMapParameter("value", "", "integer"), `{"count":0}`, map[string]any{"count": 0}},
+		{"generic map", parameters.NewMapParameter("value", "", ""), `{"count":3,"ratio":1.25}`, map[string]any{"count": int64(3), "ratio": 1.25}},
+		{"numeric string remains text", parameters.NewStringParameter("value", ""), "3", "3"},
+		{"JSON string remains text", parameters.NewStringParameter("value", ""), `{"enabled":false}`, `{"enabled":false}`},
+		{"typed integer", parameters.NewIntParameter("value", ""), 3, 3},
+		{"typed float", parameters.NewFloatParameter("value", ""), 1.25, 1.25},
+		{"typed boolean", parameters.NewBooleanParameter("value", ""), false, false},
+		{"typed array", parameters.NewArrayParameter("value", "", parameters.NewIntParameter("item", "")), []any{0, 3}, []any{0, 3}},
+		{"typed map", parameters.NewMapParameter("value", "", "integer"), map[string]any{"count": 3}, map[string]any{"count": 3}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			argsIn := map[string]any{"value": tc.value}
+			got, err := prompts.ParseArguments(prompts.Arguments{{Parameter: tc.parameter}}, argsIn, nil)
+			if err != nil {
+				t.Fatalf("ParseArguments() returned unexpected error: %v", err)
+			}
+			want := parameters.ParamValues{{Name: "value", Value: tc.want}}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("ParseArguments() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(map[string]any{"value": tc.value}, argsIn); diff != "" {
+				t.Errorf("ParseArguments() changed its input (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestParseArgumentsDefaultsAndOptionalValues(t *testing.T) {
+	t.Parallel()
+	arguments := prompts.Arguments{
+		{Parameter: parameters.NewIntParameter("count", "", parameters.WithIntDefault(4))},
+		{Parameter: parameters.NewBooleanParameter("enabled", "", parameters.WithBooleanDefault(false))},
+		{Parameter: parameters.NewStringParameter("optional", "", parameters.WithStringRequired(false))},
+	}
+	got, err := prompts.ParseArguments(arguments, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseArguments() returned unexpected error: %v", err)
+	}
+	want := parameters.ParamValues{
+		{Name: "count", Value: 4},
+		{Name: "enabled", Value: false},
+		{Name: "optional", Value: nil},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ParseArguments() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestParseArgumentsValueFromParam(t *testing.T) {
+	t.Parallel()
+	count := parameters.NewIntParameter("count", "")
+	count.ValueFromParam = "source"
+	arguments := prompts.Arguments{
+		{Parameter: parameters.NewStringParameter("source", "")},
+		{Parameter: count},
+	}
+	argsIn := map[string]any{"source": "3"}
+	got, err := prompts.ParseArguments(arguments, argsIn, nil)
+	if err != nil {
+		t.Fatalf("ParseArguments() returned unexpected error: %v", err)
+	}
+	want := parameters.ParamValues{{Name: "source", Value: "3"}, {Name: "count", Value: 3}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("ParseArguments() mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(map[string]any{"source": "3"}, argsIn); diff != "" {
+		t.Errorf("ParseArguments() changed its input (-want +got):\n%s", diff)
+	}
+}
+
+func TestParseArgumentsInvalidStringValues(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"unknown", "[3", "3 true", "true"} {
+		t.Run(value, func(t *testing.T) {
+			arguments := prompts.Arguments{{Parameter: parameters.NewIntParameter("value", "")}}
+			if _, err := prompts.ParseArguments(arguments, map[string]any{"value": value}, nil); err == nil {
+				t.Errorf("ParseArguments() accepted invalid integer argument %q", value)
+			}
+		})
+	}
+}
