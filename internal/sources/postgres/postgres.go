@@ -65,6 +65,7 @@ type Config struct {
 	// take, in seconds. When unset, no timeout is applied and connection behavior
 	// is unchanged.
 	ConnectTimeout *int `yaml:"connectTimeout" validate:"omitempty,gte=1"`
+	ReadOnly       bool `yaml:"readOnly"`
 }
 
 func (r Config) SourceConfigType() string {
@@ -83,6 +84,13 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		return nil, fmt.Errorf("unable to connect successfully: %w", err)
 	}
 
+	if r.ReadOnly {
+		if err := VerifyReadOnlyPermissions(ctx, pool, r.Name, r.User); err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
+
 	s := &Source{
 		Config: r,
 		Pool:   pool,
@@ -98,7 +106,7 @@ type Source struct {
 }
 
 func (s *Source) IsReadOnly() bool {
-	return false
+	return s.ReadOnly
 }
 
 func (s *Source) SourceType() string {
@@ -140,6 +148,59 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 		return nil, fmt.Errorf("unable to execute query: %w", err)
 	}
 	return out, nil
+}
+
+type readOnlyQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+const verifyReadOnlyPermissionsSQL = `
+SELECT
+  COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = $1), false) AS is_superuser,
+  EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+      AND n.nspname NOT LIKE 'pg_temp_%'
+      AND n.nspname NOT LIKE 'pg_toast_temp_%'
+      AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
+      AND (
+        c.relowner = (SELECT oid FROM pg_roles WHERE rolname = $1) OR
+        has_table_privilege($1, c.oid, 'INSERT') OR
+        has_table_privilege($1, c.oid, 'UPDATE') OR
+        has_table_privilege($1, c.oid, 'DELETE') OR
+        has_table_privilege($1, c.oid, 'TRUNCATE')
+      )
+  ) AS has_table_write,
+  EXISTS (
+    SELECT 1 FROM pg_namespace
+    WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+      AND nspname NOT LIKE 'pg_temp_%'
+      AND nspname NOT LIKE 'pg_toast_temp_%'
+      AND has_schema_privilege($1, nspname, 'CREATE')
+  ) AS has_schema_create;
+`
+
+// VerifyReadOnlyPermissions checks that the connected PostgreSQL role does not possess
+// superuser privileges, table mutation privileges (INSERT, UPDATE, DELETE, TRUNCATE),
+// or schema CREATE privileges. If any are present, it fails closed with an actionable error.
+func VerifyReadOnlyPermissions(ctx context.Context, q readOnlyQuerier, sourceName, user string) error {
+	var isSuper, hasTableWrite, hasSchemaCreate bool
+	err := q.QueryRow(ctx, verifyReadOnlyPermissionsSQL, user).Scan(&isSuper, &hasTableWrite, &hasSchemaCreate)
+	if err != nil {
+		return fmt.Errorf("unable to verify read-only permissions for user %q on source %q: %w", user, sourceName, err)
+	}
+	if isSuper {
+		return fmt.Errorf("source %q is configured with readOnly: true, but user %q is a superuser; to secure PostgreSQL in read-only mode, connect with a dedicated non-superuser role with only SELECT privileges", sourceName, user)
+	}
+	if hasTableWrite {
+		return fmt.Errorf("source %q is configured with readOnly: true, but user %q has table write privileges (INSERT, UPDATE, DELETE, or TRUNCATE); connect with a dedicated role with only SELECT privileges", sourceName, user)
+	}
+	if hasSchemaCreate {
+		return fmt.Errorf("source %q is configured with readOnly: true, but user %q has CREATE privilege on one or more schemas; connect with a dedicated role with only SELECT privileges", sourceName, user)
+	}
+	return nil
 }
 
 func initPostgresConnectionPool(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string, queryParams map[string]string, queryExecMode string, connectTimeout *int) (*pgxpool.Pool, error) {
