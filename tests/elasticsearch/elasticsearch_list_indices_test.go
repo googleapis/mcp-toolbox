@@ -47,20 +47,32 @@ func TestElasticsearchListIndices(t *testing.T) {
 		t.Fatalf("error creating the Elasticsearch client: %s", err)
 	}
 	defer func() {
-		if _, err := (esapi.IndicesDeleteRequest{Index: []string{indexA, indexB, hidden}}).Do(ctx, esClient); err != nil {
+		res, err := (esapi.IndicesDeleteRequest{Index: []string{indexA, indexB, hidden}}).Do(ctx, esClient)
+		if err != nil {
 			t.Errorf("error deleting indices: %s", err)
+			return
 		}
+		res.Body.Close()
 	}()
 	for _, name := range []string{indexA, indexB, hidden} {
-		if res, err := (esapi.IndicesCreateRequest{Index: name}).Do(ctx, esClient); err != nil || res.IsError() {
-			t.Fatalf("error creating index %s: %v %v", name, err, res)
+		res, err := (esapi.IndicesCreateRequest{Index: name}).Do(ctx, esClient)
+		if err != nil {
+			t.Fatalf("error creating index %s: %v", name, err)
 		}
+		if res.IsError() {
+			t.Fatalf("error creating index %s: %v", name, res)
+		}
+		res.Body.Close()
 	}
 	for _, doc := range []string{`{"n":1}`, `{"n":2}`} {
 		res, err := (esapi.IndexRequest{Index: indexA, Body: strings.NewReader(doc), Refresh: "true"}).Do(ctx, esClient)
-		if err != nil || res.IsError() {
-			t.Fatalf("error indexing document: %v %v", err, res)
+		if err != nil {
+			t.Fatalf("error indexing document: %v", err)
 		}
+		if res.IsError() {
+			t.Fatalf("error indexing document: %v", res)
+		}
+		res.Body.Close()
 	}
 
 	toolsFile := map[string]any{
