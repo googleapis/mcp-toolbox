@@ -2403,7 +2403,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"data": group.GroupConfig{
 					Name:      "data",
-					ToolNames: []string{"execute_sql", "list_tables"},
+					ToolNames: []string{"execute_sql", "list_tables", "get_database_object_source_code"},
 				},
 			},
 		},
@@ -2414,7 +2414,7 @@ func TestPrebuiltTools(t *testing.T) {
 				"looker_tools": group.GroupConfig{
 					Name:        "looker_tools",
 					Description: "These skills are designed for data discovery and business intelligence.",
-					ToolNames:   []string{"get_models", "get_explores", "get_explore", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout_component"},
+					ToolNames:   []string{"get_models", "get_explores", "get_explore", "get_dimensions", "get_measures", "get_filters", "get_parameters", "get_field_value_suggestions", "query", "query_sql", "query_url", "get_looks", "run_look", "make_look", "get_dashboards", "run_dashboard", "make_dashboard", "import_dashboard_from_lookml", "add_dashboard_element", "add_dashboard_filter", "generate_embed_url", "get_dashboard", "update_dashboard", "update_dashboard_element", "create_dashboard_layout", "update_dashboard_layout", "update_dashboard_layout_component", "create_data_app_extension", "update_data_app_extension"},
 				},
 			},
 		},
@@ -2801,6 +2801,9 @@ func TestMergeConfigs(t *testing.T) {
 	fileMcp2 := Config{
 		AuthServices: server.AuthServiceConfigs{"generic2": generic.Config{Name: "generic2", McpEnabled: true}},
 	}
+	fileMcpGoogle := Config{
+		AuthServices: server.AuthServiceConfigs{"google1": google.Config{Name: "google1", McpEnabled: true}},
+	}
 
 	testCases := []struct {
 		name      string
@@ -2857,7 +2860,13 @@ func TestMergeConfigs(t *testing.T) {
 			name:      "merge multiple mcp enabled generic",
 			files:     []Config{fileMcp1, fileMcp2},
 			wantErr:   true,
-			errString: "multiple authServices with mcpEnabled=true detected",
+			errString: "multiple authServices with mcpEnabled=true detected: generic1, generic2",
+		},
+		{
+			name:      "merge mcp enabled google and generic",
+			files:     []Config{fileMcpGoogle, fileMcp1},
+			wantErr:   true,
+			errString: "multiple authServices with mcpEnabled=true detected: generic1, google1",
 		},
 		{
 			name:  "merge single file",
@@ -3183,5 +3192,31 @@ resourceTemplates:
 	}
 	if tmplContent != "anchored content" {
 		t.Fatalf("expected 'anchored content', got %v", tmplContent)
+	}
+}
+
+func TestLoadAndMergeConfigs_RejectsMultipleMCPEnabledInSingleFile(t *testing.T) {
+	yamlContent := `
+authServices:
+  google1:
+    type: google
+    clientId: testing-id
+    mcpEnabled: true
+  generic1:
+    type: generic
+    mcpEnabled: true
+    authorizationServer: https://auth.example.com
+    audience: https://mcp.example.com
+`
+	toolsYaml := filepath.Join(t.TempDir(), "tools.yaml")
+	if err := os.WriteFile(toolsYaml, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	parser := &ConfigParser{}
+	_, err := parser.LoadAndMergeConfigs(context.Background(), []string{toolsYaml})
+	want := "multiple authServices with mcpEnabled=true detected: generic1, google1"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected error containing %q, got: %v", want, err)
 	}
 }

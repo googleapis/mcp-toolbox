@@ -27,8 +27,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+
+	// Register the "mysql" driver used by sql.Open below.
+	_ "github.com/go-sql-driver/mysql"
 )
 
+// If TIDB_HOST is set, use that instance; otherwise start an ephemeral container.
 var (
 	TiDBSourceType = "tidb"
 	TiDBToolType   = "tidb-sql"
@@ -38,6 +44,91 @@ var (
 	TiDBUser       = os.Getenv("TIDB_USER")
 	TiDBPass       = os.Getenv("TIDB_PASS")
 )
+
+const (
+	// Standalone tidb-server with embedded storage (no PD/TiKV or monitoring).
+	tidbImage             = "pingcap/tidb:v8.5.8"
+	tidbContainerDatabase = "test_database"
+	tidbContainerUser     = "toolbox"
+)
+
+// setupTiDBContainer starts an ephemeral TiDB container and returns its connection details.
+func setupTiDBContainer(ctx context.Context, t *testing.T) (host, port, user, pass, database string) {
+	t.Helper()
+
+	req := testcontainers.ContainerRequest{
+		Image: tidbImage,
+		// Publish only the MySQL port; the status port (10080) is unauthenticated.
+		ExposedPorts: []string{"4000/tcp"},
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("4000/tcp"),
+			wait.ForLog("server is running MySQL protocol"),
+		).WithDeadline(3 * time.Minute),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	// Register before checking err: a container can be returned alongside an error.
+	testcontainers.CleanupContainer(t, container)
+	if err != nil {
+		t.Fatalf("failed to start TiDB container: %s", err)
+	}
+
+	host, err = container.Host(ctx)
+	if err != nil {
+		t.Fatalf("failed to get TiDB container host: %s", err)
+	}
+
+	mappedPort, err := container.MappedPort(ctx, "4000/tcp")
+	if err != nil {
+		t.Fatalf("failed to get TiDB container mapped port: %s", err)
+	}
+	port = mappedPort.Port()
+
+	// Root starts passwordless: create the test user, then rotate root's password.
+	rootPool, err := initTiDBConnectionPool(host, port, "root", "", "", false)
+	if err != nil {
+		t.Fatalf("unable to create TiDB root connection pool: %s", err)
+	}
+	defer rootPool.Close()
+
+	user = tidbContainerUser
+	pass = strings.ReplaceAll(uuid.New().String(), "-", "")
+	rootPass := strings.ReplaceAll(uuid.New().String(), "-", "")
+	database = tidbContainerDatabase
+	// Values are constants or hex UUIDs, so Sprintf is safe here.
+	bootstrapStmts := []string{
+		fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", database),
+		fmt.Sprintf("CREATE USER '%s'@'%%' IDENTIFIED BY '%s'", user, pass),
+		fmt.Sprintf("GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%%'", database, user),
+		fmt.Sprintf("ALTER USER 'root'@'%%' IDENTIFIED BY '%s'", rootPass),
+	}
+	for _, stmt := range bootstrapStmts {
+		if _, err := rootPool.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("failed to bootstrap TiDB container: %s", err)
+		}
+	}
+
+	return host, port, user, pass, database
+}
+
+// useTiDB points the TiDB globals at an ephemeral container unless TIDB_HOST is set.
+func useTiDB(ctx context.Context, t *testing.T) {
+	t.Helper()
+	if TiDBHost != "" {
+		return
+	}
+	t.Logf("TIDB_HOST not set; starting ephemeral %s container", tidbImage)
+	host, port, user, pass, database := setupTiDBContainer(ctx, t)
+	// Restore globals so later tests (and -count>1) start a fresh container.
+	origHost, origPort, origUser, origPass, origDatabase := TiDBHost, TiDBPort, TiDBUser, TiDBPass, TiDBDatabase
+	t.Cleanup(func() {
+		TiDBHost, TiDBPort, TiDBUser, TiDBPass, TiDBDatabase = origHost, origPort, origUser, origPass, origDatabase
+	})
+	TiDBHost, TiDBPort, TiDBUser, TiDBPass, TiDBDatabase = host, port, user, pass, database
+}
 
 func getTiDBVars(t *testing.T) map[string]any {
 	switch "" {
@@ -108,9 +199,12 @@ func addTiDBExecuteSqlConfig(t *testing.T, config map[string]any) map[string]any
 }
 
 func TestTiDBToolEndpoints(t *testing.T) {
-	sourceConfig := getTiDBVars(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
+
+	useTiDB(ctx, t)
+
+	sourceConfig := getTiDBVars(t)
 
 	args := []string{"--enable-api"}
 

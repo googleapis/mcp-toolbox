@@ -190,11 +190,22 @@ function main() {
     const { env, userAgent } = prepareEnvironment();
     const args = process.argv.slice(2);
 		{{if eq .InvocationMode "npx"}}
-		const command = os.platform() === 'win32' ? 'npx.cmd' : 'npx';
-		const processedArgs = os.platform() === 'win32' ? args.map(arg => arg.includes('"') ? '"' + arg.replace(/"/g, '""') + '"' : arg) : args;
-		const npxArgs = ["--yes", "@toolbox-sdk/server@{{.ToolboxVersion}}", "--log-level", "error", ...configArgs, "invoke", toolName, "--user-agent-metadata", userAgent, ...processedArgs];
+		const npxArgs = ["--yes", "@toolbox-sdk/server@{{.ToolboxVersion}}", "--log-level", "error", ...configArgs, "invoke", toolName, "--user-agent-metadata", userAgent, ...args];
+		let command = 'npx';
+		let commandArgs = npxArgs;
+		if (os.platform() === 'win32') {
+			// Run npm's npx-cli.js with node directly instead of npx.cmd, so the
+			// arguments are passed as-is and never parsed by cmd.exe.
+			const npxCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npx-cli.js');
+			if (!fs.existsSync(npxCli)) {
+				console.error("Error: npx-cli.js not found at", npxCli);
+				process.exit(1);
+			}
+			command = process.execPath;
+			commandArgs = [npxCli, ...npxArgs];
+		}
 
-		const child = spawn(command, npxArgs, { shell: os.platform() === 'win32', stdio: 'inherit', env });
+		const child = spawn(command, commandArgs, { stdio: 'inherit', env });
 		{{else}}
 		function getToolboxPath() {
 				if (process.env.GEMINI_CLI === '1') {

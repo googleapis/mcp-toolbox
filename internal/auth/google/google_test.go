@@ -102,13 +102,13 @@ func TestInitialize_Validation(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name: "neither clientID nor audience, mcpEnabled false",
+			name: "neither clientID nor audience, mcpEnabled false (disallowed)",
 			config: Config{
 				Name:       "google-auth",
 				Type:       "google",
 				McpEnabled: false,
 			},
-			wantError: false,
+			wantError: true,
 		},
 		{
 			name: "neither clientID nor audience, mcpEnabled true (disallowed)",

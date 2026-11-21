@@ -170,7 +170,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	}
 
 	var req CallToolRequest
-	if err = json.Unmarshal(body, &req); err != nil {
+	if err = mcputil.UnmarshalJSON(body, &req); err != nil {
 		err = fmt.Errorf("invalid mcp tools call request: %w", err)
 		return jsonrpc.NewError(id, jsonrpc.INVALID_REQUEST, err.Error(), nil), err
 	}
@@ -255,7 +255,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	// marshal arguments and decode it using decodeJSON instead to prevent loss between floats/int.
 	var data map[string]any
 	if toolArgument != nil {
-		aMarshal, err := json.Marshal(toolArgument)
+		aMarshal, err := mcputil.MarshalArguments(toolArgument)
 		if err != nil {
 			err = fmt.Errorf("unable to marshal tools argument: %w", err)
 			return jsonrpc.NewError(id, jsonrpc.INTERNAL_ERROR, err.Error(), nil), err
@@ -438,6 +438,12 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 		}
 	}
 
+	var structuredContent map[string]any
+	if structuredRes, ok := results.(tools.StructuredToolResult); ok {
+		structuredContent = structuredRes.StructuredContent
+		results = structuredRes.Content
+	}
+
 	content := make([]TextContent, 0)
 
 	sliceRes, ok := results.([]any)
@@ -459,7 +465,7 @@ func toolsCallHandler(ctx context.Context, id jsonrpc.RequestId, g group.Group, 
 	return jsonrpc.JSONRPCResponse{
 		Jsonrpc: jsonrpc.JSONRPC_VERSION,
 		Id:      id,
-		Result:  CallToolResult{Content: content},
+		Result:  CallToolResult{Content: content, StructuredContent: structuredContent},
 	}, nil
 }
 

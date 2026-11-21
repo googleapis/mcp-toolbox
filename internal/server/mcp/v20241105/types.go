@@ -269,6 +269,8 @@ type CallToolResult struct {
 	// Whether the tool call ended in an error.
 	// If not set, this is assumed to be false (the call was successful).
 	IsError bool `json:"isError,omitempty"`
+	// An optional JSON object that represents the structured result of the tool call.
+	StructuredContent map[string]any `json:"structuredContent,omitempty"`
 }
 
 // Additional properties describing a Tool to clients.
