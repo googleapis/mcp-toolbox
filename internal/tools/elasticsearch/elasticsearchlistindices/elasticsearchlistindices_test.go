@@ -174,16 +174,15 @@ func TestColumnsFor(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			cols, ok := columnsFor(tc.format)
+			cols, cats, ok := columnsFor(tc.format)
 			if ok != tc.wantOk {
 				t.Fatalf("ok = %v, want %v", ok, tc.wantOk)
 			}
 			if !ok {
 				return
 			}
-			var cats, keys []string
+			var keys []string
 			for _, c := range cols {
-				cats = append(cats, c.cat)
 				keys = append(keys, c.key)
 			}
 			if !reflect.DeepEqual(cats, tc.wantCat) {

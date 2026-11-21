@@ -114,15 +114,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	patterns := splitPatterns(pattern)
 	outputFormat, _ := paramsMap["output_format"].(string)
-	cols, ok := columnsFor(outputFormat)
+	cols, catColumns, ok := columnsFor(outputFormat)
 	if !ok {
 		return nil, util.NewAgentError(fmt.Sprintf("invalid value for output_format: must be 'simple' or 'detailed', but got %q", outputFormat), nil)
 	}
 
-	catColumns := make([]string, len(cols))
-	for i, c := range cols {
-		catColumns[i] = c.cat
-	}
 	rows, err := source.ListIndices(ctx, patterns, catColumns)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
@@ -177,14 +173,27 @@ var detailedColumns = append(append([]column{}, simpleColumns...),
 	column{"uuid", "uuid"},
 )
 
-func columnsFor(outputFormat string) ([]column, bool) {
+var (
+	simpleCatColumns   = catNames(simpleColumns)
+	detailedCatColumns = catNames(detailedColumns)
+)
+
+func catNames(cols []column) []string {
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = c.cat
+	}
+	return names
+}
+
+func columnsFor(outputFormat string) ([]column, []string, bool) {
 	switch outputFormat {
 	case "simple":
-		return simpleColumns, true
+		return simpleColumns, simpleCatColumns, true
 	case "detailed":
-		return detailedColumns, true
+		return detailedColumns, detailedCatColumns, true
 	}
-	return nil, false
+	return nil, nil, false
 }
 
 func includeIndex(patterns []string, name string) bool {
