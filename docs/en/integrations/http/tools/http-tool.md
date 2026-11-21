@@ -111,6 +111,37 @@ headerParams:
     type: string
 ```
 
+### Google access token
+
+If your API requires a Google OAuth access token (e.g. a Google Cloud API
+that authenticates the caller via Application Default Credentials), set
+`sendGoogleAccessToken: true` to have Toolbox fetch one from [Application
+Default Credentials (ADC)][adc-doc] and send it as a `Bearer` token in the
+`Authorization` header of every request, instead of configuring a
+`headerParam` and supplying the token yourself on every Tool invocation.
+
+The token is fetched once when Toolbox starts and cached, refreshing itself
+transparently before it expires. If Toolbox cannot find any credentials at
+startup (e.g. `GOOGLE_APPLICATION_CREDENTIALS` isn't set and no credentials
+are otherwise discoverable), the Tool fails to initialize.
+
+The fetched token always overrides any `Authorization` value set through
+`headers` or `headerParams`, since a static or LLM-supplied value would
+otherwise go stale.
+
+```yaml
+kind: tool
+name: my-adc-tool
+type: http
+source: my-http-source
+method: GET
+path: /search
+description: Tool to search data from a Google API using ADC
+sendGoogleAccessToken: true
+```
+
+[adc-doc]: https://cloud.google.com/docs/authentication/application-default-credentials
+
 ### Query parameters
 
 Query parameters are key-value pairs appended to a URL after a question mark (?)
@@ -289,5 +320,7 @@ headerParams:
 | queryParams  | [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) |    false     | List of [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) that will be inserted into the query string.                                                                                                                               |
 | bodyParams   | [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) |    false     | List of [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) that will be inserted into the request body payload.                                                                                                                       |
 | headerParams | [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) |    false     | List of [parameters](../../../documentation/configuration/tools/_index.md#specifying-parameters) that will be inserted as the request headers.                                                                                                                              |
+| sendGoogleAccessToken |                bool                    |    false     | When true, fetches an OAuth2 access token from [Application Default Credentials][adc-doc] and sends it as a `Bearer` token in the `Authorization` header, overriding any `Authorization` value from `headers` or `headerParams`. Defaults to false.                       |
 
 [go-template-doc]: <https://pkg.go.dev/text/template#pkg-overview>
+[adc-doc]: <https://cloud.google.com/docs/authentication/application-default-credentials>
