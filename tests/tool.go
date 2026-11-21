@@ -784,6 +784,11 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		t.Fatalf("error getting Google ID token: %s", err)
 	}
 
+	tableName := "t"
+	if configs.tableName != "" {
+		tableName = configs.tableName
+	}
+
 	// Test tool invoke endpoint
 	invokeTcs := []struct {
 		name          string
@@ -814,7 +819,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool select table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "SELECT * FROM t"},
+			args:          map[string]any{"sql": fmt.Sprintf("SELECT * FROM %s", tableName)},
 			want:          configs.selectEmptyWant,
 			isErr:         false,
 		},
@@ -822,7 +827,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool drop table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "DROP TABLE t"},
+			args:          map[string]any{"sql": fmt.Sprintf("DROP TABLE %s", tableName)},
 			want:          configs.dropWant,
 			isErr:         false,
 		},
