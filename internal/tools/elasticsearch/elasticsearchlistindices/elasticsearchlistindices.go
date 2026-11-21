@@ -165,13 +165,13 @@ var simpleColumns = []column{
 	{"store.size", "store_size"},
 }
 
-var detailedColumns = append(append([]column{}, simpleColumns...),
-	column{"pri", "pri"},
-	column{"rep", "rep"},
-	column{"docs.deleted", "docs_deleted"},
-	column{"creation.date.string", "creation_date"},
-	column{"uuid", "uuid"},
-)
+var detailedColumns = slices.Concat(simpleColumns, []column{
+	{"pri", "pri"},
+	{"rep", "rep"},
+	{"docs.deleted", "docs_deleted"},
+	{"creation.date.string", "creation_date"},
+	{"uuid", "uuid"},
+})
 
 var (
 	simpleCatColumns   = catNames(simpleColumns)
