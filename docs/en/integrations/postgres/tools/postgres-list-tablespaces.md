@@ -28,8 +28,8 @@ type: postgres-list-tablespaces
 source: postgres-source
 description: |
   Lists all tablespaces in the database. Returns the tablespace name,
-  owner name, size in bytes(if the current user has CREATE privileges on
-  the tablespace, otherwise NULL), internal object ID, the access control
+  owner name, size in bytes (if the current user is allowed to read it,
+  otherwise NULL), internal object ID, the access control
   list regarding permissions, and any specific tablespace options.
 ```
 The response is a json array with the following elements:
@@ -38,7 +38,7 @@ The response is a json array with the following elements:
 {
  "tablespace_name": "name of the tablespace",
  "owner_username": "owner of the tablespace",
- "size_in_bytes": "size in bytes if the current user has CREATE privileges on the tablespace, otherwise NULL",
+ "size_in_bytes": "size in bytes if the current user has CREATE privilege on the tablespace, has the privileges of pg_read_all_stats, or the tablespace is the current database's default tablespace; otherwise NULL",
  "oid": "Object ID of the tablespace",
  "spcacl": "Access privileges",
  "spcoptions": "Tablespace-level options (e.g., seq_page_cost, random_page_cost)"
