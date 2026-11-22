@@ -108,6 +108,20 @@ func TestArgumentsUnmarshalYAML(t *testing.T) {
 			},
 			wantErr: `"unsupported" is not valid type for a parameter`,
 		},
+		{
+			name: "Rejects non-string type",
+			yamlInput: []map[string]any{
+				{"name": "p1", "description": "d1", "type": 5},
+			},
+			wantErr: "argument 'type' field must be a string, got uint64",
+		},
+		{
+			name: "Rejects empty type",
+			yamlInput: []map[string]any{
+				{"name": "p1", "description": "d1", "type": nil},
+			},
+			wantErr: "argument 'type' field must be a string, got <nil>",
+		},
 	}
 
 	for _, tc := range testCases {
