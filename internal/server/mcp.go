@@ -304,9 +304,9 @@ func (s *stdioSession) readLine(ctx context.Context) (string, error) {
 	readChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 	done := make(chan struct{})
+	// readChan and errChan are buffered and never closed: the goroutine below can
+	// still send on them after readLine returns because ctx was cancelled.
 	defer close(done)
-	defer close(readChan)
-	defer close(errChan)
 
 	go func() {
 		select {
