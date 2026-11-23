@@ -49,7 +49,10 @@ const listDatabaseStats = `
             -- Transaction Throughput
             s.xact_commit,
             s.xact_rollback,
-            round(s.xact_rollback * 100.0 / (s.xact_commit + s.xact_rollback + 1), 2) AS rollback_ratio_percent,
+            CASE
+                WHEN (s.xact_commit + s.xact_rollback) = 0 THEN 0
+                ELSE round((s.xact_rollback * 100.0) / (s.xact_commit + s.xact_rollback), 2)
+            END AS rollback_ratio_percent,
 
             -- Tuple Activity
             s.tup_returned AS rows_returned_by_queries,
