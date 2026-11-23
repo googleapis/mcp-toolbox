@@ -18,14 +18,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"reflect"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,6 +48,95 @@ var (
 	BigqueryToolType   = "bigquery-sql"
 	BigqueryProject    = os.Getenv("BIGQUERY_PROJECT")
 )
+
+// testDatasetPrefix starts the ID of every dataset these tests create, so the
+// TestMain sweeper can find datasets that earlier runs leaked.
+const testDatasetPrefix = "toolbox_it_"
+
+// orphanedDatasetTTL is how old a test dataset must be before the sweeper
+// deletes it. The longest test in this package uses a 20m timeout, so a
+// dataset older than 3h cannot belong to a run that is still active.
+const orphanedDatasetTTL = 3 * time.Hour
+
+// orphanedDatasetPrefixes includes testDatasetPrefix plus the legacy prefix
+// earlier runs used, so pre-existing leaked datasets are also cleaned up.
+var orphanedDatasetPrefixes = []string{
+	testDatasetPrefix,
+	"temp_toolbox_test_",
+}
+
+func TestMain(m *testing.M) {
+	if BigqueryProject != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		sweepOrphanedBigQueryDatasets(ctx, BigqueryProject)
+		cancel()
+	}
+	os.Exit(m.Run())
+}
+
+func hasOrphanDatasetPrefix(datasetID string) bool {
+	for _, prefix := range orphanedDatasetPrefixes {
+		if strings.HasPrefix(datasetID, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldSweepBigQueryDataset(datasetID string, createdAt, now time.Time) bool {
+	if !hasOrphanDatasetPrefix(datasetID) {
+		return false
+	}
+	if createdAt.IsZero() {
+		return false
+	}
+	return now.Sub(createdAt) > orphanedDatasetTTL
+}
+
+// sweepOrphanedBigQueryDatasets deletes test datasets (and their contents)
+// older than orphanedDatasetTTL. Failures are only logged: the sweep is a
+// backstop for leaks from earlier runs and must not block this run.
+func sweepOrphanedBigQueryDatasets(ctx context.Context, project string) {
+	client, err := initBigQueryConnection(project)
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: failed to create BigQuery client: %v", err)
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	sweepOrphanedBigQueryDatasetsWithClient(ctx, client, time.Now())
+}
+
+func sweepOrphanedBigQueryDatasetsWithClient(ctx context.Context, client *bigqueryapi.Client, now time.Time) {
+	it := client.Datasets(ctx)
+	for {
+		ds, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return
+		}
+		if err != nil {
+			log.Printf("INTEGRATION CLEANUP: failed to list BigQuery datasets: %v", err)
+			return
+		}
+		if !hasOrphanDatasetPrefix(ds.DatasetID) {
+			continue
+		}
+		md, err := ds.MetadataWithOptions(ctx, bigqueryapi.WithDatasetView(bigqueryapi.DatasetMetadataView))
+		if err != nil {
+			if !isBigQueryNotFound(err) {
+				log.Printf("INTEGRATION CLEANUP: failed to read metadata for dataset %q: %v", ds.DatasetID, err)
+			}
+			continue
+		}
+		if !shouldSweepBigQueryDataset(ds.DatasetID, md.CreationTime, now) {
+			continue
+		}
+		log.Printf("INTEGRATION CLEANUP: deleting orphaned dataset %q created %s", ds.DatasetID, md.CreationTime.Format(time.RFC3339))
+		if err := deleteBigQueryDataset(ctx, client, ds.DatasetID); err != nil {
+			log.Printf("INTEGRATION CLEANUP: %v", err)
+		}
+	}
+}
 
 func getBigQueryVars(t *testing.T) map[string]any {
 	switch "" {
@@ -73,6 +165,24 @@ func initBigQueryConnection(project string) (*bigqueryapi.Client, error) {
 	return client, nil
 }
 
+// newBigQueryTestClient returns a BigQuery client built from
+// context.Background() so it stays usable during t.Cleanup after the test's
+// context expires. Register this before any dataset or view cleanup so the
+// client closes last (t.Cleanup is LIFO).
+func newBigQueryTestClient(t *testing.T, project string) *bigqueryapi.Client {
+	t.Helper()
+	client, err := initBigQueryConnection(project)
+	if err != nil {
+		t.Fatalf("unable to create BigQuery client: %s", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("failed to close BigQuery client: %v", err)
+		}
+	})
+	return client
+}
+
 func TestBigQueryToolEndpoints(t *testing.T) {
 	sourceConfig := getBigQueryVars(t)
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -83,16 +193,11 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 
 	args := []string{"--enable-api"}
 
-	client, err := initBigQueryConnection(BigqueryProject)
-	if err != nil {
-		t.Fatalf("unable to create Cloud SQL connection pool: %s", err)
-	}
+	client := newBigQueryTestClient(t, BigqueryProject)
 
-	// create table name with UUID
-	datasetName := fmt.Sprintf("temp_toolbox_test_%s", uniqueID)
-
-	cleanupDatasets := ensureTeardownDatasets(client, datasetName)
-	defer cleanupDatasets(t)
+	// create dataset with UUID
+	datasetName := fmt.Sprintf("%s%s", testDatasetPrefix, uniqueID)
+	createBigQueryDatasets(t, ctx, client, datasetName)
 
 	tableName := fmt.Sprintf("param_table_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	tableNameParam := fmt.Sprintf("`%s.%s.%s`",
@@ -129,23 +234,23 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getBigQueryParamToolInfo(tableNameParam)
-	setupBigQueryTable(t, ctx, client, createParamTableStmt, insertParamTableStmt, datasetName, tableNameParam, paramTestParams)
+	setupBigQueryTable(t, ctx, client, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
 
 	// set up data for auth tool
 	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getBigQueryAuthToolInfo(tableNameAuth)
-	setupBigQueryTable(t, ctx, client, createAuthTableStmt, insertAuthTableStmt, datasetName, tableNameAuth, authTestParams)
+	setupBigQueryTable(t, ctx, client, createAuthTableStmt, insertAuthTableStmt, tableNameAuth, authTestParams)
 
 	// set up data for data type test tool
 	createDataTypeTableStmt, insertDataTypeTableStmt, dataTypeToolStmt, arrayDataTypeToolStmt, dataTypeTestParams := getBigQueryDataTypeTestInfo(tableNameDataType)
-	setupBigQueryTable(t, ctx, client, createDataTypeTableStmt, insertDataTypeTableStmt, datasetName, tableNameDataType, dataTypeTestParams)
+	setupBigQueryTable(t, ctx, client, createDataTypeTableStmt, insertDataTypeTableStmt, tableNameDataType, dataTypeTestParams)
 
 	// set up data for forecast tool
 	createForecastTableStmt, insertForecastTableStmt, forecastTestParams := getBigQueryForecastToolInfo(tableNameForecast)
-	setupBigQueryTable(t, ctx, client, createForecastTableStmt, insertForecastTableStmt, datasetName, tableNameForecast, forecastTestParams)
+	setupBigQueryTable(t, ctx, client, createForecastTableStmt, insertForecastTableStmt, tableNameForecast, forecastTestParams)
 
 	// set up data for analyze contribution tool
 	createAnalyzeContributionTableStmt, insertAnalyzeContributionTableStmt, analyzeContributionTestParams := getBigQueryAnalyzeContributionToolInfo(tableNameAnalyzeContribution)
-	setupBigQueryTable(t, ctx, client, createAnalyzeContributionTableStmt, insertAnalyzeContributionTableStmt, datasetName, tableNameAnalyzeContribution, analyzeContributionTestParams)
+	setupBigQueryTable(t, ctx, client, createAnalyzeContributionTableStmt, insertAnalyzeContributionTableStmt, tableNameAnalyzeContribution, analyzeContributionTestParams)
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, BigqueryToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -156,8 +261,7 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, BigqueryToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
 	// Set up table for semantic search
-	vectorTableName, teardownVectorTable := setupBigQueryVectorTable(t, ctx, client, datasetName)
-	defer teardownVectorTable(t)
+	vectorTableName := setupBigQueryVectorTable(t, ctx, client, datasetName)
 
 	// Add semantic search tool config
 	insertStmt, searchStmt := getBigQueryVectorSearchStmts(vectorTableName)
@@ -224,24 +328,21 @@ func TestBigQueryToolEndpoints(t *testing.T) {
 }
 
 func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
+	sourceConfig := getBigQueryVars(t)
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
 	t.Logf("Starting restriction test with uniqueID: %s", uniqueID)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	client, err := initBigQueryConnection(BigqueryProject)
-	if err != nil {
-		t.Fatalf("unable to create BigQuery client: %s", err)
-	}
+	client := newBigQueryTestClient(t, BigqueryProject)
 
-	// Create two datasets, one allowed, one not.
+	// Create two allowed datasets and one disallowed dataset.
 	baseName := uniqueID
-	allowedDatasetName1 := fmt.Sprintf("allowed_dataset_1_%s", baseName)
-	allowedDatasetName2 := fmt.Sprintf("allowed_dataset_2_%s", baseName)
-	disallowedDatasetName := fmt.Sprintf("disallowed_dataset_%s", baseName)
+	allowedDatasetName1 := fmt.Sprintf("%sallowed_1_%s", testDatasetPrefix, baseName)
+	allowedDatasetName2 := fmt.Sprintf("%sallowed_2_%s", testDatasetPrefix, baseName)
+	disallowedDatasetName := fmt.Sprintf("%sdisallowed_%s", testDatasetPrefix, baseName)
 
-	cleanupDatasets := ensureTeardownDatasets(client, allowedDatasetName1, allowedDatasetName2, disallowedDatasetName)
-	defer cleanupDatasets(t)
+	createBigQueryDatasets(t, ctx, client, allowedDatasetName1, allowedDatasetName2, disallowedDatasetName)
 
 	allowedTableName1 := "allowed_table_1"
 	allowedTableName2 := "allowed_table_2"
@@ -257,57 +358,54 @@ func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
 	// Setup allowed table
 	allowedTableNameParam1 := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, allowedDatasetName1, allowedTableName1)
 	createAllowedTableStmt1 := fmt.Sprintf("CREATE TABLE %s (id INT64)", allowedTableNameParam1)
-	setupBigQueryTable(t, ctx, client, createAllowedTableStmt1, "", allowedDatasetName1, allowedTableNameParam1, nil)
+	setupBigQueryTable(t, ctx, client, createAllowedTableStmt1, "", allowedTableNameParam1, nil)
 
 	allowedTableNameParam2 := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, allowedDatasetName2, allowedTableName2)
 	createAllowedTableStmt2 := fmt.Sprintf("CREATE TABLE %s (id INT64)", allowedTableNameParam2)
-	setupBigQueryTable(t, ctx, client, createAllowedTableStmt2, "", allowedDatasetName2, allowedTableNameParam2, nil)
+	setupBigQueryTable(t, ctx, client, createAllowedTableStmt2, "", allowedTableNameParam2, nil)
 
 	// Setup allowed forecast table
 	allowedForecastTableFullName1 := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, allowedDatasetName1, allowedForecastTableName1)
 	createForecastStmt1, insertForecastStmt1, forecastParams1 := getBigQueryForecastToolInfo(allowedForecastTableFullName1)
-	setupBigQueryTable(t, ctx, client, createForecastStmt1, insertForecastStmt1, allowedDatasetName1, allowedForecastTableFullName1, forecastParams1)
+	setupBigQueryTable(t, ctx, client, createForecastStmt1, insertForecastStmt1, allowedForecastTableFullName1, forecastParams1)
 
 	allowedForecastTableFullName2 := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, allowedDatasetName2, allowedForecastTableName2)
 	createForecastStmt2, insertForecastStmt2, forecastParams2 := getBigQueryForecastToolInfo(allowedForecastTableFullName2)
-	setupBigQueryTable(t, ctx, client, createForecastStmt2, insertForecastStmt2, allowedDatasetName2, allowedForecastTableFullName2, forecastParams2)
+	setupBigQueryTable(t, ctx, client, createForecastStmt2, insertForecastStmt2, allowedForecastTableFullName2, forecastParams2)
 
 	// Setup disallowed table
 	disallowedTableNameParam := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, disallowedDatasetName, disallowedTableName)
 	createDisallowedTableStmt := fmt.Sprintf("CREATE TABLE %s (id INT64)", disallowedTableNameParam)
-	setupBigQueryTable(t, ctx, client, createDisallowedTableStmt, "", disallowedDatasetName, disallowedTableNameParam, nil)
+	setupBigQueryTable(t, ctx, client, createDisallowedTableStmt, "", disallowedTableNameParam, nil)
 
 	// Setup disallowed forecast table
 	disallowedForecastTableFullName := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, disallowedDatasetName, disallowedForecastTableName)
 	createDisallowedForecastStmt, insertDisallowedForecastStmt, disallowedForecastParams := getBigQueryForecastToolInfo(disallowedForecastTableFullName)
-	setupBigQueryTable(t, ctx, client, createDisallowedForecastStmt, insertDisallowedForecastStmt, disallowedDatasetName, disallowedForecastTableFullName, disallowedForecastParams)
+	setupBigQueryTable(t, ctx, client, createDisallowedForecastStmt, insertDisallowedForecastStmt, disallowedForecastTableFullName, disallowedForecastParams)
 
 	// Setup allowed analyze contribution table
 	allowedAnalyzeContributionTableFullName1 := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, allowedDatasetName1, allowedAnalyzeContributionTableName1)
 	createAnalyzeContributionStmt1, insertAnalyzeContributionStmt1, analyzeContributionParams1 := getBigQueryAnalyzeContributionToolInfo(allowedAnalyzeContributionTableFullName1)
-	setupBigQueryTable(t, ctx, client, createAnalyzeContributionStmt1, insertAnalyzeContributionStmt1, allowedDatasetName1, allowedAnalyzeContributionTableFullName1, analyzeContributionParams1)
+	setupBigQueryTable(t, ctx, client, createAnalyzeContributionStmt1, insertAnalyzeContributionStmt1, allowedAnalyzeContributionTableFullName1, analyzeContributionParams1)
 
 	allowedAnalyzeContributionTableFullName2 := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, allowedDatasetName2, allowedAnalyzeContributionTableName2)
 	createAnalyzeContributionStmt2, insertAnalyzeContributionStmt2, analyzeContributionParams2 := getBigQueryAnalyzeContributionToolInfo(allowedAnalyzeContributionTableFullName2)
-	setupBigQueryTable(t, ctx, client, createAnalyzeContributionStmt2, insertAnalyzeContributionStmt2, allowedDatasetName2, allowedAnalyzeContributionTableFullName2, analyzeContributionParams2)
+	setupBigQueryTable(t, ctx, client, createAnalyzeContributionStmt2, insertAnalyzeContributionStmt2, allowedAnalyzeContributionTableFullName2, analyzeContributionParams2)
 
 	// Setup disallowed analyze contribution table
 	disallowedAnalyzeContributionTableFullName := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, disallowedDatasetName, disallowedAnalyzeContributionTableName)
 	createDisallowedAnalyzeContributionStmt, insertDisallowedAnalyzeContributionStmt, disallowedAnalyzeContributionParams := getBigQueryAnalyzeContributionToolInfo(disallowedAnalyzeContributionTableFullName)
-	setupBigQueryTable(t, ctx, client, createDisallowedAnalyzeContributionStmt, insertDisallowedAnalyzeContributionStmt, disallowedDatasetName, disallowedAnalyzeContributionTableFullName, disallowedAnalyzeContributionParams)
+	setupBigQueryTable(t, ctx, client, createDisallowedAnalyzeContributionStmt, insertDisallowedAnalyzeContributionStmt, disallowedAnalyzeContributionTableFullName, disallowedAnalyzeContributionParams)
 
 	// Setup authorized views in BOTH allowed datasets pointing to disallowed tables
 	viewInAllowedPointingToDisallowedForecastName := "auth_view_forecast"
 	viewInAllowedPointingToDisallowedAnalyzeName := "auth_view_analyze"
 
-	// Create Forecast views
+	// Create Forecast and Analyze views. View cleanups are registered via
+	// t.Cleanup after dataset cleanup, so LIFO order removes views first.
 	for _, dsName := range []string{allowedDatasetName1, allowedDatasetName2} {
-		// defers in this loop are intended to run at function exit to ensure all views are deleted before dataset teardown (LIFO execution order).
-		teardownForecastView := setupBigQueryView(t, ctx, client, dsName, viewInAllowedPointingToDisallowedForecastName, fmt.Sprintf("SELECT * FROM %s", disallowedForecastTableFullName))
-		defer teardownForecastView(t)
-
-		teardownAnalyzeView := setupBigQueryView(t, ctx, client, dsName, viewInAllowedPointingToDisallowedAnalyzeName, fmt.Sprintf("SELECT * FROM %s", disallowedAnalyzeContributionTableFullName))
-		defer teardownAnalyzeView(t)
+		setupBigQueryView(t, ctx, client, dsName, viewInAllowedPointingToDisallowedForecastName, fmt.Sprintf("SELECT * FROM %s", disallowedForecastTableFullName))
+		setupBigQueryView(t, ctx, client, dsName, viewInAllowedPointingToDisallowedAnalyzeName, fmt.Sprintf("SELECT * FROM %s", disallowedAnalyzeContributionTableFullName))
 	}
 
 	// Authorize ALL views to access the disallowed dataset
@@ -327,7 +425,6 @@ func TestBigQueryToolWithDatasetRestriction(t *testing.T) {
 	}
 
 	// Configure source with dataset restriction.
-	sourceConfig := getBigQueryVars(t)
 	sourceConfig["allowedDatasets"] = []string{allowedDatasetName1, allowedDatasetName2}
 
 	// Configure tool
@@ -429,22 +526,10 @@ func TestBigQueryWriteModeAllowed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	datasetName := fmt.Sprintf("temp_toolbox_test_allowed_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
+	datasetName := fmt.Sprintf("%swrite_allowed_%s", testDatasetPrefix, strings.ReplaceAll(uuid.New().String(), "-", ""))
 
-	client, err := initBigQueryConnection(BigqueryProject)
-	if err != nil {
-		t.Fatalf("unable to create BigQuery connection: %s", err)
-	}
-
-	dataset := client.Dataset(datasetName)
-	if err := dataset.Create(ctx, &bigqueryapi.DatasetMetadata{Name: datasetName}); err != nil {
-		t.Fatalf("Failed to create dataset %q: %v", datasetName, err)
-	}
-	defer func() {
-		if err := dataset.DeleteWithContents(context.WithoutCancel(ctx)); err != nil {
-			t.Logf("failed to cleanup dataset %s: %v", datasetName, err)
-		}
-	}()
+	client := newBigQueryTestClient(t, BigqueryProject)
+	createBigQueryDatasets(t, ctx, client, datasetName)
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
@@ -485,17 +570,15 @@ func TestBigQueryWriteModeBlocked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	datasetName := fmt.Sprintf("temp_toolbox_test_blocked_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
+	datasetName := fmt.Sprintf("%swrite_blocked_%s", testDatasetPrefix, strings.ReplaceAll(uuid.New().String(), "-", ""))
 	tableName := fmt.Sprintf("param_table_blocked_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	tableNameParam := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, datasetName, tableName)
 
-	client, err := initBigQueryConnection(BigqueryProject)
-	if err != nil {
-		t.Fatalf("unable to create BigQuery connection: %s", err)
-	}
+	client := newBigQueryTestClient(t, BigqueryProject)
+	createBigQueryDatasets(t, ctx, client, datasetName)
+
 	createParamTableStmt, insertParamTableStmt, _, _, _, _, paramTestParams := getBigQueryParamToolInfo(tableNameParam)
-	teardownTable := setupBigQueryTable(t, ctx, client, createParamTableStmt, insertParamTableStmt, datasetName, tableNameParam, paramTestParams)
-	defer teardownTable(t)
+	setupBigQueryTable(t, ctx, client, createParamTableStmt, insertParamTableStmt, tableNameParam, paramTestParams)
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{"my-instance": sourceConfig},
@@ -530,20 +613,11 @@ func TestBigQueryWriteModeProtected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	permanentDatasetName := fmt.Sprintf("perm_dataset_protected_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
-	client, err := initBigQueryConnection(BigqueryProject)
-	if err != nil {
-		t.Fatalf("unable to create BigQuery connection: %s", err)
-	}
+	permanentDatasetName := fmt.Sprintf("%sperm_protected_%s", testDatasetPrefix, strings.ReplaceAll(uuid.New().String(), "-", ""))
+	client := newBigQueryTestClient(t, BigqueryProject)
+	createBigQueryDatasets(t, ctx, client, permanentDatasetName)
+
 	dataset := client.Dataset(permanentDatasetName)
-	if err := dataset.Create(ctx, &bigqueryapi.DatasetMetadata{Name: permanentDatasetName}); err != nil {
-		t.Fatalf("Failed to create dataset %q: %v", permanentDatasetName, err)
-	}
-	defer func() {
-		if err := dataset.DeleteWithContents(context.WithoutCancel(ctx)); err != nil {
-			t.Logf("failed to cleanup dataset %s: %v", permanentDatasetName, err)
-		}
-	}()
 	if err := dataset.Table("perm_table").Create(ctx, &bigqueryapi.TableMetadata{
 		Schema: bigqueryapi.Schema{{Name: "x", Type: bigqueryapi.IntegerFieldType}},
 	}); err != nil {
@@ -608,23 +682,11 @@ func TestBigQuery_ReadOnlyVulnerabilityBlock(t *testing.T) {
 	args := []string{"--enable-api", "--port", "5002"}
 
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
-	datasetName := fmt.Sprintf("temp_toolbox_test_vuln_%s", uniqueID)
+	datasetName := fmt.Sprintf("%svuln_%s", testDatasetPrefix, uniqueID)
 	tableName := fmt.Sprintf("vulnerability_test_%s", uniqueID)
 
-	client, err := initBigQueryConnection(BigqueryProject)
-	if err != nil {
-		t.Fatalf("unable to create BigQuery connection: %s", err)
-	}
-
-	dataset := client.Dataset(datasetName)
-	if err := dataset.Create(ctx, &bigqueryapi.DatasetMetadata{Name: datasetName}); err != nil {
-		t.Fatalf("Failed to create dataset %q: %v", datasetName, err)
-	}
-	defer func() {
-		if err := dataset.DeleteWithContents(context.WithoutCancel(ctx)); err != nil {
-			t.Logf("failed to cleanup dataset %s: %v", datasetName, err)
-		}
-	}()
+	client := newBigQueryTestClient(t, BigqueryProject)
+	createBigQueryDatasets(t, ctx, client, datasetName)
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{
@@ -772,52 +834,83 @@ func getBigQueryTmplToolStatement() (string, string) {
 	return tmplSelectCombined, tmplSelectFilterCombined
 }
 
-func ensureTeardownDatasets(client *bigqueryapi.Client, datasetNames ...string) func(*testing.T) {
-	return func(t *testing.T) {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		for _, dsName := range datasetNames {
-			if err := client.Dataset(dsName).DeleteWithContents(cleanupCtx); err != nil {
-				t.Logf("failed to cleanup dataset %s: %v", dsName, err)
-			}
+// createBigQueryDatasets registers dataset cleanup via t.Cleanup before
+// creating each named dataset, so a failure partway through still deletes any
+// dataset that was created.
+func createBigQueryDatasets(t *testing.T, ctx context.Context, client *bigqueryapi.Client, datasetNames ...string) {
+	t.Helper()
+	registerBigQueryDatasetCleanup(t, client, datasetNames...)
+	for _, dsName := range datasetNames {
+		if err := client.Dataset(dsName).Create(ctx, &bigqueryapi.DatasetMetadata{Name: dsName}); err != nil {
+			t.Fatalf("Failed to create dataset %q: %v", dsName, err)
 		}
 	}
 }
 
-func setupBigQueryView(t *testing.T, ctx context.Context, client *bigqueryapi.Client, datasetName, viewName, query string) func(*testing.T) {
+// registerBigQueryDatasetCleanup registers a t.Cleanup that deletes each named
+// dataset and all of its contents (tables, views, models, routines)
+// concurrently. Register it before creating the dataset so a partial setup
+// failure still removes it. Cleanup runs with its own timeout detached from
+// the test context, ignores NotFound (already deleted or never created), and
+// fails the test via t.Errorf on any real deletion error.
+func registerBigQueryDatasetCleanup(t *testing.T, client *bigqueryapi.Client, datasetNames ...string) {
+	t.Helper()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		errs := make([]error, len(datasetNames))
+		var wg sync.WaitGroup
+		for i, dsName := range datasetNames {
+			wg.Add(1)
+			go func(idx int, name string) {
+				defer wg.Done()
+				errs[idx] = deleteBigQueryDataset(cleanupCtx, client, name)
+			}(i, dsName)
+		}
+		wg.Wait()
+		if err := errors.Join(errs...); err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	})
+}
+
+func deleteBigQueryDataset(ctx context.Context, client *bigqueryapi.Client, datasetName string) error {
+	if err := client.Dataset(datasetName).DeleteWithContents(ctx); err != nil && !isBigQueryNotFound(err) {
+		return fmt.Errorf("failed to delete BigQuery dataset %q: %w", datasetName, err)
+	}
+	return nil
+}
+
+func isBigQueryNotFound(err error) bool {
+	var apiErr *googleapi.Error
+	return errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound
+}
+
+func setupBigQueryView(t *testing.T, ctx context.Context, client *bigqueryapi.Client, datasetName, viewName, query string) {
+	t.Helper()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := client.Dataset(datasetName).Table(viewName).Delete(cleanupCtx); err != nil && !isBigQueryNotFound(err) {
+			t.Errorf("failed to delete view %s in %s: %v", viewName, datasetName, err)
+		}
+	})
 	if err := client.Dataset(datasetName).Table(viewName).Create(ctx, &bigqueryapi.TableMetadata{
 		ViewQuery: query,
 	}); err != nil {
 		t.Fatalf("failed to create view %s in %s: %v", viewName, datasetName, err)
 	}
-	return func(t *testing.T) {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-		defer cancel()
-		if err := client.Dataset(datasetName).Table(viewName).Delete(cleanupCtx); err != nil {
-			t.Errorf("failed to delete view %s in %s: %v", viewName, datasetName, err)
-		}
-	}
 }
 
-func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, createStatement, insertStatement, datasetName string, tableName string, params []bigqueryapi.QueryParameter) func(*testing.T) {
-	// Create dataset
-	dataset := client.Dataset(datasetName)
-	_, err := dataset.Metadata(ctx)
-
-	if err != nil {
-		apiErr, ok := err.(*googleapi.Error)
-		if !ok || apiErr.Code != 404 {
-			t.Fatalf("Failed to check dataset %q existence: %v", datasetName, err)
-		}
-		metadataToCreate := &bigqueryapi.DatasetMetadata{Name: datasetName}
-		if err := dataset.Create(ctx, metadataToCreate); err != nil {
-			t.Fatalf("Failed to create dataset %q: %v", datasetName, err)
-		}
-	}
+// setupBigQueryTable creates tableName inside an already-created dataset and
+// optionally inserts seed rows. Callers must create the parent dataset via
+// createBigQueryDatasets first so dataset teardown is registered before any
+// DDL or DML job runs.
+func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, createStatement, insertStatement, tableName string, params []bigqueryapi.QueryParameter) {
+	t.Helper()
 
 	// Create table
 	createJob, err := client.Query(createStatement).Run(ctx)
-
 	if err != nil {
 		t.Fatalf("Failed to start create table job for %s: %v", tableName, err)
 	}
@@ -843,37 +936,6 @@ func setupBigQueryTable(t *testing.T, ctx context.Context, client *bigqueryapi.C
 		}
 		if err := insertStatus.Err(); err != nil {
 			t.Fatalf("Insert job for %s failed: %v", tableName, err)
-		}
-	}
-
-	return func(t *testing.T) {
-		// tear down table
-		dropSQL := fmt.Sprintf("drop table %s", tableName)
-		dropJob, err := client.Query(dropSQL).Run(context.WithoutCancel(ctx))
-		if err != nil {
-			t.Errorf("Failed to start drop table job for %s: %v", tableName, err)
-			return
-		}
-		dropStatus, err := dropJob.Wait(context.WithoutCancel(ctx))
-		if err != nil {
-			t.Errorf("Failed to wait for drop table job for %s: %v", tableName, err)
-			return
-		}
-		if err := dropStatus.Err(); err != nil {
-			t.Errorf("Error dropping table %s: %v", tableName, err)
-		}
-
-		// tear down dataset
-		datasetToTeardown := client.Dataset(datasetName)
-		tablesIterator := datasetToTeardown.Tables(context.WithoutCancel(ctx))
-		_, err = tablesIterator.Next()
-
-		if err == iterator.Done {
-			if err := datasetToTeardown.Delete(context.WithoutCancel(ctx)); err != nil {
-				t.Errorf("Failed to delete dataset %s: %v", datasetName, err)
-			}
-		} else if err != nil {
-			t.Errorf("Failed to list tables in dataset %s to check emptiness: %v.", datasetName, err)
 		}
 	}
 }
@@ -3469,7 +3531,8 @@ func runAnalyzeContributionWithRestriction(t *testing.T, allowedTableFullName, d
 }
 
 // setupBigQueryVectorTable creates a vector table in BigQuery for semantic search testing
-func setupBigQueryVectorTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, datasetName string) (string, func(*testing.T)) {
+func setupBigQueryVectorTable(t *testing.T, ctx context.Context, client *bigqueryapi.Client, datasetName string) string {
+	t.Helper()
 	tableName := fmt.Sprintf("vector_table_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	fullTableName := fmt.Sprintf("`%s.%s.%s`", BigqueryProject, datasetName, tableName)
 	createStatement := fmt.Sprintf(`CREATE TABLE %s (
@@ -3478,8 +3541,8 @@ func setupBigQueryVectorTable(t *testing.T, ctx context.Context, client *bigquer
 		embedding ARRAY<FLOAT64>
 	)`, fullTableName)
 
-	teardownTable := setupBigQueryTable(t, ctx, client, createStatement, "", datasetName, fullTableName, nil)
-	return fullTableName, teardownTable
+	setupBigQueryTable(t, ctx, client, createStatement, "", fullTableName, nil)
+	return fullTableName
 }
 
 // getBigQueryVectorSearchStmts returns statements for bigquery semantic search
