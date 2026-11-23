@@ -856,6 +856,7 @@ func createBatch(t *testing.T, client *dataproc.BatchControllerClient, ctx conte
 	if err != nil {
 		t.Fatalf("failed to get batch metadata: %v", err)
 	}
+	cleanupBatch(t, client, ctx, meta.Batch, true)
 
 	// Wait for the batch to become at least PENDING; it typically takes >10s to go from PENDING to
 	// RUNNING, giving the cancel batch tests plenty of time to cancel it before it completes.
