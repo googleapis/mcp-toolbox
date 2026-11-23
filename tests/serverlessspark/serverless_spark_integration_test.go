@@ -32,6 +32,7 @@ import (
 
 	dataproc "cloud.google.com/go/dataproc/v2/apiv1"
 	"cloud.google.com/go/dataproc/v2/apiv1/dataprocpb"
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/sources/serverlessspark"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -781,6 +782,46 @@ func waitForBatch(t *testing.T, client *dataproc.BatchControllerClient, parentCt
 	}
 }
 
+func cleanupBatch(t *testing.T, client *dataproc.BatchControllerClient, parentCtx context.Context, batch string, deleteBatch bool) {
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 5*time.Minute)
+		defer cancel()
+		cancelRequested := false
+		for {
+			b, err := client.GetBatch(ctx, &dataprocpb.GetBatchRequest{Name: batch})
+			if err != nil {
+				t.Errorf("failed to get batch %s for cleanup: %v", batch, err)
+				return
+			}
+			switch b.State {
+			case dataprocpb.Batch_SUCCEEDED, dataprocpb.Batch_FAILED, dataprocpb.Batch_CANCELLED:
+				if !deleteBatch {
+					return
+				}
+				if err := client.DeleteBatch(ctx, &dataprocpb.DeleteBatchRequest{Name: batch}); err != nil {
+					t.Errorf("failed to delete batch %s: %v", batch, err)
+				}
+				return
+			case dataprocpb.Batch_CANCELLING:
+			default:
+				if !cancelRequested {
+					if err := client.CancelOperation(ctx, &longrunningpb.CancelOperationRequest{Name: b.Operation}); err != nil {
+						t.Errorf("failed to cancel batch %s: %v", batch, err)
+						return
+					}
+					cancelRequested = true
+				}
+			}
+			select {
+			case <-ctx.Done():
+				t.Errorf("timed out cleaning up batch %s", batch)
+				return
+			case <-time.After(5 * time.Second):
+			}
+		}
+	})
+}
+
 // createBatch creates a test batch and immediately returns the batch name, without waiting for the
 // batch to start or complete.
 func createBatch(t *testing.T, client *dataproc.BatchControllerClient, ctx context.Context) string {
@@ -1163,6 +1204,9 @@ func runCreateSparkBatchTest(
 	var meta dataprocpb.BatchOperationMetadata
 	if err := json.Unmarshal([]byte(metaJson), &meta); err != nil {
 		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+	if !waitForSuccess {
+		cleanupBatch(t, client, ctx, meta.Batch, true)
 	}
 
 	if validate != nil {
