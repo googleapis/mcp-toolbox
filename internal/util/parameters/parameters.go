@@ -130,6 +130,9 @@ func CheckParamRequired(required bool, defaultV any) bool {
 // ParseParams is a helper function for parsing Parameters from an arbitraryJSON object.
 func ParseParams(ps Parameters, data map[string]any, claimsMap map[string]map[string]any) (ParamValues, error) {
 	params := make([]ParamValue, 0, len(ps))
+	// resolved holds each parameter's value before parsing, so valueFromParam
+	// copies the resolved source value instead of the raw client arguments.
+	resolved := make(map[string]any, len(ps))
 	for _, p := range ps {
 		var v, newV any
 		var err error
@@ -138,8 +141,9 @@ func ParseParams(ps Parameters, data map[string]any, claimsMap map[string]map[st
 
 		sourceParamName := p.GetValueFromParam()
 		if sourceParamName != "" {
-			v = data[sourceParamName]
-
+			// Set below, after every source parameter is resolved.
+			params = append(params, ParamValue{Name: name})
+			continue
 		} else if len(paramAuthServices) == 0 {
 			// parse non auth-required parameter
 			var ok bool
@@ -158,6 +162,7 @@ func ParseParams(ps Parameters, data map[string]any, claimsMap map[string]map[st
 				return nil, util.NewClientServerError(fmt.Sprintf("error parsing authenticated parameter %q", name), http.StatusUnauthorized, err)
 			}
 		}
+		resolved[name] = v
 		if v != nil {
 			newV, err = p.Parse(v)
 			if err != nil {
@@ -165,6 +170,17 @@ func ParseParams(ps Parameters, data map[string]any, claimsMap map[string]map[st
 			}
 		}
 		params = append(params, ParamValue{Name: name, Value: newV})
+	}
+	for i, p := range ps {
+		sourceParamName := p.GetValueFromParam()
+		if sourceParamName == "" || resolved[sourceParamName] == nil {
+			continue
+		}
+		newV, err := p.Parse(resolved[sourceParamName])
+		if err != nil {
+			return nil, util.NewAgentError(fmt.Sprintf("unable to parse value for %q", p.GetName()), err)
+		}
+		params[i].Value = newV
 	}
 	return params, nil
 }
@@ -716,19 +732,32 @@ func (p *StringParameter) Parse(v any) (any, error) {
 }
 
 func applyEscape(escape, v string) (any, error) {
+	if strings.ContainsAny(v, "\\\x00") {
+		return nil, fmt.Errorf("cannot escape value containing backslash or null byte")
+	}
 	switch escape {
 	case escapeBackticks:
-		escaped := strings.ReplaceAll(v, "`", "``")
-		return fmt.Sprintf("`%s`", escaped), nil
+		if strings.ContainsRune(v, '`') {
+			return nil, fmt.Errorf("cannot backtick-escape value containing backtick")
+		}
+		return fmt.Sprintf("`%s`", v), nil
 	case escapeDoubleQuotes:
+		if strings.ContainsRune(v, '"') {
+			return nil, fmt.Errorf("cannot double-quote-escape value containing double quote")
+		}
 		escaped := strings.ReplaceAll(v, `"`, `""`)
 		return fmt.Sprintf(`"%s"`, escaped), nil
 	case escapeSingleQuotes:
+		if strings.ContainsRune(v, '\'') {
+			return nil, fmt.Errorf("cannot single-quote-escape value containing single quote")
+		}
 		escaped := strings.ReplaceAll(v, `'`, `''`)
 		return fmt.Sprintf(`'%s'`, escaped), nil
 	case escapeSquareBrackets:
-		escaped := strings.ReplaceAll(v, "]", "]]")
-		return fmt.Sprintf("[%s]", escaped), nil
+		if strings.ContainsAny(v, "[]") {
+			return nil, fmt.Errorf("cannot square-bracket-escape value containing square bracket")
+		}
+		return fmt.Sprintf("[%s]", v), nil
 	default:
 		return nil, fmt.Errorf("%s is not an allowed escaping delimiter", escape)
 	}

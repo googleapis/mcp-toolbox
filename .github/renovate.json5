@@ -45,6 +45,8 @@
       matchPackageNames: [
         'gohugoio/hugo',
       ],
+      // Hugo >= 0.170.0 removed built-in LibSass and requires standalone Dart Sass.
+      allowedVersions: '< 0.170.0',
     },
     {
       groupName: 'GitHub Actions',
