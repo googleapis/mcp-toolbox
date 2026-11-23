@@ -12,12 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Proposes priority, type and product labels for a GitHub issue.
+"""Proposes and applies priority, type and product labels for a GitHub issue.
 
-In GitHub Actions (`GITHUB_EVENT_PATH`), reads the newly opened issue from the
-runner event file, makes one Gemini API call, validates the reply against
-`.github/labels.yaml`, and writes the proposed labels to `$GITHUB_OUTPUT` for a
-separate write job.
+  classify --issue N                 one Gemini call; proposed labels go to $GITHUB_OUTPUT
+  apply --issue N --labels '[...]'   adds the proposed labels the rules allow
+
+apply only logs unless DRY_RUN is exactly "false". Both commands read the issue
+from the GitHub API, with GH_TOKEN when it is set and anonymously otherwise.
 """
 
 import argparse
@@ -28,18 +29,14 @@ import sys
 import urllib.error
 import urllib.request
 
-DEFAULT_MODEL = "gemini-3.8-flash"
-DEFAULT_REPO = "googleapis/mcp-toolbox"
-MODEL = os.environ.get("LABELLER_MODEL", DEFAULT_MODEL)
+MODEL = "gemini-3.8-flash"
+ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
+REPO = os.environ.get("GITHUB_REPOSITORY", "googleapis/mcp-toolbox")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LABELS_FILE = os.path.join(REPO_ROOT, ".github", "labels.yaml")
 GROUPS = ("type", "priority", "product")
 NO_PRODUCT = "none"  # Not a label. The model picks it when no product applies.
 MAX_BODY_CHARS = 20000
-
-ISSUE_PATTERN = re.compile(r"\A[1-9][0-9]*\Z", re.ASCII)
-REPO_PATTERN = re.compile(r"\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z", re.ASCII)
-MODEL_PATTERN = re.compile(r"\A[A-Za-z0-9._-]+\Z", re.ASCII)
 
 # Wording follows the Labels section of maintainer-playbook.md and
 # skills/maintainer/triage-issues/SKILL.md.
@@ -63,30 +60,41 @@ Choose exactly one value for each field:
 """
 
 
-def current_model():
-    """Returns the configured Gemini model name after validating its characters."""
-    chosen = os.environ.get("LABELLER_MODEL", MODEL)
-    if not isinstance(chosen, str) or not MODEL_PATTERN.fullmatch(chosen):
-        raise ValueError(f"invalid model name: {chosen!r}")
-    return chosen
-
-
-def model_endpoint(model=None):
-    """Returns the validated Gemini generateContent endpoint URL."""
-    chosen = model if model is not None else current_model()
-    if not isinstance(chosen, str) or not MODEL_PATTERN.fullmatch(chosen):
-        raise ValueError(f"invalid model name: {chosen!r}")
-    return f"https://generativelanguage.googleapis.com/v1beta/models/{chosen}:generateContent"
-
-
-URL = model_endpoint(DEFAULT_MODEL)
-
-
-def allowed_labels(path=LABELS_FILE):
+def allowed_labels():
     """Returns {group: [label, ...]} for the three groups in labels.yaml."""
-    with open(path, encoding="utf-8") as f:
+    with open(LABELS_FILE, encoding="utf-8") as f:
         names = re.findall(r"^- name:\s*['\"]?(.+?)['\"]?\s*$", f.read(), re.M)
-    return {g: [n for n in names if n.startswith(g + ": ")] for g in GROUPS}
+    allowed = {g: [n for n in names if n.startswith(g + ": ")] for g in GROUPS}
+    if not all(allowed.values()):
+        sys.exit(f"{LABELS_FILE} is missing one of the groups {GROUPS}")
+    return allowed
+
+
+class NoRedirects(urllib.request.HTTPRedirectHandler):
+    """Fails on a redirect, which would resend the credential to another host."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def send(method, url, headers, body=None):
+    """Sends one JSON request and returns the decoded JSON response."""
+    request = urllib.request.Request(
+        url,
+        data=None if body is None else json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", **headers},
+        method=method,
+    )
+    with urllib.request.build_opener(NoRedirects).open(request, timeout=60) as response:
+        return json.load(response)
+
+
+def github(method, path, body=None):
+    """Calls the GitHub REST API for this repository."""
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "mcp-toolbox-issue-labeller"}
+    if os.environ.get("GH_TOKEN"):
+        headers["Authorization"] = f"Bearer {os.environ['GH_TOKEN']}"
+    return send(method, f"https://api.github.com/repos/{REPO}/{path}", headers, body)
 
 
 def build_request(allowed, issue):
@@ -102,37 +110,9 @@ def build_request(allowed, issue):
         "system_instruction": {"parts": [{"text": INSTRUCTIONS}]},
         "contents": [{"parts": [{"text": json.dumps(issue)}]}],
         "generationConfig": {
-            "responseFormat": {
-                "text": {"mimeType": "APPLICATION_JSON", "schema": schema}
-            }
+            "responseFormat": {"text": {"mimeType": "APPLICATION_JSON", "schema": schema}}
         },
     }
-
-
-class NoRedirects(urllib.request.HTTPRedirectHandler):
-    """Fails on a redirect, which would resend the API key to another host."""
-
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
-def call_model(body, url=None):
-    """Sends one POST request to the Gemini API using GEMINI_API_KEY."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable is not set")
-    endpoint = url if url is not None else model_endpoint()
-    request = urllib.request.Request(
-        endpoint,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "x-goog-api-key": api_key,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.build_opener(NoRedirects).open(request, timeout=60) as response:
-        return json.load(response)
 
 
 def checked_labels(allowed, text):
@@ -140,12 +120,7 @@ def checked_labels(allowed, text):
 
     This check, not the response schema, is what limits the result to the list.
     """
-    if not isinstance(text, str):
-        raise ValueError("model answer is not a JSON string")
-    try:
-        answer = json.loads(text)
-    except RecursionError as error:
-        raise ValueError("model answer exceeds maximum JSON nesting depth") from error
+    answer = json.loads(text)
     if not isinstance(answer, dict) or set(answer) != set(GROUPS):
         raise ValueError("answer does not have exactly the three expected fields")
     labels = []
@@ -153,210 +128,93 @@ def checked_labels(allowed, text):
         value = answer[group]
         if group == "product" and value == NO_PRODUCT:
             continue
-        if type(value) is not str or value not in allowed[group]:
+        if value not in allowed[group]:
             raise ValueError(f"{group} value is not on the allowed list")
         labels.append(value)
     return labels
 
 
-def validate_repo_and_issue(repo, issue_number):
-    """Validates OWNER/REPO and positive ASCII-digit issue number."""
-    issue_str = str(issue_number)
-    if not ISSUE_PATTERN.fullmatch(issue_str):
-        raise ValueError(f"--issue must be positive ASCII digits, got {issue_number!r}")
-    if not isinstance(repo, str) or not REPO_PATTERN.fullmatch(repo):
-        raise ValueError(
-            f"--repo must match ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$, got {repo!r}"
-        )
-    owner, name = repo.split("/", 1)
-    if owner in (".", "..") or name in (".", ".."):
-        raise ValueError(f"--repo contains invalid path segment: {repo!r}")
-    return repo, int(issue_str)
-
-
-def fetch_github_issue(repo, issue_number, base_url="https://api.github.com"):
-    """Fetches public issue JSON from GitHub without sending any credentials."""
-    repo, number = validate_repo_and_issue(repo, issue_number)
-    url = f"{base_url.rstrip('/')}/repos/{repo}/issues/{number}"
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "mcp-toolbox-issue-labeller",
-        },
-        method="GET",
-    )
-    with urllib.request.build_opener(NoRedirects).open(request, timeout=30) as response:
-        data = json.load(response)
-    if not isinstance(data, dict):
-        raise ValueError("unexpected GitHub API response shape")
-    if "pull_request" in data:
-        raise ValueError(f"#{number} is a pull request, not an issue")
-    return data
-
-
-def extract_existing_labels(event_issue):
-    """Extracts label names from a GitHub issue payload."""
-    raw = event_issue.get("labels") or []
-    names = []
-    for item in raw:
-        if isinstance(item, dict) and isinstance(item.get("name"), str):
-            names.append(item["name"])
-        elif isinstance(item, str):
-            names.append(item)
-    return names
-
-
-def preview_apply(allowed, existing_labels, proposed_labels):
-    """Simulates the workflow apply step's group-skip and bug-priority rules."""
-    allowed_set = {label for group in GROUPS for label in allowed[group]}
-    # Sort type first so the bug priority rule sees the effective issue type.
-    ordered = sorted(proposed_labels, key=lambda label: not label.startswith("type: "))
-    on_issue = list(existing_labels)
-    would_add = []
-    skipped = []
-    for label in ordered:
-        if ": " not in label:
-            raise ValueError(f"proposed label {label!r} has no group prefix")
+def plan(existing, proposed):
+    """Returns (add, skipped) for the proposed labels. The only copy of the rules."""
+    on_issue, add, skipped = list(existing), [], []
+    # Type first, so the bug rule sees the type the issue will have.
+    for label in sorted(proposed, key=lambda label: not label.startswith("type: ")):
         group = label.split(": ", 1)[0]
-        if group not in GROUPS or label not in allowed_set:
-            raise ValueError(f"proposed label {label!r} is not on the allowed list")
-        if any(existing.startswith(f"{group}: ") for existing in on_issue):
+        if any(name.startswith(f"{group}: ") for name in on_issue):
             skipped.append((label, f"the issue already has a `{group}` label"))
         elif label in ("priority: p2", "priority: p3") and "type: bug" in on_issue:
-            skipped.append(
-                (label, "the maintainer playbook allows only p0 or p1 for a bug")
-            )
+            skipped.append((label, "the maintainer playbook allows only p0 or p1 for a bug"))
         else:
-            would_add.append(label)
+            add.append(label)
             on_issue.append(label)
-    return {
-        "existing": list(existing_labels),
-        "proposed": list(proposed_labels),
-        "would_add": would_add,
-        "skipped": skipped,
-    }
+    return add, skipped
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(
-        description="Classify a GitHub issue into priority, type, and product labels."
-    )
-    parser.add_argument(
-        "--issue",
-        help="Public issue number to fetch and classify (digits only; zero GitHub writes).",
-    )
-    parser.add_argument(
-        "--repo",
-        default=DEFAULT_REPO,
-        help=f"GitHub repository in OWNER/REPO format (default: {DEFAULT_REPO}).",
-    )
-    parser.add_argument(
-        "--labels-file",
-        default=LABELS_FILE,
-        help="Path to labels.yaml (default: .github/labels.yaml in repository root).",
-    )
-    return parser.parse_args(argv)
+def report(lines):
+    """Prints the lines and appends them to the Actions step summary, if any."""
+    print("\n".join(lines))
+    if "GITHUB_STEP_SUMMARY" in os.environ:
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    local_mode = args.issue is not None
-
-    if local_mode:
-        try:
-            repo, issue_number = validate_repo_and_issue(args.repo, args.issue)
-            event = fetch_github_issue(repo, issue_number)
-        except urllib.error.HTTPError as error:
-            if error.code in (403, 429):
-                sys.exit(
-                    f"Failed to load issue: HTTP {error.code} from GitHub API "
-                    "(likely the anonymous 60/hour rate limit; wait and retry)."
-                )
-            sys.exit(f"Failed to load issue: {error}")
-        except (ValueError, urllib.error.URLError, OSError) as error:
-            sys.exit(f"Failed to load issue: {error}")
-    else:
-        event_path = os.environ.get("GITHUB_EVENT_PATH")
-        if not event_path:
-            sys.exit(
-                "Provide --issue <N> for local preview or set GITHUB_EVENT_PATH in GitHub Actions."
-            )
-        try:
-            with open(event_path, encoding="utf-8") as f:
-                payload = json.load(f)
-            event = payload["issue"]
-            if not isinstance(event, dict) or "number" not in event:
-                raise ValueError("event payload missing issue object or number")
-        except (OSError, ValueError, KeyError, TypeError, RecursionError) as error:
-            sys.exit(f"Failed to load issue event: {error}")
-
-    issue = {
-        "title": event.get("title") or "",
-        "body": (event.get("body") or "")[:MAX_BODY_CHARS],
-    }
-    allowed = allowed_labels(args.labels_file)
-    if not all(allowed.values()):
-        sys.exit(f"{args.labels_file} is missing one of the groups {GROUPS}")
-
+def classify(args):
+    issue = github("GET", f"issues/{args.issue}")
+    if "pull_request" in issue:
+        sys.exit(f"#{args.issue} is a pull request, not an issue")
+    allowed = allowed_labels()
+    text = {"title": issue.get("title") or "", "body": (issue.get("body") or "")[:MAX_BODY_CHARS]}
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        sys.exit("GEMINI_API_KEY is not set")
+    reply = send("POST", ENDPOINT, {"x-goog-api-key": key}, build_request(allowed, text))
     try:
-        active_model = current_model()
-        reply = call_model(build_request(allowed, issue))
-    except urllib.error.HTTPError as error:
-        if os.environ.get("GITHUB_ACTIONS") != "true":
-            try:
-                err_body = error.read().decode("utf-8", errors="replace")[:1000]
-            except OSError:
-                err_body = ""
-            if err_body:
-                print("Model error response:", json.dumps(err_body))
-        sys.exit(f"Model call failed: {error}")
-    except (RuntimeError, ValueError, urllib.error.URLError, OSError, RecursionError) as error:
-        sys.exit(f"Model call failed: {error}")
-
-    try:
-        text = reply["candidates"][0]["content"]["parts"][0]["text"]
-        labels = checked_labels(allowed, text)
-    except (KeyError, IndexError, TypeError, ValueError, RecursionError) as error:
+        labels = checked_labels(allowed, reply["candidates"][0]["content"]["parts"][0]["text"])
+    except (KeyError, IndexError, TypeError, ValueError) as error:
         # json.dumps keeps whatever the model wrote on one escaped line.
-        try:
-            rendered = json.dumps(reply)[:2000]
-        except RecursionError:
-            rendered = '"<deeply nested reply>"'
-        print("Rejected model reply:", rendered)
+        print("Rejected model reply:", json.dumps(reply)[:2000])
         sys.exit(f"No labels proposed: {error}")
-
-    record = {
-        "issue": event["number"],
-        "model": active_model,
-        "proposed": labels,
-        "usage": reply.get("usageMetadata"),
-    }
-    print(json.dumps(record))
-
-    if local_mode:
-        preview = preview_apply(allowed, extract_existing_labels(event), labels)
-        existing_str = ", ".join(preview["existing"]) or "(none)"
-        proposed_str = ", ".join(preview["proposed"]) or "(none)"
-        would_add_str = ", ".join(preview["would_add"]) or "(none)"
-        print(f"Dry-run preview for {args.repo}#{event['number']} (zero GitHub writes):")
-        print(f"  Existing labels: {existing_str}")
-        print(f"  Proposed labels: {proposed_str}")
-        print(f"  Would add:       {would_add_str}")
-        if preview["skipped"]:
-            for skipped_label, reason in preview["skipped"]:
-                print(f"  Would skip:      {skipped_label} ({reason})")
-        else:
-            print("  Would skip:      (none)")
-
+    print(json.dumps({"issue": args.issue, "model": MODEL, "usage": reply.get("usageMetadata")}))
+    shown = ", ".join(f"`{label}`" for label in labels)
+    report([f"Issue #{args.issue}: `{MODEL}` proposed {shown}"])
     if "GITHUB_OUTPUT" in os.environ:
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
             f.write(f"labels={json.dumps(labels)}\n")
-    if "GITHUB_STEP_SUMMARY" in os.environ:
-        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
-            shown = ", ".join(f"`{label}`" for label in labels)
-            f.write(f"Issue #{event['number']}: `{active_model}` proposed {shown}\n")
+
+
+def apply(args):
+    proposed = json.loads(args.labels)
+    allowed = {label for labels in allowed_labels().values() for label in labels}
+    if not isinstance(proposed, list) or not all(
+        isinstance(label, str) and label in allowed for label in proposed
+    ):
+        sys.exit("A proposed label is not on the allowed list. Nothing was applied.")
+    existing = [label["name"] for label in github("GET", f"issues/{args.issue}/labels?per_page=100")]
+    add, skipped = plan(existing, proposed)
+    dry_run = os.environ.get("DRY_RUN", "true") != "false"
+    if add and not dry_run:
+        github("POST", f"issues/{args.issue}/labels", {"labels": add})
+    shown = ", ".join(f"`{label}`" for label in add) or "(none)"
+    report(
+        [f"- `{label}` not added: {reason}" for label, reason in skipped]
+        + [f"- {'[dry-run] would add' if dry_run else 'added'}: {shown}"]
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    classify_command = commands.add_parser("classify")
+    apply_command = commands.add_parser("apply")
+    apply_command.add_argument("--labels", required=True, help="JSON array from classify")
+    for command, run in ((classify_command, classify), (apply_command, apply)):
+        command.add_argument("--issue", type=int, required=True)
+        command.set_defaults(run=run)
+    args = parser.parse_args()
+    try:
+        args.run(args)
+    except (OSError, ValueError) as error:  # URLError and HTTPError are OSErrors.
+        sys.exit(f"{args.command} failed: {error}")
 
 
 if __name__ == "__main__":
