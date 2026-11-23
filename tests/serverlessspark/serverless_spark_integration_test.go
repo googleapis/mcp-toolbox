@@ -1206,9 +1206,7 @@ func runCreateSparkBatchTest(
 	if err := json.Unmarshal([]byte(metaJson), &meta); err != nil {
 		t.Fatalf("failed to unmarshal result: %v", err)
 	}
-	if !waitForSuccess {
-		cleanupBatch(t, client, ctx, meta.Batch, true)
-	}
+	cleanupBatch(t, client, ctx, meta.Batch, !waitForSuccess)
 
 	if validate != nil {
 		b, err := client.GetBatch(ctx, &dataprocpb.GetBatchRequest{Name: meta.Batch})
