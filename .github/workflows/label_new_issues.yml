@@ -1,0 +1,164 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Label new issues
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to classify (digits only)"
+        required: true
+        type: string
+      dry_run:
+        description: "Override DRY_RUN ('true' or 'false'; leave empty to use workflow default)"
+        required: false
+        default: ""
+        type: string
+
+# No job gets any permission it does not list.
+permissions: {}
+
+env:
+  # Change to "false" to apply labels on GitHub instead of dry-run logging only.
+  DRY_RUN: "true"
+
+jobs:
+  # Reads the issue and asks the model. Holds the model key. Cannot write to GitHub.
+  classify:
+    if: github.repository == 'googleapis/mcp-toolbox'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      labels: ${{ steps.pick.outputs.labels }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - name: Ask the model for labels
+        id: pick
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_ISSUE: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            # Fetches the public issue anonymously (no token sent); subject to GitHub's
+            # 60/hour unauthenticated IP rate limit on shared runners — retry on 403/429.
+            python3 .ci/label_issue.py --issue "$DISPATCH_ISSUE" --repo "$GITHUB_REPOSITORY"
+          else
+            python3 .ci/label_issue.py
+          fi
+
+  # Applies the labels. Can write to issues. Has no model key and does not read the issue text.
+  apply:
+    if: github.repository == 'googleapis/mcp-toolbox'
+    needs: classify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Add labels that are on the allowed list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+          DISPATCH_ISSUE: ${{ inputs.issue_number }}
+          DISPATCH_DRY_RUN: ${{ inputs.dry_run }}
+          PROPOSED: ${{ needs.classify.outputs.labels }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REPOSITORY:-}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Invalid GITHUB_REPOSITORY."
+            exit 1
+          fi
+          if [[ "${EVENT_NAME:-}" == "workflow_dispatch" ]]; then
+            issue="${DISPATCH_ISSUE:-}"
+          else
+            issue="${EVENT_ISSUE:-}"
+          fi
+          if [[ ! "$issue" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Invalid issue number."
+            exit 1
+          fi
+          dry_run="${DISPATCH_DRY_RUN:-${DRY_RUN:-true}}"
+          if [[ "$dry_run" != "true" && "$dry_run" != "false" ]]; then
+            echo "::error::DRY_RUN must be 'true' or 'false'."
+            exit 1
+          fi
+          summary_file="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          # Require a single JSON array of non-empty printable group-prefixed strings with unique groups,
+          # sorted with type first so the bug priority rule sees the type the issue will have.
+          if ! proposed="$(jq -rn --arg raw "${PROPOSED:-}" '
+            ($raw | fromjson)
+            | if type != "array"
+                or any(.[]; type != "string" or . == "" or (explode | any(. < 32 or . == 127)) or (contains(": ") | not))
+              then error("proposed labels must be a JSON array of group-prefixed strings")
+              else .
+              end
+            | if (map(split(": ")[0]) | length) != (map(split(": ")[0]) | unique | length)
+              then error("duplicate group in proposed labels")
+              else .
+              end
+            | sort_by(startswith("type: ") | not)
+            | .[]
+          ')"; then
+            echo "::error::Proposed labels output is malformed. Nothing was applied."
+            exit 1
+          fi
+          repo_labels="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/labels?per_page=100" --jq '.[].name')"
+          on_issue="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels?per_page=100" --jq '.[].name')"
+          add=()
+          while IFS= read -r label; do
+            [[ -n "$label" ]] || continue
+            group="${label%%: *}"
+            if [[ "$label" != *": "* ]] || [[ ! "$group" =~ ^(priority|type|product)$ ]] || ! grep -qxF -- "$label" <<<"$repo_labels"; then
+              echo "::error::A proposed label is not on the allowed list. Nothing was applied."
+              exit 1
+            fi
+            if grep -q -- "^${group}: " <<<"$on_issue"; then
+              echo "- \`${label}\` not added: the issue already has a \`${group}\` label" >>"$summary_file"
+            elif [[ "$label" =~ ^priority:\ p[23]$ ]] && grep -qxF -- "type: bug" <<<"$on_issue"; then
+              echo "- \`${label}\` not added: the maintainer playbook allows only p0 or p1 for a bug" >>"$summary_file"
+            else
+              add+=("$label")
+              on_issue+=$'\n'"$label"
+            fi
+          done <<<"$proposed"
+          if (( ${#add[@]} )); then
+            if [[ "$dry_run" == "true" ]]; then
+              shown="$(printf '`%s`, ' "${add[@]}")"
+              shown="${shown%, }"
+              echo "- [dry-run] would add: ${shown}" >>"$summary_file"
+              echo "[dry-run] would add: ${add[*]}"
+            else
+              jq -cn '{labels: $ARGS.positional}' --args "${add[@]}" \
+                | gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${issue}/labels" --input - >/dev/null
+              printf -- '- `%s` added\n' "${add[@]}" >>"$summary_file"
+            fi
+          elif [[ "$dry_run" == "true" ]]; then
+            echo "- [dry-run] would add: (none)" >>"$summary_file"
+            echo "[dry-run] would add: (none)"
+          fi
