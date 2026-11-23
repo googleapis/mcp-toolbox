@@ -65,6 +65,11 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+// GetSourceName returns the name of the source the tool is configured to use.
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 // Initialize initializes the tool from the configuration.
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
@@ -85,10 +90,6 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 // Tool represents the create-instances tool.
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

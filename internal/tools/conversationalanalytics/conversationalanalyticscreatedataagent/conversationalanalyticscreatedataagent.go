@@ -61,6 +61,10 @@ func (cfg Config) ToolConfigType() string {
 	return toolType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for %q tool", toolType)
@@ -116,10 +120,6 @@ type Tool struct {
 	httpClient   *http.Client
 	pollInterval time.Duration
 	pollTimeout  time.Duration
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ValidateSource(source sources.Source) error {

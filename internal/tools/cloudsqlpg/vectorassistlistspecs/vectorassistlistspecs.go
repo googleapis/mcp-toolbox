@@ -66,6 +66,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	allParameters := parameters.Parameters{
 		parameters.NewStringParameter("table_name", "Table name to list vector specifications for.", parameters.WithStringRequired(true)),
@@ -91,10 +95,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

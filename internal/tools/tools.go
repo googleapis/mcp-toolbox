@@ -67,6 +67,10 @@ func DecodeConfig(ctx context.Context, resourceType string, name string, decoder
 
 type ToolConfig interface {
 	ToolConfigType() string
+	// GetSourceName returns the name of the source the tool is configured to
+	// use, or an empty string if the tool does not use a source. It allows
+	// callers to inspect a tool's source without initializing the tool.
+	GetSourceName() string
 	Initialize(context.Context) (Tool, error)
 }
 
@@ -179,10 +183,12 @@ func IsAuthorized(authRequiredSources []string, verifiedAuthServices []string) b
 	return false
 }
 
-// ToolMeta is the read-only view BaseTool needs of any tool's Config. Tools
-// satisfy it for free by embedding ConfigBase.
+// ToolMeta is the read-only view BaseTool needs of any tool's Config.
+// Tools satisfy all metadata getters by embedding ConfigBase and implement
+// GetSourceName on their Config (as also required by ToolConfig).
 type ToolMeta interface {
 	GetName() string
+	GetSourceName() string
 	GetDescription() string
 	GetAuthRequired() []string
 	GetScopesRequired() []string
@@ -265,6 +271,7 @@ func NewBaseTool[T ToolMeta](cfg T, annotations *ToolAnnotations, metadata Manif
 }
 
 func (b BaseTool[T]) GetName() string                                  { return b.Cfg.GetName() }
+func (b BaseTool[T]) GetSourceName() string                            { return b.Cfg.GetSourceName() }
 func (b BaseTool[T]) GetDescription() string                           { return b.Cfg.GetDescription() }
 func (b BaseTool[T]) GetAuthRequired() []string                        { return b.Cfg.GetAuthRequired() }
 func (b BaseTool[T]) HasSecureParams() bool                            { return b.hasSecureParams }

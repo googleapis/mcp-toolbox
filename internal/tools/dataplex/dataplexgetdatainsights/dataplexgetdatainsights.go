@@ -62,6 +62,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	scanID := parameters.NewStringParameter("scanId", "The unique ID of the Dataplex DataScan (e.g. 'nq-doc-12345...'). This is extracted from the target or name field of the creation operation.")
 	location := parameters.NewStringParameter("location", "The Google Cloud region where the Dataplex scan was created (e.g. 'us-central1').")
@@ -82,10 +86,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
