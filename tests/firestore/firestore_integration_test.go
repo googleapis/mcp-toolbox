@@ -1266,8 +1266,12 @@ func deleteFirestoreCollection(ctx context.Context, client *firestoreapi.Client,
 		return nil
 	}
 
+	type deleteJob struct {
+		path string
+		job  *firestoreapi.BulkWriterJob
+	}
 	bw := client.BulkWriter(ctx)
-	jobs := make([]*firestoreapi.BulkWriterJob, 0, len(refs))
+	jobs := make([]deleteJob, 0, len(refs))
 	var errs []error
 	for _, ref := range refs {
 		job, err := bw.Delete(ref)
@@ -1275,13 +1279,13 @@ func deleteFirestoreCollection(ctx context.Context, client *firestoreapi.Client,
 			errs = append(errs, fmt.Errorf("failed to enqueue delete for %s: %w", ref.Path, err))
 			continue
 		}
-		jobs = append(jobs, job)
+		jobs = append(jobs, deleteJob{path: ref.Path, job: job})
 	}
 	bw.End()
 
-	for i, job := range jobs {
-		if _, err := job.Results(); err != nil && !isFirestoreNotFound(err) {
-			errs = append(errs, fmt.Errorf("failed to delete document %s: %w", refs[i].Path, err))
+	for _, dj := range jobs {
+		if _, err := dj.job.Results(); err != nil && !isFirestoreNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed to delete document %s: %w", dj.path, err))
 		}
 	}
 	return errors.Join(errs...)
