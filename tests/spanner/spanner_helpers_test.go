@@ -21,8 +21,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
@@ -30,12 +34,201 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/googleapis/mcp-toolbox/tests"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	spannerTeardownTimeout   = 5 * time.Minute
+	orphanedSpannerObjectTTL = 3 * time.Hour
 )
 
 var (
 	SpannerSourceType = "spanner"
 	SpannerToolType   = "spanner-sql"
+
+	spannerTestTablePrefixes = []string{
+		"param_table_",
+		"auth_table_",
+		"template_param_table_",
+		"node_table_",
+		"edge_table_",
+		"vector_table_",
+		"neg_ddl_table_",
+	}
+	spannerTestGraphPrefixes = []string{
+		"graph_",
+	}
 )
+
+// newSpannerTestObjectName builds a lowercase, timestamped, UUID-suffixed
+// identifier (<prefix>_<unix>_<12hex>) safe for concurrent shared-DB runs and
+// TTL-based orphan sweeping across both GoogleSQL and PostgreSQL dialects.
+func newSpannerTestObjectName(prefix string, now time.Time) string {
+	base := strings.TrimSuffix(prefix, "_")
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	return fmt.Sprintf("%s_%d_%s", base, now.Unix(), suffix)
+}
+
+// shouldSweepSpannerObject reports whether name matches one of prefixes and
+// carries a Unix timestamp older than orphanedSpannerObjectTTL relative to now.
+// Un-timestamped names return false so concurrent runs from branches without
+// embedded timestamps are never disrupted on shared databases.
+func shouldSweepSpannerObject(name string, now time.Time, prefixes ...string) bool {
+	for _, rawPrefix := range prefixes {
+		prefix := strings.TrimSuffix(rawPrefix, "_") + "_"
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(name, prefix)
+		tsStr, _, ok := strings.Cut(rest, "_")
+		if !ok || tsStr == "" {
+			return false
+		}
+		createdUnix, err := strconv.ParseInt(tsStr, 10, 64)
+		if err != nil || createdUnix <= 0 {
+			return false
+		}
+		return now.Sub(time.Unix(createdUnix, 0)) > orphanedSpannerObjectTTL
+	}
+	return false
+}
+
+func quoteSpannerGoogleSQLIdent(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+func quoteSpannerPostgresIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// orderSpannerDropStatements builds DROP ... IF EXISTS statements in strict
+// reverse dependency order: property graphs first, interleaved/child edge
+// tables second, and parent/standalone tables last.
+func orderSpannerDropStatements(graphs, tables []string, quoteIdent func(string) string) []string {
+	sortedGraphs := slices.Clone(graphs)
+	slices.Sort(sortedGraphs)
+
+	var edgeTables, baseTables []string
+	for _, tbl := range tables {
+		if strings.HasPrefix(tbl, "edge_table_") {
+			edgeTables = append(edgeTables, tbl)
+		} else {
+			baseTables = append(baseTables, tbl)
+		}
+	}
+	slices.Sort(edgeTables)
+	slices.Sort(baseTables)
+
+	stmts := make([]string, 0, len(sortedGraphs)+len(edgeTables)+len(baseTables))
+	for _, g := range sortedGraphs {
+		stmts = append(stmts, fmt.Sprintf("DROP PROPERTY GRAPH IF EXISTS %s", quoteIdent(g)))
+	}
+	for _, tbl := range edgeTables {
+		stmts = append(stmts, fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteIdent(tbl)))
+	}
+	for _, tbl := range baseTables {
+		stmts = append(stmts, fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteIdent(tbl)))
+	}
+	return stmts
+}
+
+func isSpannerNotFound(err error) bool {
+	return status.Code(err) == codes.NotFound
+}
+
+func runSpannerTeardownDdl(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string, dropStatements []string) {
+	t.Helper()
+	if len(dropStatements) == 0 {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spannerTeardownTimeout)
+	defer cancel()
+
+	op, err := adminClient.UpdateDatabaseDdl(cleanupCtx, &databasepb.UpdateDatabaseDdlRequest{
+		Database:   dbString,
+		Statements: dropStatements,
+	})
+	if err != nil {
+		if !isSpannerNotFound(err) {
+			t.Errorf("unable to start Spanner DDL teardown on %s: %s", dbString, err)
+		}
+		return
+	}
+	if opErr := op.Wait(cleanupCtx); opErr != nil && !isSpannerNotFound(opErr) {
+		t.Errorf("Spanner DDL teardown failed on %s: %s", dbString, opErr)
+	}
+}
+
+// applySpannerDdl executes createStatements in a single batched UpdateDatabaseDdl
+// LRO. When dropStatements is non-empty, an idempotent t.Cleanup hook is
+// registered before issuing the LRO so partial or timed-out DDL operations are
+// still cleaned up. Ephemeral container tests pass nil dropStatements.
+func applySpannerDdl(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string, createStatements, dropStatements []string) func() {
+	t.Helper()
+	var once sync.Once
+	teardown := func() {
+		once.Do(func() {
+			runSpannerTeardownDdl(t, ctx, adminClient, dbString, dropStatements)
+		})
+	}
+	if len(dropStatements) > 0 {
+		t.Cleanup(teardown)
+	}
+
+	op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
+		Database:   dbString,
+		Statements: createStatements,
+	})
+	if err != nil {
+		t.Fatalf("unable to start Spanner DDL setup on %s: %s", dbString, err)
+	}
+	if err := op.Wait(ctx); err != nil {
+		t.Fatalf("unable to complete Spanner DDL setup on %s: %s", dbString, err)
+	}
+	return teardown
+}
+
+// seedSpannerStatements executes multiple DML statements in a single
+// ReadWriteTransaction using BatchUpdate.
+func seedSpannerStatements(t *testing.T, ctx context.Context, dataClient *spanner.Client, stmts ...spanner.Statement) {
+	t.Helper()
+	if len(stmts) == 0 {
+		return
+	}
+	_, err := dataClient.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		_, batchErr := txn.BatchUpdate(ctx, stmts)
+		return batchErr
+	})
+	if err != nil {
+		t.Fatalf("unable to seed Spanner test data: %s", err)
+	}
+}
+
+func getSpannerGraphSchemaDDL(nodeTableName, edgeTableName, graphName string) (string, string, string) {
+	createNodeStmt := fmt.Sprintf("CREATE TABLE %s (id INT64 NOT NULL) PRIMARY KEY (id)", nodeTableName)
+	createEdgeStmt := fmt.Sprintf(`
+	CREATE TABLE %[1]s (
+		id INT64 NOT NULL,
+		target_id INT64 NOT NULL,
+		FOREIGN KEY (target_id) REFERENCES %[2]s (id)
+	) PRIMARY KEY (id, target_id),
+	 INTERLEAVE IN PARENT %[2]s ON DELETE CASCADE
+	`, edgeTableName, nodeTableName)
+	createGraphStmt := fmt.Sprintf(`
+	CREATE PROPERTY GRAPH %[3]s
+		NODE TABLES (
+			%[1]s
+		)
+		EDGE TABLES (
+			%[2]s
+				SOURCE KEY (id) REFERENCES %[1]s
+				DESTINATION KEY (target_id) REFERENCES %[1]s
+				LABEL EDGE
+		)
+	`, nodeTableName, edgeTableName, graphName)
+	return createNodeStmt, createEdgeStmt, createGraphStmt
+}
 
 // getSpannerToolInfo returns statements and param for my-tool for spanner-sql type
 func getSpannerParamToolInfo(tableName string) (string, string, string, string, string, string, map[string]any) {
@@ -61,89 +254,6 @@ func getSpannerAuthToolInfo(tableName string) (string, string, string, map[strin
 		"email2": "janedoe@gmail.com",
 	}
 	return createStatement, insertStatement, toolStatement, params
-}
-
-// setupSpannerTable creates and inserts data into a table of tool
-// compatible with spanner-sql tool
-func setupSpannerTable(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dataClient *spanner.Client, createStatement, insertStatement, tableName, dbString string, params map[string]any) func(*testing.T) {
-
-	// Create table
-	op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database:   dbString,
-		Statements: []string{createStatement},
-	})
-	if err != nil {
-		t.Fatalf("unable to start create table operation %s: %s", tableName, err)
-	}
-	err = op.Wait(ctx)
-	if err != nil {
-		t.Fatalf("unable to create test table %s: %s", tableName, err)
-	}
-
-	// Insert test data
-	if insertStatement != "" {
-		_, err = dataClient.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-			stmt := spanner.Statement{
-				SQL:    insertStatement,
-				Params: params,
-			}
-			_, err := txn.Update(ctx, stmt)
-			return err
-		})
-		if err != nil {
-			t.Fatalf("unable to insert test data: %s", err)
-		}
-	}
-
-	return func(t *testing.T) {
-		// tear down test
-		op, err = adminClient.UpdateDatabaseDdl(context.WithoutCancel(ctx), &databasepb.UpdateDatabaseDdlRequest{
-			Database:   dbString,
-			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
-		})
-		if err != nil {
-			t.Errorf("unable to start drop %s operation: %s", tableName, err)
-			return
-		}
-
-		opErr := op.Wait(context.WithoutCancel(ctx))
-		if opErr != nil {
-			t.Errorf("Teardown failed: %s", opErr)
-		}
-	}
-}
-
-// setupSpannerGraph creates a graph and inserts data into it.
-func setupSpannerGraph(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, createStatement, graphName, dbString string) func(*testing.T) {
-	// Create graph
-	op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database:   dbString,
-		Statements: []string{createStatement},
-	})
-	if err != nil {
-		t.Fatalf("unable to start create graph operation %s: %s", graphName, err)
-	}
-	err = op.Wait(ctx)
-	if err != nil {
-		t.Fatalf("unable to create test graph %s: %s", graphName, err)
-	}
-
-	return func(t *testing.T) {
-		// tear down test
-		op, err = adminClient.UpdateDatabaseDdl(context.WithoutCancel(ctx), &databasepb.UpdateDatabaseDdlRequest{
-			Database:   dbString,
-			Statements: []string{fmt.Sprintf("DROP PROPERTY GRAPH IF EXISTS %s", graphName)},
-		})
-		if err != nil {
-			t.Errorf("unable to start drop %s operation: %s", graphName, err)
-			return
-		}
-
-		opErr := op.Wait(context.WithoutCancel(ctx))
-		if opErr != nil {
-			t.Errorf("Teardown failed: %s", opErr)
-		}
-	}
 }
 
 // addSpannerExecuteSqlConfig gets the tools config for `spanner-execute-sql`
@@ -293,12 +403,15 @@ func addTemplateParamConfig(t *testing.T, config map[string]any) map[string]any 
 	return config
 }
 
-func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWant, tableNameParam string) {
+func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWant, tableNameParam, negDdlTableName string) {
 	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
 	}
+
+	createNegDdlBody := fmt.Sprintf("{\"sql\":\"CREATE TABLE %s (id INT64) PRIMARY KEY (id)\"}", negDdlTableName)
+	dropNegDdlBody := fmt.Sprintf("{\"sql\":\"DROP TABLE %s\"}", negDdlTableName)
 
 	// Test tool invoke endpoint
 	invokeTcs := []struct {
@@ -329,14 +442,14 @@ func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWa
 			name:          "invoke my-exec-sql-tool-read-only create table",
 			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"}`)),
+			requestBody:   bytes.NewBuffer([]byte(createNegDdlBody)),
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool-read-only drop table",
 			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"DROP TABLE t"}`)),
+			requestBody:   bytes.NewBuffer([]byte(dropNegDdlBody)),
 			isErr:         true,
 		},
 		{
@@ -365,14 +478,14 @@ func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWa
 			name:          "invoke my-exec-sql-tool create table",
 			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"CREATE TABLE t (id SERIAL PRIMARY KEY, name TEXT)"}`)),
+			requestBody:   bytes.NewBuffer([]byte(createNegDdlBody)),
 			isErr:         true,
 		},
 		{
 			name:          "invoke my-exec-sql-tool drop table",
 			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
 			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"DROP TABLE t"}`)),
+			requestBody:   bytes.NewBuffer([]byte(dropNegDdlBody)),
 			isErr:         true,
 		},
 		{
@@ -480,67 +593,77 @@ func verifyTableListResult(t *testing.T, body map[string]interface{}, expectedTa
 		t.Fatalf("unable to parse result as JSON array: %s", err)
 	}
 
-	// If we expect specific tables, verify they exist
-	if len(expectedTables) > 0 {
-		tableNames := make(map[string]bool)
-		requiredKeys := []string{"schema_name", "object_name", "object_type", "columns", "constraints", "indexes"}
-		if expectedSimpleFormat {
-			requiredKeys = []string{"name"}
+	if len(expectedTables) == 0 {
+		if len(tables) != 0 {
+			t.Errorf("expected empty table list, got %d tables", len(tables))
+		}
+		return
+	}
+
+	// Verify expected tables exist
+	tableNames := make(map[string]bool)
+	requiredKeys := []string{"schema_name", "object_name", "object_type", "columns", "constraints", "indexes"}
+	if expectedSimpleFormat {
+		requiredKeys = []string{"name"}
+	}
+
+	for _, table := range tables {
+		tableMap, ok := table.(map[string]interface{})
+		if !ok {
+			continue
 		}
 
-		for _, table := range tables {
-			tableMap, ok := table.(map[string]interface{})
-			if !ok {
-				continue
-			}
+		objectDetails, ok := tableMap["object_details"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("object_details is not of type map[string]interface{}, got: %T", tableMap["object_details"])
+		}
 
-			objectDetails, ok := tableMap["object_details"].(map[string]interface{})
-			if !ok {
-				t.Fatalf("object_details is not of type map[string]interface{}, got: %T", tableMap["object_details"])
-			}
-
-			for _, reqKey := range requiredKeys {
-				if _, hasKey := objectDetails[reqKey]; !hasKey {
-					t.Errorf("missing required key '%s', for object_details: %v", reqKey, objectDetails)
-				}
-			}
-
-			if name, ok := tableMap["object_name"].(string); ok {
-				tableNames[name] = true
+		for _, reqKey := range requiredKeys {
+			if _, hasKey := objectDetails[reqKey]; !hasKey {
+				t.Errorf("missing required key '%s', for object_details: %v", reqKey, objectDetails)
 			}
 		}
 
-		for _, expected := range expectedTables {
-			if !tableNames[expected] {
-				t.Errorf("expected table %s not found in results", expected)
-			}
+		if name, ok := tableMap["object_name"].(string); ok {
+			tableNames[name] = true
+		}
+	}
+
+	for _, expected := range expectedTables {
+		if !tableNames[expected] {
+			t.Errorf("expected table %s not found in results", expected)
 		}
 	}
 }
 
 // runSpannerListTablesTest tests the spanner-list-tables tool
-func runSpannerListTablesTest(t *testing.T, tableNameParam, tableNameAuth, tableNameTemplateParam string) {
+func runSpannerListTablesTest(t *testing.T, tableNames ...string) {
+	specificTables := tableNames
+	if len(specificTables) > 2 {
+		specificTables = specificTables[:2]
+	}
+
 	invokeTcs := []struct {
 		name            string
 		requestBody     io.Reader
-		expectedTables  []string // empty means don't check specific tables
+		expectedTables  []string // empty means expect 0 tables
 		useSimpleFormat bool
 	}{
 		{
 			name:           "list all tables with detailed format",
 			requestBody:    bytes.NewBuffer([]byte(`{}`)),
-			expectedTables: []string{tableNameParam, tableNameAuth, tableNameTemplateParam},
+			expectedTables: tableNames,
 		},
 		{
 			name:            "list tables with simple format",
 			requestBody:     bytes.NewBuffer([]byte(`{"output_format": "simple"}`)),
-			expectedTables:  []string{tableNameParam, tableNameAuth, tableNameTemplateParam},
+			expectedTables:  tableNames,
 			useSimpleFormat: true,
 		},
 		{
 			name:           "list specific tables",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"table_names": "%s,%s"}`, tableNameParam, tableNameAuth))),
-			expectedTables: []string{tableNameParam, tableNameAuth},
+			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"table_names": "%s"}`, strings.Join(specificTables, ",")))),
+			expectedTables: specificTables,
 		},
 		{
 			name:           "list non-existent table",
@@ -587,39 +710,44 @@ func verifyGraphListResult(t *testing.T, body map[string]interface{}, expectedGr
 		t.Fatalf("unable to parse result as JSON array: %s", err)
 	}
 
-	// If we expect specific graphs, verify they exist
-	if len(expectedGraphs) > 0 {
-		graphNames := make(map[string]bool)
-		requiredKeys := []string{"schema_name", "object_name", "catalog", "node_tables", "edge_tables", "labels", "property_declarations"}
-		if expectedSimpleFormat {
-			requiredKeys = []string{"name"}
+	if len(expectedGraphs) == 0 {
+		if len(graphs) != 0 {
+			t.Errorf("expected empty graph list, got %d graphs", len(graphs))
+		}
+		return
+	}
+
+	// Verify expected graphs exist
+	graphNames := make(map[string]bool)
+	requiredKeys := []string{"schema_name", "object_name", "catalog", "node_tables", "edge_tables", "labels", "property_declarations"}
+	if expectedSimpleFormat {
+		requiredKeys = []string{"name"}
+	}
+
+	for _, graph := range graphs {
+		graphMap, ok := graph.(map[string]interface{})
+		if !ok {
+			continue
 		}
 
-		for _, graph := range graphs {
-			graphMap, ok := graph.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			objectDetails, ok := graphMap["object_details"].(map[string]interface{})
-			if !ok {
-				t.Fatalf("object_details is not of type map[string]interface{}, got: %T", graphMap["object_details"])
-			}
-			for _, reqKey := range requiredKeys {
-				if _, hasKey := objectDetails[reqKey]; !hasKey {
-					t.Errorf("missing required key '%s', for object_details: %v", reqKey, objectDetails)
-				}
-			}
-
-			if name, ok := graphMap["object_name"].(string); ok {
-				graphNames[name] = true
+		objectDetails, ok := graphMap["object_details"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("object_details is not of type map[string]interface{}, got: %T", graphMap["object_details"])
+		}
+		for _, reqKey := range requiredKeys {
+			if _, hasKey := objectDetails[reqKey]; !hasKey {
+				t.Errorf("missing required key '%s', for object_details: %v", reqKey, objectDetails)
 			}
 		}
 
-		for _, expected := range expectedGraphs {
-			if !graphNames[expected] {
-				t.Errorf("expected graph %s not found in results", expected)
-			}
+		if name, ok := graphMap["object_name"].(string); ok {
+			graphNames[name] = true
+		}
+	}
+
+	for _, expected := range expectedGraphs {
+		if !graphNames[expected] {
+			t.Errorf("expected graph %s not found in results", expected)
 		}
 	}
 }
@@ -679,41 +807,12 @@ func runSpannerListGraphsTest(t *testing.T, graphName string) {
 	}
 }
 
-// setupSpannerVectorTable creates a vector table in Spanner for semantic search testing
-func setupSpannerVectorTable(t *testing.T, ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string) (string, func(*testing.T)) {
-	tableName := "vector_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
-	createStatement := fmt.Sprintf(`CREATE TABLE %s (
+func getSpannerVectorTableDDL(tableName string) string {
+	return fmt.Sprintf(`CREATE TABLE %s (
 		id INT64,
 		content STRING(MAX),
 		embedding ARRAY<FLOAT32>
 	) PRIMARY KEY (id)`, tableName)
-
-	op, err := adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-		Database:   dbString,
-		Statements: []string{createStatement},
-	})
-	if err != nil {
-		t.Fatalf("unable to start create vector table operation %s: %s", tableName, err)
-	}
-	err = op.Wait(ctx)
-	if err != nil {
-		t.Fatalf("unable to create test vector table %s: %s", tableName, err)
-	}
-
-	return tableName, func(t *testing.T) {
-		op, err = adminClient.UpdateDatabaseDdl(ctx, &databasepb.UpdateDatabaseDdlRequest{
-			Database:   dbString,
-			Statements: []string{fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)},
-		})
-		if err != nil {
-			t.Errorf("unable to start drop %s operation: %s", tableName, err)
-			return
-		}
-		opErr := op.Wait(ctx)
-		if opErr != nil {
-			t.Errorf("Teardown failed: %s", opErr)
-		}
-	}
 }
 
 // getSpannerVectorSearchStmts returns statements for spanner semantic search
@@ -721,6 +820,165 @@ func getSpannerVectorSearchStmts(vectorTableName string) (string, string) {
 	insertStmt := fmt.Sprintf("INSERT INTO %s (id, content, embedding) VALUES (1, @content, @text_to_embed)", vectorTableName)
 	searchStmt := fmt.Sprintf("SELECT id, content, COSINE_DISTANCE(embedding, @query) AS distance FROM %s ORDER BY distance LIMIT 1", vectorTableName)
 	return insertStmt, searchStmt
+}
+
+func getSpannerPgVectorTableDDL(tableName string) string {
+	return fmt.Sprintf(`CREATE TABLE %s (
+		id bigint PRIMARY KEY,
+		content text,
+		embedding float4[]
+	)`, tableName)
+}
+
+// getSpannerPgVectorSearchStmts returns statements for spanner semantic search (PostgreSQL dialect)
+func getSpannerPgVectorSearchStmts(vectorTableName string) (string, string) {
+	insertStmt := fmt.Sprintf("INSERT INTO %s (id, content, embedding) VALUES (1, $1, $2)", vectorTableName)
+	searchStmt := fmt.Sprintf("SELECT id, content, spanner.cosine_distance(embedding, $1::float4[]) AS distance FROM %s ORDER BY distance LIMIT 1", vectorTableName)
+	return insertStmt, searchStmt
+}
+
+func getSpannerPgParamToolInfo(tableName string) (string, spanner.Statement, string) {
+	createStmt := fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY, name varchar(256))", tableName)
+	insertStmt := spanner.Statement{
+		SQL:    fmt.Sprintf("INSERT INTO %s (id, name) VALUES (1, $1), (2, $2), (3, $3), (4, NULL)", tableName),
+		Params: map[string]any{"p1": "Alice", "p2": "Jane", "p3": "Sid"},
+	}
+	paramToolStmt := fmt.Sprintf("SELECT id, name FROM %s WHERE id = $1 OR name = $2 ORDER BY id", tableName)
+	return createStmt, insertStmt, paramToolStmt
+}
+
+func buildSpannerPgToolsConfig(t *testing.T, sourceConfig map[string]any, paramToolStmt string) map[string]any {
+	t.Helper()
+	config := map[string]any{
+		"sources": map[string]any{
+			"my-instance": sourceConfig,
+		},
+		"tools": map[string]any{
+			"my-pg-param-tool": map[string]any{
+				"type":        SpannerToolType,
+				"source":      "my-instance",
+				"description": "Parameterized query in PostgreSQL dialect",
+				"statement":   paramToolStmt,
+				"readOnly":    true,
+				"parameters": []any{
+					map[string]any{
+						"name":        "id",
+						"type":        "integer",
+						"description": "user ID",
+					},
+					map[string]any{
+						"name":        "name",
+						"type":        "string",
+						"description": "user name",
+					},
+				},
+			},
+			"my-exec-sql-tool-read-only": map[string]any{
+				"type":        "spanner-execute-sql",
+				"source":      "my-instance",
+				"description": "Tool to execute SQL in read-only mode",
+				"readOnly":    true,
+			},
+			"my-exec-sql-tool": map[string]any{
+				"type":        "spanner-execute-sql",
+				"source":      "my-instance",
+				"description": "Tool to execute SQL",
+			},
+		},
+	}
+	return addSpannerListTablesConfig(t, config)
+}
+
+func runSpannerPgToolsTest(t *testing.T, tableNameParam, negDdlTableName string, expectedTables ...string) {
+	t.Helper()
+	wantRows := `[{"id":"1","name":"Alice"},{"id":"3","name":"Sid"}]`
+	createNegDdl := fmt.Sprintf(`{"sql":"CREATE TABLE %s (id bigint PRIMARY KEY)"}`, negDdlTableName)
+
+	invokeTcs := []struct {
+		name        string
+		api         string
+		requestBody string
+		want        string
+		isErr       bool
+	}{
+		{
+			name:        "invoke pg param tool",
+			api:         "http://127.0.0.1:5000/api/tool/my-pg-param-tool/invoke",
+			requestBody: `{"id": 3, "name": "Alice"}`,
+			want:        wantRows,
+		},
+		{
+			name:        "invoke pg read-only execute sql select",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: `{"sql":"SELECT 1 AS col1"}`,
+			want:        `[{"col1":"1"}]`,
+		},
+		{
+			name:        "invoke pg read-only execute sql table query",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: fmt.Sprintf(`{"sql":"SELECT id, name FROM %s WHERE id = 3 OR name = 'Alice' ORDER BY id"}`, tableNameParam),
+			want:        wantRows,
+		},
+		{
+			name:        "invoke pg read-only execute sql blocks create table",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: createNegDdl,
+			isErr:       true,
+		},
+		{
+			name:        "invoke pg read-only execute sql blocks insert",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: fmt.Sprintf(`{"sql":"INSERT INTO %s (id, name) VALUES (5, 'blocked')"}`, tableNameParam),
+			isErr:       true,
+		},
+		{
+			name:        "invoke pg execute sql blocks create table",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			requestBody: createNegDdl,
+			isErr:       true,
+		},
+		{
+			name:        "invoke pg execute sql insert",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			requestBody: fmt.Sprintf(`{"sql":"INSERT INTO %s (id, name) VALUES (5, 'test_name')"}`, tableNameParam),
+			want:        "[]",
+		},
+	}
+
+	for _, tc := range invokeTcs {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, respBody := tests.RunRequest(t, http.MethodPost, tc.api, bytes.NewBufferString(tc.requestBody), nil)
+			if resp.StatusCode != http.StatusOK {
+				if tc.isErr {
+					return
+				}
+				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+			}
+
+			var body map[string]any
+			if err := json.Unmarshal(respBody, &body); err != nil {
+				t.Fatalf("error parsing response body: %s", err)
+			}
+			got, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body: %s", string(respBody))
+			}
+			if tc.isErr {
+				if !strings.Contains(got, `"error"`) {
+					t.Fatalf("expected an error, got %q", got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	if len(expectedTables) == 0 {
+		expectedTables = []string{tableNameParam}
+	}
+	runSpannerListTablesTest(t, expectedTables...)
 }
 
 func runSpannerSchemaToolInvokeTest(t *testing.T, accessSchemaWant string) {
