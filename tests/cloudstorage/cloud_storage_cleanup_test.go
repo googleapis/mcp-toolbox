@@ -109,10 +109,11 @@ func TestIsGCSNotFound(t *testing.T) {
 }
 
 type fakeGCSAdminServer struct {
-	mu      sync.Mutex
-	buckets map[string]*fakeGCSBucket
-	failObj map[string]int
-	events  []string
+	mu                  sync.Mutex
+	buckets             map[string]*fakeGCSBucket
+	failObj             map[string]int
+	events              []string
+	lastObjectListQuery url.Values
 }
 
 type fakeGCSBucket struct {
@@ -210,6 +211,7 @@ func (f *fakeGCSAdminServer) handle(w http.ResponseWriter, r *http.Request) {
 
 	// List objects: GET /storage/v1/b/{bucket}/o
 	if r.Method == http.MethodGet && subPath == "o" {
+		f.lastObjectListQuery = r.URL.Query()
 		var items []map[string]any
 		for objName := range b.objects {
 			items = append(items, map[string]any{"name": objName})
@@ -245,6 +247,54 @@ func TestDeleteGCSBucket(t *testing.T) {
 		client := newGCSTestClient(t)
 		if err := deleteGCSBucket(context.Background(), client, "toolbox-it-never-created"); err != nil {
 			t.Fatalf("deleteGCSBucket on missing bucket returned error: %v", err)
+		}
+	})
+
+	t.Run("empty bucket deletes directly with minimal list projection", func(t *testing.T) {
+		srv := newFakeGCSAdminServer(t)
+		srv.buckets["toolbox-it-empty"] = &fakeGCSBucket{
+			created: time.Now().Add(-time.Hour),
+			objects: map[string]bool{},
+		}
+
+		client := newGCSTestClient(t)
+		if err := deleteGCSBucket(context.Background(), client, "toolbox-it-empty"); err != nil {
+			t.Fatalf("deleteGCSBucket on empty bucket returned error: %v", err)
+		}
+
+		srv.mu.Lock()
+		defer srv.mu.Unlock()
+		if _, exists := srv.buckets["toolbox-it-empty"]; exists {
+			t.Fatalf("expected empty bucket to be deleted")
+		}
+		if got := srv.lastObjectListQuery.Get("projection"); got != "noAcl" {
+			t.Errorf("list projection = %q, want noAcl", got)
+		}
+		if got := srv.lastObjectListQuery.Get("fields"); !strings.Contains(got, "name") {
+			t.Errorf("list fields = %q, want name selection", got)
+		}
+	})
+
+	t.Run("single object deletes inline before deleting bucket", func(t *testing.T) {
+		srv := newFakeGCSAdminServer(t)
+		srv.buckets["toolbox-it-single"] = &fakeGCSBucket{
+			created: time.Now().Add(-time.Hour),
+			objects: map[string]bool{"seed/only.txt": true},
+		}
+
+		client := newGCSTestClient(t)
+		if err := deleteGCSBucket(context.Background(), client, "toolbox-it-single"); err != nil {
+			t.Fatalf("deleteGCSBucket on single-object bucket returned error: %v", err)
+		}
+
+		srv.mu.Lock()
+		defer srv.mu.Unlock()
+		want := []string{
+			"delete-object:toolbox-it-single/seed/only.txt",
+			"delete-bucket:toolbox-it-single",
+		}
+		if len(srv.events) != len(want) || srv.events[0] != want[0] || srv.events[1] != want[1] {
+			t.Fatalf("events = %v, want %v", srv.events, want)
 		}
 	})
 
@@ -369,5 +419,30 @@ func TestGCSCleanupLIFOOrdering(t *testing.T) {
 		if srv.events[i] != want {
 			t.Errorf("event[%d] = %q, want %q (all: %v)", i, srv.events[i], want, srv.events)
 		}
+	}
+}
+
+func TestOptimalGCSChunkSize(t *testing.T) {
+	tcs := []struct {
+		name string
+		size int
+		want int
+	}{
+		{name: "empty object uses minimum chunk size", size: 0, want: googleapi.MinUploadChunkSize},
+		{name: "tiny object uses minimum chunk size", size: len(helloBody), want: googleapi.MinUploadChunkSize},
+		{name: "exact 256 KiB boundary rounds above object size", size: googleapi.MinUploadChunkSize, want: 2 * googleapi.MinUploadChunkSize},
+		{name: "large seed object stays below 16 MiB default", size: largeObjectSize, want: 33 * googleapi.MinUploadChunkSize},
+		{name: "huge object caps at default 16 MiB chunk size", size: 32 << 20, want: googleapi.DefaultUploadChunkSize},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			got := optimalGCSChunkSize(tc.size)
+			if got != tc.want {
+				t.Errorf("optimalGCSChunkSize(%d) = %d, want %d", tc.size, got, tc.want)
+			}
+			if got%googleapi.MinUploadChunkSize != 0 {
+				t.Errorf("optimalGCSChunkSize(%d) = %d is not aligned to %d", tc.size, got, googleapi.MinUploadChunkSize)
+			}
+		})
 	}
 }

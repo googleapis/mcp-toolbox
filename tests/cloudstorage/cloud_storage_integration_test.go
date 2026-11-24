@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -127,22 +128,38 @@ func sweepOrphanedGCSBucketsWithClient(ctx context.Context, client *storage.Clie
 		}
 		stale = append(stale, staleBucket{name: attrs.Name, created: attrs.Created})
 	}
+	if len(stale) == 0 {
+		return
+	}
 
-	var (
-		wg  sync.WaitGroup
-		sem = make(chan struct{}, maxConcurrentGCSSweeps)
-	)
-	for _, b := range stale {
+	sweepOne := func(b staleBucket) {
 		log.Printf("INTEGRATION CLEANUP: deleting orphaned bucket %q created %s", b.name, b.created.Format(time.RFC3339))
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(bucketName string) {
+		if err := deleteGCSBucket(ctx, client, b.name); err != nil {
+			log.Printf("INTEGRATION CLEANUP: %v", err)
+		}
+	}
+	if len(stale) == 1 {
+		sweepOne(stale[0])
+		return
+	}
+
+	workers := min(len(stale), maxConcurrentGCSSweeps)
+	var (
+		nextIdx atomic.Int64
+		wg      sync.WaitGroup
+	)
+	wg.Add(workers)
+	for range workers {
+		go func() {
 			defer wg.Done()
-			defer func() { <-sem }()
-			if err := deleteGCSBucket(ctx, client, bucketName); err != nil {
-				log.Printf("INTEGRATION CLEANUP: %v", err)
+			for {
+				i := int(nextIdx.Add(1) - 1)
+				if i >= len(stale) {
+					return
+				}
+				sweepOne(stale[i])
 			}
-		}(b.name)
+		}()
 	}
 	wg.Wait()
 }
@@ -1121,8 +1138,9 @@ func setupCloudStorageTestData(t *testing.T, ctx context.Context, client *storag
 }
 
 // seedCloudStorageTestBucket creates bucket and writes the standard seed
-// objects. Ephemeral in-memory emulator tests call this directly so container
-// teardown does not waste HTTP round-trips deleting in-memory objects first.
+// objects concurrently. Ephemeral in-memory emulator tests call this directly
+// so container teardown does not waste HTTP round-trips deleting in-memory
+// objects first.
 func seedCloudStorageTestBucket(t *testing.T, ctx context.Context, client *storage.Client, project, bucket string) {
 	t.Helper()
 	bkt := client.Bucket(bucket)
@@ -1130,26 +1148,52 @@ func seedCloudStorageTestBucket(t *testing.T, ctx context.Context, client *stora
 		t.Fatalf("failed to create bucket %q: %v", bucket, err)
 	}
 
-	writeSeed := func(name, contentType string, body []byte) {
-		w := bkt.Object(name).NewWriter(ctx)
-		w.ContentType = contentType
-		if _, err := w.Write(body); err != nil {
-			_ = w.Close()
-			t.Fatalf("failed to write seed object %q: %v", name, err)
-		}
-		if err := w.Close(); err != nil {
-			t.Fatalf("failed to close writer for seed object %q: %v", name, err)
-		}
+	type seedObject struct {
+		name        string
+		contentType string
+		body        []byte
+	}
+	seeds := []seedObject{
+		{name: helloObject, contentType: "text/plain", body: []byte(helloBody)},
+		{name: jsonObject, contentType: "application/json", body: []byte(jsonBody)},
+		{name: downloadObject, contentType: "text/plain", body: []byte(downloadBody)},
+		// An oversize object exercises the read-size cap.
+		{name: largeObject, contentType: "application/octet-stream", body: bytes.Repeat([]byte{'A'}, largeObjectSize)},
+		// A small binary (non-UTF-8) object exercises the ErrBinaryContent path
+		// on read_object.
+		{name: binaryObject, contentType: "application/octet-stream", body: []byte{0xff, 0xfe, 0xfd, 0xfc}},
 	}
 
-	writeSeed(helloObject, "text/plain", []byte(helloBody))
-	writeSeed(jsonObject, "application/json", []byte(jsonBody))
-	writeSeed(downloadObject, "text/plain", []byte(downloadBody))
-	// An oversize object exercises the read-size cap.
-	writeSeed(largeObject, "application/octet-stream", bytes.Repeat([]byte{'A'}, largeObjectSize))
-	// A small binary (non-UTF-8) object exercises the ErrBinaryContent path
-	// on read_object.
-	writeSeed(binaryObject, "application/octet-stream", []byte{0xff, 0xfe, 0xfd, 0xfc})
+	var (
+		errsMu sync.Mutex
+		errs   []error
+		wg     sync.WaitGroup
+	)
+	wg.Add(len(seeds))
+	for _, s := range seeds {
+		go func(seed seedObject) {
+			defer wg.Done()
+			w := bkt.Object(seed.name).NewWriter(ctx)
+			w.ContentType = seed.contentType
+			w.ChunkSize = optimalGCSChunkSize(len(seed.body))
+			if _, err := w.Write(seed.body); err != nil {
+				_ = w.Close()
+				errsMu.Lock()
+				errs = append(errs, fmt.Errorf("failed to write seed object %q: %w", seed.name, err))
+				errsMu.Unlock()
+				return
+			}
+			if err := w.Close(); err != nil {
+				errsMu.Lock()
+				errs = append(errs, fmt.Errorf("failed to close writer for seed object %q: %w", seed.name, err))
+				errsMu.Unlock()
+			}
+		}(s)
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		t.Fatalf("failed seeding bucket %q: %v", bucket, err)
+	}
 }
 
 // invokeTool POSTs to the tool invoke endpoint and returns the parsed `result`
@@ -2296,6 +2340,7 @@ func writeGCSObject(t *testing.T, ctx context.Context, client *storage.Client, b
 	t.Helper()
 	w := client.Bucket(bucket).Object(object).NewWriter(ctx)
 	w.ContentType = contentType
+	w.ChunkSize = optimalGCSChunkSize(len(body))
 	if _, err := io.WriteString(w, body); err != nil {
 		_ = w.Close()
 		t.Fatalf("failed to write object %q: %v", object, err)
@@ -2303,6 +2348,21 @@ func writeGCSObject(t *testing.T, ctx context.Context, client *storage.Client, b
 	if err := w.Close(); err != nil {
 		t.Fatalf("failed to close writer for object %q: %v", object, err)
 	}
+}
+
+// optimalGCSChunkSize sizes storage.Writer.ChunkSize just above size (aligned
+// to googleapi.MinUploadChunkSize) so objects smaller than 16 MiB upload in a
+// single retryable request without allocating the default 16 MiB chunk buffer.
+func optimalGCSChunkSize(size int) int {
+	const align = googleapi.MinUploadChunkSize
+	if size < align {
+		return align
+	}
+	rounded := ((size + align) / align) * align
+	if rounded > googleapi.DefaultUploadChunkSize {
+		return googleapi.DefaultUploadChunkSize
+	}
+	return rounded
 }
 
 func readGCSObject(t *testing.T, ctx context.Context, client *storage.Client, bucket, object string) (string, *storage.ReaderObjectAttrs) {
@@ -2380,8 +2440,15 @@ func registerGCSBucketCleanup(t *testing.T, client *storage.Client, bucket strin
 // the bucket itself. Objects or a bucket that no longer exist are not errors.
 func deleteGCSBucket(ctx context.Context, client *storage.Client, bucket string) error {
 	bkt := client.Bucket(bucket)
+	// Request only object names without ACLs so cleanup skips resolving and
+	// transferring unused metadata.
+	q := &storage.Query{Projection: storage.ProjectionNoACL}
+	if err := q.SetAttrSelection([]string{"Name"}); err != nil {
+		return fmt.Errorf("failed selecting object Name attribute: %w", err)
+	}
+
 	var objectNames []string
-	it := bkt.Objects(ctx, nil)
+	it := bkt.Objects(ctx, q)
 	for {
 		attrs, err := it.Next()
 		if errors.Is(err, iterator.Done) {
@@ -2396,26 +2463,40 @@ func deleteGCSBucket(ctx context.Context, client *storage.Client, bucket string)
 		objectNames = append(objectNames, attrs.Name)
 	}
 
-	var (
-		errsMu sync.Mutex
-		errs   []error
-		wg     sync.WaitGroup
-		sem    = make(chan struct{}, maxConcurrentGCSDeletes)
-	)
-	for _, objName := range objectNames {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(name string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if err := bkt.Object(name).Delete(ctx); err != nil && !isGCSNotFound(err) {
-				errsMu.Lock()
-				errs = append(errs, fmt.Errorf("failed deleting object %q from bucket %q: %w", name, bucket, err))
-				errsMu.Unlock()
-			}
-		}(objName)
+	var errs []error
+	switch len(objectNames) {
+	case 0:
+	case 1:
+		if err := bkt.Object(objectNames[0]).Delete(ctx); err != nil && !isGCSNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed deleting object %q from bucket %q: %w", objectNames[0], bucket, err))
+		}
+	default:
+		workers := min(len(objectNames), maxConcurrentGCSDeletes)
+		var (
+			nextIdx atomic.Int64
+			errsMu  sync.Mutex
+			wg      sync.WaitGroup
+		)
+		wg.Add(workers)
+		for range workers {
+			go func() {
+				defer wg.Done()
+				for {
+					i := int(nextIdx.Add(1) - 1)
+					if i >= len(objectNames) {
+						return
+					}
+					name := objectNames[i]
+					if err := bkt.Object(name).Delete(ctx); err != nil && !isGCSNotFound(err) {
+						errsMu.Lock()
+						errs = append(errs, fmt.Errorf("failed deleting object %q from bucket %q: %w", name, bucket, err))
+						errsMu.Unlock()
+					}
+				}
+			}()
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 
 	if err := bkt.Delete(ctx); err != nil && !isGCSNotFound(err) {
 		errs = append(errs, fmt.Errorf("failed deleting bucket %q: %w", bucket, err))

@@ -17,6 +17,7 @@ package cloudstorage
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,7 +78,9 @@ func setupFakeGCSContainer(ctx context.Context, t *testing.T) string {
 	// host and builds resumable-upload URLs from its external URL. Point both
 	// at the mapped endpoint so uploads and reads route properly.
 	cfg := fmt.Sprintf(`{"externalUrl": "http://%s", "publicHost": %q}`, endpoint, endpoint)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, "http://"+endpoint+"/_internal/config", strings.NewReader(cfg))
+	configCtx, configCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer configCancel()
+	req, err := http.NewRequestWithContext(configCtx, http.MethodPut, "http://"+endpoint+"/_internal/config", strings.NewReader(cfg))
 	if err != nil {
 		t.Fatalf("failed to build fake-gcs-server config request: %s", err)
 	}
@@ -86,6 +89,7 @@ func setupFakeGCSContainer(ctx context.Context, t *testing.T) string {
 	if err != nil {
 		t.Fatalf("failed to configure fake-gcs-server: %s", err)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("configuring fake-gcs-server returned status %d", resp.StatusCode)
