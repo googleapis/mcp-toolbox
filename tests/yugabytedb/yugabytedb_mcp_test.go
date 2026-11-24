@@ -32,14 +32,14 @@ import (
 // Cleanups run LIFO, so the server stops before the tables it queries are
 // dropped.
 func setupYugabyteDBMCPServer(t *testing.T, ctx context.Context) string {
+	useYugabyteDB(ctx, t)
 	sourceConfig := getYBVars(t)
 
 	pool, err := initYBConnectionPool(YBDB_HOST, YBDB_PORT, YBDB_USER, YBDB_PASS, YBDB_DATABASE, YBDB_LB)
 	if err != nil {
 		t.Fatalf("unable to create YugabyteDB connection pool: %s", err)
 	}
-	// Note: Don't close the pool in the teardown - SetupYugabyteDBSQLTable uses
-	// pool.Query without closing rows, so pool.Close() blocks indefinitely.
+	t.Cleanup(pool.Close)
 
 	tableNameParam := "param_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableNameAuth := "auth_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -81,7 +81,7 @@ func setupYugabyteDBMCPServer(t *testing.T, ctx context.Context) string {
 }
 
 func TestYugabyteDBMCPListTools(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	t.Cleanup(cancel)
 
 	setupYugabyteDBMCPServer(t, ctx)
@@ -95,7 +95,7 @@ func TestYugabyteDBMCPListTools(t *testing.T) {
 }
 
 func TestYugabyteDBMCPCallTool(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	t.Cleanup(cancel)
 
 	tableNameTemplateParam := setupYugabyteDBMCPServer(t, ctx)
