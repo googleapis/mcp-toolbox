@@ -144,10 +144,12 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 			// Handle JSON objects and arrays stored as text. Other text, such
 			// as "94105", "true" or "null", is returned as a string.
 			if jsonString, ok := val.(string); ok {
-				jsonData := json.RawMessage(jsonString)
-				if isJSONObjectOrArray(jsonString) && json.Valid(jsonData) {
-					row.Add(name, jsonData)
-					continue
+				if isJSONObjectOrArray(jsonString) {
+					jsonData := json.RawMessage(jsonString)
+					if json.Valid(jsonData) {
+						row.Add(name, jsonData)
+						continue
+					}
 				}
 			}
 			// Store the value in the map
