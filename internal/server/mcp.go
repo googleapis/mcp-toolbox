@@ -304,9 +304,12 @@ func (s *stdioSession) readLine(ctx context.Context) (string, error) {
 	readChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 	done := make(chan struct{})
+	// Only done is closed here. readChan and errChan are written by the
+	// goroutine below, which may still be blocked in ReadString when this
+	// function returns (e.g. on ctx cancellation). Closing them here makes the
+	// goroutine's later select { send; <-done } race a send-on-closed-channel
+	// panic, because both cases are then ready and Go picks at random.
 	defer close(done)
-	defer close(readChan)
-	defer close(errChan)
 
 	go func() {
 		select {
