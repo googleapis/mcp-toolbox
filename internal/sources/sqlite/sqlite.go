@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -140,10 +141,11 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 				row.Add(name, nil)
 				continue
 			}
-			// Handle JSON data
+			// Handle JSON objects and arrays stored as text. Other text, such
+			// as "94105", "true" or "null", is returned as a string.
 			if jsonString, ok := val.(string); ok {
 				jsonData := json.RawMessage(jsonString)
-				if json.Valid(jsonData) {
+				if isJSONObjectOrArray(jsonString) && json.Valid(jsonData) {
 					row.Add(name, jsonData)
 					continue
 				}
@@ -159,6 +161,12 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	}
 
 	return out, nil
+}
+
+// isJSONObjectOrArray reports whether s starts like a JSON object or array.
+func isJSONObjectOrArray(s string) bool {
+	s = strings.TrimSpace(s)
+	return s != "" && (s[0] == '{' || s[0] == '[')
 }
 
 func initSQLiteConnection(ctx context.Context, tracer trace.Tracer, name, dbPath string) (*sql.DB, error) {
