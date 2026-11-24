@@ -21,16 +21,17 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"regexp"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/spanner"
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
-	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
 var (
@@ -38,89 +39,128 @@ var (
 	SpannerDatabase   = os.Getenv("SPANNER_DATABASE")
 	SpannerInstance   = os.Getenv("SPANNER_INSTANCE")
 	SpannerPgDatabase = os.Getenv("SPANNER_PG_DATABASE")
+
+	cloudAdminMu     sync.Mutex
+	cloudAdminClient *database.DatabaseAdminClient
 )
+
+func getSharedCloudAdminClient() (*database.DatabaseAdminClient, error) {
+	cloudAdminMu.Lock()
+	defer cloudAdminMu.Unlock()
+	if cloudAdminClient != nil {
+		return cloudAdminClient, nil
+	}
+	c, err := database.NewDatabaseAdminClient(context.Background(), option.WithGRPCConnectionPool(1))
+	if err != nil {
+		return nil, err
+	}
+	cloudAdminClient = c
+	return c, nil
+}
+
+func closeSharedCloudAdminClient() {
+	cloudAdminMu.Lock()
+	c := cloudAdminClient
+	cloudAdminClient = nil
+	cloudAdminMu.Unlock()
+	if c != nil {
+		_ = c.Close()
+	}
+}
+
+func newLightweightSpannerClient(ctx context.Context, dbString string) (*spanner.Client, error) {
+	return spanner.NewClientWithConfig(
+		ctx,
+		dbString,
+		spanner.ClientConfig{DisableNativeMetrics: true},
+		option.WithGRPCConnectionPool(1),
+	)
+}
 
 func TestMain(m *testing.M) {
 	if SpannerProject != "" && SpannerInstance != "" && os.Getenv("SPANNER_EMULATOR_HOST") == "" {
 		sweepOrphanedSpannerObjects()
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	closeSharedCloudAdminClient()
+	os.Exit(code)
 }
 
 func sweepOrphanedSpannerObjects() {
 	sweepCtx, cancel := context.WithTimeout(context.Background(), spannerTeardownTimeout)
 	defer cancel()
 
-	adminClient, err := database.NewDatabaseAdminClient(sweepCtx)
+	adminClient, err := getSharedCloudAdminClient()
 	if err != nil {
 		log.Printf("spanner orphan sweep: unable to create admin client: %v", err)
 		return
 	}
-	defer func() { _ = adminClient.Close() }()
 
 	now := time.Now()
+	var wg sync.WaitGroup
 	if SpannerDatabase != "" {
 		dbString := fmt.Sprintf("projects/%s/instances/%s/databases/%s", SpannerProject, SpannerInstance, SpannerDatabase)
-		sweepSpannerGoogleSQLDatabase(sweepCtx, adminClient, dbString, now)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sweepSpannerGoogleSQLDatabase(sweepCtx, adminClient, dbString, now)
+		}()
 	}
 	if SpannerPgDatabase != "" && SpannerPgDatabase != SpannerDatabase {
 		pgDbString := fmt.Sprintf("projects/%s/instances/%s/databases/%s", SpannerProject, SpannerInstance, SpannerPgDatabase)
-		sweepSpannerPostgresDatabase(sweepCtx, adminClient, pgDbString, now)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sweepSpannerPostgresDatabase(sweepCtx, adminClient, pgDbString, now)
+		}()
 	}
-}
-
-func querySpannerNames(ctx context.Context, client *spanner.Client, sql string) ([]string, error) {
-	iter := client.Single().Query(ctx, spanner.NewStatement(sql))
-	defer iter.Stop()
-
-	var names []string
-	for {
-		row, err := iter.Next()
-		if err == iterator.Done {
-			return names, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		var name string
-		if err := row.Columns(&name); err != nil {
-			return nil, err
-		}
-		names = append(names, name)
-	}
+	wg.Wait()
 }
 
 func sweepSpannerGoogleSQLDatabase(ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string, now time.Time) {
-	dataClient, err := spanner.NewClient(ctx, dbString)
+	dataClient, err := newLightweightSpannerClient(ctx, dbString)
 	if err != nil {
 		log.Printf("spanner orphan sweep: unable to create client for %s: %v", dbString, err)
 		return
 	}
 	defer dataClient.Close()
 
-	allGraphs, err := querySpannerNames(ctx, dataClient, "SELECT PROPERTY_GRAPH_NAME FROM INFORMATION_SCHEMA.PROPERTY_GRAPHS WHERE PROPERTY_GRAPH_SCHEMA = ''")
-	if err != nil {
-		log.Printf("spanner orphan sweep: failed listing graphs in %s: %v", dbString, err)
-		return
-	}
-	var staleGraphs []string
-	for _, g := range allGraphs {
-		if shouldSweepSpannerObject(g, now, spannerTestGraphPrefixes...) {
-			staleGraphs = append(staleGraphs, g)
-		}
-	}
+	const metadataSQL = `
+		SELECT 'G' AS kind, PROPERTY_GRAPH_NAME AS name
+		FROM INFORMATION_SCHEMA.PROPERTY_GRAPHS
+		WHERE PROPERTY_GRAPH_SCHEMA = '' AND STARTS_WITH(PROPERTY_GRAPH_NAME, 'graph_')
+		UNION ALL
+		SELECT 'T' AS kind, TABLE_NAME AS name
+		FROM INFORMATION_SCHEMA.TABLES
+		WHERE TABLE_SCHEMA = '' AND TABLE_TYPE = 'BASE TABLE'`
 
-	allTables, err := querySpannerNames(ctx, dataClient, "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '' AND TABLE_TYPE = 'BASE TABLE'")
-	if err != nil {
-		log.Printf("spanner orphan sweep: failed listing tables in %s: %v", dbString, err)
-		return
-	}
-	var staleTables []string
-	for _, tbl := range allTables {
-		if shouldSweepSpannerObject(tbl, now, spannerTestTablePrefixes...) {
-			staleTables = append(staleTables, tbl)
+	iter := dataClient.Single().Query(ctx, spanner.NewStatement(metadataSQL))
+	var staleGraphs, staleTables []string
+	for {
+		row, iterErr := iter.Next()
+		if iterErr == iterator.Done {
+			break
+		}
+		if iterErr != nil {
+			iter.Stop()
+			log.Printf("spanner orphan sweep: failed listing objects in %s: %v", dbString, iterErr)
+			return
+		}
+		var kind, name string
+		if colErr := row.Columns(&kind, &name); colErr != nil {
+			iter.Stop()
+			log.Printf("spanner orphan sweep: failed scanning metadata in %s: %v", dbString, colErr)
+			return
+		}
+		if kind == "G" {
+			if shouldSweepSpannerObject(name, now, spannerTestGraphPrefixes...) {
+				staleGraphs = append(staleGraphs, name)
+			}
+		} else if shouldSweepSpannerObject(name, now, spannerTestTablePrefixes...) {
+			staleTables = append(staleTables, name)
 		}
 	}
+	iter.Stop()
 
 	drops := orderSpannerDropStatements(staleGraphs, staleTables, quoteSpannerGoogleSQLIdent)
 	if len(drops) == 0 {
@@ -140,24 +180,36 @@ func sweepSpannerGoogleSQLDatabase(ctx context.Context, adminClient *database.Da
 }
 
 func sweepSpannerPostgresDatabase(ctx context.Context, adminClient *database.DatabaseAdminClient, dbString string, now time.Time) {
-	dataClient, err := spanner.NewClient(ctx, dbString)
+	dataClient, err := newLightweightSpannerClient(ctx, dbString)
 	if err != nil {
 		log.Printf("spanner orphan sweep: unable to create PG client for %s: %v", dbString, err)
 		return
 	}
 	defer dataClient.Close()
 
-	allTables, err := querySpannerNames(ctx, dataClient, "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")
-	if err != nil {
-		log.Printf("spanner orphan sweep: failed listing PG tables in %s: %v", dbString, err)
-		return
-	}
+	iter := dataClient.Single().Query(ctx, spanner.NewStatement("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"))
 	var staleTables []string
-	for _, tbl := range allTables {
+	for {
+		row, iterErr := iter.Next()
+		if iterErr == iterator.Done {
+			break
+		}
+		if iterErr != nil {
+			iter.Stop()
+			log.Printf("spanner orphan sweep: failed listing PG tables in %s: %v", dbString, iterErr)
+			return
+		}
+		var tbl string
+		if colErr := row.Columns(&tbl); colErr != nil {
+			iter.Stop()
+			log.Printf("spanner orphan sweep: failed scanning PG table in %s: %v", dbString, colErr)
+			return
+		}
 		if shouldSweepSpannerObject(tbl, now, spannerTestTablePrefixes...) {
 			staleTables = append(staleTables, tbl)
 		}
 	}
+	iter.Stop()
 
 	drops := orderSpannerDropStatements(nil, staleTables, quoteSpannerPostgresIdent)
 	if len(drops) == 0 {
@@ -215,23 +267,18 @@ func getSpannerPgVars(t *testing.T) map[string]any {
 	}
 }
 
-// newSpannerTestClients creates data and admin clients from uncanceled contexts
-// and registers t.Cleanup hooks so both clients close after all schema teardown.
+// newSpannerTestClients returns a lightweight per-database client (closed in
+// t.Cleanup) and the shared package-level DatabaseAdminClient (closed in TestMain).
 func newSpannerTestClients(t *testing.T, project, instance, dbname string) (*spanner.Client, *database.DatabaseAdminClient, string) {
 	t.Helper()
 	dbString := fmt.Sprintf("projects/%s/instances/%s/databases/%s", project, instance, dbname)
 
-	adminClient, err := database.NewDatabaseAdminClient(context.Background())
+	adminClient, err := getSharedCloudAdminClient()
 	if err != nil {
 		t.Fatalf("unable to create new Spanner admin client: %s", err)
 	}
-	t.Cleanup(func() {
-		if closeErr := adminClient.Close(); closeErr != nil {
-			t.Errorf("failed to close Spanner admin client: %s", closeErr)
-		}
-	})
 
-	dataClient, err := spanner.NewClient(context.Background(), dbString)
+	dataClient, err := newLightweightSpannerClient(context.Background(), dbString)
 	if err != nil {
 		t.Fatalf("unable to create new Spanner client: %s", err)
 	}
@@ -247,8 +294,6 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	args := []string{"--enable-api"}
-
 	dataClient, adminClient, dbString := newSpannerTestClients(t, SpannerProject, SpannerInstance, SpannerDatabase)
 
 	runNow := time.Now()
@@ -261,8 +306,8 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	vectorTableName := newSpannerTestObjectName("vector_table", runNow)
 	negDdlTableName := newSpannerTestObjectName("neg_ddl_table", runNow)
 
-	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSpannerParamToolInfo(tableNameParam)
-	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getSpannerAuthToolInfo(tableNameAuth)
+	createParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramMutations := getSpannerParamToolInfo(tableNameParam)
+	createAuthTableStmt, authToolStmt, authMutations := getSpannerAuthToolInfo(tableNameAuth)
 	createStatementTmpl := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING(MAX), age INT64) PRIMARY KEY (id)", tableNameTemplateParam)
 	createNodeStmt, createEdgeStmt, createGraphStmt := getSpannerGraphSchemaDDL(nodeTableName, edgeTableName, graphName)
 	createVectorStmt := getSpannerVectorTableDDL(vectorTableName)
@@ -290,10 +335,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 		quoteSpannerGoogleSQLIdent,
 	)
 	applySpannerDdl(t, ctx, adminClient, dbString, createStmts, dropStmts)
-	seedSpannerStatements(t, ctx, dataClient,
-		spanner.Statement{SQL: insertParamTableStmt, Params: paramTestParams},
-		spanner.Statement{SQL: insertAuthTableStmt, Params: authTestParams},
-	)
+	seedSpannerMutations(t, ctx, dataClient, slices.Concat(paramMutations, authMutations)...)
 
 	// Write config into a file and pass it to command
 	toolsFile := tests.GetToolsConfig(sourceConfig, SpannerToolType, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, authToolStmt)
@@ -308,19 +350,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	insertStmt, searchStmt := getSpannerVectorSearchStmts(vectorTableName)
 	toolsFile = tests.AddSemanticSearchConfig(t, toolsFile, SpannerToolType, insertStmt, searchStmt)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	t.Cleanup(cleanup)
-
-	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
-	defer cancelWait()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	startSpannerToolbox(t, ctx, toolsFile, "--enable-api")
 
 	// Get configs for tests
 	select1Want := "[{\"\":\"1\"}]"
@@ -428,7 +458,7 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 	pgVectorTable := newSpannerTestObjectName("vector_table", runNow)
 	pgNegDdlTable := newSpannerTestObjectName("neg_ddl_table", runNow)
 
-	createPgParamStmt, insertPgParamStmt, pgParamToolStmt := getSpannerPgParamToolInfo(pgParamTable)
+	createPgParamStmt, pgParamToolStmt, pgParamMutations := getSpannerPgParamToolInfo(pgParamTable)
 	createPgVectorStmt := getSpannerPgVectorTableDDL(pgVectorTable)
 
 	createStmts := []string{createPgParamStmt, createPgVectorStmt}
@@ -438,25 +468,13 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 		quoteSpannerPostgresIdent,
 	)
 	applySpannerDdl(t, ctx, adminClient, dbString, createStmts, dropStmts)
-	seedSpannerStatements(t, ctx, dataClient, insertPgParamStmt)
+	seedSpannerMutations(t, ctx, dataClient, pgParamMutations...)
 
 	insertStmt, searchStmt := getSpannerPgVectorSearchStmts(pgVectorTable)
 	toolsConfig := buildSpannerPgToolsConfig(t, sourceConfig, pgParamToolStmt)
 	toolsConfig = tests.AddSemanticSearchConfig(t, toolsConfig, SpannerToolType, insertStmt, searchStmt)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig, "--enable-api")
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	t.Cleanup(cleanup)
-
-	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
-	defer cancelWait()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	startSpannerToolbox(t, ctx, toolsConfig, "--enable-api")
 
 	runSpannerPgToolsTest(t, pgParamTable, pgNegDdlTable, pgParamTable, pgVectorTable)
 	tests.RunSemanticSearchToolInvokeTest(t, "[]", "", "The quick brown fox")

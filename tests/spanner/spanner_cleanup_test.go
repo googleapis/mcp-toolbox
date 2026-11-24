@@ -37,6 +37,15 @@ func TestNewSpannerTestObjectName(t *testing.T) {
 	if !strings.HasPrefix(got, wantPrefix) {
 		t.Fatalf("newSpannerTestObjectName(%q) = %q, want prefix %q", "param_table_", got, wantPrefix)
 	}
+	if suffix := strings.TrimPrefix(got, wantPrefix); len(suffix) != 12 {
+		t.Fatalf("newSpannerTestObjectName(%q) hex suffix = %q (len %d), want 12 hex chars", "param_table_", suffix, len(suffix))
+	}
+	if muts := getSpannerParamSeedMutations(got); len(muts) != 4 {
+		t.Fatalf("len(getSpannerParamSeedMutations) = %d, want 4", len(muts))
+	}
+	if muts := getSpannerAuthSeedMutations(got); len(muts) != 2 {
+		t.Fatalf("len(getSpannerAuthSeedMutations) = %d, want 2", len(muts))
+	}
 	if shouldSweepSpannerObject(got, now, spannerTestTablePrefixes...) {
 		t.Errorf("freshly generated object %q should not be swept at creation time", got)
 	}

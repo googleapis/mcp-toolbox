@@ -17,13 +17,14 @@
 package spanner
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
-	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,7 +32,6 @@ import (
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
-	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -43,45 +43,100 @@ const (
 	SpannerOmniPort  = "15000"
 )
 
-// setupSpannerOmniContainer starts Spanner Omni, registers t.Cleanup to
-// terminate the container last in LIFO order, and returns its host:port.
-func setupSpannerOmniContainer(ctx context.Context, t *testing.T) string {
-	t.Helper()
+var (
+	omniInitOnce    sync.Once
+	omniContainer   testcontainers.Container
+	omniEndpoint    string
+	omniAdminClient *database.DatabaseAdminClient
+	omniInitErr     error
+)
 
-	const startupTimeout = 5 * time.Minute
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: SpannerOmniImage,
-			// Omni listens only on localhost by default, which the mapped port can't reach.
-			Cmd:          []string{"start-single-server", "--listen-addresses=0.0.0.0"},
-			ExposedPorts: []string{SpannerOmniPort + "/tcp"},
-			WaitingFor: wait.ForAll(
-				wait.ForLog("Spanner is ready").WithStartupTimeout(startupTimeout),
-				// The Omni image has no shell tools for the in-container port check.
-				wait.ForListeningPort(SpannerOmniPort+"/tcp").SkipInternalCheck().WithStartupTimeout(startupTimeout),
-			).WithDeadline(startupTimeout),
-		},
-		Started: true,
-	})
-	t.Cleanup(func() {
-		if container == nil {
+func TestMain(m *testing.M) {
+	code := m.Run()
+	teardownSharedSpannerOmni()
+	os.Exit(code)
+}
+
+func terminateOmniContainer(c testcontainers.Container) {
+	if c == nil {
+		return
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := c.Terminate(cleanupCtx); err != nil {
+		log.Printf("failed to terminate Spanner Omni container: %v", err)
+	}
+}
+
+func teardownSharedSpannerOmni() {
+	if omniAdminClient != nil {
+		_ = omniAdminClient.Close()
+		omniAdminClient = nil
+	}
+	if omniContainer != nil {
+		terminateOmniContainer(omniContainer)
+		omniContainer = nil
+	}
+}
+
+// sharedSpannerOmni lazily starts a single Spanner Omni container and admin
+// client shared across all Omni integration tests in this binary, avoiding
+// duplicate container boots while keeping unit tests container-free.
+func sharedSpannerOmni(t *testing.T) (string, *database.DatabaseAdminClient) {
+	t.Helper()
+	omniInitOnce.Do(func() {
+		const startupTimeout = 5 * time.Minute
+		startupCtx, cancel := context.WithTimeout(context.Background(), startupTimeout)
+		defer cancel()
+
+		container, err := testcontainers.GenericContainer(startupCtx, testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Image: SpannerOmniImage,
+				// Omni listens only on localhost by default, which the mapped port can't reach.
+				Cmd:          []string{"start-single-server", "--listen-addresses=0.0.0.0"},
+				ExposedPorts: []string{SpannerOmniPort + "/tcp"},
+				WaitingFor: wait.ForAll(
+					wait.ForLog("Spanner is ready").WithStartupTimeout(startupTimeout),
+					// The Omni image has no shell tools for the in-container port check.
+					wait.ForListeningPort(SpannerOmniPort+"/tcp").SkipInternalCheck().WithStartupTimeout(startupTimeout),
+				).WithDeadline(startupTimeout),
+			},
+			Started: true,
+		})
+		if err != nil {
+			terminateOmniContainer(container)
+			omniInitErr = fmt.Errorf("failed to start Spanner Omni container: %w", err)
 			return
 		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cleanupCancel()
-		if termErr := container.Terminate(cleanupCtx); termErr != nil {
-			t.Errorf("failed to terminate Spanner Omni container: %s", termErr)
-		}
-	})
-	if err != nil {
-		t.Fatalf("failed to start Spanner Omni container: %s", err)
-	}
 
-	endpoint, err := container.PortEndpoint(ctx, SpannerOmniPort+"/tcp", "")
-	if err != nil {
-		t.Fatalf("failed to get Spanner Omni endpoint: %s", err)
+		endpoint, err := container.PortEndpoint(startupCtx, SpannerOmniPort+"/tcp", "")
+		if err != nil {
+			terminateOmniContainer(container)
+			omniInitErr = fmt.Errorf("failed to get Spanner Omni endpoint: %w", err)
+			return
+		}
+
+		cfg := spanner.ClientConfig{Type: spanner.OMNI, UsePlainText: true, DisableNativeMetrics: true}
+		adminClient, err := database.NewDatabaseAdminClientWithConfig(
+			context.Background(),
+			cfg,
+			option.WithEndpoint(endpoint),
+			option.WithGRPCConnectionPool(1),
+		)
+		if err != nil {
+			terminateOmniContainer(container)
+			omniInitErr = fmt.Errorf("unable to create Spanner Omni admin client: %w", err)
+			return
+		}
+
+		omniContainer = container
+		omniEndpoint = endpoint
+		omniAdminClient = adminClient
+	})
+	if omniInitErr != nil {
+		t.Fatal(omniInitErr)
 	}
-	return endpoint
+	return omniEndpoint, omniAdminClient
 }
 
 func getSpannerOmniVars(endpoint, dbName, dialect string) map[string]any {
@@ -99,35 +154,25 @@ func getSpannerOmniVars(endpoint, dbName, dialect string) map[string]any {
 	return cfg
 }
 
-// initSpannerOmniClients creates the database, applies extraDDL in a single
-// batched UpdateDatabaseDdl LRO, and registers client cleanup via t.Cleanup.
-// Schema objects are not dropped individually because the ephemeral container
-// is terminated at the end of the test.
-func initSpannerOmniClients(ctx context.Context, t *testing.T, endpoint, dbName string, dialect databasepb.DatabaseDialect, extraDDL []string) *spanner.Client {
+// initSpannerOmniDatabase creates an isolated database on the shared Omni
+// server. For GoogleSQL, extraDDL is executed atomically inside CreateDatabase
+// in a single LRO; for PostgreSQL (where ExtraStatements is unsupported in
+// CreateDatabase), extraDDL runs in one batched UpdateDatabaseDdl LRO.
+func initSpannerOmniDatabase(ctx context.Context, t *testing.T, adminClient *database.DatabaseAdminClient, endpoint, dbName string, dialect databasepb.DatabaseDialect, extraDDL []string) *spanner.Client {
 	t.Helper()
-	config := spanner.ClientConfig{Type: spanner.OMNI, UsePlainText: true}
-	opt := option.WithEndpoint(endpoint)
 
-	adminClient, err := database.NewDatabaseAdminClientWithConfig(context.Background(), config, opt)
-	if err != nil {
-		t.Fatalf("unable to create Spanner Omni admin client: %s", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := adminClient.Close(); closeErr != nil {
-			t.Errorf("failed to close Spanner Omni admin client: %s", closeErr)
-		}
-	})
-
-	createStmt := fmt.Sprintf("CREATE DATABASE `%s`", dbName)
-	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
-		createStmt = fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)
-	}
-
-	op, err := adminClient.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
+	req := &databasepb.CreateDatabaseRequest{
 		Parent:          "projects/default/instances/default",
-		CreateStatement: createStmt,
+		CreateStatement: fmt.Sprintf("CREATE DATABASE `%s`", dbName),
 		DatabaseDialect: dialect,
-	})
+	}
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL {
+		req.CreateStatement = fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)
+	} else {
+		req.ExtraStatements = extraDDL
+	}
+
+	op, err := adminClient.CreateDatabase(ctx, req)
 	if err != nil {
 		t.Fatalf("unable to start create database operation: %s", err)
 	}
@@ -136,11 +181,17 @@ func initSpannerOmniClients(ctx context.Context, t *testing.T, endpoint, dbName 
 	}
 	dbString := fmt.Sprintf("projects/default/instances/default/databases/%s", dbName)
 
-	if len(extraDDL) > 0 {
+	if dialect == databasepb.DatabaseDialect_POSTGRESQL && len(extraDDL) > 0 {
 		applySpannerDdl(t, ctx, adminClient, dbString, extraDDL, nil)
 	}
 
-	dataClient, err := spanner.NewClientWithConfig(context.Background(), dbString, config, opt)
+	dataClient, err := spanner.NewClientWithConfig(
+		context.Background(),
+		dbString,
+		spanner.ClientConfig{Type: spanner.OMNI, UsePlainText: true, DisableNativeMetrics: true},
+		option.WithEndpoint(endpoint),
+		option.WithGRPCConnectionPool(1),
+	)
 	if err != nil {
 		t.Fatalf("unable to create Spanner Omni client: %s", err)
 	}
@@ -167,7 +218,7 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	endpoint := setupSpannerOmniContainer(ctx, t)
+	endpoint, adminClient := sharedSpannerOmni(t)
 
 	dbName := "omni_test_db"
 	sourceConfig := getSpannerOmniVars(endpoint, dbName, "")
@@ -181,8 +232,8 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 	graphName := newSpannerTestObjectName("graph", runNow)
 	negDdlTableName := newSpannerTestObjectName("neg_ddl_table", runNow)
 
-	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := getSpannerParamToolInfo(tableNameParam)
-	createAuthTableStmt, insertAuthTableStmt, authToolStmt, authTestParams := getSpannerAuthToolInfo(tableNameAuth)
+	createParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramMutations := getSpannerParamToolInfo(tableNameParam)
+	createAuthTableStmt, authToolStmt, authMutations := getSpannerAuthToolInfo(tableNameAuth)
 	createStatementTmpl := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING(MAX), age INT64) PRIMARY KEY (id)", tableNameTemplateParam)
 	createNodeStmt, createEdgeStmt, createGraphStmt := getSpannerGraphSchemaDDL(nodeTableName, edgeTableName, graphName)
 
@@ -219,25 +270,10 @@ func TestSpannerOmniToolEndpoints(t *testing.T) {
 		toolsFile = tests.AddSemanticSearchConfig(t, toolsFile, SpannerToolType, insertStmt, searchStmt)
 	}
 
-	dataClient := initSpannerOmniClients(ctx, t, endpoint, dbName, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, createStmts)
-	seedSpannerStatements(t, ctx, dataClient,
-		spanner.Statement{SQL: insertParamTableStmt, Params: paramTestParams},
-		spanner.Statement{SQL: insertAuthTableStmt, Params: authTestParams},
-	)
+	dataClient := initSpannerOmniDatabase(ctx, t, adminClient, endpoint, dbName, databasepb.DatabaseDialect_GOOGLE_STANDARD_SQL, createStmts)
+	seedSpannerMutations(t, ctx, dataClient, slices.Concat(paramMutations, authMutations)...)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, "--enable-api")
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	t.Cleanup(cleanup)
-
-	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
-	defer cancelWait()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	startSpannerToolbox(t, ctx, toolsFile, "--enable-api")
 
 	// Get configs for tests
 	select1Want := "[{\"\":\"1\"}]"
@@ -288,7 +324,7 @@ func TestSpannerOmniPostgresqlToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	endpoint := setupSpannerOmniContainer(ctx, t)
+	endpoint, adminClient := sharedSpannerOmni(t)
 
 	dbName := "omni_pg_test_db"
 	sourceConfig := getSpannerOmniVars(endpoint, dbName, "postgresql")
@@ -297,7 +333,7 @@ func TestSpannerOmniPostgresqlToolEndpoints(t *testing.T) {
 	pgParamTable := newSpannerTestObjectName("param_table", runNow)
 	pgNegDdlTable := newSpannerTestObjectName("neg_ddl_table", runNow)
 
-	createPgParamStmt, insertPgParamStmt, pgParamToolStmt := getSpannerPgParamToolInfo(pgParamTable)
+	createPgParamStmt, pgParamToolStmt, pgParamMutations := getSpannerPgParamToolInfo(pgParamTable)
 	createStmts := []string{createPgParamStmt}
 	expectedTables := []string{pgParamTable}
 
@@ -312,22 +348,10 @@ func TestSpannerOmniPostgresqlToolEndpoints(t *testing.T) {
 		toolsConfig = tests.AddSemanticSearchConfig(t, toolsConfig, SpannerToolType, insertStmt, searchStmt)
 	}
 
-	dataClient := initSpannerOmniClients(ctx, t, endpoint, dbName, databasepb.DatabaseDialect_POSTGRESQL, createStmts)
-	seedSpannerStatements(t, ctx, dataClient, insertPgParamStmt)
+	dataClient := initSpannerOmniDatabase(ctx, t, adminClient, endpoint, dbName, databasepb.DatabaseDialect_POSTGRESQL, createStmts)
+	seedSpannerMutations(t, ctx, dataClient, pgParamMutations...)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig, "--enable-api")
-	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
-	}
-	t.Cleanup(cleanup)
-
-	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
-	defer cancelWait()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
+	startSpannerToolbox(t, ctx, toolsConfig, "--enable-api")
 
 	runSpannerPgToolsTest(t, pgParamTable, pgNegDdlTable, expectedTables...)
 	if runSemanticSearch {
@@ -338,7 +362,7 @@ func TestSpannerOmniPostgresqlToolEndpoints(t *testing.T) {
 func runSpannerOmniSearchCatalogTest(t *testing.T) {
 	t.Run("search catalog is not supported", func(t *testing.T) {
 		api := "http://127.0.0.1:5000/api/tool/my-search-catalog-tool/invoke"
-		resp, respBody := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer([]byte(`{"prompt":"table"}`)), nil)
+		resp, respBody := tests.RunRequest(t, http.MethodPost, api, strings.NewReader(`{"prompt":"table"}`), nil)
 		want := "search catalog is not supported for Spanner Omni sources"
 		if !strings.Contains(string(respBody), want) {
 			t.Fatalf("expected %q, got %d: %s", want, resp.StatusCode, respBody)

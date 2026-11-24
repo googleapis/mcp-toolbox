@@ -15,12 +15,11 @@
 package spanner
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,6 +31,7 @@ import (
 	database "cloud.google.com/go/spanner/admin/database/apiv1"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
 	"github.com/google/uuid"
+	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"google.golang.org/grpc/codes"
@@ -46,6 +46,8 @@ const (
 var (
 	SpannerSourceType = "spanner"
 	SpannerToolType   = "spanner-sql"
+
+	serverReadyRegex = regexp.MustCompile(`Server ready to serve`)
 
 	spannerTestTablePrefixes = []string{
 		"param_table_",
@@ -66,8 +68,25 @@ var (
 // TTL-based orphan sweeping across both GoogleSQL and PostgreSQL dialects.
 func newSpannerTestObjectName(prefix string, now time.Time) string {
 	base := strings.TrimSuffix(prefix, "_")
-	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
-	return fmt.Sprintf("%s_%d_%s", base, now.Unix(), suffix)
+	u := uuid.New()
+	return fmt.Sprintf("%s_%d_%x", base, now.Unix(), u[:6])
+}
+
+func startSpannerToolbox(t *testing.T, ctx context.Context, toolsConfig map[string]any, args ...string) {
+	t.Helper()
+	cmd, cleanup, err := tests.StartCmd(ctx, toolsConfig, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %s", err)
+	}
+	t.Cleanup(cleanup)
+
+	waitCtx, cancelWait := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWait()
+	out, err := testutils.WaitForString(waitCtx, serverReadyRegex, cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs: \n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %s", err)
+	}
 }
 
 // shouldSweepSpannerObject reports whether name matches one of prefixes and
@@ -189,19 +208,33 @@ func applySpannerDdl(t *testing.T, ctx context.Context, adminClient *database.Da
 	return teardown
 }
 
-// seedSpannerStatements executes multiple DML statements in a single
-// ReadWriteTransaction using BatchUpdate.
-func seedSpannerStatements(t *testing.T, ctx context.Context, dataClient *spanner.Client, stmts ...spanner.Statement) {
+// seedSpannerMutations writes all seed rows in a single storage-layer Commit
+// RPC via Client.Apply, bypassing SQL parsing and read-write lock round-trips.
+func seedSpannerMutations(t *testing.T, ctx context.Context, dataClient *spanner.Client, mutations ...*spanner.Mutation) {
 	t.Helper()
-	if len(stmts) == 0 {
+	if len(mutations) == 0 {
 		return
 	}
-	_, err := dataClient.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		_, batchErr := txn.BatchUpdate(ctx, stmts)
-		return batchErr
-	})
-	if err != nil {
+	if _, err := dataClient.Apply(ctx, mutations); err != nil {
 		t.Fatalf("unable to seed Spanner test data: %s", err)
+	}
+}
+
+func getSpannerParamSeedMutations(tableName string) []*spanner.Mutation {
+	cols := []string{"id", "name"}
+	return []*spanner.Mutation{
+		spanner.Insert(tableName, cols, []any{int64(1), "Alice"}),
+		spanner.Insert(tableName, cols, []any{int64(2), "Jane"}),
+		spanner.Insert(tableName, cols, []any{int64(3), "Sid"}),
+		spanner.Insert(tableName, cols, []any{int64(4), spanner.NullString{}}),
+	}
+}
+
+func getSpannerAuthSeedMutations(tableName string) []*spanner.Mutation {
+	cols := []string{"id", "name", "email"}
+	return []*spanner.Mutation{
+		spanner.Insert(tableName, cols, []any{int64(1), "Alice", tests.ServiceAccountEmail}),
+		spanner.Insert(tableName, cols, []any{int64(2), "Jane", "janedoe@gmail.com"}),
 	}
 }
 
@@ -230,30 +263,21 @@ func getSpannerGraphSchemaDDL(nodeTableName, edgeTableName, graphName string) (s
 	return createNodeStmt, createEdgeStmt, createGraphStmt
 }
 
-// getSpannerToolInfo returns statements and param for my-tool for spanner-sql type
-func getSpannerParamToolInfo(tableName string) (string, string, string, string, string, string, map[string]any) {
+// getSpannerParamToolInfo returns DDL, tool statements, and seed mutations for my-tool.
+func getSpannerParamToolInfo(tableName string) (string, string, string, string, string, []*spanner.Mutation) {
 	createStatement := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING(MAX)) PRIMARY KEY (id)", tableName)
-	insertStatement := fmt.Sprintf("INSERT INTO %s (id, name) VALUES (1, @name1), (2, @name2), (3, @name3), (4, @name4)", tableName)
 	toolStatement := fmt.Sprintf("SELECT * FROM %s WHERE id = @id OR name = @name", tableName)
 	idToolStatement := fmt.Sprintf("SELECT * FROM %s WHERE id = @id", tableName)
 	nameToolStatement := fmt.Sprintf("SELECT * FROM %s WHERE name = @name", tableName)
 	arrayToolStatement := fmt.Sprintf("SELECT * FROM %s WHERE id IN UNNEST(@idArray) AND name IN UNNEST(@nameArray)", tableName)
-	params := map[string]any{"name1": "Alice", "name2": "Jane", "name3": "Sid", "name4": nil}
-	return createStatement, insertStatement, toolStatement, idToolStatement, nameToolStatement, arrayToolStatement, params
+	return createStatement, toolStatement, idToolStatement, nameToolStatement, arrayToolStatement, getSpannerParamSeedMutations(tableName)
 }
 
-// getSpannerAuthToolInfo returns statements and param of my-auth-tool for spanner-sql type
-func getSpannerAuthToolInfo(tableName string) (string, string, string, map[string]any) {
+// getSpannerAuthToolInfo returns DDL, tool statement, and seed mutations for my-auth-tool.
+func getSpannerAuthToolInfo(tableName string) (string, string, []*spanner.Mutation) {
 	createStatement := fmt.Sprintf("CREATE TABLE %s (id INT64, name STRING(MAX), email STRING(MAX)) PRIMARY KEY (id)", tableName)
-	insertStatement := fmt.Sprintf("INSERT INTO %s (id, name, email) VALUES (1, @name1, @email1), (2, @name2, @email2)", tableName)
 	toolStatement := fmt.Sprintf("SELECT name FROM %s WHERE email = @email", tableName)
-	params := map[string]any{
-		"name1":  "Alice",
-		"email1": tests.ServiceAccountEmail,
-		"name2":  "Jane",
-		"email2": "janedoe@gmail.com",
-	}
-	return createStatement, insertStatement, toolStatement, params
+	return createStatement, toolStatement, getSpannerAuthSeedMutations(tableName)
 }
 
 // addSpannerExecuteSqlConfig gets the tools config for `spanner-execute-sql`
@@ -403,8 +427,51 @@ func addTemplateParamConfig(t *testing.T, config map[string]any) map[string]any 
 	return config
 }
 
+type spannerInvokeCase struct {
+	name          string
+	api           string
+	requestHeader map[string]string
+	requestBody   string
+	want          string
+	isErr         bool
+}
+
+func runSpannerInvokeCases(t *testing.T, tcs []spannerInvokeCase) {
+	t.Helper()
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, respBody := tests.RunRequest(t, http.MethodPost, tc.api, strings.NewReader(tc.requestBody), tc.requestHeader)
+			if resp.StatusCode != http.StatusOK {
+				if tc.isErr {
+					return
+				}
+				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+			}
+
+			var body map[string]any
+			if err := json.Unmarshal(respBody, &body); err != nil {
+				t.Fatalf("error parsing response body: %s", err)
+			}
+			got, ok := body["result"].(string)
+			if !ok {
+				t.Fatalf("unable to find result in response body: %s", string(respBody))
+			}
+
+			// Database errors are returned with a 200 status and an error in the result.
+			if tc.isErr {
+				if !strings.Contains(got, `"error"`) {
+					t.Fatalf("expected an error, got %q", got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWant, tableNameParam, negDdlTableName string) {
-	// Get ID token
 	idToken, err := tests.GetGoogleIdToken(t)
 	if err != nil {
 		t.Fatalf("error getting Google ID token: %s", err)
@@ -413,170 +480,88 @@ func runSpannerExecuteSqlToolInvokeTest(t *testing.T, select1Want, invokeParamWa
 	createNegDdlBody := fmt.Sprintf("{\"sql\":\"CREATE TABLE %s (id INT64) PRIMARY KEY (id)\"}", negDdlTableName)
 	dropNegDdlBody := fmt.Sprintf("{\"sql\":\"DROP TABLE %s\"}", negDdlTableName)
 
-	// Test tool invoke endpoint
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runSpannerInvokeCases(t, []spannerInvokeCase{
 		{
-			name:          "invoke my-exec-sql-tool-read-only",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			want:          select1Want,
-			isErr:         false,
+			name:        "invoke my-exec-sql-tool-read-only",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: `{"sql":"SELECT 1"}`,
+			want:        select1Want,
 		},
 		{
-			name:          "invoke my-exec-sql-tool-read-only with data present in table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"SELECT * FROM %s WHERE id = 3 OR name = 'Alice'\"}", tableNameParam))),
-			want:          invokeParamWant,
-			isErr:         false,
+			name:        "invoke my-exec-sql-tool-read-only with data present in table",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: fmt.Sprintf("{\"sql\":\"SELECT * FROM %s WHERE id = 3 OR name = 'Alice'\"}", tableNameParam),
+			want:        invokeParamWant,
 		},
 		{
-			name:          "invoke my-exec-sql-tool-read-only create table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(createNegDdlBody)),
-			isErr:         true,
+			name:        "invoke my-exec-sql-tool-read-only create table",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: createNegDdlBody,
+			isErr:       true,
 		},
 		{
-			name:          "invoke my-exec-sql-tool-read-only drop table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(dropNegDdlBody)),
-			isErr:         true,
+			name:        "invoke my-exec-sql-tool-read-only drop table",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: dropNegDdlBody,
+			isErr:       true,
 		},
 		{
-			name:          "invoke my-exec-sql-tool-read-only insert entry",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"INSERT INTO %s (id, name) VALUES (4, 'test_name')\"}", tableNameParam))),
-			isErr:         true,
+			name:        "invoke my-exec-sql-tool-read-only insert entry",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool-read-only/invoke",
+			requestBody: fmt.Sprintf("{\"sql\":\"INSERT INTO %s (id, name) VALUES (4, 'test_name')\"}", tableNameParam),
+			isErr:       true,
 		},
 		{
-			name:          "invoke my-exec-sql-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:        "invoke my-exec-sql-tool without body",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			requestBody: `{}`,
+			isErr:       true,
 		},
 		{
-			name:          "invoke my-exec-sql-tool",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			want:          select1Want,
-			isErr:         false,
+			name:        "invoke my-exec-sql-tool",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			requestBody: `{"sql":"SELECT 1"}`,
+			want:        select1Want,
 		},
 		{
-			name:          "invoke my-exec-sql-tool create table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(createNegDdlBody)),
-			isErr:         true,
+			name:        "invoke my-exec-sql-tool create table",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			requestBody: createNegDdlBody,
+			isErr:       true,
 		},
 		{
-			name:          "invoke my-exec-sql-tool drop table",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(dropNegDdlBody)),
-			isErr:         true,
+			name:        "invoke my-exec-sql-tool drop table",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			requestBody: dropNegDdlBody,
+			isErr:       true,
 		},
 		{
-			name:          "invoke my-exec-sql-tool insert entry",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(fmt.Sprintf("{\"sql\":\"INSERT INTO %s (id, name) VALUES (5, 'test_name')\"}", tableNameParam))),
-			want:          "[]",
-			isErr:         false,
-		},
-		{
-			name:          "invoke my-exec-sql-tool without body",
-			api:           "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:        "invoke my-exec-sql-tool insert entry",
+			api:         "http://127.0.0.1:5000/api/tool/my-exec-sql-tool/invoke",
+			requestBody: fmt.Sprintf("{\"sql\":\"INSERT INTO %s (id, name) VALUES (5, 'test_name')\"}", tableNameParam),
+			want:        "[]",
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with auth token",
 			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
 			requestHeader: map[string]string{"my-google-auth_token": idToken},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			isErr:         false,
+			requestBody:   `{"sql":"SELECT 1"}`,
 			want:          select1Want,
 		},
 		{
 			name:          "Invoke my-auth-exec-sql-tool with invalid auth token",
 			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
 			requestHeader: map[string]string{"my-google-auth_token": "INVALID_TOKEN"},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
+			requestBody:   `{"sql":"SELECT 1"}`,
 			isErr:         true,
 		},
 		{
-			name:          "Invoke my-auth-exec-sql-tool without auth token",
-			api:           "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{"sql":"SELECT 1"}`)),
-			isErr:         true,
+			name:        "Invoke my-auth-exec-sql-tool without auth token",
+			api:         "http://127.0.0.1:5000/api/tool/my-auth-exec-sql-tool/invoke",
+			requestBody: `{"sql":"SELECT 1"}`,
+			isErr:       true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			// Database errors are returned with a 200 status and an error in
-			// the result.
-			if tc.isErr {
-				if !strings.Contains(got, `"error"`) {
-					t.Fatalf("expected an error, got %q", got)
-				}
-				return
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
+	})
 }
 
 // Helper function to verify table list results
@@ -645,40 +630,37 @@ func runSpannerListTablesTest(t *testing.T, tableNames ...string) {
 
 	invokeTcs := []struct {
 		name            string
-		requestBody     io.Reader
+		requestBody     string
 		expectedTables  []string // empty means expect 0 tables
 		useSimpleFormat bool
 	}{
 		{
 			name:           "list all tables with detailed format",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			requestBody:    `{}`,
 			expectedTables: tableNames,
 		},
 		{
 			name:            "list tables with simple format",
-			requestBody:     bytes.NewBuffer([]byte(`{"output_format": "simple"}`)),
+			requestBody:     `{"output_format": "simple"}`,
 			expectedTables:  tableNames,
 			useSimpleFormat: true,
 		},
 		{
 			name:           "list specific tables",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"table_names": "%s"}`, strings.Join(specificTables, ",")))),
+			requestBody:    fmt.Sprintf(`{"table_names": "%s"}`, strings.Join(specificTables, ",")),
 			expectedTables: specificTables,
 		},
 		{
 			name:           "list non-existent table",
-			requestBody:    bytes.NewBuffer([]byte(`{"table_names": "non_existent_table_xyz"}`)),
+			requestBody:    `{"table_names": "non_existent_table_xyz"}`,
 			expectedTables: []string{},
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			// Use RunRequest helper function from tests package
 			url := "http://127.0.0.1:5000/api/tool/list-tables-tool/invoke"
-			headers := map[string]string{}
-
-			resp, respBody := tests.RunRequest(t, http.MethodPost, url, tc.requestBody, headers)
+			resp, respBody := tests.RunRequest(t, http.MethodPost, url, strings.NewReader(tc.requestBody), nil)
 
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
@@ -756,40 +738,37 @@ func verifyGraphListResult(t *testing.T, body map[string]interface{}, expectedGr
 func runSpannerListGraphsTest(t *testing.T, graphName string) {
 	invokeTcs := []struct {
 		name            string
-		requestBody     io.Reader
-		expectedGraphs  []string // empty means don't check specific graphs
+		requestBody     string
+		expectedGraphs  []string // empty means expect 0 graphs
 		useSimpleFormat bool
 	}{
 		{
 			name:           "list all graphs with detailed format",
-			requestBody:    bytes.NewBuffer([]byte(`{}`)),
+			requestBody:    `{}`,
 			expectedGraphs: []string{graphName},
 		},
 		{
 			name:            "list graphs with simple format",
-			requestBody:     bytes.NewBuffer([]byte(`{"output_format": "simple"}`)),
+			requestBody:     `{"output_format": "simple"}`,
 			expectedGraphs:  []string{graphName},
 			useSimpleFormat: true,
 		},
 		{
 			name:           "list specific graphs",
-			requestBody:    bytes.NewBuffer([]byte(fmt.Sprintf(`{"graph_names": "%s"}`, graphName))),
+			requestBody:    fmt.Sprintf(`{"graph_names": "%s"}`, graphName),
 			expectedGraphs: []string{graphName},
 		},
 		{
 			name:           "list non-existent graph",
-			requestBody:    bytes.NewBuffer([]byte(`{"graph_names": "non_existent_graph_xyz"}`)),
+			requestBody:    `{"graph_names": "non_existent_graph_xyz"}`,
 			expectedGraphs: []string{},
 		},
 	}
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
-			// Use RunRequest helper function from tests package
 			url := "http://127.0.0.1:5000/api/tool/list-graphs-tool/invoke"
-			headers := map[string]string{}
-
-			resp, respBody := tests.RunRequest(t, http.MethodPost, url, tc.requestBody, headers)
+			resp, respBody := tests.RunRequest(t, http.MethodPost, url, strings.NewReader(tc.requestBody), nil)
 
 			if resp.StatusCode != http.StatusOK {
 				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
@@ -837,14 +816,10 @@ func getSpannerPgVectorSearchStmts(vectorTableName string) (string, string) {
 	return insertStmt, searchStmt
 }
 
-func getSpannerPgParamToolInfo(tableName string) (string, spanner.Statement, string) {
+func getSpannerPgParamToolInfo(tableName string) (string, string, []*spanner.Mutation) {
 	createStmt := fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY, name varchar(256))", tableName)
-	insertStmt := spanner.Statement{
-		SQL:    fmt.Sprintf("INSERT INTO %s (id, name) VALUES (1, $1), (2, $2), (3, $3), (4, NULL)", tableName),
-		Params: map[string]any{"p1": "Alice", "p2": "Jane", "p3": "Sid"},
-	}
 	paramToolStmt := fmt.Sprintf("SELECT id, name FROM %s WHERE id = $1 OR name = $2 ORDER BY id", tableName)
-	return createStmt, insertStmt, paramToolStmt
+	return createStmt, paramToolStmt, getSpannerParamSeedMutations(tableName)
 }
 
 func buildSpannerPgToolsConfig(t *testing.T, sourceConfig map[string]any, paramToolStmt string) map[string]any {
@@ -894,13 +869,7 @@ func runSpannerPgToolsTest(t *testing.T, tableNameParam, negDdlTableName string,
 	wantRows := `[{"id":"1","name":"Alice"},{"id":"3","name":"Sid"}]`
 	createNegDdl := fmt.Sprintf(`{"sql":"CREATE TABLE %s (id bigint PRIMARY KEY)"}`, negDdlTableName)
 
-	invokeTcs := []struct {
-		name        string
-		api         string
-		requestBody string
-		want        string
-		isErr       bool
-	}{
+	runSpannerInvokeCases(t, []spannerInvokeCase{
 		{
 			name:        "invoke pg param tool",
 			api:         "http://127.0.0.1:5000/api/tool/my-pg-param-tool/invoke",
@@ -943,37 +912,7 @@ func runSpannerPgToolsTest(t *testing.T, tableNameParam, negDdlTableName string,
 			requestBody: fmt.Sprintf(`{"sql":"INSERT INTO %s (id, name) VALUES (5, 'test_name')"}`, tableNameParam),
 			want:        "[]",
 		},
-	}
-
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, respBody := tests.RunRequest(t, http.MethodPost, tc.api, bytes.NewBufferString(tc.requestBody), nil)
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
-			}
-
-			var body map[string]any
-			if err := json.Unmarshal(respBody, &body); err != nil {
-				t.Fatalf("error parsing response body: %s", err)
-			}
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body: %s", string(respBody))
-			}
-			if tc.isErr {
-				if !strings.Contains(got, `"error"`) {
-					t.Fatalf("expected an error, got %q", got)
-				}
-				return
-			}
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
+	})
 
 	if len(expectedTables) == 0 {
 		expectedTables = []string{tableNameParam}
@@ -982,79 +921,18 @@ func runSpannerPgToolsTest(t *testing.T, tableNameParam, negDdlTableName string,
 }
 
 func runSpannerSchemaToolInvokeTest(t *testing.T, accessSchemaWant string) {
-	invokeTcs := []struct {
-		name          string
-		api           string
-		requestHeader map[string]string
-		requestBody   io.Reader
-		want          string
-		isErr         bool
-	}{
+	runSpannerInvokeCases(t, []spannerInvokeCase{
 		{
-			name:          "invoke list-tables-read-only",
-			api:           "http://127.0.0.1:5000/api/tool/access-schema-read-only/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			want:          accessSchemaWant,
-			isErr:         false,
+			name:        "invoke list-tables-read-only",
+			api:         "http://127.0.0.1:5000/api/tool/access-schema-read-only/invoke",
+			requestBody: `{}`,
+			want:        accessSchemaWant,
 		},
 		{
-			name:          "invoke list-tables",
-			api:           "http://127.0.0.1:5000/api/tool/access-schema/invoke",
-			requestHeader: map[string]string{},
-			requestBody:   bytes.NewBuffer([]byte(`{}`)),
-			isErr:         true,
+			name:        "invoke list-tables",
+			api:         "http://127.0.0.1:5000/api/tool/access-schema/invoke",
+			requestBody: `{}`,
+			isErr:       true,
 		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			// Send Tool invocation request
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			for k, v := range tc.requestHeader {
-				req.Header.Add(k, v)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			// Check response body
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			// Database errors are returned with a 200 status and an error in
-			// the result.
-			if tc.isErr {
-				if !strings.Contains(got, `"error"`) {
-					t.Fatalf("expected an error, got %q", got)
-				}
-				return
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
-	}
+	})
 }
