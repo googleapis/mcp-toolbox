@@ -3233,14 +3233,14 @@ func runForecastWithRestriction(t *testing.T, allowedTableFullName, disallowedTa
 			historyData:    allowedTableUnquoted,
 			timestampCol:   "ts', horizon => 5) --",
 			wantStatusCode: http.StatusOK,
-			wantInError:    `invalid column name for 'timestamp_col': "'ts'', horizon => 5) --'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
+			wantInError:    `unable to parse value for "timestamp_col": cannot single-quote-escape value containing single quote`,
 		},
 		{
 			name:           "invoke with SQL injection in data_col",
 			historyData:    allowedTableUnquoted,
 			dataCol:        "data', horizon => 5) --",
 			wantStatusCode: http.StatusOK,
-			wantInError:    `invalid column name for 'data_col': "'data'', horizon => 5) --'"; must match [a-zA-Z_][a-zA-Z0-9_]*`,
+			wantInError:    `unable to parse value for "data_col": cannot single-quote-escape value containing single quote`,
 		},
 	}
 
@@ -3395,7 +3395,7 @@ func runAnalyzeContributionWithRestriction(t *testing.T, allowedTableFullName, d
 			inputData:          allowedTableUnquoted,
 			contributionMetric: "SUM('metric')",
 			wantStatusCode:     http.StatusOK,
-			wantInError:        `invalid 'contribution_metric': must not contain single quotes`,
+			wantInError:        `unable to parse value for "contribution_metric": cannot single-quote-escape value containing single quote`,
 		},
 	}
 

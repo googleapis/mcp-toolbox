@@ -22,12 +22,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	bigqueryapi "cloud.google.com/go/bigquery"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	bigqueryds "github.com/googleapis/mcp-toolbox/internal/sources/bigquery"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/bigquery/bigqueryanalyzecontribution"
@@ -183,7 +185,7 @@ func TestInvoke(t *testing.T) {
 			isTestCol:          "is_test",
 			dimensionIdCols:    []any{"dim1"},
 			wantErr:            true,
-			wantSubstr:         "invalid 'contribution_metric': must not contain single quotes",
+			wantSubstr:         "cannot single-quote-escape value containing single quote",
 		},
 	}
 
@@ -616,6 +618,248 @@ func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
 			}
 			if !dryRunReceivedSessionID {
 				t.Errorf("expected dry-run query to include session_id connection property in protected mode")
+			}
+		})
+	}
+}
+
+func TestInvokeMaximumBytesBilled(t *testing.T) {
+	type capturedQueryJob struct {
+		query              string
+		maximumBytesBilled string
+		hasMaxBytesField   bool
+	}
+
+	var (
+		mu           sync.Mutex
+		capturedJobs []capturedQueryJob
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/jobs") {
+			var payload struct {
+				JobReference struct {
+					JobID string `json:"jobId"`
+				} `json:"jobReference"`
+				Configuration struct {
+					DryRun bool           `json:"dryRun"`
+					Query  map[string]any `json:"query"`
+				} `json:"configuration"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			q, _ := payload.Configuration.Query["query"].(string)
+			rawMax, hasMax := payload.Configuration.Query["maximumBytesBilled"]
+			maxStr, _ := rawMax.(string)
+
+			if !payload.Configuration.DryRun {
+				mu.Lock()
+				capturedJobs = append(capturedJobs, capturedQueryJob{
+					query:              q,
+					maximumBytesBilled: maxStr,
+					hasMaxBytesField:   hasMax,
+				})
+				mu.Unlock()
+			}
+
+			jobID := payload.JobReference.JobID
+			if jobID == "" {
+				jobID = "mock-job-id"
+			}
+			resp := map[string]any{
+				"kind": "bigquery#job",
+				"jobReference": map[string]any{
+					"projectId": "test-project",
+					"jobId":     jobID,
+				},
+				"configuration": map[string]any{
+					"query": payload.Configuration.Query,
+				},
+				"status": map[string]any{
+					"state": "DONE",
+				},
+				"statistics": map[string]any{
+					"sessionInfo": map[string]any{
+						"sessionId": "test-session-id",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/jobs/") {
+			resp := map[string]any{
+				"kind": "bigquery#job",
+				"jobReference": map[string]any{
+					"projectId": "test-project",
+					"jobId":     "mock-job-id",
+				},
+				"configuration": map[string]any{
+					"query": map[string]any{
+						"query": "SELECT 1",
+					},
+				},
+				"status": map[string]any{
+					"state": "DONE",
+				},
+				"statistics": map[string]any{
+					"sessionInfo": map[string]any{
+						"sessionId": "test-session-id",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/queries/") {
+			resp := map[string]any{
+				"kind":        "bigquery#getQueryResultsResponse",
+				"jobComplete": true,
+				"jobReference": map[string]any{
+					"projectId": "test-project",
+					"jobId":     "mock-job-id",
+				},
+				"totalRows": "1",
+				"schema": map[string]any{
+					"fields": []map[string]any{
+						{"name": "contributors", "type": "STRING", "mode": "NULLABLE"},
+					},
+				},
+				"rows": []map[string]any{
+					{
+						"f": []map[string]any{
+							{"v": "dim1=a"},
+						},
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		http.Error(w, "not implemented", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("failed to create context with logger: %v", err)
+	}
+
+	bqClient, err := bigqueryapi.NewClient(ctx, "test-project", option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create BigQuery client: %v", err)
+	}
+	defer bqClient.Close()
+
+	restService, err := bigqueryrestapi.NewService(ctx, option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("failed to create BigQuery REST service: %v", err)
+	}
+
+	cfg := bigqueryanalyzecontribution.Config{
+		ConfigBase: tools.ConfigBase{
+			Name:        "analyze_contribution_tool",
+			Description: "Analyze Contribution",
+		},
+		Type:   "bigquery-analyze-contribution",
+		Source: "my-bq-source",
+	}
+	tool, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("failed to initialize tool: %v", err)
+	}
+	analyzeContributionTool, ok := tool.(bigqueryanalyzecontribution.Tool)
+	if !ok {
+		t.Fatalf("expected bigqueryanalyzecontribution.Tool, got %T", tool)
+	}
+
+	testCases := []struct {
+		name               string
+		maximumBytesBilled int64
+		wantMaxBytesField  bool
+		wantMaxBytesValue  string
+	}{
+		{
+			name:               "propagates configured maximumBytesBilled to CREATE TEMP MODEL and ML.GET_INSIGHTS jobs",
+			maximumBytesBilled: 104857600,
+			wantMaxBytesField:  true,
+			wantMaxBytesValue:  "104857600",
+		},
+		{
+			name:               "omits maximumBytesBilled when not configured",
+			maximumBytesBilled: 0,
+			wantMaxBytesField:  false,
+			wantMaxBytesValue:  "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mu.Lock()
+			capturedJobs = nil
+			mu.Unlock()
+
+			src := &bigqueryds.Source{
+				Config: bigqueryds.Config{
+					Name:               "my-bq-source",
+					Type:               bigqueryds.SourceType,
+					Project:            "test-project",
+					WriteMode:          bigqueryds.WriteModeAllowed,
+					MaxQueryResultRows: 50,
+					MaximumBytesBilled: tc.maximumBytesBilled,
+				},
+				Client:          bqClient,
+				RestService:     restService,
+				SessionProvider: func(context.Context) (*bigqueryds.Session, error) { return nil, nil },
+			}
+
+			params, err := analyzeContributionTool.GetParameters(src)
+			if err != nil {
+				t.Fatalf("failed to get parameters: %v", err)
+			}
+			paramVals, err := parameters.ParseParams(params, map[string]any{
+				"input_data":          "my_dataset.my_table",
+				"contribution_metric": "SUM(metric)",
+				"is_test_col":         "is_test",
+				"dimension_id_cols":   []any{"dim1"},
+			}, nil)
+			if err != nil {
+				t.Fatalf("unexpected error parsing parameters: %v", err)
+			}
+
+			if _, err := tool.Invoke(ctx, src, paramVals, ""); err != nil {
+				t.Fatalf("unexpected error invoking tool: %v", err)
+			}
+
+			mu.Lock()
+			gotJobs := append([]capturedQueryJob(nil), capturedJobs...)
+			mu.Unlock()
+
+			if len(gotJobs) != 2 {
+				t.Fatalf("expected 2 query jobs (CREATE TEMP MODEL and ML.GET_INSIGHTS), got %d: %+v", len(gotJobs), gotJobs)
+			}
+			if !strings.HasPrefix(gotJobs[0].query, "CREATE TEMP MODEL ") {
+				t.Errorf("expected first job query to start with CREATE TEMP MODEL, got %q", gotJobs[0].query)
+			}
+			if !strings.HasPrefix(gotJobs[1].query, "SELECT * FROM ML.GET_INSIGHTS(MODEL ") {
+				t.Errorf("expected second job query to start with SELECT * FROM ML.GET_INSIGHTS, got %q", gotJobs[1].query)
+			}
+
+			for i, job := range gotJobs {
+				if job.hasMaxBytesField != tc.wantMaxBytesField {
+					t.Errorf("job[%d] (%q): has maximumBytesBilled = %v, want %v", i, job.query, job.hasMaxBytesField, tc.wantMaxBytesField)
+				}
+				if job.maximumBytesBilled != tc.wantMaxBytesValue {
+					t.Errorf("job[%d] (%q): maximumBytesBilled = %q, want %q", i, job.query, job.maximumBytesBilled, tc.wantMaxBytesValue)
+				}
 			}
 		})
 	}
