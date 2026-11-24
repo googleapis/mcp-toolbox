@@ -18,19 +18,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	falkordb "github.com/FalkorDB/falkordb-go/v2"
+	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
+	tclog "github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
@@ -39,6 +44,22 @@ import (
 
 // falkorDBImage is the image used for the ephemeral test container.
 const falkorDBImage = "falkordb/falkordb:v4.18.0"
+
+// testGraphPrefix starts every temporary FalkorDB graph name created by these
+// tests, followed by its Unix creation timestamp so the TestMain sweeper can
+// reclaim leaked graphs on shared external instances.
+const testGraphPrefix = "toolbox_it_"
+
+// orphanedGraphTTL is the minimum age before TestMain sweeps a leaked test
+// graph on an external FalkorDB instance. Test timeouts in this package are 5m,
+// so any test graph older than 3h cannot belong to an active run.
+const orphanedGraphTTL = 3 * time.Hour
+
+// falkorCleanupTimeout bounds each per-test cleanup RPC so teardown cannot hang
+// indefinitely if the server becomes unresponsive.
+const falkorCleanupTimeout = 30 * time.Second
+
+var validCypherIdentifierRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var (
 	FalkorDBSourceType = "falkordb"
@@ -49,44 +70,210 @@ var (
 	FalkorDBGraph      = os.Getenv("FALKORDB_GRAPH")
 )
 
-// setupFalkorDBContainer starts an ephemeral FalkorDB container and returns
-// its host and mapped port, along with a cleanup function that terminates it.
-func setupFalkorDBContainer(ctx context.Context, t *testing.T) (string, string, func()) {
+func TestMain(m *testing.M) {
+	if FalkorDBHost != "" && FalkorDBPort != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		sweepOrphanedFalkorDBGraphs(ctx)
+		cancel()
+	}
+	os.Exit(m.Run())
+}
+
+func newFalkorDBUniqueID() string {
+	return strings.ReplaceAll(uuid.New().String(), "-", "")[:12]
+}
+
+func newTestGraphName(kind, uniqueID string, now time.Time) string {
+	return fmt.Sprintf("%s%d_%s_%s", testGraphPrefix, now.UTC().Unix(), kind, uniqueID)
+}
+
+func parseTestGraphCreatedAt(graphName string) (time.Time, bool) {
+	rest, ok := strings.CutPrefix(graphName, testGraphPrefix)
+	if !ok {
+		return time.Time{}, false
+	}
+	tsStr, _, ok := strings.Cut(rest, "_")
+	if !ok || tsStr == "" {
+		return time.Time{}, false
+	}
+	sec, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil || sec <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(sec, 0).UTC(), true
+}
+
+func shouldSweepFalkorDBGraph(graphName string, now time.Time) bool {
+	createdAt, ok := parseTestGraphCreatedAt(graphName)
+	if !ok {
+		return false
+	}
+	return now.Sub(createdAt) > orphanedGraphTTL
+}
+
+func isFalkorDBNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "empty key") ||
+		strings.Contains(msg, "no such index") ||
+		strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "doesn't exist") ||
+		strings.Contains(msg, "not found")
+}
+
+func mustValidCypherIdentifier(t *testing.T, id string) string {
+	t.Helper()
+	if !validCypherIdentifierRe.MatchString(id) {
+		t.Fatalf("invalid Cypher identifier %q", id)
+	}
+	return id
+}
+
+// execFalkorDBCleanupBatch executes one or more Redis/FalkorDB cleanup commands
+// under ctx, pipelining multi-command batches into a single round-trip while
+// ignoring NotFound/empty-key responses and aggregating real errors.
+func execFalkorDBCleanupBatch(ctx context.Context, client *falkordb.FalkorDB, rawCmds ...[]any) error {
+	if len(rawCmds) == 0 {
+		return nil
+	}
+	if len(rawCmds) == 1 {
+		err := client.Conn.Do(ctx, rawCmds[0]...).Err()
+		if err != nil && !isFalkorDBNotFound(err) {
+			return fmt.Errorf("falkordb cleanup %v failed: %w", rawCmds[0], err)
+		}
+		return nil
+	}
+
+	pipe := client.Conn.Pipeline()
+	for _, args := range rawCmds {
+		pipe.Do(ctx, args...)
+	}
+	cmds, execErr := pipe.Exec(ctx)
+	var errs []error
+	for i, cmd := range cmds {
+		if err := cmd.Err(); err != nil && !isFalkorDBNotFound(err) {
+			errs = append(errs, fmt.Errorf("falkordb cleanup %v failed: %w", rawCmds[i], err))
+		}
+	}
+	if len(errs) == 0 && execErr != nil && !isFalkorDBNotFound(execErr) {
+		return fmt.Errorf("falkordb cleanup pipeline failed: %w", execErr)
+	}
+	return errors.Join(errs...)
+}
+
+// sweepOrphanedFalkorDBGraphs deletes temporary test graphs older than
+// orphanedGraphTTL on shared external FalkorDB instances. Failures are logged
+// without blocking the test run.
+func sweepOrphanedFalkorDBGraphs(ctx context.Context) {
+	client, err := initFalkorDBConnection()
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: failed to create FalkorDB client: %v", err)
+		return
+	}
+	defer func() { _ = client.Conn.Close() }()
+
+	sweepOrphanedFalkorDBGraphsWithClient(ctx, client, time.Now())
+}
+
+func sweepOrphanedFalkorDBGraphsWithClient(ctx context.Context, client *falkordb.FalkorDB, now time.Time) {
+	graphs, err := client.Conn.Do(ctx, "GRAPH.LIST").StringSlice()
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: failed to list FalkorDB graphs: %v", err)
+		return
+	}
+	var deleteCmds [][]any
+	for _, graphName := range graphs {
+		createdAt, ok := parseTestGraphCreatedAt(graphName)
+		if !ok || !shouldSweepFalkorDBGraph(graphName, now) {
+			continue
+		}
+		log.Printf("INTEGRATION CLEANUP: deleting orphaned FalkorDB graph %q created %s", graphName, createdAt.Format(time.RFC3339))
+		deleteCmds = append(deleteCmds, []any{"GRAPH.DELETE", graphName})
+	}
+	if err := execFalkorDBCleanupBatch(ctx, client, deleteCmds...); err != nil {
+		log.Printf("INTEGRATION CLEANUP: %v", err)
+	}
+}
+
+func registerFalkorDBCleanup(t *testing.T, client *falkordb.FalkorDB, rawCmds ...[]any) {
+	t.Helper()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), falkorCleanupTimeout)
+		defer cancel()
+		if err := execFalkorDBCleanupBatch(cleanupCtx, client, rawCmds...); err != nil {
+			t.Errorf("%v", err)
+		}
+	})
+}
+
+func registerFalkorDBGraphCleanup(t *testing.T, client *falkordb.FalkorDB, graphName string) {
+	t.Helper()
+	registerFalkorDBCleanup(t, client, []any{"GRAPH.DELETE", graphName})
+}
+
+func registerFalkorDBLabelCleanup(t *testing.T, client *falkordb.FalkorDB, graphName string, labels ...string) {
+	t.Helper()
+	cmds := make([][]any, 0, len(labels))
+	for _, label := range labels {
+		mustValidCypherIdentifier(t, label)
+		cypher := fmt.Sprintf("MATCH (n:%s) DETACH DELETE n", label)
+		cmds = append(cmds, []any{"GRAPH.QUERY", graphName, cypher, "--compact"})
+	}
+	registerFalkorDBCleanup(t, client, cmds...)
+}
+
+func registerFalkorDBSchemaCleanup(t *testing.T, client *falkordb.FalkorDB, graphName, indexLabel, indexProperty string, nodeLabels ...string) {
+	t.Helper()
+	mustValidCypherIdentifier(t, indexLabel)
+	mustValidCypherIdentifier(t, indexProperty)
+	cmds := make([][]any, 0, 1+len(nodeLabels))
+	dropIndexCypher := fmt.Sprintf("DROP INDEX FOR (n:%s) ON (n.%s)", indexLabel, indexProperty)
+	cmds = append(cmds, []any{"GRAPH.QUERY", graphName, dropIndexCypher, "--compact"})
+	for _, label := range nodeLabels {
+		mustValidCypherIdentifier(t, label)
+		deleteCypher := fmt.Sprintf("MATCH (n:%s) DETACH DELETE n", label)
+		cmds = append(cmds, []any{"GRAPH.QUERY", graphName, deleteCypher, "--compact"})
+	}
+	registerFalkorDBCleanup(t, client, cmds...)
+}
+
+// setupFalkorDBContainer starts an ephemeral FalkorDB container, schedules its
+// termination via t.Cleanup, and returns its host and mapped port.
+func setupFalkorDBContainer(ctx context.Context, t *testing.T) (string, string) {
 	t.Helper()
 
 	req := testcontainers.ContainerRequest{
 		Image:        falkorDBImage,
 		ExposedPorts: []string{"6379/tcp"},
-		WaitingFor:   wait.ForLog("Ready to accept connections").WithStartupTimeout(120 * time.Second),
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort("6379/tcp"),
+			wait.ForLog("Ready to accept connections"),
+		).WithStartupTimeoutDefault(2 * time.Minute).WithDeadline(2 * time.Minute),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
+		Logger:           tclog.TestLogger(t),
 	})
+	testcontainers.CleanupContainer(t, container)
 	if err != nil {
 		t.Fatalf("failed to start FalkorDB container: %s", err)
 	}
 
-	cleanup := func() {
-		if err := container.Terminate(context.Background()); err != nil {
-			t.Fatalf("failed to terminate container: %s", err)
-		}
-	}
-
 	host, err := container.Host(ctx)
 	if err != nil {
-		cleanup()
 		t.Fatalf("failed to get container host: %s", err)
 	}
 
-	port, err := container.MappedPort(ctx, "6379")
+	port, err := container.MappedPort(ctx, "6379/tcp")
 	if err != nil {
-		cleanup()
-		t.Fatalf("failed to get container mapped port 6379: %s", err)
+		t.Fatalf("failed to get container mapped port 6379/tcp: %s", err)
 	}
 
-	return host, port.Port(), cleanup
+	return host, port.Port()
 }
 
 // getFalkorDBVars retrieves the FalkorDB connection details from environment
@@ -111,17 +298,28 @@ func getFalkorDBVars(t *testing.T) map[string]any {
 	}
 }
 
-// newFalkorDBClient connects directly to the instance for test setup and
-// teardown.
-func newFalkorDBClient(t *testing.T) *falkordb.FalkorDB {
-	client, err := falkordb.FalkorDBNew(&falkordb.ConnectionOption{
+func initFalkorDBConnection() (*falkordb.FalkorDB, error) {
+	return falkordb.FalkorDBNew(&falkordb.ConnectionOption{
 		Addr:     net.JoinHostPort(FalkorDBHost, FalkorDBPort),
 		Username: FalkorDBUsername,
 		Password: FalkorDBPassword,
 	})
+}
+
+// newFalkorDBClient connects directly to the instance for test setup and
+// teardown, registering connection closure via t.Cleanup so it closes after any
+// subsequently registered resource cleanups (t.Cleanup is LIFO).
+func newFalkorDBClient(t *testing.T) *falkordb.FalkorDB {
+	t.Helper()
+	client, err := initFalkorDBConnection()
 	if err != nil {
 		t.Fatalf("failed to create falkordb client: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := client.Conn.Close(); err != nil {
+			t.Errorf("failed to close falkordb client: %v", err)
+		}
+	})
 	return client
 }
 
@@ -130,7 +328,7 @@ func newFalkorDBClient(t *testing.T) *falkordb.FalkorDB {
 // when pointing the suite at an external instance. The package-level
 // connection variables are restored on cleanup so each test gets its own
 // container.
-func setupFalkorDBInstance(ctx context.Context, t *testing.T) {
+func setupFalkorDBInstance(ctx context.Context, t *testing.T, uniqueID string) {
 	t.Helper()
 	origHost, origPort, origGraph := FalkorDBHost, FalkorDBPort, FalkorDBGraph
 	t.Cleanup(func() {
@@ -138,21 +336,20 @@ func setupFalkorDBInstance(ctx context.Context, t *testing.T) {
 	})
 
 	if FalkorDBHost == "" {
-		host, port, cleanup := setupFalkorDBContainer(ctx, t)
-		t.Cleanup(cleanup)
+		host, port := setupFalkorDBContainer(ctx, t)
 		FalkorDBHost, FalkorDBPort = host, port
-		FalkorDBGraph = "toolbox_test_graph"
+		FalkorDBGraph = newTestGraphName("default", uniqueID, time.Now())
 	}
 }
 
 // getFalkorDBToolsConfig returns the tools file shared by the FalkorDB
 // integration tests.
-func getFalkorDBToolsConfig(t *testing.T) map[string]any {
+func getFalkorDBToolsConfig(t *testing.T, emptyGraphName string) map[string]any {
 	t.Helper()
 	sourceConfig := getFalkorDBVars(t)
 
 	emptyGraphSourceConfig := getFalkorDBVars(t)
-	emptyGraphSourceConfig["graph"] = "toolbox_nonexistent_graph"
+	emptyGraphSourceConfig["graph"] = emptyGraphName
 
 	return map[string]any{
 		"sources": map[string]any{
@@ -221,21 +418,25 @@ func getFalkorDBToolsConfig(t *testing.T) map[string]any {
 // schema extraction, and graph listing.
 func TestFalkorDBToolEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
-	setupFalkorDBInstance(ctx, t)
+	uniqueID := newFalkorDBUniqueID()
+	setupFalkorDBInstance(ctx, t, uniqueID)
+	client := newFalkorDBClient(t)
+	emptyGraphName := newTestGraphName("empty", uniqueID, time.Now())
 
 	args := []string{"--enable-api"}
-	toolsFile := getFalkorDBToolsConfig(t)
+	toolsFile := getFalkorDBToolsConfig(t, emptyGraphName)
 
 	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
+	t.Cleanup(cmd.Close)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
 	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
 	if err != nil {
 		t.Logf("toolbox command logs: \n%s", out)
@@ -337,7 +538,7 @@ func TestFalkorDBToolEndpoints(t *testing.T) {
 	}
 
 	// Test tool `invoke` endpoints to verify their functionality.
-	for _, tc := range getFalkorDBInvokeTestCases() {
+	for _, tc := range getFalkorDBInvokeTestCases(ctx, client, uniqueID, emptyGraphName) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.prepareData != nil {
 				tc.prepareData(t)
@@ -395,8 +596,15 @@ type falkorDBInvokeTestCase struct {
 }
 
 // getFalkorDBInvokeTestCases returns the tool invocations exercised by both the
-// REST and MCP FalkorDB integration tests.
-func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
+// REST and MCP FalkorDB integration tests, reusing a single shared client pool.
+func getFalkorDBInvokeTestCases(ctx context.Context, client *falkordb.FalkorDB, uniqueID, emptyGraphName string) []falkorDBInvokeTestCase {
+	writeLabel := "WriteTest_" + uniqueID
+	readOnlyLabel := "ReadOnlyViolation_" + uniqueID
+	overrideGraph := newTestGraphName("override", uniqueID, time.Now())
+	personLabel := "Person_" + uniqueID
+	movieLabel := "Movie_" + uniqueID
+	actedInRel := "ACTED_IN_" + uniqueID
+
 	return []falkorDBInvokeTestCase{
 		{
 			name:     "invoke my-simple-cypher-tool",
@@ -419,12 +627,9 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 		{
 			name:     "invoke my-simple-execute-cypher-tool with write query",
 			toolName: "my-simple-execute-cypher-tool",
-			args:     map[string]any{"cypher": "CREATE (:WriteTest {x: 1})"},
+			args:     map[string]any{"cypher": fmt.Sprintf("CREATE (:%s {x: 1})", writeLabel)},
 			prepareData: func(t *testing.T) {
-				client := newFalkorDBClient(t)
-				t.Cleanup(func() {
-					_, _ = client.SelectGraph(FalkorDBGraph).Query("MATCH (n:WriteTest) DELETE n", nil, nil)
-				})
+				registerFalkorDBLabelCleanup(t, client, FalkorDBGraph, writeLabel)
 			},
 			validateFunc: func(t *testing.T, body string) {
 				var result map[string]any
@@ -461,25 +666,24 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 		{
 			name:           "invoke readonly tool with write query",
 			toolName:       "my-readonly-execute-cypher-tool",
-			args:           map[string]any{"cypher": "CREATE (:ReadOnlyViolation)"},
+			args:           map[string]any{"cypher": fmt.Sprintf("CREATE (:%s)", readOnlyLabel)},
 			wantContentErr: "read-only",
+			prepareData: func(t *testing.T) {
+				registerFalkorDBLabelCleanup(t, client, FalkorDBGraph, readOnlyLabel)
+			},
 		},
 		{
 			name:     "invoke graph override tool against another graph",
 			toolName: "my-graph-override-execute-cypher-tool",
-			args:     map[string]any{"cypher": "CREATE (:OverrideNode {x: 1}) RETURN 1 as ok", "graph": "toolbox_override_test"},
+			args:     map[string]any{"cypher": "CREATE (:OverrideNode {x: 1}) RETURN 1 as ok", "graph": overrideGraph},
 			prepareData: func(t *testing.T) {
-				client := newFalkorDBClient(t)
-				t.Cleanup(func() {
-					_ = client.SelectGraph("toolbox_override_test").Delete()
-				})
+				registerFalkorDBGraphCleanup(t, client, overrideGraph)
 			},
 			validateFunc: func(t *testing.T, body string) {
 				if !strings.Contains(body, "\"ok\":1") {
 					t.Errorf("expected create to succeed on override graph, got: %s", body)
 				}
-				client := newFalkorDBClient(t)
-				result, err := client.SelectGraph("toolbox_override_test").ROQuery("MATCH (n:OverrideNode) RETURN count(n) as c", nil, nil)
+				result, err := client.SelectGraph(overrideGraph).ROQuery("MATCH (n:OverrideNode) RETURN count(n) as c", nil, nil)
 				if err != nil {
 					t.Fatalf("failed to verify override graph: %v", err)
 				}
@@ -496,8 +700,7 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 			toolName: "my-list-graphs-tool",
 			args:     map[string]any{},
 			prepareData: func(t *testing.T) {
-				client := newFalkorDBClient(t)
-				if _, err := client.SelectGraph(FalkorDBGraph).Query("RETURN 1", nil, nil); err != nil {
+				if err := client.Conn.Do(ctx, "GRAPH.QUERY", FalkorDBGraph, "RETURN 1", "--compact").Err(); err != nil {
 					t.Fatalf("failed to touch test graph: %v", err)
 				}
 			},
@@ -526,6 +729,9 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 			name:     "invoke schema tool on nonexistent graph",
 			toolName: "my-empty-graph-schema-tool",
 			args:     map[string]any{},
+			prepareData: func(t *testing.T) {
+				registerFalkorDBGraphCleanup(t, client, emptyGraphName)
+			},
 			validateFunc: func(t *testing.T, body string) {
 				var schema map[string]any
 				if err := json.Unmarshal([]byte(body), &schema); err != nil {
@@ -535,8 +741,8 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 				if !ok {
 					t.Fatalf("expected graphInfo in empty schema response, got: %s", body)
 				}
-				if graphInfo["name"] != "toolbox_nonexistent_graph" {
-					t.Errorf("expected graphInfo.name 'toolbox_nonexistent_graph', got %v", graphInfo["name"])
+				if graphInfo["name"] != emptyGraphName {
+					t.Errorf("expected graphInfo.name %q, got %v", emptyGraphName, graphInfo["name"])
 				}
 				if nodeCount, ok := graphInfo["nodeCount"].(float64); !ok || nodeCount != 0 {
 					t.Errorf("expected nodeCount 0 for empty graph, got %v", graphInfo["nodeCount"])
@@ -548,18 +754,22 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 			toolName: "my-schema-tool",
 			args:     map[string]any{},
 			prepareData: func(t *testing.T) {
-				client := newFalkorDBClient(t)
-				graph := client.SelectGraph(FalkorDBGraph)
+				registerFalkorDBSchemaCleanup(t, client, FalkorDBGraph, movieLabel, "title", personLabel, movieLabel)
 
-				t.Cleanup(func() {
-					_, _ = graph.Query("MATCH (n) DETACH DELETE n", nil, nil)
-					_, _ = graph.Query("DROP INDEX ON :Movie(title)", nil, nil)
-				})
+				seedCypher := fmt.Sprintf(
+					"MERGE (p:%s {name: 'Alice'}) MERGE (m:%s {title: 'The Matrix'}) MERGE (p)-[:%s {role: 'Neo'}]->(m)",
+					personLabel, movieLabel, actedInRel,
+				)
+				indexCypher := fmt.Sprintf("CREATE INDEX FOR (m:%s) ON (m.title)", movieLabel)
 
-				if _, err := graph.Query("MERGE (p:Person {name: 'Alice'}) MERGE (m:Movie {title: 'The Matrix'}) MERGE (p)-[:ACTED_IN {role: 'Neo'}]->(m)", nil, nil); err != nil {
+				pipe := client.Conn.Pipeline()
+				seedCmd := pipe.Do(ctx, "GRAPH.QUERY", FalkorDBGraph, seedCypher, "--compact")
+				indexCmd := pipe.Do(ctx, "GRAPH.QUERY", FalkorDBGraph, indexCypher, "--compact")
+				_, _ = pipe.Exec(ctx)
+				if err := seedCmd.Err(); err != nil {
 					t.Fatalf("failed to seed data: %v", err)
 				}
-				if _, err := graph.Query("CREATE INDEX FOR (m:Movie) ON (m.title)", nil, nil); err != nil && !strings.Contains(err.Error(), "already indexed") {
+				if err := indexCmd.Err(); err != nil && !strings.Contains(err.Error(), "already indexed") {
 					t.Fatalf("failed to create index: %v", err)
 				}
 			},
@@ -597,7 +807,7 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 
 				var personFound, movieFound bool
 				for _, label := range schema.NodeLabels {
-					if label.Name == "Person" {
+					if label.Name == personLabel {
 						personFound = true
 						propFound := false
 						for _, property := range label.Properties {
@@ -607,29 +817,29 @@ func getFalkorDBInvokeTestCases() []falkorDBInvokeTestCase {
 							}
 						}
 						if !propFound {
-							t.Errorf("expected Person label to have 'name' property")
+							t.Errorf("expected %s label to have 'name' property", personLabel)
 						}
 					}
-					if label.Name == "Movie" {
+					if label.Name == movieLabel {
 						movieFound = true
 					}
 				}
 				if !personFound {
-					t.Error("expected to find 'Person' in nodeLabels")
+					t.Errorf("expected to find %q in nodeLabels", personLabel)
 				}
 				if !movieFound {
-					t.Error("expected to find 'Movie' in nodeLabels")
+					t.Errorf("expected to find %q in nodeLabels", movieLabel)
 				}
 
 				relFound := false
 				for _, relationship := range schema.Relationships {
-					if relationship.Type == "ACTED_IN" && relationship.StartNode == "Person" && relationship.EndNode == "Movie" {
+					if relationship.Type == actedInRel && relationship.StartNode == personLabel && relationship.EndNode == movieLabel {
 						relFound = true
 						break
 					}
 				}
 				if !relFound {
-					t.Errorf("expected to find relationship '(:Person)-[:ACTED_IN]->(:Movie)', got: %v", schema.Relationships)
+					t.Errorf("expected to find relationship '(:%s)-[:%s]->(:%s)', got: %v", personLabel, actedInRel, movieLabel, schema.Relationships)
 				}
 
 				if len(schema.Indexes) == 0 {
