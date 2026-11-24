@@ -266,14 +266,26 @@ func TestLoadRestrictionsFromEnv(t *testing.T) {
 		{
 			desc:                "both set",
 			envAllowedSources:   "cloud-sql-postgres, spanner",
-			envDisallowedTools:  "wait,postgres-execute-sql",
-			wantAllowedSources:  []string{"cloud-sql-postgres", " spanner"},
+			envDisallowedTools:  "wait, postgres-execute-sql",
+			wantAllowedSources:  []string{"cloud-sql-postgres", "spanner"},
 			wantDisallowedTools: []string{"wait", "postgres-execute-sql"},
 		},
 		{
 			desc:               "whitespace only means no restriction",
 			envAllowedSources:  "   ",
 			envDisallowedTools: "\t",
+		},
+		{
+			desc:               "commas and whitespace only means no restriction",
+			envAllowedSources:  " , ",
+			envDisallowedTools: " , , ",
+		},
+		{
+			desc:                "empty entries are filtered and whitespace is trimmed",
+			envAllowedSources:   ",spanner,,",
+			envDisallowedTools:  ", wait , ,postgres-execute-sql,",
+			wantAllowedSources:  []string{"spanner"},
+			wantDisallowedTools: []string{"wait", "postgres-execute-sql"},
 		},
 	}
 	for _, tc := range tcs {

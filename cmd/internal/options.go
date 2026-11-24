@@ -385,10 +385,22 @@ func (opts *ToolboxOptions) checkVersion(ctx context.Context) {
 // loadRestrictionsFromEnv reads the source and tool type restrictions from
 // TOOLBOX_ALLOWED_SOURCES and TOOLBOX_DISALLOWED_TOOLS into opts.Cfg.
 func (opts *ToolboxOptions) loadRestrictionsFromEnv() {
-	if v := strings.TrimSpace(os.Getenv(allowedSourcesEnvVar)); v != "" {
-		opts.Cfg.AllowedSources = strings.Split(v, ",")
+	if items := parseCommaSeparatedList(os.Getenv(allowedSourcesEnvVar)); len(items) > 0 {
+		opts.Cfg.AllowedSources = items
 	}
-	if v := strings.TrimSpace(os.Getenv(disallowedToolsEnvVar)); v != "" {
-		opts.Cfg.DisallowedTools = strings.Split(v, ",")
+	if items := parseCommaSeparatedList(os.Getenv(disallowedToolsEnvVar)); len(items) > 0 {
+		opts.Cfg.DisallowedTools = items
 	}
+}
+
+// parseCommaSeparatedList splits a comma-separated string, trims surrounding
+// whitespace from each entry, and drops empty entries.
+func parseCommaSeparatedList(v string) []string {
+	var items []string
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			items = append(items, s)
+		}
+	}
+	return items
 }

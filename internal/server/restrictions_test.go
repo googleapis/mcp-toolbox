@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/sources"
-	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
@@ -57,21 +56,6 @@ func (c failingToolConfig) Initialize(context.Context) (tools.Tool, error) {
 	return nil, errors.New("initialize failed")
 }
 
-// newTestContext returns a context with a logger and telemetry
-// instrumentation, as required by InitializeConfigs.
-func newTestContext(t *testing.T) context.Context {
-	t.Helper()
-	ctx, err := testutils.ContextWithNewLogger()
-	if err != nil {
-		t.Fatalf("error setting up logger: %s", err)
-	}
-	instrumentation, err := telemetry.CreateTelemetryInstrumentation("0.0.0")
-	if err != nil {
-		t.Fatalf("error setting up instrumentation: %s", err)
-	}
-	return util.WithInstrumentation(ctx, instrumentation)
-}
-
 // errLines joins lines with newlines to build a multi-line error message.
 func errLines(lines ...string) string {
 	return strings.Join(lines, "\n")
@@ -86,7 +70,7 @@ func errString(err error) string {
 }
 
 func TestCheckRestrictions(t *testing.T) {
-	ctx := newTestContext(t)
+	ctx := testutils.ContextWithLoggerAndInstrumentation(t)
 	l, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		t.Fatalf("error getting logger: %s", err)
@@ -117,6 +101,11 @@ func TestCheckRestrictions(t *testing.T) {
 	}{
 		{
 			name: "no restrictions",
+		},
+		{
+			name:            "empty and whitespace-only entries mean no restriction",
+			allowedSources:  []string{"", "   "},
+			disallowedTools: []string{"", "   "},
 		},
 		{
 			name:           "allowlisted source types pass",
@@ -214,9 +203,7 @@ func TestCheckRestrictions(t *testing.T) {
 			wantErr: errLines(
 				"config contains disallowed sources or tools:",
 				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
-				"    - bq (type: bigquery), used by tools:",
-				"        - bq-query",
-				"        - bq-schema",
+				"    - bq (type: bigquery), used by tools: bq-query, bq-schema",
 				"    - local (type: sqlite)",
 			),
 		},
@@ -233,12 +220,7 @@ func TestCheckRestrictions(t *testing.T) {
 			wantErr: errLines(
 				"config contains disallowed sources or tools:",
 				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
-				"    - bq (type: bigquery), used by tools:",
-				"        - t1",
-				"        - t2",
-				"        - t3",
-				"        - t4",
-				"        - t5",
+				"    - bq (type: bigquery), used by tools: t1, t2, t3, t4, t5",
 			),
 		},
 		{
@@ -252,8 +234,7 @@ func TestCheckRestrictions(t *testing.T) {
 			wantErr: errLines(
 				"config contains disallowed sources or tools:",
 				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
-				"    - bq (type: bigquery), used by tools:",
-				"        - bq-query",
+				"    - bq (type: bigquery), used by tools: bq-query",
 				"  tools disallowed by TOOLBOX_DISALLOWED_TOOLS:",
 				"    - bq-exec (type: bigquery-execute-sql)",
 			),
@@ -268,8 +249,7 @@ func TestCheckRestrictions(t *testing.T) {
 			wantErr: errLines(
 				"config contains disallowed sources or tools:",
 				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
-				"    - bq (type: bigquery), used by tools:",
-				"        - bq-query",
+				"    - bq (type: bigquery), used by tools: bq-query",
 			),
 		},
 	}
@@ -297,7 +277,7 @@ func TestCheckRestrictions(t *testing.T) {
 }
 
 func TestCheckRestrictionsInitializesToolsOnlyOnSourceRejection(t *testing.T) {
-	ctx := newTestContext(t)
+	ctx := testutils.ContextWithLoggerAndInstrumentation(t)
 	l, err := util.LoggerFromContext(ctx)
 	if err != nil {
 		t.Fatalf("error getting logger: %s", err)
@@ -338,12 +318,14 @@ func TestCheckRestrictionsInitializesToolsOnlyOnSourceRejection(t *testing.T) {
 }
 
 func TestInitializeConfigsRestrictions(t *testing.T) {
-	ctx := newTestContext(t)
+	ctx := testutils.ContextWithLoggerAndInstrumentation(t)
 
 	tests := []struct {
 		name            string
 		allowedSources  []string
 		disallowedTools []string
+		sourceTypes     map[string]string // defaults to {"my-source": "mock-source"}
+		tools           ToolConfigs       // defaults to {"my-tool": ...}
 		wantErr         string
 		wantInitialized bool
 	}{
@@ -359,8 +341,24 @@ func TestInitializeConfigsRestrictions(t *testing.T) {
 			wantErr: errLines(
 				"config contains disallowed sources or tools:",
 				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
-				"    - my-source (type: mock-source), used by tools:",
-				"        - my-tool",
+				"    - my-source (type: mock-source), used by tools: my-tool",
+			),
+		},
+		{
+			name:           "tool using disallowed source fails before any source initializes",
+			allowedSources: []string{"mock-source"},
+			sourceTypes: map[string]string{
+				"allowed-source":    "mock-source",
+				"disallowed-source": "other-source",
+			},
+			tools: ToolConfigs{
+				"allowed-tool":    testutils.NewMockTool("allowed-tool", "mock tool", "allowed-source", nil, false, false).ToConfig(),
+				"disallowed-tool": testutils.NewMockTool("disallowed-tool", "mock tool", "disallowed-source", nil, false, false).ToConfig(),
+			},
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - disallowed-source (type: other-source), used by tools: disallowed-tool",
 			),
 		},
 		{
@@ -376,16 +374,26 @@ func TestInitializeConfigsRestrictions(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var initialized bool
+			sourceTypes := tc.sourceTypes
+			if sourceTypes == nil {
+				sourceTypes = map[string]string{"my-source": "mock-source"}
+			}
+			sourceConfigs := make(SourceConfigs, len(sourceTypes))
+			for name, typ := range sourceTypes {
+				sourceConfigs[name] = recordingSourceConfig{sourceType: typ, initialized: &initialized}
+			}
+			toolConfigs := tc.tools
+			if toolConfigs == nil {
+				toolConfigs = ToolConfigs{
+					"my-tool": testutils.NewMockTool("my-tool", "mock tool", "my-source", nil, false, false).ToConfig(),
+				}
+			}
 			cfg := ServerConfig{
 				Version:         "0.0.0",
 				AllowedSources:  tc.allowedSources,
 				DisallowedTools: tc.disallowedTools,
-				SourceConfigs: SourceConfigs{
-					"my-source": recordingSourceConfig{sourceType: "mock-source", initialized: &initialized},
-				},
-				ToolConfigs: ToolConfigs{
-					"my-tool": testutils.NewMockTool("my-tool", "mock tool", "my-source", nil, false, false).ToConfig(),
-				},
+				SourceConfigs:   sourceConfigs,
+				ToolConfigs:     toolConfigs,
 			}
 
 			_, _, _, _, _, _, _, _, err := InitializeConfigs(ctx, cfg)
@@ -400,12 +408,14 @@ func TestInitializeConfigsRestrictions(t *testing.T) {
 }
 
 func TestInitializeOfflineConfigsRestrictions(t *testing.T) {
-	ctx := newTestContext(t)
+	ctx := testutils.ContextWithLoggerAndInstrumentation(t)
 
 	tests := []struct {
 		name            string
 		allowedSources  []string
 		disallowedTools []string
+		sources         SourceConfigs // defaults to {"my-source": mock-source}
+		tools           ToolConfigs   // defaults to {"my-tool": ...}
 		wantErr         string
 	}{
 		{
@@ -419,8 +429,24 @@ func TestInitializeOfflineConfigsRestrictions(t *testing.T) {
 			wantErr: errLines(
 				"config contains disallowed sources or tools:",
 				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
-				"    - my-source (type: mock-source), used by tools:",
-				"        - my-tool",
+				"    - my-source (type: mock-source), used by tools: my-tool",
+			),
+		},
+		{
+			name:           "tool using disallowed source fails",
+			allowedSources: []string{"mock-source"},
+			sources: SourceConfigs{
+				"allowed-source":    testutils.MockSourceConfig{Name: "allowed-source", Type: "mock-source"},
+				"disallowed-source": testutils.MockSourceConfig{Name: "disallowed-source", Type: "other-source"},
+			},
+			tools: ToolConfigs{
+				"allowed-tool":    testutils.NewMockTool("allowed-tool", "mock tool", "allowed-source", nil, false, false).ToConfig(),
+				"disallowed-tool": testutils.NewMockTool("disallowed-tool", "mock tool", "disallowed-source", nil, false, false).ToConfig(),
+			},
+			wantErr: errLines(
+				"config contains disallowed sources or tools:",
+				"  sources not allowed by TOOLBOX_ALLOWED_SOURCES:",
+				"    - disallowed-source (type: other-source), used by tools: disallowed-tool",
 			),
 		},
 		{
@@ -435,16 +461,24 @@ func TestInitializeOfflineConfigsRestrictions(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			sourceConfigs := tc.sources
+			if sourceConfigs == nil {
+				sourceConfigs = SourceConfigs{
+					"my-source": testutils.MockSourceConfig{Name: "my-source", Type: "mock-source"},
+				}
+			}
+			toolConfigs := tc.tools
+			if toolConfigs == nil {
+				toolConfigs = ToolConfigs{
+					"my-tool": testutils.NewMockTool("my-tool", "mock tool", "my-source", nil, false, false).ToConfig(),
+				}
+			}
 			cfg := ServerConfig{
 				Version:         "0.0.0",
 				AllowedSources:  tc.allowedSources,
 				DisallowedTools: tc.disallowedTools,
-				SourceConfigs: SourceConfigs{
-					"my-source": testutils.MockSourceConfig{Name: "my-source", Type: "mock-source"},
-				},
-				ToolConfigs: ToolConfigs{
-					"my-tool": testutils.NewMockTool("my-tool", "mock tool", "my-source", nil, false, false).ToConfig(),
-				},
+				SourceConfigs:   sourceConfigs,
+				ToolConfigs:     toolConfigs,
 			}
 
 			_, _, err := InitializeOfflineConfigs(ctx, cfg)

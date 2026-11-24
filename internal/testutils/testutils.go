@@ -28,6 +28,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
+	"github.com/googleapis/mcp-toolbox/internal/telemetry"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -53,6 +54,21 @@ func ContextWithNewLogger() (context.Context, error) {
 		return nil, fmt.Errorf("unable to create logger: %s", err)
 	}
 	return util.WithLogger(ctx, logger), nil
+}
+
+// ContextWithLoggerAndInstrumentation returns a context with a new logger and
+// telemetry instrumentation initialized with MockVersionString.
+func ContextWithLoggerAndInstrumentation(t *testing.T) context.Context {
+	t.Helper()
+	ctx, err := ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("error setting up logger: %s", err)
+	}
+	instrumentation, err := telemetry.CreateTelemetryInstrumentation(MockVersionString)
+	if err != nil {
+		t.Fatalf("error setting up instrumentation: %s", err)
+	}
+	return util.WithInstrumentation(ctx, instrumentation)
 }
 
 // ContextWithUserAgent creates a new context with a specified user agent string.

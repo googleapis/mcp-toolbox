@@ -58,18 +58,18 @@ var sourcePresets = map[string][]string{
 func checkRestrictions(ctx context.Context, cfg ServerConfig, l log.Logger) error {
 	// rejectedSources maps each rejected source name to its type.
 	rejectedSources := make(map[string]string)
-	if len(cfg.AllowedSources) > 0 {
-		allowed := make(map[string]struct{}, len(cfg.AllowedSources))
-		for _, s := range cfg.AllowedSources {
-			s = strings.ToLower(strings.TrimSpace(s))
-			if preset, ok := sourcePresets[s]; ok {
-				for _, st := range preset {
-					allowed[st] = struct{}{}
-				}
-			} else if s != "" {
-				allowed[s] = struct{}{}
+	allowed := make(map[string]struct{}, len(cfg.AllowedSources))
+	for _, s := range cfg.AllowedSources {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if preset, ok := sourcePresets[s]; ok {
+			for _, st := range preset {
+				allowed[st] = struct{}{}
 			}
+		} else if s != "" {
+			allowed[s] = struct{}{}
 		}
+	}
+	if len(allowed) > 0 {
 		l.InfoContext(ctx, fmt.Sprintf("Restricting source types to: %s", strings.Join(slices.Sorted(maps.Keys(allowed)), ", ")))
 
 		for name, sc := range cfg.SourceConfigs {
@@ -128,10 +128,7 @@ func checkRestrictions(ctx context.Context, cfg ServerConfig, l log.Logger) erro
 		for _, name := range slices.Sorted(maps.Keys(rejectedSources)) {
 			fmt.Fprintf(&b, "\n    - %s (type: %s)", name, rejectedSources[name])
 			if toolNames := usedBy[name]; len(toolNames) > 0 {
-				b.WriteString(", used by tools:")
-				for _, tool := range toolNames {
-					fmt.Fprintf(&b, "\n        - %s", tool)
-				}
+				fmt.Fprintf(&b, ", used by tools: %s", strings.Join(toolNames, ", "))
 			}
 		}
 	}

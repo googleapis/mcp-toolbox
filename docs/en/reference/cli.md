@@ -193,8 +193,7 @@ check runs before any source opens a connection.
   ```
   config contains disallowed sources or tools:
     sources not allowed by TOOLBOX_ALLOWED_SOURCES:
-      - my-pg (type: postgres), used by tools:
-          - list-tables
+      - my-pg (type: postgres), used by tools: list-tables
   ```
 
 
