@@ -1493,6 +1493,70 @@ func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user
 	}
 }
 
+// RunPostgresListTablesIndexColumnsTest checks that index_columns in the
+// detailed list_tables output lists only the key columns of an index, not the
+// non-key columns added with INCLUDE.
+func RunPostgresListTablesIndexColumnsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	tableName := "incl_idx_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	indexName := tableName + "_cust_idx"
+	stmts := []string{
+		fmt.Sprintf("CREATE TABLE public.%s (id INT PRIMARY KEY, customer_id INT, status TEXT, total NUMERIC)", tableName),
+		fmt.Sprintf("CREATE INDEX %s ON public.%s (customer_id) INCLUDE (status, total)", indexName, tableName),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("unable to execute %q: %v", stmt, err)
+		}
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS public.%s", tableName)); err != nil {
+			t.Errorf("unable to drop table %s: %v", tableName, err)
+		}
+	})
+
+	api := "http://127.0.0.1:5000/api/tool/list_tables/invoke"
+	reqBytes, _ := json.Marshal(map[string]any{"table_names": tableName})
+	resp, respBytes := RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	var bodyWrapper struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(respBytes, &bodyWrapper); err != nil {
+		t.Fatalf("error parsing response body: %s, body: %s", err, string(respBytes))
+	}
+	var got []struct {
+		ObjectDetails struct {
+			Indexes []struct {
+				IndexName    string   `json:"index_name"`
+				IndexColumns []string `json:"index_columns"`
+			} `json:"indexes"`
+		} `json:"object_details"`
+	}
+	if err := json.Unmarshal([]byte(bodyWrapper.Result), &got); err != nil {
+		t.Fatalf("failed to unmarshal result: %v, result: %s", err, bodyWrapper.Result)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 table, got %d: %s", len(got), bodyWrapper.Result)
+	}
+
+	found := false
+	for _, idx := range got[0].ObjectDetails.Indexes {
+		if idx.IndexName != indexName {
+			continue
+		}
+		found = true
+		if want := []string{"customer_id"}; !reflect.DeepEqual(idx.IndexColumns, want) {
+			t.Errorf("unexpected index_columns for %s: got %v, want %v", indexName, idx.IndexColumns, want)
+		}
+	}
+	if !found {
+		t.Errorf("index %s not found in list_tables output: %s", indexName, bodyWrapper.Result)
+	}
+}
+
 func setUpPostgresViews(t *testing.T, ctx context.Context, pool *pgxpool.Pool, viewName string) func() {
 	createView := fmt.Sprintf("CREATE VIEW %s AS SELECT 1 AS col", viewName)
 	_, err := pool.Exec(ctx, createView)
