@@ -242,11 +242,16 @@ func SetupPostgresVectorTable(t *testing.T, ctx context.Context, pool *pgxpool.P
 		t.Fatalf("failed to create table %s: %v", tableName, err)
 	}
 
-	return tableName, func(t *testing.T) {
-		if _, err := pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
+	// Use a bounded uncanceled context: the caller's ctx may have expired by the
+	// time teardown runs, and vector_test_<uuid> does not match uniqueID sweeps.
+	teardown := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
 			t.Errorf("failed to drop table %s: %v", tableName, err)
 		}
-	}
+	})
+	return tableName, func(*testing.T) { teardown() }
 }
 
 func GetPostgresVectorSearchStmts(vectorTableName string) (string, string) {

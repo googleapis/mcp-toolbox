@@ -86,22 +86,22 @@ func getAlloyDBDialOpts(ipType string) ([]alloydbconn.DialOption, error) {
 }
 
 // Copied over from  alloydb_pg.go
-func initAlloyDBPgConnectionPool(project, region, cluster, instance, ipType, user, pass, dbname string) (*pgxpool.Pool, error) {
+func initAlloyDBPgConnectionPool(project, region, cluster, instance, ipType, user, pass, dbname string) (*pgxpool.Pool, func(), error) {
 	// Configure the driver to connect to the database
 	dsn := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=disable", user, pass, dbname)
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse connection uri: %w", err)
+		return nil, nil, fmt.Errorf("unable to parse connection uri: %w", err)
 	}
 
 	// Create a new dialer with options
 	dialOpts, err := getAlloyDBDialOpts(ipType)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	d, err := alloydbconn.NewDialer(context.Background(), alloydbconn.WithDefaultDialOptions(dialOpts...))
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse connection uri: %w", err)
+		return nil, nil, fmt.Errorf("unable to parse connection uri: %w", err)
 	}
 
 	// Tell the driver to use the AlloyDB Go Connector to create connections
@@ -113,9 +113,14 @@ func initAlloyDBPgConnectionPool(project, region, cluster, instance, ipType, use
 	// Interact with the driver directly as you normally would
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
-		return nil, err
+		_ = d.Close()
+		return nil, nil, err
 	}
-	return pool, nil
+	closeAll := func() {
+		pool.Close()
+		_ = d.Close()
+	}
+	return pool, closeAll, nil
 }
 
 func TestAlloyDBPgToolEndpoints(t *testing.T) {
@@ -125,10 +130,12 @@ func TestAlloyDBPgToolEndpoints(t *testing.T) {
 
 	args := []string{"--enable-api"}
 
-	pool, err := initAlloyDBPgConnectionPool(AlloyDBPostgresProject, AlloyDBPostgresRegion, AlloyDBPostgresCluster, AlloyDBPostgresInstance, "public", AlloyDBPostgresUser, AlloyDBPostgresPass, AlloyDBPostgresDatabase)
+	pool, closePool, err := initAlloyDBPgConnectionPool(AlloyDBPostgresProject, AlloyDBPostgresRegion, AlloyDBPostgresCluster, AlloyDBPostgresInstance, "public", AlloyDBPostgresUser, AlloyDBPostgresPass, AlloyDBPostgresDatabase)
 	if err != nil {
 		t.Fatalf("unable to create AlloyDB connection pool: %s", err)
 	}
+	// Registered first so LIFO closes the pool and dialer after all DB teardowns.
+	t.Cleanup(closePool)
 
 	// Generate a unique ID
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -142,6 +149,8 @@ func TestAlloyDBPgToolEndpoints(t *testing.T) {
 	tableNameParam := "param_table_" + uniqueID
 	tableNameAuth := "auth_table_" + uniqueID
 	tableNameTemplateParam := "template_param_table_" + uniqueID
+	// Per-run name so concurrent runs do not collide; matches the cleanup sweep.
+	tableNameExecSql := "exec_sql_table_" + uniqueID
 
 	// set up data for param tool
 	createParamTableStmt, insertParamTableStmt, paramToolStmt, idParamToolStmt, nameParamToolStmt, arrayToolStmt, paramTestParams := tests.GetPostgresSQLParamToolInfo(tableNameParam)
@@ -184,13 +193,14 @@ func TestAlloyDBPgToolEndpoints(t *testing.T) {
 	}
 
 	// Get configs for tests
-	select1Want, failInvocationWant, createTableStatement, mcpSelect1Want := tests.GetPostgresWants()
+	select1Want, failInvocationWant, _, mcpSelect1Want := tests.GetPostgresWants()
+	createTableStatement := tests.GetPostgresExecuteSqlCreateTableStatement(tableNameExecSql)
 
 	// Run tests
 	tests.RunToolGetTest(t)
 	tests.RunToolInvokeTest(t, select1Want)
 	tests.RunMCPToolCallMethod(t, failInvocationWant, mcpSelect1Want)
-	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want)
+	tests.RunExecuteSqlToolInvokeTest(t, createTableStatement, select1Want, tests.WithExecuteSqlTableName(tableNameExecSql))
 	tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
 
 	// Run Postgres prebuilt tool tests
@@ -362,6 +372,22 @@ func TestAlloyDBPg_ReadOnlyVulnerabilityBlock(t *testing.T) {
 
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
 	tableName := "vulnerability_test_" + uniqueID
+
+	// If read-only enforcement ever regresses, vulnerable_write_tool would create
+	// tableName on the shared instance. Drop it via a separate read-write pool.
+	t.Cleanup(func() {
+		pool, closePool, err := initAlloyDBPgConnectionPool(AlloyDBPostgresProject, AlloyDBPostgresRegion, AlloyDBPostgresCluster, AlloyDBPostgresInstance, "public", AlloyDBPostgresUser, AlloyDBPostgresPass, AlloyDBPostgresDatabase)
+		if err != nil {
+			t.Errorf("unable to create AlloyDB connection pool for cleanup: %s", err)
+			return
+		}
+		defer closePool()
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cleanupCancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName)); err != nil {
+			t.Errorf("unable to drop %s: %s", tableName, err)
+		}
+	})
 
 	toolsFile := map[string]any{
 		"sources": map[string]any{

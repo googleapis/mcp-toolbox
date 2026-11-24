@@ -181,6 +181,7 @@ type ExecuteSqlTestConfig struct {
 	createWant       string
 	dropWant         string
 	selectEmptyWant  string
+	tableName        string
 	isMCP            bool
 }
 
@@ -219,6 +220,16 @@ func WithExecuteDropWant(s string) ExecuteSqlOption {
 func WithExecuteSelectEmptyWant(s string) ExecuteSqlOption {
 	return func(c *ExecuteSqlTestConfig) {
 		c.selectEmptyWant = s
+	}
+}
+
+// WithExecuteSqlTableName sets the table that the SELECT/DROP/ALTER cases
+// operate on. It must match the table created by the createTableStatement
+// passed to RunExecuteSqlToolInvokeTest. Defaults to "t". Tests that run against
+// a shared database should pass a per-run (UUID-suffixed) name.
+func WithExecuteSqlTableName(s string) ExecuteSqlOption {
+	return func(c *ExecuteSqlTestConfig) {
+		c.tableName = s
 	}
 }
 

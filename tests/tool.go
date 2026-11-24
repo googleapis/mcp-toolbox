@@ -771,6 +771,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 		createWant:       "[]",
 		dropWant:         "[]",
 		selectEmptyWant:  "[]",
+		tableName:        "t",
 	}
 
 	// Apply provided options
@@ -814,7 +815,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool select table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "SELECT * FROM t"},
+			args:          map[string]any{"sql": "SELECT * FROM " + configs.tableName},
 			want:          configs.selectEmptyWant,
 			isErr:         false,
 		},
@@ -822,7 +823,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool drop table",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "DROP TABLE t"},
+			args:          map[string]any{"sql": "DROP TABLE " + configs.tableName},
 			want:          configs.dropWant,
 			isErr:         false,
 		},
@@ -866,7 +867,7 @@ func RunExecuteSqlToolInvokeTest(t *testing.T, createTableStatement, select1Want
 			name:          "invoke my-exec-sql-tool with invalid ALTER SQL",
 			toolName:      "my-exec-sql-tool",
 			requestHeader: map[string]string{},
-			args:          map[string]any{"sql": "ALTER TALE t ALTER COLUMN id DROP NOT NULL"},
+			args:          map[string]any{"sql": "ALTER TALE " + configs.tableName + " ALTER COLUMN id DROP NOT NULL"},
 			isAgentErr:    true,
 		},
 	}
@@ -1291,19 +1292,20 @@ func RunMCPToolCallMethod(t *testing.T, myFailToolWant, select1Want string, opti
 }
 
 func setupPostgresSchemas(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schemaName string) func() {
+	t.Helper()
 	createSchemaStmt := fmt.Sprintf("CREATE SCHEMA %s", schemaName)
-	_, err := pool.Exec(ctx, createSchemaStmt)
-	if err != nil {
+	if _, err := pool.Exec(ctx, createSchemaStmt); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
 
-	return func() {
-		dropSchemaStmt := fmt.Sprintf("DROP SCHEMA %s CASCADE", schemaName)
-		_, err := pool.Exec(context.WithoutCancel(ctx), dropSchemaStmt)
-		if err != nil {
-			t.Fatalf("failed to drop schema: %v", err)
+	return RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		dropSchemaStmt := fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName)
+		if _, err := pool.Exec(cleanupCtx, dropSchemaStmt); err != nil {
+			t.Errorf("failed to drop schema: %v", err)
 		}
-	}
+	})
 }
 
 func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user string) {
@@ -1494,18 +1496,19 @@ func RunPostgresListTablesTest(t *testing.T, tableNameParam, tableNameAuth, user
 }
 
 func setUpPostgresViews(t *testing.T, ctx context.Context, pool *pgxpool.Pool, viewName string) func() {
+	t.Helper()
 	createView := fmt.Sprintf("CREATE VIEW %s AS SELECT 1 AS col", viewName)
-	_, err := pool.Exec(ctx, createView)
-	if err != nil {
+	if _, err := pool.Exec(ctx, createView); err != nil {
 		t.Fatalf("failed to create view: %v", err)
 	}
-	return func() {
-		dropView := fmt.Sprintf("DROP VIEW %s", viewName)
-		_, err := pool.Exec(context.WithoutCancel(ctx), dropView)
-		if err != nil {
-			t.Fatalf("failed to drop view: %v", err)
+	return RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		dropView := fmt.Sprintf("DROP VIEW IF EXISTS %s", viewName)
+		if _, err := pool.Exec(cleanupCtx, dropView); err != nil {
+			t.Errorf("failed to drop view: %v", err)
 		}
-	}
+	})
 }
 
 func RunPostgresListViewsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -1772,6 +1775,16 @@ func setupPostgresTrigger(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	if _, err := pool.Exec(ctx, createSchemaStmt); err != nil {
 		t.Fatalf("failed to create schema %s: %v", schemaName, err)
 	}
+	// Register schema drop immediately so failures creating child objects below
+	// do not leak the schema on shared instances.
+	teardown := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		dropSchemaStmt := fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schemaName)
+		if _, err := pool.Exec(cleanupCtx, dropSchemaStmt); err != nil {
+			t.Errorf("failed to drop schema %s: %v", schemaName, err)
+		}
+	})
 
 	createTableStmt := fmt.Sprintf("CREATE TABLE %s.%s (id SERIAL PRIMARY KEY, name TEXT)", schemaName, tableName)
 	if _, err := pool.Exec(ctx, createTableStmt); err != nil {
@@ -1799,12 +1812,7 @@ func setupPostgresTrigger(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		t.Fatalf("failed to create trigger %s: %v", triggerName, err)
 	}
 
-	return func() {
-		dropSchemaStmt := fmt.Sprintf("DROP SCHEMA %s CASCADE", schemaName)
-		if _, err := pool.Exec(context.WithoutCancel(ctx), dropSchemaStmt); err != nil {
-			t.Fatalf("failed to drop schema %s: %v", schemaName, err)
-		}
-	}
+	return teardown
 }
 
 func RunPostgresListTriggersTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -1819,8 +1827,7 @@ func RunPostgresListTriggersTest(t *testing.T, ctx context.Context, pool *pgxpoo
 
 	// Definition can vary slightly based on server version/settings, so we fetch it to compare.
 	var expectedDef string
-	getDefQuery := fmt.Sprintf("SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = '%s'", triggerName)
-	err := pool.QueryRow(ctx, getDefQuery).Scan(&expectedDef)
+	err := pool.QueryRow(ctx, "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname = $1", triggerName).Scan(&expectedDef)
 	if err != nil {
 		t.Fatalf("failed to fetch trigger definition: %v", err)
 	}
@@ -1940,44 +1947,42 @@ func RunPostgresListTriggersTest(t *testing.T, ctx context.Context, pool *pgxpoo
 	}
 }
 
+// setupPostgresPublicationTable creates tableName and a publication pubName for
+// it. Callers must pass per-run (UUID-suffixed) names so concurrent runs on a
+// shared instance never collide or drop each other's publications/tables.
 func setupPostgresPublicationTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tableName string, pubName string) func(t *testing.T) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s;", pubName)); err != nil {
-		t.Errorf("unable to drop publication %s: %v", pubName, err)
-	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); err != nil {
-		t.Errorf("unable to drop table %s: %v", tableName, err)
-	}
 	createTableStmt := fmt.Sprintf("CREATE TABLE %s (id SERIAL PRIMARY KEY, name TEXT);", tableName)
 	if _, err := pool.Exec(ctx, createTableStmt); err != nil {
 		t.Fatalf("unable to create table %s: %v", tableName, err)
 	}
+	teardown := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s;", pubName)); err != nil {
+			t.Errorf("unable to drop publication %s: %v", pubName, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); err != nil {
+			t.Errorf("unable to drop table %s: %v", tableName, err)
+		}
+	})
 
 	createPubStmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s;", pubName, tableName)
 	if _, err := pool.Exec(ctx, createPubStmt); err != nil {
-		if _, dropErr := pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); dropErr != nil {
-			t.Errorf("unable to drop table after failing to create publication: %v", dropErr)
-		}
 		t.Fatalf("unable to create publication %s: %v", pubName, err)
 	}
 
-	return func(t *testing.T) {
-		t.Helper()
-		if _, err := pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP PUBLICATION IF EXISTS %s;", pubName)); err != nil {
-			t.Errorf("unable to drop publication %s: %v", pubName, err)
-		}
-		if _, err := pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)); err != nil {
-			t.Errorf("unable to drop table %s: %v", tableName, err)
-		}
-	}
+	return func(*testing.T) { teardown() }
 }
 
 func RunPostgresListPublicationTablesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
-	table1Name := "pub_table_1"
-	pub1Name := "pub_1"
+	suffix := strings.ReplaceAll(uuid.New().String(), "-", "")
+	table1Name := "pub_table_1_" + suffix
+	pub1Name := "pub_1_" + suffix
 
-	table2Name := "pub_table_2"
-	pub2Name := "pub_2"
+	table2Name := "pub_table_2_" + suffix
+	pub2Name := "pub_2_" + suffix
+	ownPubs := map[string]bool{pub1Name: true, pub2Name: true}
 
 	cleanup := setupPostgresPublicationTable(t, ctx, pool, table1Name, pub1Name)
 	defer cleanup(t)
@@ -2020,12 +2025,16 @@ func RunPostgresListPublicationTablesTest(t *testing.T, ctx context.Context, poo
 		requestBody    io.Reader
 		wantStatusCode int
 		want           []map[string]any
+		// onlyOwn restricts comparison to publications created by this run so
+		// concurrent runs on shared instances do not cause false mismatches.
+		onlyOwn bool
 	}{
 		{
 			name:           "list all publication tables",
 			requestBody:    bytes.NewBufferString(`{}`),
 			wantStatusCode: http.StatusOK,
 			want:           []map[string]any{wantTable1, wantTable2},
+			onlyOwn:        true,
 		},
 		{
 			name:           "list all tables for the created publication",
@@ -2085,6 +2094,15 @@ func RunPostgresListPublicationTablesTest(t *testing.T, ctx context.Context, poo
 			var got []map[string]any
 			if err := json.Unmarshal([]byte(resultString), &got); err != nil {
 				t.Fatalf("failed to unmarshal nested result string: %v, content: %s", err, resultString)
+			}
+			if tc.onlyOwn {
+				own := []map[string]any{}
+				for _, row := range got {
+					if name, _ := row["publication_name"].(string); ownPubs[name] {
+						own = append(own, row)
+					}
+				}
+				got = own
 			}
 
 			if diff := cmp.Diff(tc.want, got); diff != "" {
@@ -2309,10 +2327,17 @@ func RunPostgresListInstalledExtensionsTest(t *testing.T) {
 
 func setupPostgresIndex(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schemaName string, tableName string) func(t *testing.T) {
 	t.Helper()
-	createSchemaStmt := fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s;", schemaName)
+	createSchemaStmt := fmt.Sprintf("CREATE SCHEMA %s;", schemaName)
 	if _, err := pool.Exec(ctx, createSchemaStmt); err != nil {
 		t.Fatalf("unable to create schema %s: %v", schemaName, err)
 	}
+	teardown := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE;", schemaName)); err != nil {
+			t.Errorf("unable to drop schema: %v", err)
+		}
+	})
 
 	fullTableName := fmt.Sprintf("%s.%s", schemaName, tableName)
 	createTableStmt := fmt.Sprintf("CREATE TABLE %s (id SERIAL PRIMARY KEY, name TEXT, email TEXT);", fullTableName)
@@ -2332,12 +2357,7 @@ func setupPostgresIndex(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s
 		t.Fatalf("unable to create index %s_name_idx: %v", tableName, err)
 	}
 
-	return func(t *testing.T) {
-		t.Helper()
-		if _, err := pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE;", schemaName)); err != nil {
-			t.Errorf("unable to drop schema: %v", err)
-		}
-	}
+	return func(*testing.T) { teardown() }
 }
 
 func RunPostgresListIndexesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -2502,16 +2522,17 @@ func setupListSequencesTest(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	sequenceName := "list_sequences_seq1_" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	createSequence1Stmt := fmt.Sprintf("CREATE SEQUENCE %s INCREMENT 1 START 1;", sequenceName)
 
-	_, err := pool.Exec(ctx, createSequence1Stmt)
-	if err != nil {
+	if _, err := pool.Exec(ctx, createSequence1Stmt); err != nil {
 		t.Fatalf("unable to create sequence %s: %s", sequenceName, err)
 	}
-	return sequenceName, func(t *testing.T) {
-		_, err := pool.Exec(ctx, fmt.Sprintf("DROP SEQUENCE IF EXISTS %s;", sequenceName))
-		if err != nil {
+	teardown := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP SEQUENCE IF EXISTS %s;", sequenceName)); err != nil {
 			t.Errorf("unable to drop sequences: %v", err)
 		}
-	}
+	})
+	return sequenceName, func(*testing.T) { teardown() }
 }
 
 func RunPostgresListSequencesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -2827,30 +2848,29 @@ func RunPostgresListDatabaseStatsTest(t *testing.T, ctx context.Context, pool *p
 }
 
 func setUpDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dbName, dbOwner string) func() {
-	_, err := pool.Exec(ctx, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'password';", dbOwner))
-	if err != nil {
-		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE %s;", dbOwner))
+	t.Helper()
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'password';", dbOwner)); err != nil {
 		t.Fatalf("failed to create %s: %v", dbOwner, err)
 	}
-	_, err = pool.Exec(ctx, fmt.Sprintf("GRANT %s TO current_user;", dbOwner))
-	if err != nil {
-		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
-		t.Fatalf("failed to grant %s to current_user: %v", dbOwner, err)
-	}
-	_, err = pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", dbName, dbOwner))
-	if err != nil {
-		_, _ = pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner))
-		t.Fatalf("failed to create %s: %v", dbName, err)
-	}
-	return func() {
-		cleanupCtx := context.WithoutCancel(ctx)
+	// Roles and databases are cluster-wide; register teardown right after role
+	// creation so a later failure still removes both the database and role.
+	teardown := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
 		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP DATABASE IF EXISTS %s WITH (FORCE);", dbName)); err != nil {
 			t.Errorf("failed to drop database %s: %v", dbName, err)
 		}
 		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", dbOwner)); err != nil {
 			t.Errorf("failed to drop role %s: %v", dbOwner, err)
 		}
+	})
+	if _, err := pool.Exec(ctx, fmt.Sprintf("GRANT %s TO current_user;", dbOwner)); err != nil {
+		t.Fatalf("failed to grant %s to current_user: %v", dbOwner, err)
 	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s OWNER %s;", dbName, dbOwner)); err != nil {
+		t.Fatalf("failed to create %s: %v", dbName, err)
+	}
+	return teardown
 }
 
 func setupPostgresRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (string, string, string, func(t *testing.T)) {
@@ -2860,6 +2880,22 @@ func setupPostgresRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (
 	adminUser := "test_role_admin_" + suffix
 	superUser := "test_role_super_" + suffix
 	normalUser := "test_role_normal_" + suffix
+
+	// Register cluster-wide role drops before creating any role so partial setup
+	// failures cannot leak roles on shared instances.
+	teardown := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", normalUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", superUser, err)
+		}
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser)); err != nil {
+			t.Errorf("failed to drop role %s: %v", adminUser, err)
+		}
+	})
 
 	createAdminStmt := fmt.Sprintf("CREATE ROLE %s NOLOGIN;", adminUser)
 	if _, err := pool.Exec(ctx, createAdminStmt); err != nil {
@@ -2884,19 +2920,7 @@ func setupPostgresRoles(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (
 		t.Fatalf("unable to grant %s to %s: %v", superUser, normalUser, err)
 	}
 
-	return adminUser, superUser, normalUser, func(t *testing.T) {
-		t.Helper()
-		cleanupCtx := context.WithoutCancel(ctx)
-		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", normalUser)); err != nil {
-			t.Errorf("failed to drop role %s: %v", normalUser, err)
-		}
-		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", superUser)); err != nil {
-			t.Errorf("failed to drop role %s: %v", superUser, err)
-		}
-		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", adminUser)); err != nil {
-			t.Errorf("failed to drop role %s: %v", adminUser, err)
-		}
-	}
+	return adminUser, superUser, normalUser, func(*testing.T) { teardown() }
 }
 
 func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -3039,11 +3063,14 @@ func RunPostgresListRolesTest(t *testing.T, ctx context.Context, pool *pgxpool.P
 	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE ROLE %s NOLOGIN;", pgPrefixedRole)); err != nil {
 		t.Fatalf("unable to create role %s: %v", pgPrefixedRole, err)
 	}
-	defer func() {
-		if _, err := pool.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", pgPrefixedRole)); err != nil {
+	dropPgPrefixedRole := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP ROLE IF EXISTS %s;", pgPrefixedRole)); err != nil {
 			t.Errorf("unable to drop role %s: %v", pgPrefixedRole, err)
 		}
-	}()
+	})
+	defer dropPgPrefixedRole()
 
 	t.Run("list_roles includes roles starting with pg but not pg_", func(t *testing.T) {
 		const api = "http://127.0.0.1:5000/api/tool/list_roles/invoke"
@@ -4824,35 +4851,52 @@ func RunMSSQLGetDatabaseObjectSourceCodeTest(t *testing.T, tableNameParam, table
 	}
 }
 
+// CreateAndLockPostgresTable creates tableName and holds an ACCESS EXCLUSIVE
+// lock on it in an open transaction. Callers should pass a per-run
+// (UUID-suffixed) name. Both the rollback and drop are registered via t.Cleanup
+// in LIFO order so locks release before DROP TABLE executes.
 func CreateAndLockPostgresTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tableName string) func() {
-	_, err := pool.Exec(ctx, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY)", pgx.Identifier{tableName}.Sanitize()))
-	if err != nil {
+	t.Helper()
+	quoted := pgx.Identifier{tableName}.Sanitize()
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY)", quoted)); err != nil {
 		t.Fatalf("unable to create table: %s", err)
 	}
+	dropTable := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP TABLE IF EXISTS %s", quoted)); err != nil {
+			t.Errorf("unable to drop table: %s", err)
+		}
+	})
 
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		t.Fatalf("unable to create transaction: %s", err)
 	}
-	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s IN ACCESS EXCLUSIVE MODE", pgx.Identifier{tableName}.Sanitize())); err != nil {
+	// Registered after dropTable so t.Cleanup (LIFO) rolls back the lock first.
+	rollback := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if err := tx.Rollback(cleanupCtx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("unable to rollback transaction: %s", err)
+		}
+	})
+	if _, err := tx.Exec(ctx, fmt.Sprintf("LOCK TABLE %s IN ACCESS EXCLUSIVE MODE", quoted)); err != nil {
 		t.Fatalf("unable to acquire lock: %s", err)
 	}
 
 	return func() {
-		if err := tx.Rollback(context.WithoutCancel(ctx)); err != nil {
-			t.Fatalf("unable to rollback transaction: %s", err)
-		}
-		if _, err := pool.Exec(context.WithoutCancel(ctx), fmt.Sprintf("DROP TABLE IF EXISTS %s", pgx.Identifier{tableName}.Sanitize())); err != nil {
-			t.Fatalf("unable to drop table: %s", err)
-		}
+		rollback()
+		dropTable()
 	}
 }
 
 // RunPostgresListLocksTest runs tests for the postgres list-locks tool
 func RunPostgresListLocksTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 
-	// Create and lock a test table
-	cleanup := CreateAndLockPostgresTable(t, ctx, pool, "test_postgres_list_locks_table")
+	// Create and lock a per-run test table
+	tableName := "test_postgres_list_locks_table_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	cleanup := CreateAndLockPostgresTable(t, ctx, pool, tableName)
 	defer cleanup()
 
 	type lockDetails struct {
@@ -5237,19 +5281,30 @@ func RunPostgresGetColumnCardinalityTest(t *testing.T, ctx context.Context, pool
 	}
 }
 
+// createPostgresExtension ensures extensionName is installed and drops it on
+// teardown only when this call installed it, preserving pre-existing extensions
+// on shared instances.
 func createPostgresExtension(t *testing.T, ctx context.Context, pool *pgxpool.Pool, extensionName string) func() {
-	createExtensionCmd := fmt.Sprintf("CREATE EXTENSION IF NOT EXISTS %s", extensionName)
-	_, err := pool.Exec(ctx, createExtensionCmd)
-	if err != nil {
+	t.Helper()
+	var exists bool
+	if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = $1)", extensionName).Scan(&exists); err != nil {
+		t.Fatalf("failed to check for extension %s: %v", extensionName, err)
+	}
+	if exists {
+		return func() {}
+	}
+
+	quoted := pgx.Identifier{extensionName}.Sanitize()
+	if _, err := pool.Exec(ctx, fmt.Sprintf("CREATE EXTENSION IF NOT EXISTS %s", quoted)); err != nil {
 		t.Fatalf("failed to create extension: %v", err)
 	}
-	return func() {
-		dropExtensionCmd := fmt.Sprintf("DROP EXTENSION IF EXISTS %s", extensionName)
-		_, err := pool.Exec(context.WithoutCancel(ctx), dropExtensionCmd)
-		if err != nil {
-			t.Fatalf("failed to drop extension: %v", err)
+	return RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
+		if _, err := pool.Exec(cleanupCtx, fmt.Sprintf("DROP EXTENSION IF EXISTS %s", quoted)); err != nil {
+			t.Errorf("failed to drop extension: %v", err)
 		}
-	}
+	})
 }
 
 func RunPostgresListQueryStatsTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -5397,12 +5452,15 @@ func RunPostgresListTableStatsTest(t *testing.T, ctx context.Context, pool *pgxp
 	if _, err := pool.Exec(ctx, createTableStmt); err != nil {
 		t.Fatalf("unable to create test table: %s", err)
 	}
-	defer func() {
+	dropTestTable := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
 		dropTableStmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", testTableName)
-		if _, err := pool.Exec(ctx, dropTableStmt); err != nil {
-			t.Logf("warning: unable to drop test table: %v", err)
+		if _, err := pool.Exec(cleanupCtx, dropTableStmt); err != nil {
+			t.Errorf("unable to drop test table %s: %v", testTableName, err)
 		}
-	}()
+	})
+	defer dropTestTable()
 
 	// Insert some data to generate statistics
 	insertStmt := fmt.Sprintf(`
@@ -5609,14 +5667,17 @@ func RunPostgresListTableStatsTest(t *testing.T, ctx context.Context, pool *pgxp
 
 // cleanupOldSchemas cleans up schemas that were created more than 1 hour ago
 func cleanupOldSchemas(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
-	rows, err := pool.Query(ctx, "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'test_proc_%'")
+	rows, err := pool.Query(ctx, "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'test\\_proc\\_%'")
 	if err != nil {
+		t.Logf("warning: unable to list old test schemas: %v", err)
 		return
 	}
-	defer rows.Close()
 
 	oneHourAgo := time.Now().Add(-1 * time.Hour).Unix()
 
+	// Collect stale names and close rows before issuing DROPs so the sweep does
+	// not hold a pooled connection while running follow-up statements.
+	var stale []string
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
@@ -5634,11 +5695,20 @@ func cleanupOldSchemas(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		}
 
 		if timestamp < oneHourAgo {
-			_, err := pool.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", name))
-			if err == nil {
-				t.Logf("Cleaned up schema: %s", name)
-			}
+			stale = append(stale, name)
 		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Logf("warning: unable to iterate old test schemas: %v", err)
+	}
+
+	for _, name := range stale {
+		if _, err := pool.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", pgx.Identifier{name}.Sanitize())); err != nil {
+			t.Logf("warning: unable to drop old schema %s: %v", name, err)
+			continue
+		}
+		t.Logf("Cleaned up schema: %s", name)
 	}
 }
 
@@ -5663,12 +5733,15 @@ func RunPostgresListStoredProcedureTest(t *testing.T, ctx context.Context, pool 
 	if _, err := pool.Exec(ctx, createSchemaStmt); err != nil {
 		t.Fatalf("unable to create test schema: %v", err)
 	}
-	defer func() {
+	dropTestSchema := RegisterTeardown(t, func() {
+		cleanupCtx, cancel := postgresCleanupContext(ctx)
+		defer cancel()
 		dropSchemaStmt := fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", testSchemaName)
-		if _, err := pool.Exec(context.WithoutCancel(ctx), dropSchemaStmt); err != nil {
-			t.Logf("warning: unable to drop test schema: %v", err)
+		if _, err := pool.Exec(cleanupCtx, dropSchemaStmt); err != nil {
+			t.Errorf("unable to drop test schema %s: %v", testSchemaName, err)
 		}
-	}()
+	})
+	defer dropTestSchema()
 
 	// Create test procedures
 	proc1Name := "test_proc_1_" + strings.ReplaceAll(uuid.New().String(), "-", "")

@@ -241,13 +241,15 @@ steps:
     entrypoint: /bin/bash
     env:
       - "GOPATH=/gopath"
+      - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
+    secretEnv: ["CLIENT_ID", "API_KEY"]
     volumes:
       - name: "go"
         path: "/gopath"
     args:
       - -c
       - |
-        PATTERN="(^|/)alloydbomni/|(^|/)internal/sources/postgres/|$$(cat .ci/core_pattern.txt)"
+        PATTERN="(^|/)alloydbomni/|(^|/)internal/sources/postgres/|(^|/)internal/tools/postgres/|$$(cat .ci/core_pattern.txt)"
 
         if grep -qE "$$PATTERN" /workspace/changed_files.txt; then
           echo "Changes detected. Running AlloyDB Omni tests..."
