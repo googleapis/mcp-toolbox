@@ -82,6 +82,7 @@ func TestOracleSimpleToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create Oracle connection pool: %s", err)
 	}
+	defer db.Close()
 
 	dropAllUserTables(t, ctx, db)
 
@@ -178,20 +179,27 @@ func setupOracleTable(t *testing.T, ctx context.Context, pool *sql.DB, createSta
 	}
 
 	// Create table
-	_, err = pool.QueryContext(ctx, createStatement)
+	_, err = pool.ExecContext(ctx, createStatement)
 	if err != nil {
 		t.Fatalf("unable to create test table %s: %s", tableName, err)
 	}
 
 	// Insert test data
-	_, err = pool.QueryContext(ctx, insertStatement, params...)
+	_, err = pool.ExecContext(ctx, insertStatement, params...)
 	if err != nil {
+		dropCtx, dropCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer dropCancel()
+		if _, dropErr := pool.ExecContext(dropCtx, fmt.Sprintf("DROP TABLE %s", tableName)); dropErr != nil {
+			t.Errorf("unable to drop test table %s: %s", tableName, dropErr)
+		}
 		t.Fatalf("unable to insert test data: %s", err)
 	}
 
 	return func(t *testing.T) {
 		// tear down test
-		_, err = pool.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s", tableName))
+		dropCtx, dropCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer dropCancel()
+		_, err = pool.ExecContext(dropCtx, fmt.Sprintf("DROP TABLE %s", tableName))
 		if err != nil {
 			t.Errorf("Teardown failed: %s", err)
 		}
