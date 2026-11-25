@@ -596,6 +596,9 @@ variables for each source.
   container via testcontainers (set `OCEANBASE_HOST`, `OCEANBASE_PORT`,
   `OCEANBASE_USER`, `OCEANBASE_PASSWORD`, and `OCEANBASE_DATABASE` to use an
   existing instance)
+* Oracle - ephemeral `gvenzl/oracle-free:23.26.3-slim-faststart` container via
+  testcontainers (set `ORACLE_HOST`, `ORACLE_USERNAME`, `ORACLE_PASSWORD`, and
+  `ORACLE_SERVER_NAME` to use an existing instance)
 * Postgres - setup in the test project using an AlloyDB instance
 * Spanner - setup in the test project
   * The Cloud Build service account is a user
