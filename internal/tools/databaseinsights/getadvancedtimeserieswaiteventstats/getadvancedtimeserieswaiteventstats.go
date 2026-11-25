@@ -59,6 +59,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		cfg.Description = `Fetches time-series history of wait event statistics to analyze contention trends for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, as well as selecting the aggregation level (by wait class or granular wait event). Returns time-series data including rate of time spent (rate(time_spent)) grouped by wait class or event. Requires advanced query insights to be enabled.
@@ -98,10 +102,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

@@ -255,8 +255,8 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
 * **Define a `Tool` struct** that **embeds
   [`tools.BaseTool[Config]`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)**.
   `BaseTool` provides default implementations of most of the `Tool` interface —
-  `GetName`, `GetDescription`, `GetAuthRequired`, `GetScopesRequired`,
-  `GetAnnotations`, `Manifest`, `GetParameters`,
+  `GetName`, `GetSourceName`, `GetDescription`, `GetAuthRequired`,
+  `GetScopesRequired`, `GetAnnotations`, `Manifest`, `GetParameters`,
   `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, and `EmbedParams`.
   **Do not re-declare these** — eliminating that boilerplate is the entire point
   of embedding `BaseTool`.
@@ -270,6 +270,9 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
   interface**:
   * `ToolConfigType() string`: Returns a unique string identifier for your tool
     (e.g., `"newdb-tool"`).
+  * `GetSourceName() string`: Returns the name of the source the tool is
+    configured to use (typically `cfg.Source`), or `""` if the tool does not
+    use a source. `BaseTool` forwards `Tool.GetSourceName()` to this method.
   * `Initialize(srcs map[string]sources.Source) (tools.Tool, error)`: Validates
     the config, processes parameters, and returns your `Tool` constructed via
     `tools.NewBaseTool(cfg, annotations, manifest, staticParameters)`.

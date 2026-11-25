@@ -60,6 +60,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		cfg.Description = `Fetches aggregated wait event statistics to identify performance bottlenecks for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID, selecting the aggregation level (by wait class or granular wait event), as well as pagination. Returns statistics including wait class or event name, total time spent (sum(time_spent)), average time spent (avg(time_spent)), and total wait count (sum(count)). Requires advanced query insights to be enabled.
@@ -104,10 +108,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
