@@ -145,7 +145,7 @@ def template_types(issue_number):
     author = github("GET", f"issues/{issue_number}")["user"]["login"]
     applied_by = {}
     for event in github("GET", f"issues/{issue_number}/events?per_page=100"):
-        if event.get("event") == "labeled":
+        if event.get("event") == "labeled" and event.get("label"):
             applied_by[event["label"]["name"]] = (event.get("actor") or {}).get("login")
     return {
         name for name, actor in applied_by.items() if name.startswith("type: ") and actor == author
