@@ -15,7 +15,8 @@
 """Proposes and applies priority, type and product labels for a GitHub issue.
 
   classify --issue N                 one Gemini call; proposed labels go to $GITHUB_OUTPUT
-  apply --issue N --labels '[...]'   adds the proposed labels the rules allow
+  apply --issue N --labels '[...]'   adds the proposed labels the rules allow, and
+                                     replaces a type label the issue template set
 
 apply only logs unless DRY_RUN is exactly "false". Both commands read the issue
 from the GitHub API, with GH_TOKEN when it is set and anonymously otherwise.
@@ -27,6 +28,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 MODEL = "gemini-3.8-flash"
@@ -134,20 +136,51 @@ def checked_labels(allowed, text):
     return labels
 
 
-def plan(existing, proposed):
-    """Returns (add, skipped) for the proposed labels. The only copy of the rules."""
-    on_issue, add, skipped = list(existing), [], []
-    # Type first, so the bug rule sees the type the issue will have.
+def template_types(issue_number):
+    """Returns the type labels on the issue that its author applied.
+
+    An author without triage access can only label through an issue template, so
+    these are the template's default and not a maintainer's decision.
+    """
+    author = github("GET", f"issues/{issue_number}")["user"]["login"]
+    applied_by = {}
+    for event in github("GET", f"issues/{issue_number}/events?per_page=100"):
+        if event.get("event") == "labeled":
+            applied_by[event["label"]["name"]] = (event.get("actor") or {}).get("login")
+    return {
+        name for name, actor in applied_by.items() if name.startswith("type: ") and actor == author
+    }
+
+
+def plan(existing, proposed, replaceable=()):
+    """Returns (add, remove, skipped) for the proposed labels. The only copy of the rules.
+
+    replaceable holds the existing type labels the proposed type may replace.
+    """
+    on_issue, add, remove, skipped = list(existing), [], [], []
+    proposed_type = next((label for label in proposed if label.startswith("type: ")), None)
+    # Type first, so the priority rules see the type the issue will have.
     for label in sorted(proposed, key=lambda label: not label.startswith("type: ")):
         group = label.split(": ", 1)[0]
-        if any(name.startswith(f"{group}: ") for name in on_issue):
+        current = [name for name in on_issue if name.startswith(f"{group}: ")]
+        if label in current:
+            skipped.append((label, "the issue already has it"))
+        elif group == "type" and current and all(name in replaceable for name in current):
+            remove.extend(current)
+            add.append(label)
+            on_issue = [name for name in on_issue if name not in current] + [label]
+        elif group == "type" and current:
+            skipped.append((label, f"`{current[0]}` was not set by the issue template"))
+        elif current:
             skipped.append((label, f"the issue already has a `{group}` label"))
+        elif group == "priority" and proposed_type and proposed_type not in on_issue:
+            skipped.append((label, f"it was chosen for `{proposed_type}`, which is not the issue's type"))
         elif label in ("priority: p2", "priority: p3") and "type: bug" in on_issue:
             skipped.append((label, "the maintainer playbook allows only p0 or p1 for a bug"))
         else:
             add.append(label)
             on_issue.append(label)
-    return add, skipped
+    return add, remove, skipped
 
 
 def report(lines):
@@ -190,15 +223,23 @@ def apply(args):
     ):
         sys.exit("A proposed label is not on the allowed list. Nothing was applied.")
     existing = [label["name"] for label in github("GET", f"issues/{args.issue}/labels?per_page=100")]
-    add, skipped = plan(existing, proposed)
+    # Only look up who set the type when the proposal disagrees with it.
+    disputed = any(name.startswith("type: ") and name not in proposed for name in existing)
+    add, remove, skipped = plan(existing, proposed, template_types(args.issue) if disputed else ())
     dry_run = os.environ.get("DRY_RUN", "true") != "false"
-    if add and not dry_run:
-        github("POST", f"issues/{args.issue}/labels", {"labels": add})
+    if not dry_run:
+        # Add before removing, so a failure never leaves the issue without a type.
+        if add:
+            github("POST", f"issues/{args.issue}/labels", {"labels": add})
+        for label in remove:
+            github("DELETE", f"issues/{args.issue}/labels/{urllib.parse.quote(label, safe='')}")
+    lines = [f"- `{label}` not added: {reason}" for label, reason in skipped]
     shown = ", ".join(f"`{label}`" for label in add) or "(none)"
-    report(
-        [f"- `{label}` not added: {reason}" for label, reason in skipped]
-        + [f"- {'[dry-run] would add' if dry_run else 'added'}: {shown}"]
-    )
+    lines.append(f"- {'[dry-run] would add' if dry_run else 'added'}: {shown}")
+    if remove:
+        shown = ", ".join(f"`{label}`" for label in remove)
+        lines.append(f"- {'[dry-run] would remove' if dry_run else 'removed'}: {shown} (set by the issue template)")
+    report(lines)
 
 
 def main():
@@ -213,7 +254,11 @@ def main():
     args = parser.parse_args()
     try:
         args.run(args)
-    except (OSError, ValueError) as error:  # URLError and HTTPError are OSErrors.
+    except urllib.error.HTTPError as error:
+        # json.dumps keeps the response body on one escaped line.
+        print("Error response:", json.dumps(error.read().decode("utf-8", errors="replace")[:1000]))
+        sys.exit(f"{args.command} failed: {error}")
+    except (OSError, ValueError) as error:  # URLError is an OSError.
         sys.exit(f"{args.command} failed: {error}")
 
 
