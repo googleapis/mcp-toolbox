@@ -102,6 +102,15 @@ func TestWaitInvokeRespectsTimeout(t *testing.T) {
 		}
 	})
 
+	t.Run("non-positive duration is rejected", func(t *testing.T) {
+		_, boxErr := tool.Invoke(context.Background(), nil, parameters.ParamValues{
+			{Name: "duration", Value: "0s"},
+		}, tools.AccessToken(""))
+		if boxErr == nil {
+			t.Fatal("expected an error for a non-positive duration")
+		}
+	})
+
 	t.Run("cancelled context aborts the sleep", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()

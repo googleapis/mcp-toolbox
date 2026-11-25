@@ -58,6 +58,13 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
 	}
+	timeout, err := time.ParseDuration(cfg.Timeout)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timeout %q for tool %q: %w", cfg.Timeout, cfg.Name, err)
+	}
+	if timeout <= 0 {
+		return nil, fmt.Errorf("timeout must be positive for tool %q: %v", cfg.Name, timeout)
+	}
 	durationParameter := parameters.NewStringParameter("duration", "The duration to wait for, specified as a string (e.g., '10s', '2m', '1h').")
 	params := parameters.Parameters{durationParameter}
 
@@ -68,6 +75,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 			tools.Manifest{Description: cfg.Description, Parameters: params.Manifest(), AuthRequired: cfg.AuthRequired},
 			params,
 		),
+		timeout: timeout,
 	}
 	return t, nil
 }
@@ -77,6 +85,7 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
+	timeout time.Duration
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
@@ -91,16 +100,15 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewAgentError("invalid duration format", err)
 	}
+	if totalDuration <= 0 {
+		return nil, util.NewAgentError("duration must be positive", nil)
+	}
 
 	// The configured timeout caps the wait. A duration longer than the cap is
 	// rejected rather than silently truncated.
-	timeout, err := time.ParseDuration(t.Cfg.Timeout)
-	if err != nil {
-		return nil, util.NewAgentError("invalid timeout configuration", err)
-	}
-	if totalDuration > timeout {
+	if totalDuration > t.timeout {
 		return nil, util.NewAgentError(
-			fmt.Sprintf("duration %v exceeds the configured timeout %v", totalDuration, timeout), nil)
+			fmt.Sprintf("duration %v exceeds the configured timeout %v", totalDuration, t.timeout), nil)
 	}
 
 	// Sleep, but abort early if the request is cancelled.
