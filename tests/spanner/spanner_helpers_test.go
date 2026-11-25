@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -571,6 +572,74 @@ func runSpannerListTablesTest(t *testing.T, tableNameParam, tableNameAuth, table
 			verifyTableListResult(t, body, tc.expectedTables, tc.useSimpleFormat)
 		})
 	}
+}
+
+// runSpannerListTablesConstraintColumnsTest checks that spanner-list-tables
+// returns each key column of a multi-column constraint as its own element.
+func runSpannerListTablesConstraintColumnsTest(t *testing.T, tableName, referencedTableName string) {
+	t.Run("list tables returns composite key columns as separate elements", func(t *testing.T) {
+		url := "http://127.0.0.1:5000/api/tool/list-tables-tool/invoke"
+		requestBody := bytes.NewBuffer([]byte(fmt.Sprintf(`{"table_names": "%s"}`, tableName)))
+		resp, respBody := tests.RunRequest(t, http.MethodPost, url, requestBody, map[string]string{})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		var body map[string]any
+		if err := json.Unmarshal(respBody, &body); err != nil {
+			t.Fatalf("error parsing response body: %s", err)
+		}
+		result, ok := body["result"].(string)
+		if !ok {
+			t.Fatalf("unable to find result in response body")
+		}
+
+		var tables []struct {
+			ObjectName    string `json:"object_name"`
+			ObjectDetails struct {
+				Constraints []struct {
+					ConstraintType              string   `json:"constraint_type"`
+					ConstraintColumns           []string `json:"constraint_columns"`
+					ForeignKeyReferencedTable   *string  `json:"foreign_key_referenced_table"`
+					ForeignKeyReferencedColumns []string `json:"foreign_key_referenced_columns"`
+				} `json:"constraints"`
+			} `json:"object_details"`
+		}
+		if err := json.Unmarshal([]byte(result), &tables); err != nil {
+			t.Fatalf("unable to parse result as JSON array: %s", err)
+		}
+		if len(tables) != 1 || tables[0].ObjectName != tableName {
+			t.Fatalf("expected only table %s, got: %s", tableName, result)
+		}
+
+		var foundPrimaryKey, foundForeignKey bool
+		for _, c := range tables[0].ObjectDetails.Constraints {
+			switch c.ConstraintType {
+			case "PRIMARY KEY":
+				foundPrimaryKey = true
+				if want := []string{"id", "target_id"}; !slices.Equal(c.ConstraintColumns, want) {
+					t.Errorf("primary key: got constraint_columns %v, want %v", c.ConstraintColumns, want)
+				}
+				if len(c.ForeignKeyReferencedColumns) != 0 {
+					t.Errorf("primary key: got foreign_key_referenced_columns %v, want []", c.ForeignKeyReferencedColumns)
+				}
+			case "FOREIGN KEY":
+				foundForeignKey = true
+				if want := []string{"target_id"}; !slices.Equal(c.ConstraintColumns, want) {
+					t.Errorf("foreign key: got constraint_columns %v, want %v", c.ConstraintColumns, want)
+				}
+				if c.ForeignKeyReferencedTable == nil || *c.ForeignKeyReferencedTable != referencedTableName {
+					t.Errorf("foreign key: got foreign_key_referenced_table %v, want %s", c.ForeignKeyReferencedTable, referencedTableName)
+				}
+				if want := []string{"id"}; !slices.Equal(c.ForeignKeyReferencedColumns, want) {
+					t.Errorf("foreign key: got foreign_key_referenced_columns %v, want %v", c.ForeignKeyReferencedColumns, want)
+				}
+			}
+		}
+		if !foundPrimaryKey || !foundForeignKey {
+			t.Errorf("expected a PRIMARY KEY and a FOREIGN KEY constraint, got: %s", result)
+		}
+	})
 }
 
 // Helper function to verify graph list results
