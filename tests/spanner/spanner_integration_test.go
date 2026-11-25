@@ -361,7 +361,6 @@ func TestSpannerPostgresqlToolEndpoints(t *testing.T) {
 				"project":  SpannerProject,
 				"instance": SpannerInstance,
 				"database": dbName,
-				"dialect":  "postgresql",
 			},
 		},
 		"tools": map[string]any{},

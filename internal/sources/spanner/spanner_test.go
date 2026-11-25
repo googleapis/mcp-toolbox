@@ -48,7 +48,6 @@ func TestParseFromYamlSpannerDb(t *testing.T) {
 					Type:     spanner.SourceType,
 					Project:  "my-project",
 					Instance: "my-instance",
-					Dialect:  "googlesql",
 					Database: "my_db",
 				},
 			},
