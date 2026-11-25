@@ -35,6 +35,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -1028,6 +1029,127 @@ func newDataplexClientCreator(
 	}
 }
 
+func searchCatalogParamStrings(params map[string]any, name string) ([]string, error) {
+	values, ok := params[name].([]any)
+	if !ok {
+		return nil, util.NewAgentError(fmt.Sprintf("invalid or missing '%s' parameter; expected an array", name), nil)
+	}
+	typed, err := parameters.ConvertAnySliceToTyped(values, "string")
+	if err != nil {
+		return nil, util.NewAgentError(fmt.Sprintf("can't convert %s to an array of strings", name), err)
+	}
+	return typed.([]string), nil
+}
+
+func searchCatalogAnyStrings(values []string) []any {
+	result := make([]any, len(values))
+	for i, value := range values {
+		result[i] = value
+	}
+	return result
+}
+
+// searchCatalogParams applies the allowlist before Dataplex truncates the
+// search page. Filtering only after ExecuteSearch can discard the entire page
+// while allowed matches exist on a later page.
+func (s *Source) searchCatalogParams(params map[string]any) (map[string]any, error) {
+	if len(s.AllowedDatasets) == 0 {
+		return params, nil
+	}
+	projectIDs, err := searchCatalogParamStrings(params, "projectIds")
+	if err != nil {
+		return nil, err
+	}
+	datasetIDs, err := searchCatalogParamStrings(params, "datasetIds")
+	if err != nil {
+		return nil, err
+	}
+	scoped := make(map[string]any, len(params))
+	for key, value := range params {
+		scoped[key] = value
+	}
+
+	if len(projectIDs) > 0 && len(datasetIDs) > 0 {
+		for _, projectID := range projectIDs {
+			for _, datasetID := range datasetIDs {
+				if !s.IsDatasetAllowed(projectID, datasetID) {
+					return nil, util.NewAgentError(fmt.Sprintf("access denied to dataset '%s' in project '%s' because it is not in the configured allowedDatasets list", datasetID, projectID), nil)
+				}
+			}
+		}
+		return scoped, nil
+	}
+
+	if len(projectIDs) > 0 {
+		allowedNames := make(map[string]struct{})
+		for _, projectID := range projectIDs {
+			found := false
+			for fullID := range s.AllowedDatasets {
+				project, dataset, _ := strings.Cut(fullID, ".")
+				if project == projectID {
+					allowedNames[dataset] = struct{}{}
+					found = true
+				}
+			}
+			if !found {
+				return nil, util.NewAgentError(fmt.Sprintf("project '%s' has no datasets in the configured allowedDatasets list", projectID), nil)
+			}
+		}
+		names := make([]string, 0, len(allowedNames))
+		for name := range allowedNames {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		scoped["datasetIds"] = searchCatalogAnyStrings(names)
+		return scoped, nil
+	}
+
+	if len(datasetIDs) > 0 {
+		allowedProjects := make(map[string]struct{})
+		for _, datasetID := range datasetIDs {
+			found := false
+			for fullID := range s.AllowedDatasets {
+				project, dataset, _ := strings.Cut(fullID, ".")
+				if dataset == datasetID {
+					allowedProjects[project] = struct{}{}
+					found = true
+				}
+			}
+			if !found {
+				return nil, util.NewAgentError(fmt.Sprintf("dataset '%s' is not in the configured allowedDatasets list", datasetID), nil)
+			}
+		}
+		projects := make([]string, 0, len(allowedProjects))
+		for project := range allowedProjects {
+			projects = append(projects, project)
+		}
+		sort.Strings(projects)
+		scoped["projectIds"] = searchCatalogAnyStrings(projects)
+		return scoped, nil
+	}
+
+	allowedProjects := make(map[string]struct{})
+	allowedNames := make(map[string]struct{})
+	for fullID := range s.AllowedDatasets {
+		project, dataset, _ := strings.Cut(fullID, ".")
+		allowedProjects[project] = struct{}{}
+		allowedNames[dataset] = struct{}{}
+	}
+	projects := make([]string, 0, len(allowedProjects))
+	for project := range allowedProjects {
+		projects = append(projects, project)
+	}
+	names := make([]string, 0, len(allowedNames))
+	for name := range allowedNames {
+		names = append(names, name)
+	}
+	sort.Strings(projects)
+	sort.Strings(names)
+	scoped["projectIds"] = searchCatalogAnyStrings(projects)
+	scoped["datasetIds"] = searchCatalogAnyStrings(names)
+	return scoped, nil
+}
+
 func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any, tokenStr string) ([]searchcatalog.DataplexSearchResponse, error) {
 	typeMap := map[string]string{
 		"bigquery-connection":  "CONNECTION",
@@ -1038,13 +1160,17 @@ func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any,
 		"bigquery-table":       "TABLE",
 		"bigquery-view":        "VIEW",
 	}
+	scopedParams, err := s.searchCatalogParams(params)
+	if err != nil {
+		return nil, err
+	}
 	catalogClient, dataplexClientCreator, err := s.MakeDataplexCatalogClient()()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dataplex client: %w", err)
 	}
-	return searchcatalog.InvokeSearchCatalog(
+	results, err := searchcatalog.InvokeSearchCatalog(
 		ctx,
-		params,
+		scopedParams,
 		tokenStr,
 		"bigquery",
 		"datasetIds",
@@ -1057,4 +1183,51 @@ func (s *Source) InvokeSearchCatalog(ctx context.Context, params map[string]any,
 			return catalogClient, nil
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
+	return s.filterSearchCatalogByAllowedDatasets(results), nil
+}
+
+// bigQueryDatasetFromResource pulls the project and dataset out of a BigQuery
+// resource path like
+// "//bigquery.googleapis.com/projects/{project}/datasets/{dataset}/...".
+// ok is false for resources that aren't dataset-scoped, e.g. a connection or a
+// project-level policy.
+func bigQueryDatasetFromResource(resource string) (projectID, datasetID string, ok bool) {
+	path, found := strings.CutPrefix(resource, "//bigquery.googleapis.com/")
+	if !found {
+		return "", "", false
+	}
+	parts := strings.Split(path, "/")
+	// The project and dataset segments must both be present and non-empty; a path
+	// like `projects//datasets/d` or `projects/p/datasets/` is malformed and must
+	// not be treated as a valid dataset for allowlist filtering.
+	if len(parts) < 4 || parts[0] != "projects" || parts[2] != "datasets" || parts[1] == "" || parts[3] == "" {
+		return "", "", false
+	}
+	return parts[1], parts[3], true
+}
+
+// filterSearchCatalogByAllowedDatasets keeps only the results whose dataset is
+// permitted by the source's allowedDatasets. When an allowlist is configured,
+// entries that aren't dataset-scoped (connections, project-level policies) are
+// dropped too, since the allowlist is meant to confine access to those
+// datasets. The other BigQuery tools enforce the allowlist inline; search
+// results come back from Dataplex unfiltered, so this filters them on the way
+// out. InvokeSearchCatalog also scopes the Dataplex query itself so the first
+// page is collected from allowed datasets instead of being filled by other
+// datasets and discarded here.
+func (s *Source) filterSearchCatalogByAllowedDatasets(results []searchcatalog.DataplexSearchResponse) []searchcatalog.DataplexSearchResponse {
+	if len(s.AllowedDatasets) == 0 {
+		return results
+	}
+	filtered := make([]searchcatalog.DataplexSearchResponse, 0, len(results))
+	for _, r := range results {
+		projectID, datasetID, ok := bigQueryDatasetFromResource(r.Resource)
+		if ok && s.IsDatasetAllowed(projectID, datasetID) {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }

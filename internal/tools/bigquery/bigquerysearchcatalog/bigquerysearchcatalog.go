@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	dataplexapi "cloud.google.com/go/dataplex/apiv1"
 	"github.com/goccy/go-yaml"
@@ -48,6 +49,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	MakeDataplexCatalogClient() func() (*dataplexapi.CatalogClient, bigqueryds.DataplexClientCreator, error)
 	BigQueryProject() string
+	BigQueryAllowedDatasets() []string
 	UseClientAuthorization() bool
 	GetAuthTokenHeaderName() string
 	InvokeSearchCatalog(ctx context.Context, params map[string]any, tokenStr string) ([]searchcatalog.DataplexSearchResponse, error)
@@ -66,13 +68,27 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
-func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
+func buildParams(allowedDatasets []string) parameters.Parameters {
+	projectDescription := "Array of project IDs."
+	datasetDescription := "Array of dataset IDs."
+	typesDescription := "Array of data types to filter by. Accepted values are: CONNECTION, POLICY, DATASET, MODEL, ROUTINE, TABLE, VIEW."
+	if len(allowedDatasets) > 0 {
+		allowed := "`" + strings.Join(allowedDatasets, "`, `") + "`"
+		projectDescription += " Leave empty to search the projects in the configured allowedDatasets: " + allowed + "."
+		datasetDescription += " Leave empty to search the configured allowedDatasets: " + allowed + "."
+		typesDescription = "Array of dataset-scoped data types to filter by. Accepted values are: DATASET, MODEL, ROUTINE, TABLE, VIEW. CONNECTION and POLICY are excluded when allowedDatasets is configured."
+	}
+
 	prompt := parameters.NewStringParameter("prompt", "Prompt representing search intention. Do not rewrite the prompt.")
-	datasetIds := parameters.NewArrayParameter("datasetIds", "Array of dataset IDs.", parameters.NewStringParameter("datasetId", "The IDs of the bigquery dataset."), parameters.WithArrayDefault([]any{}))
-	projectIds := parameters.NewArrayParameter("projectIds", "Array of project IDs.", parameters.NewStringParameter("projectId", "The IDs of the bigquery project."), parameters.WithArrayDefault([]any{}))
-	types := parameters.NewArrayParameter("types", "Array of data types to filter by.", parameters.NewStringParameter("type", "The type of the data. Accepted values are: CONNECTION, POLICY, DATASET, MODEL, ROUTINE, TABLE, VIEW."), parameters.WithArrayDefault([]any{}))
+	datasetIds := parameters.NewArrayParameter("datasetIds", datasetDescription, parameters.NewStringParameter("datasetId", "The IDs of the bigquery dataset."), parameters.WithArrayDefault([]any{}))
+	projectIds := parameters.NewArrayParameter("projectIds", projectDescription, parameters.NewStringParameter("projectId", "The IDs of the bigquery project."), parameters.WithArrayDefault([]any{}))
+	types := parameters.NewArrayParameter("types", typesDescription, parameters.NewStringParameter("type", "The type of the data."), parameters.WithArrayDefault([]any{}))
 	pageSize := parameters.NewIntParameter("pageSize", "Number of results in the search page.", parameters.WithIntDefault(5))
-	params := parameters.Parameters{prompt, datasetIds, projectIds, types, pageSize}
+	return parameters.Parameters{prompt, datasetIds, projectIds, types, pageSize}
+}
+
+func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
+	params := buildParams(nil)
 
 	if cfg.Description == "" {
 		cfg.Description = "Use this tool to find tables, views, models, routines or connections."
@@ -98,6 +114,26 @@ func (t Tool) GetSourceName() string {
 
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg
+}
+
+func (t Tool) resolveParams(source sources.Source) (parameters.Parameters, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return nil, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
+	}
+	return buildParams(s.BigQueryAllowedDatasets()), nil
+}
+
+func (t Tool) GetParameters(source sources.Source) (parameters.Parameters, error) {
+	return t.resolveParams(source)
+}
+
+func (t Tool) Manifest(source sources.Source) (tools.Manifest, error) {
+	params, err := t.resolveParams(source)
+	if err != nil {
+		return tools.Manifest{}, err
+	}
+	return tools.Manifest{Description: t.Cfg.Description, Parameters: params.Manifest(), AuthRequired: t.Cfg.AuthRequired}, nil
 }
 
 func (t Tool) ValidateSource(source sources.Source) error {

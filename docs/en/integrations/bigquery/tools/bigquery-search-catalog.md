@@ -21,6 +21,22 @@ following parameters:
   DATASET, MODEL, ROUTINE, TABLE, VIEW.
 - `pageSize` - Number of results in the search page. Defaults to `5`.
 
+The tool's results are also constrained by the `allowedDatasets` restriction on
+the `bigquery` source:
+
+- **Without `allowedDatasets` restriction:** The search can return entries from
+  any dataset in the project.
+- **With `allowedDatasets` restriction:** The search query is scoped to the
+  allowed datasets before results are collected, so a page filled by other
+  datasets cannot hide allowed matches. Entries whose dataset is not in the
+  allowed list are also removed from the results before they are returned, and
+  entries that are not scoped to a dataset (such as connections and policies)
+  are excluded. Leaving `projectIds` or `datasetIds` empty searches the allowed
+  scope. Explicitly requesting a project, dataset, or project/dataset pair
+  outside the allowlist returns an access error. The tool's parameter
+  descriptions list the allowed projects and datasets and the dataset-scoped
+  types (`DATASET`, `MODEL`, `ROUTINE`, `TABLE`, `VIEW`).
+
 ## Compatible Sources
 
 {{< compatible-sources >}}
