@@ -92,7 +92,25 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewAgentError("invalid duration format", err)
 	}
 
-	time.Sleep(totalDuration)
+	// The configured timeout caps the wait. A duration longer than the cap is
+	// rejected rather than silently truncated.
+	timeout, err := time.ParseDuration(t.Cfg.Timeout)
+	if err != nil {
+		return nil, util.NewAgentError("invalid timeout configuration", err)
+	}
+	if totalDuration > timeout {
+		return nil, util.NewAgentError(
+			fmt.Sprintf("duration %v exceeds the configured timeout %v", totalDuration, timeout), nil)
+	}
+
+	// Sleep, but abort early if the request is cancelled.
+	timer := time.NewTimer(totalDuration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, util.NewAgentError("wait cancelled", ctx.Err())
+	case <-timer.C:
+	}
 
 	return fmt.Sprintf("Wait for %v completed successfully.", totalDuration), nil
 }
