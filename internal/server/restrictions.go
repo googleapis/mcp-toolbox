@@ -102,15 +102,7 @@ func checkRestrictions(ctx context.Context, cfg ServerConfig, l log.Logger) erro
 			if len(rejectedSources) == 0 {
 				continue
 			}
-			// ToolConfig does not expose its source name, so initialize the
-			// tool to read it. Tool initialization opens no connections, and
-			// this only runs when config loading is already failing. Tools
-			// that fail to initialize are skipped.
-			t, err := tc.Initialize(ctx)
-			if err != nil || t == nil {
-				continue
-			}
-			if src := t.GetSourceName(); src != "" {
+			if src := tc.GetSourceName(); src != "" {
 				if _, ok := rejectedSources[src]; ok {
 					usedBy[src] = append(usedBy[src], name)
 				}
