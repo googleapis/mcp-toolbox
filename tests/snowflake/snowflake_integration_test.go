@@ -78,16 +78,15 @@ func getSnowflakeVars(t *testing.T) map[string]any {
 
 // Copied over from snowflake.go
 func initSnowflakeConnectionPool(ctx context.Context, account, user, password, database, schema, warehouse, role string) (*sqlx.DB, error) {
-	// Set defaults for optional parameters
+	// Set defaults for optional parameters. An empty role is omitted so the
+	// user's Snowflake default role is used.
 	if warehouse == "" {
 		warehouse = "COMPUTE_WH"
 	}
-	if role == "" {
-		role = "ACCOUNTADMIN"
+	dsn := fmt.Sprintf("%s:%s@%s/%s/%s?warehouse=%s", user, password, account, database, schema, warehouse)
+	if role != "" {
+		dsn += "&role=" + role
 	}
-
-	// Snowflake DSN format: user:password@account/database/schema?warehouse=warehouse&role=role
-	dsn := fmt.Sprintf("%s:%s@%s/%s/%s?warehouse=%s&role=%s", user, password, account, database, schema, warehouse, role)
 	db, err := sqlx.ConnectContext(ctx, "snowflake", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create connection: %w", err)
