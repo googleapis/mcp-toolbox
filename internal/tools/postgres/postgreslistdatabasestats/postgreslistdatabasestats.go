@@ -69,7 +69,12 @@ const listDatabaseStats = `
             -- General Info
             s.numbackends AS active_connections,
             s.stats_reset AS statistics_last_reset,
-            pg_database_size(s.datid) AS database_size_bytes
+            -- pg_database_size raises an error for a database the role cannot
+            -- CONNECT to (unless it has pg_read_all_stats), so return NULL then.
+            CASE
+                WHEN has_database_privilege(s.datid, 'CONNECT') OR pg_has_role('pg_read_all_stats', 'USAGE')
+                THEN pg_database_size(s.datid)
+            END AS database_size_bytes
         FROM
             pg_stat_database s
         JOIN
@@ -89,7 +94,7 @@ const listDatabaseStats = `
         AND ($3::text IS NULL OR database_owner LIKE '%' || $3::text || '%')
         AND ($4::text IS NULL OR default_tablespace LIKE '%' || $4::text || '%')
     ORDER BY
-        CASE WHEN $5::text = 'size' THEN database_size_bytes END DESC,
+        CASE WHEN $5::text = 'size' THEN database_size_bytes END DESC NULLS LAST,
         CASE WHEN $5::text = 'commit' THEN xact_commit END DESC,
         database_name
     LIMIT COALESCE($6::int, 10);
