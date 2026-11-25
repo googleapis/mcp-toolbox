@@ -213,6 +213,7 @@ func TestSpannerToolEndpoints(t *testing.T) {
 	runSpannerSchemaToolInvokeTest(t, accessSchemaWant)
 	runSpannerExecuteSqlToolInvokeTest(t, select1Want, invokeParamWant, tableNameParam)
 	runSpannerListTablesTest(t, tableNameParam, tableNameAuth, tableNameTemplateParam)
+	runSpannerListTablesConstraintColumnsTest(t, edgeTableName, nodeTableName)
 	runSpannerListGraphsTest(t, graphName)
 	tests.RunSearchCatalogToolTest(t, tests.SearchCatalogTestParams{
 		ContainerParamName: "databaseIds",
