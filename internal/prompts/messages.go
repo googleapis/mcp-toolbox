@@ -55,6 +55,14 @@ func (m *Message) UnmarshalYAML(unmarshal func(interface{}) error) error {
 func SubstituteMessages(messages []Message, arguments Arguments, argValues parameters.ParamValues) ([]Message, error) {
 	substitutedMessages := make([]Message, 0, len(messages))
 	argsMap := argValues.AsMap()
+	// An omitted optional argument is parsed as nil, which text/template
+	// renders as the literal "<no value>". Replace nil with an empty string so
+	// {{.arg}} renders empty and {{if .arg}} treats it as absent.
+	for k, v := range argsMap {
+		if v == nil {
+			argsMap[k] = ""
+		}
+	}
 
 	var params parameters.Parameters
 	for _, arg := range arguments {
