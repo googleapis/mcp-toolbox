@@ -15,17 +15,22 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
@@ -230,6 +235,12 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 			wantBody:   "Bob",
 		},
 		{
+			name:       "preserve large integer in JSON",
+			sql:        "SELECT json_object('id', 9007199254740993) AS payload",
+			wantStatus: 200,
+			wantBody:   `\"payload\":{\"id\":9007199254740993}`,
+		},
+		{
 			name:       "select no rows",
 			sql:        fmt.Sprintf("SELECT name FROM %s WHERE id = 999", tableName),
 			wantStatus: 200,
@@ -269,4 +280,258 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 			}
 		})
 	}
+}
+
+type sqliteListTablesRow struct {
+	ObjectDetails map[string]any `json:"object_details"`
+}
+
+func invokeSQLiteToolJSON(t *testing.T, toolName string, payload map[string]any) string {
+	t.Helper()
+	reqBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unable to marshal request payload: %v", err)
+	}
+	api := fmt.Sprintf("http://127.0.0.1:5000/api/tool/%s/invoke", toolName)
+	req, err := http.NewRequest(http.MethodPost, api, bytes.NewReader(reqBytes))
+	if err != nil {
+		t.Fatalf("unable to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("unable to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("unable to read response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var wrapper struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(bodyBytes, &wrapper); err != nil {
+		t.Fatalf("unable to decode response wrapper (%s): %v", string(bodyBytes), err)
+	}
+	var resultStr string
+	if err := json.Unmarshal(wrapper.Result, &resultStr); err != nil {
+		resultStr = string(wrapper.Result)
+	}
+	return resultStr
+}
+
+func invokePrebuiltSQLiteListTables(t *testing.T, payload map[string]any) []sqliteListTablesRow {
+	t.Helper()
+	resultStr := invokeSQLiteToolJSON(t, "list_tables", payload)
+	var rows []sqliteListTablesRow
+	if err := json.Unmarshal([]byte(resultStr), &rows); err != nil {
+		t.Fatalf("unable to unmarshal list_tables rows (%s): %v", resultStr, err)
+	}
+	return rows
+}
+
+func assertPrebuiltSQLiteDatabaseIntact(t *testing.T, ctx context.Context, dbPath string) {
+	t.Helper()
+
+	dbListRaw := invokeSQLiteToolJSON(t, "execute_sql", map[string]any{
+		"sql": "PRAGMA database_list",
+	})
+	var dbList []map[string]any
+	if err := json.Unmarshal([]byte(dbListRaw), &dbList); err != nil {
+		t.Fatalf("unable to unmarshal PRAGMA database_list (%s): %v", dbListRaw, err)
+	}
+	var dbNames []string
+	for _, entry := range dbList {
+		name, _ := entry["name"].(string)
+		dbNames = append(dbNames, name)
+	}
+	if diff := cmp.Diff([]string{"main"}, dbNames); diff != "" {
+		t.Fatalf("unexpected attached databases (-want +got):\n%s", diff)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("opening sqlite db for verification failed: %v", err)
+	}
+	defer db.Close()
+
+	for _, table := range []string{"users", "orders"} {
+		var count int
+		query := fmt.Sprintf("SELECT COUNT(*) FROM %s", table)
+		if err := db.QueryRowContext(ctx, query).Scan(&count); err != nil {
+			t.Fatalf("expected table %q to remain intact, query failed: %v", table, err)
+		}
+		if count != 1 {
+			t.Fatalf("expected 1 row in %q, got %d", table, count)
+		}
+	}
+}
+
+func TestSQLitePrebuiltListTablesTool(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	tempDir := t.TempDir()
+	primaryPath := filepath.Join(tempDir, "primary.db")
+	secondaryPath := filepath.Join(tempDir, "secondary.db")
+
+	secDB, err := sql.Open("sqlite", secondaryPath)
+	if err != nil {
+		t.Fatalf("opening secondary sqlite db failed: %v", err)
+	}
+	if _, err := secDB.ExecContext(ctx, "CREATE TABLE archives (id INTEGER PRIMARY KEY, label TEXT);"); err != nil {
+		_ = secDB.Close()
+		t.Fatalf("creating secondary table failed: %v", err)
+	}
+	if err := secDB.Close(); err != nil {
+		t.Fatalf("closing secondary sqlite db failed: %v", err)
+	}
+
+	setupDB, err := sql.Open("sqlite", primaryPath)
+	if err != nil {
+		t.Fatalf("opening primary sqlite db failed: %v", err)
+	}
+	setupStatements := []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);`,
+		`CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, total REAL, FOREIGN KEY(user_id) REFERENCES users(id));`,
+		`INSERT INTO users (id, name) VALUES (1, 'Alice');`,
+		`INSERT INTO orders (id, user_id, total) VALUES (1, 1, 19.95);`,
+	}
+	for _, stmt := range setupStatements {
+		if _, err := setupDB.ExecContext(ctx, stmt); err != nil {
+			_ = setupDB.Close()
+			t.Fatalf("executing setup SQL %q failed: %v", stmt, err)
+		}
+	}
+	if err := setupDB.Close(); err != nil {
+		t.Fatalf("closing setup sqlite db failed: %v", err)
+	}
+
+	t.Setenv("SQLITE_DATABASE", filepath.ToSlash(primaryPath))
+
+	args := []string{"--prebuilt", "sqlite", "--enable-api"}
+	cmd, cleanup, err := tests.StartCmd(ctx, map[string]any{}, args...)
+	if err != nil {
+		t.Fatalf("command initialization returned an error: %v", err)
+	}
+	defer cleanup()
+
+	waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer waitCancel()
+	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
+	if err != nil {
+		t.Logf("toolbox command logs:\n%s", out)
+		t.Fatalf("toolbox didn't start successfully: %v", err)
+	}
+
+	t.Run("default arguments return all tables in detailed format", func(t *testing.T) {
+		rows := invokePrebuiltSQLiteListTables(t, map[string]any{})
+		if len(rows) != 2 {
+			t.Fatalf("expected 2 rows, got %d: %+v", len(rows), rows)
+		}
+		var gotNames []string
+		for _, r := range rows {
+			name, _ := r.ObjectDetails["object_name"].(string)
+			gotNames = append(gotNames, name)
+			if r.ObjectDetails["schema_name"] != "main" {
+				t.Errorf("expected schema_name 'main', got %v", r.ObjectDetails["schema_name"])
+			}
+			if r.ObjectDetails["object_type"] != "table" {
+				t.Errorf("expected object_type 'table', got %v", r.ObjectDetails["object_type"])
+			}
+			cols, ok := r.ObjectDetails["columns"].([]any)
+			if !ok || len(cols) == 0 {
+				t.Errorf("expected non-empty columns slice for %q, got %T (%v)", name, r.ObjectDetails["columns"], r.ObjectDetails["columns"])
+			}
+		}
+		slices.Sort(gotNames)
+		if diff := cmp.Diff([]string{"orders", "users"}, gotNames); diff != "" {
+			t.Fatalf("table names mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("simple output_format returns table names only", func(t *testing.T) {
+		rows := invokePrebuiltSQLiteListTables(t, map[string]any{
+			"output_format": "simple",
+		})
+		if len(rows) != 2 {
+			t.Fatalf("expected 2 rows, got %d: %+v", len(rows), rows)
+		}
+		var gotNames []string
+		for _, r := range rows {
+			if len(r.ObjectDetails) != 1 {
+				t.Errorf("expected single 'name' key in simple output, got %v", r.ObjectDetails)
+			}
+			name, _ := r.ObjectDetails["name"].(string)
+			gotNames = append(gotNames, name)
+		}
+		slices.Sort(gotNames)
+		if diff := cmp.Diff([]string{"orders", "users"}, gotNames); diff != "" {
+			t.Fatalf("table names mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("table_names filters matching tables", func(t *testing.T) {
+		rows := invokePrebuiltSQLiteListTables(t, map[string]any{
+			"table_names": "users",
+		})
+		if len(rows) != 1 {
+			t.Fatalf("expected 1 row, got %d: %+v", len(rows), rows)
+		}
+		if rows[0].ObjectDetails["object_name"] != "users" {
+			t.Fatalf("expected object_name 'users', got %v", rows[0].ObjectDetails["object_name"])
+		}
+
+		bothRows := invokePrebuiltSQLiteListTables(t, map[string]any{
+			"output_format": "simple",
+			"table_names":   "orders,users",
+		})
+		if len(bothRows) != 2 {
+			t.Fatalf("expected 2 rows for comma-separated table_names, got %d", len(bothRows))
+		}
+	})
+
+	t.Run("special characters and SQL statements in parameters are bound as literals", func(t *testing.T) {
+		secondarySlashPath := filepath.ToSlash(secondaryPath)
+
+		tableFilterInputs := []string{
+			"', 'orders') > 0; DROP TABLE users;",
+			"nonexistent', ',nonexistent,') > 0; DROP TABLE users; SELECT instr('a",
+			fmt.Sprintf("', 'orders') > 0; ATTACH DATABASE '%s' AS extra_db;", secondarySlashPath),
+			fmt.Sprintf("nonexistent', ',nonexistent,') > 0; ATTACH DATABASE '%s' AS extra_db; SELECT instr('a", secondarySlashPath),
+		}
+		for _, filterVal := range tableFilterInputs {
+			rows := invokePrebuiltSQLiteListTables(t, map[string]any{
+				"table_names": filterVal,
+			})
+			if len(rows) != 0 {
+				t.Fatalf("expected 0 rows for literal table_names %q, got %d: %+v", filterVal, len(rows), rows)
+			}
+			assertPrebuiltSQLiteDatabaseIntact(t, ctx, primaryPath)
+		}
+
+		outputFormatInputs := []string{
+			"simple' = 'simple' THEN json_object('name', 'other') WHEN 'a",
+			"detailed'; DROP TABLE users;",
+			fmt.Sprintf("simple'; ATTACH DATABASE '%s' AS extra_db;", secondarySlashPath),
+		}
+		for _, formatVal := range outputFormatInputs {
+			rows := invokePrebuiltSQLiteListTables(t, map[string]any{
+				"output_format": formatVal,
+				"table_names":   "users",
+			})
+			if len(rows) != 1 {
+				t.Fatalf("expected 1 detailed row for literal output_format %q, got %d", formatVal, len(rows))
+			}
+			if rows[0].ObjectDetails["object_name"] != "users" {
+				t.Fatalf("expected object_name 'users' for literal output_format %q, got %v", formatVal, rows[0].ObjectDetails)
+			}
+			assertPrebuiltSQLiteDatabaseIntact(t, ctx, primaryPath)
+		}
+	})
 }

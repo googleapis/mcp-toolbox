@@ -281,6 +281,10 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 	}
 
+	if maxBytes := source.GetMaximumBytesBilled(); maxBytes > 0 {
+		createModelQuery.MaxBytesBilled = maxBytes
+	}
+
 	createModelJob, err := createModelQuery.Run(ctx)
 	if err != nil {
 		return nil, util.ProcessGcpError(err)

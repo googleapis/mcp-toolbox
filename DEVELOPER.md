@@ -572,23 +572,30 @@ variables for each source.
 * Cloud SQL SQL Server - setup in the test project
   * The Cloud Build service account is a user
 * Couchbase - setup in the test project via the Marketplace
-* DGraph - using the public dgraph interface <https://play.dgraph.io> for
-  testing
+* DGraph - ephemeral `dgraph/standalone` container via testcontainers (set
+  `DGRAPH_URL` to use an existing instance)
 * Looker
   * The Cloud Build service account is a user for conversational analytics
   * The Looker instance runs under google.com:looker-sandbox.
-* Memorystore Redis - setup in the test project using a Memorystore for Redis
+* Redis - ephemeral `redis:7.2` container via testcontainers (set
+  `REDIS_ADDRESS` and `REDIS_PASS` to use an existing instance)
+* Memorystore Valkey - setup in the test project using a Memorystore for Redis
   standalone instance
   * Memorystore Redis Cluster, Memorystore Valkey standalone, and Memorystore
     Valkey Cluster instances all require PSC connections, which requires extra
     security setup to connect from Cloud Build. Memorystore Redis standalone is
     the only one allowing PSA connection.
   * The Cloud Build service account is a user
-* Memorystore Valkey - setup in the test project using a Memorystore for Redis
-  standalone instance
-  * The Cloud Build service account is a user
-* MySQL - setup in the test project using a Cloud SQL instance
+* MySQL - ephemeral `mysql:8.4` container via testcontainers (set
+  `MYSQL_HOST` to use an existing instance)
 * Neo4j - setup in the test project on a GCE VM
+* OceanBase - ephemeral `oceanbase/oceanbase-ce:4.4.2.1-101000022026050611`
+  container via testcontainers (set `OCEANBASE_HOST`, `OCEANBASE_PORT`,
+  `OCEANBASE_USER`, `OCEANBASE_PASSWORD`, and `OCEANBASE_DATABASE` to use an
+  existing instance)
+* Oracle - ephemeral `gvenzl/oracle-free:23.26.3-slim-faststart` container via
+  testcontainers (set `ORACLE_HOST`, `ORACLE_USERNAME`, `ORACLE_PASSWORD`, and
+  `ORACLE_SERVER_NAME` to use an existing instance)
 * Postgres - setup in the test project using an AlloyDB instance
 * Spanner - setup in the test project
   * The Cloud Build service account is a user

@@ -17,6 +17,7 @@ package file_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -28,11 +29,20 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/googleapis/mcp-toolbox/internal/auth"
+	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/log"
+	"github.com/googleapis/mcp-toolbox/internal/prompts"
 	"github.com/googleapis/mcp-toolbox/internal/resources"
 	"github.com/googleapis/mcp-toolbox/internal/resources/file"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/server/mcp/jsonrpc"
+	v20251125 "github.com/googleapis/mcp-toolbox/internal/server/mcp/v20251125"
+	"github.com/googleapis/mcp-toolbox/internal/server/primitives"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
 )
 
@@ -631,5 +641,83 @@ func TestFileTemplate_RejectsSkillScheme(t *testing.T) {
 				t.Fatalf("parsing %s: got %v, want error containing %q", tt.uriTemplate, err, want)
 			}
 		})
+	}
+}
+
+func TestFileTemplate_PrefixSuffixAndDirectoryBoundary(t *testing.T) {
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	docsDir := filepath.Join(tempDir, "public_docs")
+	if err := os.MkdirAll(filepath.Join(docsDir, "sub"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	outsideDir := filepath.Join(tempDir, "outside")
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "sub", "guide.md"), []byte("# Guide"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "internal.yaml"), []byte("k: v"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outsideYAML := filepath.Join(outsideDir, "config.yaml")
+	if err := os.WriteFile(outsideYAML, []byte("restricted: true"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideYAML, filepath.Join(docsDir, "linked.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := file.TemplateConfig{}
+	cfg.Name = "public-docs"
+	cfg.URITemplate = "file://" + filepath.ToSlash(docsDir) + "/{path}.md"
+	tmpl, err := cfg.Initialize(ctx)
+	if err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	got, err := tmpl.Read(ctx, map[string]any{"path": "sub/guide"})
+	if err != nil || got != "# Guide" {
+		t.Fatalf("valid nested path failed: got=%v, err=%v", got, err)
+	}
+
+	outsideRelSlash := strings.TrimPrefix(filepath.ToSlash(outsideYAML), "/")
+	rejected := []string{
+		"/" + outsideRelSlash,
+		"%2f" + outsideRelSlash,
+		"\\" + outsideRelSlash,
+		"linked",
+		"internal.yaml#",
+		"internal.yaml?",
+	}
+	for _, bad := range rejected {
+		if res, err := tmpl.Read(ctx, map[string]any{"path": bad}); err == nil {
+			t.Fatalf("Read(%q) = %q, expected error", bad, res)
+		}
+	}
+
+	// Verify end-to-end MCP resources/read rejects double-slash URI escaping prefix and suffix.
+	grp := group.Group{ResourceTemplateNames: []string{"public-docs"}}
+	mgr := primitives.NewPrimitiveManager(
+		map[string]sources.Source{},
+		map[string]auth.AuthService{},
+		map[string]embeddingmodels.EmbeddingModel{},
+		map[string]tools.Tool{},
+		map[string]prompts.Prompt{},
+		map[string]resources.Resource{},
+		map[string]resources.ResourceTemplate{"public-docs": tmpl},
+		map[string]group.Group{"": grp},
+	)
+	doubleSlashURI := "file://" + filepath.ToSlash(docsDir) + "//" + outsideRelSlash + ".md"
+	reqBytes, _ := json.Marshal(map[string]any{"params": map[string]any{"uri": doubleSlashURI}})
+	if _, err := v20251125.ProcessMethod(ctx, jsonrpc.RequestId(1), "resources/read", grp, mgr, reqBytes, nil); err == nil {
+		t.Fatalf("expected MCP resources/read(%q) to fail, got nil error", doubleSlashURI)
 	}
 }
