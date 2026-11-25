@@ -58,10 +58,6 @@ type Tool struct {
 	Builder        BatchBuilder
 }
 
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
-}
-
 func (t Tool) ValidateSource(source sources.Source) error {
 	_, ok := source.(compatibleSource)
 	if !ok {

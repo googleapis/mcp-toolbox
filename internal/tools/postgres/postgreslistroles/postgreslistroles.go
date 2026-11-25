@@ -60,8 +60,8 @@ const listRolesStatement = `
         FROM pg_roles r
     -- Exclude system and internal roles
         WHERE r.rolname NOT LIKE 'cloudsql%'
-        AND r.rolname NOT LIKE 'alloydb_%'
-        AND r.rolname NOT LIKE 'pg_%'
+        AND r.rolname NOT LIKE 'alloydb\_%'
+        AND r.rolname NOT LIKE 'pg\_%'
     )
     SELECT *
     FROM RoleDetails
@@ -100,6 +100,10 @@ var _ tools.ToolConfig = Config{}
 
 func (cfg Config) ToolConfigType() string {
 	return resourceType
+}
+
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
 }
 
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
@@ -144,10 +148,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGeneralError(err)
 	}
 	return resp, nil
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

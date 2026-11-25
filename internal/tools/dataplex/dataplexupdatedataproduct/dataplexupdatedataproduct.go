@@ -68,6 +68,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(ctx context.Context) (tools.Tool, error) {
 	locationId := parameters.NewStringParameter("locationId", "The location to update the data product in.")
 	dataProductId := parameters.NewStringParameter("dataProductId", "The data product ID.")
@@ -122,10 +126,6 @@ type Tool struct {
 }
 
 var _ tools.Tool = Tool{}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
-}
 
 func (t Tool) ToConfig() tools.ToolConfig {
 	return t.Cfg

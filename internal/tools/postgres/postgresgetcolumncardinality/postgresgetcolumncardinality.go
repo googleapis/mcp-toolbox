@@ -45,6 +45,9 @@ const getColumnCardinality = `
         AND s.tablename = $2 -- Parameter for table
         AND n.nspname = $1  -- (same parameter as schema)
         AND s.attname = COALESCE($3, s.attname)
+        -- pg_stats has a second row per column (inherited = true) for
+        -- inheritance parents; partitioned tables only have that one.
+        AND s.inherited = (c.relkind = 'p')
       ORDER BY estimated_cardinality DESC;
 `
 
@@ -77,6 +80,10 @@ var _ tools.ToolConfig = Config{}
 
 func (cfg Config) ToolConfigType() string {
 	return resourceType
+}
+
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
 }
 
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
@@ -124,10 +131,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGeneralError(err)
 	}
 	return resp, nil
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

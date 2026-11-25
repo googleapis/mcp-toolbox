@@ -67,6 +67,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 type Aspect struct {
 	ProjectID    string         `json:"projectId" validate:"required"`
 	LocationID   string         `json:"locationId" validate:"required"`
@@ -119,10 +123,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

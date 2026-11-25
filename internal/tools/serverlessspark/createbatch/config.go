@@ -50,6 +50,13 @@ type Config struct {
 	EnvironmentConfig *dataprocpb.EnvironmentConfig `yaml:"environmentConfig"`
 }
 
+// GetSourceName returns the name of the source the tool is configured to use.
+// It is promoted to the tool-specific configs that embed this Config, so they
+// satisfy tools.ToolConfig without redeclaring it.
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func NewConfig(ctx context.Context, name string, decoder *yaml.Decoder) (Config, error) {
 	// Use a temporary struct to decode the YAML, so that we can handle the proto
 	// conversion for RuntimeConfig and EnvironmentConfig.

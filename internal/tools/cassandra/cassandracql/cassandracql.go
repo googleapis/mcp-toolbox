@@ -64,6 +64,11 @@ func (c Config) ToolConfigType() string {
 	return resourceType
 }
 
+// GetSourceName returns the name of the source the tool is configured to use.
+func (c Config) GetSourceName() string {
+	return c.Source
+}
+
 // Initialize implements tools.ToolConfig.
 func (c Config) Initialize(context.Context) (tools.Tool, error) {
 	if c.Description == "" {
@@ -89,10 +94,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

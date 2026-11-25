@@ -62,6 +62,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
@@ -82,10 +86,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
@@ -141,11 +141,11 @@ func replaceCommandsParams(commands [][]string, params parameters.Parameters, pa
 				for _, item := range v.([]any) {
 					// Nested arrays will only be expanded once
 					// e.g., [A, [B, C]]  --> ["A", "[B C]"]
-					newCmd = append(newCmd, fmt.Sprintf("%s", item))
+					newCmd = append(newCmd, fmt.Sprint(item))
 				}
 				continue
 			}
-			newCmd = append(newCmd, fmt.Sprintf("%s", v))
+			newCmd = append(newCmd, fmt.Sprint(v))
 		}
 		newCommands[i] = newCmd
 	}

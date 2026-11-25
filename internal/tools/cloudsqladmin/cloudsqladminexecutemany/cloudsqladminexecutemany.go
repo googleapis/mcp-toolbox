@@ -59,6 +59,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 // Initialize creates a new Cloud SQL Admin ExecuteSqlMany tool.
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	params := parameters.Parameters{
@@ -122,10 +126,6 @@ func (t Tool) RequiresClientAuthorization(source sources.Source) (bool, error) {
 		return false, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
 	return s.UseClientAuthorization(), nil
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

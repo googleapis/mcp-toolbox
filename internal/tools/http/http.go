@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -75,6 +74,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
@@ -112,10 +115,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
@@ -249,16 +248,32 @@ func getURL(baseURL, path string, pathParams, queryParams parameters.Parameters,
 	return parsedURL.String(), nil
 }
 
+// Merge headers case-insensitively, with later sets overriding earlier sets.
+func mergeHeaders(headerSets ...map[string]string) map[string]string {
+	headers := make(map[string]string)
+	for _, headerSet := range headerSets {
+		for name, value := range headerSet {
+			headers[http.CanonicalHeaderKey(name)] = value
+		}
+	}
+	return headers
+}
+
 // Helper function to generate the HTTP headers upon Tool invocation.
 func getHeaders(headerParams parameters.Parameters, defaultHeaders map[string]string, paramsMap map[string]any) (map[string]string, error) {
 	// Populate header params
-	allHeaders := make(map[string]string)
-	maps.Copy(allHeaders, defaultHeaders)
+	allHeaders := mergeHeaders(defaultHeaders)
 	for _, p := range headerParams {
 		headerValue, ok := paramsMap[p.GetName()]
-		if ok {
+		// An optional header param that was not provided is present in
+		// paramsMap with a nil value; omit it, as is done for query params.
+		if ok && headerValue != nil {
 			if strValue, ok := headerValue.(string); ok {
-				allHeaders[p.GetName()] = strValue
+				// An empty string carries no header value; omit it so any
+				// source or tool header with the same name is kept.
+				if strValue != "" {
+					allHeaders[http.CanonicalHeaderKey(p.GetName())] = strValue
+				}
 			} else {
 				return nil, fmt.Errorf("header param %s got value of type %t, not string", p.GetName(), headerValue)
 			}
@@ -274,9 +289,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	// Combine Source and Tool headers.
 	// In case of conflict, Tool header overrides Source header
-	combinedHeaders := make(map[string]string)
-	maps.Copy(combinedHeaders, source.HttpDefaultHeaders())
-	maps.Copy(combinedHeaders, t.Cfg.Headers)
+	combinedHeaders := mergeHeaders(source.HttpDefaultHeaders(), t.Cfg.Headers)
 
 	paramsMap := params.AsMap()
 

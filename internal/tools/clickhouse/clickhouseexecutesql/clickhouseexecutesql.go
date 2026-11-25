@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
@@ -58,13 +59,25 @@ func (cfg Config) ToolConfigType() string {
 	return executeSQLType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		return nil, fmt.Errorf("description is required for tool %q", cfg.Name)
 	}
 
 	sqlParameter := parameters.NewStringParameter("sql", "The SQL statement to execute.")
-	params := parameters.Parameters{sqlParameter}
+	queryParamsParameter := parameters.NewMapParameter(
+		"params",
+		"Optional query parameters for {name:Type} placeholders in the SQL statement, by name. ClickHouse binds them "+
+			"on the server. Each value is a string in ClickHouse's text format for its type (e.g. \"42\", "+
+			"\"2024-01-31\", \"['a','b']\").",
+		"string",
+		parameters.WithMapRequired(false),
+	)
+	params := parameters.Parameters{sqlParameter, queryParamsParameter}
 
 	return Tool{
 		BaseTool: tools.NewBaseTool(
@@ -80,10 +93,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
@@ -108,9 +117,39 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if !ok {
 		return nil, util.NewAgentError(fmt.Sprintf("unable to cast sql parameter %s", paramsMap["sql"]), nil)
 	}
+	queryParams, err := toQueryParameters(paramsMap["params"])
+	if err != nil {
+		return nil, util.NewAgentError("failed to parse query parameters", err)
+	}
+	if len(queryParams) > 0 {
+		// Sent as param_<name>: the server parses each value as its declared
+		// type, so a value is never read as SQL.
+		ctx = clickhouse.Context(ctx, clickhouse.WithParameters(queryParams))
+	}
 	resp, err := source.RunSQL(ctx, sql, nil)
 	if err != nil {
 		return nil, util.ProcessGeneralError(err)
 	}
 	return resp, nil
+}
+
+// toQueryParameters converts the optional params argument, a map of parameter
+// names to values in ClickHouse's text format, to query parameters.
+func toQueryParameters(value any) (clickhouse.Parameters, error) {
+	if value == nil {
+		return nil, nil
+	}
+	values, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("unable to cast params parameter %v: want an object of strings", value)
+	}
+	queryParams := make(clickhouse.Parameters, len(values))
+	for name, v := range values {
+		text, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid value for params.%s: want a string in ClickHouse's text format, got %T", name, v)
+		}
+		queryParams[name] = text
+	}
+	return queryParams, nil
 }

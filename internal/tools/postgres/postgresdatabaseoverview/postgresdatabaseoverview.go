@@ -34,13 +34,20 @@ const databaseOverviewStatement = `
     current_setting('server_version') AS pg_version,
     pg_is_in_recovery() AS is_replica,
     (now() - pg_postmaster_start_time())::TEXT AS uptime,
-    current_setting('max_connections')::int AS max_connections,
-    (SELECT count(*) FROM pg_stat_activity) AS current_connections,
-    (SELECT count(*) FROM pg_stat_activity WHERE state = 'active') AS active_connections,
+    max_conn AS max_connections,
+    current_conns AS current_connections,
+    active_conns AS active_connections,
     round(
-        (100.0 * (SELECT count(*) FROM pg_stat_activity) / current_setting('max_connections')::int),
+        (100.0 * current_conns / NULLIF(max_conn, 0)),
         2
-    ) AS pct_connections_used;
+    ) AS pct_connections_used
+    FROM (
+        SELECT
+            current_setting('max_connections')::int AS max_conn,
+            count(*) FILTER (WHERE backend_type = 'client backend') AS current_conns,
+            count(*) FILTER (WHERE backend_type = 'client backend' AND state = 'active') AS active_conns
+        FROM pg_stat_activity
+    ) t;
 `
 
 func init() {
@@ -72,6 +79,10 @@ var _ tools.ToolConfig = Config{}
 
 func (cfg Config) ToolConfigType() string {
 	return resourceType
+}
+
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
 }
 
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
@@ -113,10 +124,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGeneralError(err)
 	}
 	return resp, nil
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
