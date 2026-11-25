@@ -961,6 +961,8 @@ func (p *FloatParameter) Parse(v any) (any, error) {
 	// YAML decodes whole numbers inside array and map defaults as integers.
 	case int:
 		out = float64(newV)
+	case int32:
+		out = float64(newV)
 	case int64:
 		out = float64(newV)
 	case uint64:
