@@ -14,5 +14,6 @@ description: "Details of the MindsDB prebuilt configuration."
     *   `MINDSDB_USER`: The database username.
     *   `MINDSDB_PASS`: The password for the database user.
 *   **Tools:**
-    *   `mindsdb-execute-sql`: Execute SQL queries directly on MindsDB database.
-    *   `mindsdb-sql`: Execute parameterized SQL queries on MindsDB database.
+    *   `execute_sql`: Execute SQL queries directly on MindsDB database.
+    *   `parameterized_sql`: Execute parameterized SQL queries on MindsDB
+        database.
