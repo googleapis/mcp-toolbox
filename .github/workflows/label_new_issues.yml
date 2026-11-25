@@ -62,7 +62,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python3 .ci/label_issue.py classify --issue "$ISSUE"
 
-  # Applies the labels. Has no model key and does not read the issue text.
+  # Applies the labels. Has no model key and uses only the issue's labels, author and label events.
   apply:
     if: github.repository == 'googleapis/mcp-toolbox'
     needs: classify
