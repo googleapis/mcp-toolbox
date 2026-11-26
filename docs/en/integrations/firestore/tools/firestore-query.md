@@ -122,7 +122,7 @@ filters: |
   {
     "field": "continent",
     "op": "==",
-    "value": {"stringValue": "{{.continent}}"}
+    "value": {"stringValue": {{json .continent}}}
   }
 parameters:
   - name: continent
@@ -143,10 +143,10 @@ collectionPath: "{{.collection}}"
 filters: |
   {
     "or": [
-      {"field": "status", "op": "==", "value": {"stringValue": "{{.status}}"}},
+      {"field": "status", "op": "==", "value": {"stringValue": {{json .status}}}},
       {
         "and": [
-          {"field": "priority", "op": ">", "value": {"integerValue": "{{.priority}}"}},
+          {"field": "priority", "op": ">", "value": {"integerValue": {{json .priority}}}},
           {"field": "area", "op": "<", "value": {"doubleValue": {{.maxArea}}}},
           {"field": "active", "op": "==", "value": {"booleanValue": {{.isActive}}}}
         ]
@@ -199,17 +199,17 @@ parameters:
 
 The tool supports all Firestore native JSON value types:
 
-| Type      | Format                                               | Example                                                        |
-|-----------|------------------------------------------------------|----------------------------------------------------------------|
-| String    | `{"stringValue": "text"}`                            | `{"stringValue": "{{.name}}"}`                                 |
-| Integer   | `{"integerValue": "123"}` or `{"integerValue": 123}` | `{"integerValue": "{{.age}}"}` or `{"integerValue": {{.age}}}` |
-| Double    | `{"doubleValue": 45.67}`                             | `{"doubleValue": {{.price}}}`                                  |
-| Boolean   | `{"booleanValue": true}`                             | `{"booleanValue": {{.active}}}`                                |
-| Null      | `{"nullValue": null}`                                | `{"nullValue": null}`                                          |
-| Timestamp | `{"timestampValue": "RFC3339"}`                      | `{"timestampValue": "{{.date}}"}`                              |
-| GeoPoint  | `{"geoPointValue": {"latitude": 0, "longitude": 0}}` | See below                                                      |
-| Array     | `{"arrayValue": {"values": [...]}}`                  | See below                                                      |
-| Map       | `{"mapValue": {"fields": {...}}}`                    | See below                                                      |
+| Type      | Format                                               | Example                                                          |
+|-----------|------------------------------------------------------|------------------------------------------------------------------|
+| String    | `{"stringValue": "text"}`                            | `{"stringValue": {{json .name}}}`                                |
+| Integer   | `{"integerValue": "123"}` or `{"integerValue": 123}` | `{"integerValue": {{json .age}}}` or `{"integerValue": {{.age}}}` |
+| Double    | `{"doubleValue": 45.67}`                             | `{"doubleValue": {{.price}}}`                                    |
+| Boolean   | `{"booleanValue": true}`                             | `{"booleanValue": {{.active}}}`                                  |
+| Null      | `{"nullValue": null}`                                | `{"nullValue": null}`                                            |
+| Timestamp | `{"timestampValue": "RFC3339"}`                      | `{"timestampValue": {{json .date}}}`                             |
+| GeoPoint  | `{"geoPointValue": {"latitude": 0, "longitude": 0}}` | See below                                                        |
+| Array     | `{"arrayValue": {"values": [...]}}`                  | See below                                                        |
+| Map       | `{"mapValue": {"fields": {...}}}`                    | See below                                                        |
 
 #### Complex Type Examples
 
@@ -234,7 +234,7 @@ The tool supports all Firestore native JSON value types:
 {
   "field": "tags",
   "op": "array-contains",
-  "value": {"stringValue": "{{.tag}}"}
+  "value": {"stringValue": {{json .tag}}}
 }
 ```
 
@@ -264,7 +264,7 @@ filters: |
   {
     "field": "type",
     "op": "==",
-    "value": {"stringValue": "{{.docType}}"}
+    "value": {"stringValue": {{json .docType}}}
   }
 parameters:
   - name: userId
@@ -289,8 +289,8 @@ collectionPath: "cities"
 filters: |
   {
     "and": [
-      {"field": "country", "op": "==", "value": {"stringValue": "{{.country}}"}},
-      {"field": "population", "op": ">", "value": {"integerValue": "{{.minPopulation}}"}},
+      {"field": "country", "op": "==", "value": {"stringValue": {{json .country}}}},
+      {"field": "population", "op": ">", "value": {"integerValue": {{json .minPopulation}}}},
       {"field": "area", "op": "<", "value": {"doubleValue": {{.maxArea}}}}
     ]
   }
@@ -325,8 +325,8 @@ collectionPath: "logs"
 filters: |
   {
     "and": [
-      {"field": "timestamp", "op": ">=", "value": {"timestampValue": "{{.startTime}}"}},
-      {"field": "timestamp", "op": "<=", "value": {"timestampValue": "{{.endTime}}"}},
+      {"field": "timestamp", "op": ">=", "value": {"timestampValue": {{json .startTime}}}},
+      {"field": "timestamp", "op": "<=", "value": {"timestampValue": {{json .endTime}}}},
       {"field": "severity", "op": "in", "value": {"arrayValue": {"values": [
         {"stringValue": "ERROR"},
         {"stringValue": "CRITICAL"}

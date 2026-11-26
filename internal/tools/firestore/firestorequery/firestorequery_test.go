@@ -15,10 +15,13 @@
 package firestorequery_test
 
 import (
+	"context"
 	"testing"
 
+	firestoreapi "cloud.google.com/go/firestore"
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
+	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/tools/firestore/firestorequery"
@@ -501,5 +504,205 @@ func TestParseFromYamlMultipleQueryTools(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("incorrect parse: diff %v", diff)
+	}
+}
+
+type mockFirestoreSource struct {
+	lastFilter firestoreapi.EntityFilter
+}
+
+func (m *mockFirestoreSource) SourceType() string             { return "firestore" }
+func (m *mockFirestoreSource) ToConfig() sources.SourceConfig { return nil }
+func (m *mockFirestoreSource) IsReadOnly() bool               { return false }
+func (m *mockFirestoreSource) FirestoreClient() *firestoreapi.Client {
+	return nil
+}
+func (m *mockFirestoreSource) BuildQuery(_ string, filter firestoreapi.EntityFilter, _ []string, _ string, _ firestoreapi.Direction, _ int, _ bool) (*firestoreapi.Query, error) {
+	m.lastFilter = filter
+	return nil, nil
+}
+func (m *mockFirestoreSource) ExecuteQuery(_ context.Context, _ *firestoreapi.Query, _ bool) (any, error) {
+	return []any{}, nil
+}
+
+func TestInvokeFilterTemplateSubstitution(t *testing.T) {
+	statusWithJSONSyntax := `paid"}}], "and": [{"field": "status", "op": "==", "value": {"stringValue": "paid`
+
+	tcs := []struct {
+		name       string
+		filters    string
+		params     parameters.ParamValues
+		wantFilter firestoreapi.EntityFilter
+		wantErr    bool
+	}{
+		{
+			name: "quoted string parameter with JSON metacharacters preserves sibling filters",
+			filters: `{
+				"and": [
+					{"field": "owner_email", "op": "==", "value": {"stringValue": "{{.user_email}}"}},
+					{"field": "status", "op": "==", "value": {"stringValue": "{{.status}}"}}
+				]
+			}`,
+			params: parameters.ParamValues{
+				{Name: "user_email", Value: "alice@example.com"},
+				{Name: "status", Value: statusWithJSONSyntax},
+			},
+			wantFilter: firestoreapi.AndFilter{
+				Filters: []firestoreapi.EntityFilter{
+					firestoreapi.PropertyFilter{
+						Path:     "owner_email",
+						Operator: "==",
+						Value:    "alice@example.com",
+					},
+					firestoreapi.PropertyFilter{
+						Path:     "status",
+						Operator: "==",
+						Value:    statusWithJSONSyntax,
+					},
+				},
+			},
+		},
+		{
+			name: "unquoted json function parameter with JSON metacharacters preserves sibling filters",
+			filters: `{
+				"and": [
+					{"field": "owner_email", "op": "==", "value": {"stringValue": {{json .user_email}}}},
+					{"field": "status", "op": "==", "value": {"stringValue": {{json .status}}}}
+				]
+			}`,
+			params: parameters.ParamValues{
+				{Name: "user_email", Value: "alice@example.com"},
+				{Name: "status", Value: statusWithJSONSyntax},
+			},
+			wantFilter: firestoreapi.AndFilter{
+				Filters: []firestoreapi.EntityFilter{
+					firestoreapi.PropertyFilter{
+						Path:     "owner_email",
+						Operator: "==",
+						Value:    "alice@example.com",
+					},
+					firestoreapi.PropertyFilter{
+						Path:     "status",
+						Operator: "==",
+						Value:    statusWithJSONSyntax,
+					},
+				},
+			},
+		},
+		{
+			name: "typed numeric boolean slice map and parameterized operator",
+			filters: `{
+				"or": [
+					{"field": "age", "op": "{{.operator}}", "value": {"integerValue": "{{.age}}"}},
+					{
+						"and": [
+							{"field": "area", "op": "<", "value": {"doubleValue": {{.maxArea}}}},
+							{"field": "active", "op": "==", "value": {"booleanValue": {{.isActive}}}},
+							{"field": "note", "op": "==", "value": {"stringValue": "{{index .strSlice 0}}"}},
+							{"field": "tags", "op": "in", "value": {"arrayValue": {"values": {{json .tagObjects}}}}}
+						]
+					}
+				]
+			}`,
+			params: parameters.ParamValues{
+				{Name: "operator", Value: ">="},
+				{Name: "age", Value: "25"},
+				{Name: "maxArea", Value: 123.5},
+				{Name: "isActive", Value: true},
+				{Name: "strSlice", Value: []string{"a < b & c > d\n\t\\\""}},
+				{Name: "tagObjects", Value: []any{map[string]any{"stringValue": `tag"1`}}},
+			},
+			wantFilter: firestoreapi.OrFilter{
+				Filters: []firestoreapi.EntityFilter{
+					firestoreapi.PropertyFilter{
+						Path:     "age",
+						Operator: ">=",
+						Value:    int64(25),
+					},
+					firestoreapi.AndFilter{
+						Filters: []firestoreapi.EntityFilter{
+							firestoreapi.PropertyFilter{
+								Path:     "area",
+								Operator: "<",
+								Value:    float64(123.5),
+							},
+							firestoreapi.PropertyFilter{
+								Path:     "active",
+								Operator: "==",
+								Value:    true,
+							},
+							firestoreapi.PropertyFilter{
+								Path:     "note",
+								Operator: "==",
+								Value:    "a < b & c > d\n\t\\\"",
+							},
+							firestoreapi.PropertyFilter{
+								Path:     "tags",
+								Operator: "in",
+								Value:    []any{`tag"1`},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "unquoted template with trailing JSON payload fails",
+			filters: `{
+				"field": "age",
+				"op": "==",
+				"value": {"integerValue": {{.raw}}}
+			}`,
+			params: parameters.ParamValues{
+				{Name: "raw", Value: `25}}, "and": [{"field": "age", "op": ">", "value": {"integerValue": 0}}]`},
+			},
+			wantErr: true,
+		},
+		{
+			name: "unclosed unquoted template action fails",
+			filters: `{
+				"field": "age",
+				"op": "==",
+				"value": {"doubleValue": {{.maxArea}
+			}`,
+			params: parameters.ParamValues{
+				{Name: "maxArea", Value: 10.0},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := firestorequery.Config{
+				ConfigBase: tools.ConfigBase{
+					Name:        "test_query",
+					Description: "Test firestore query tool",
+				},
+				Type:           "firestore-query",
+				Source:         "mock-firestore",
+				CollectionPath: "items",
+				Filters:        tc.filters,
+			}
+			tool, err := cfg.Initialize(context.Background())
+			if err != nil {
+				t.Fatalf("Initialize failed: %v", err)
+			}
+
+			src := &mockFirestoreSource{}
+			_, invokeErr := tool.Invoke(context.Background(), src, tc.params, "")
+			if tc.wantErr {
+				if invokeErr == nil {
+					t.Fatalf("expected error, got nil (filter=%#v)", src.lastFilter)
+				}
+				return
+			}
+			if invokeErr != nil {
+				t.Fatalf("unexpected error: %v", invokeErr)
+			}
+			if diff := cmp.Diff(tc.wantFilter, src.lastFilter); diff != "" {
+				t.Fatalf("filter mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
