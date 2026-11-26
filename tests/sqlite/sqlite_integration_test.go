@@ -49,29 +49,19 @@ func getSQLiteVars(t *testing.T) map[string]any {
 	}
 }
 
-func initSQLiteDb(t *testing.T, sqliteDb string) (*sql.DB, func(t *testing.T), string, error) {
+func initSQLiteDb(t *testing.T, sqliteDb string) (*sql.DB, string, error) {
 	if sqliteDb == "" {
 		// Create a temporary database file
-		tmpFile, err := os.CreateTemp("", "test-*.db")
-		if err != nil {
-			return nil, nil, "", fmt.Errorf("failed to create temp file: %v", err)
-		}
-		sqliteDb = tmpFile.Name()
+		sqliteDb = filepath.Join(t.TempDir(), "test.db")
 	}
 
 	// Open database connection
 	db, err := sql.Open("sqlite", sqliteDb)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("failed to open database: %v", err)
+		return nil, "", fmt.Errorf("failed to open database: %v", err)
 	}
 
-	cleanup := func(t *testing.T) {
-		if err := os.Remove(sqliteDb); err != nil {
-			t.Errorf("Failed to remove test database: %s", err)
-		}
-	}
-
-	return db, cleanup, sqliteDb, nil
+	return db, sqliteDb, nil
 }
 
 // setupSQLiteTestDB creates a temporary SQLite database for testing
@@ -114,11 +104,10 @@ func getSQLiteTmplToolStatement() (string, string) {
 }
 
 func TestSQLiteToolEndpoint(t *testing.T) {
-	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
+	db, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer teardownDb(t)
 	defer db.Close()
 
 	sourceConfig := getSQLiteVars(t)
@@ -173,11 +162,10 @@ func TestSQLiteToolEndpoint(t *testing.T) {
 }
 
 func TestSQLiteExecuteSqlTool(t *testing.T) {
-	db, teardownDb, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
+	db, sqliteDb, err := initSQLiteDb(t, SQLiteDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer teardownDb(t)
 	defer db.Close()
 
 	sourceConfig := getSQLiteVars(t)
