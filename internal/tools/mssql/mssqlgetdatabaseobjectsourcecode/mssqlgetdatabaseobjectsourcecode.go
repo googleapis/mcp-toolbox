@@ -185,8 +185,13 @@ BEGIN
 				END
 			ELSE
 				BEGIN
-					-- Execute sp_helptext for the current stored procedure
-					EXEC sp_helptext @CurrentResource;
+					-- Return the definition together with the object name, so that the
+					-- definitions of different objects can be told apart. PRINT output
+					-- does not reach the caller.
+					SELECT
+						@CurrentResource AS [ObjectName],
+						OBJECT_DEFINITION(OBJECT_ID(@CurrentResource)) AS [Definition];
+					SELECT '-------------------------------------------------------'
 				END
 		END
 	ELSE IF @CurrentResourceType = 2
@@ -220,7 +225,12 @@ BEGIN
 	ELSE IF @CurrentResourceType = 4
 		BEGIN
 			PRINT 'Trigger - ' + @CurrentResource
-			SELECT OBJECT_DEFINITION(@CurrentResource);
+			SELECT
+				QUOTENAME(t.name) AS [TriggerName],
+				QUOTENAME(OBJECT_SCHEMA_NAME(t.parent_id)) + '.' + QUOTENAME(OBJECT_NAME(t.parent_id)) AS [ParentObject],
+				OBJECT_DEFINITION(t.object_id) AS [Definition]
+			FROM sys.triggers t
+			WHERE t.object_id = CAST(@CurrentResource AS INT);
 			SELECT '-------------------------------------------------------'
 		END
 	ELSE
