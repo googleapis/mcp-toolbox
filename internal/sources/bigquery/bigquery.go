@@ -207,6 +207,9 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		if r.WriteMode == WriteModeProtected {
 			// session-based connections
 			s.SessionProvider = s.newBigQuerySessionProvider()
+			if logger, logErr := util.LoggerFromContext(ctx); logErr == nil {
+				logger.WarnContext(ctx, fmt.Sprintf("BigQuery source %q uses writeMode %q: all callers of this source share a single BigQuery session, so temporary tables and session state are visible to every caller. Do not use this mode for a source shared by multiple users.", r.Name, WriteModeProtected))
+			}
 		}
 	} else {
 		if strings.ToLower(r.UseClientOAuth) != "true" {
