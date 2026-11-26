@@ -62,10 +62,11 @@ func (h *mastercreateBackupHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 	}
 	var backupRun sqladmin.BackupRun
 	if err := json.NewDecoder(r.Body).Decode(&backupRun); err != nil {
-		h.t.Fatalf("failed to decode request body: %v", err)
-	} else {
-		h.t.Logf("Received request body: %+v", backupRun)
+		h.t.Errorf("failed to decode request body: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+	h.t.Logf("Received request body: %+v", backupRun)
 
 	var expectedBackupRun sqladmin.BackupRun
 	var response any
