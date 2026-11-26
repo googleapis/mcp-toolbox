@@ -2824,6 +2824,85 @@ func RunPostgresListDatabaseStatsTest(t *testing.T, ctx context.Context, pool *p
 			}
 		})
 	}
+
+	// rollback_ratio_percent must be xact_rollback / (xact_commit + xact_rollback).
+	// dbName1 has no other activity, so its counters stay small enough that a
+	// biased denominator would change the reported percentage.
+	t.Run("rollback_ratio_percent is the share of rolled back transactions", func(t *testing.T) {
+		connConfig := pool.Config().ConnConfig.Copy()
+		connConfig.Database = dbName1
+		conn, err := pgx.ConnectConfig(ctx, connConfig)
+		if err != nil {
+			t.Fatalf("failed to connect to %s: %v", dbName1, err)
+		}
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			_ = conn.Close(ctx)
+			t.Fatalf("failed to begin transaction: %v", err)
+		}
+		if err := tx.Rollback(ctx); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatalf("failed to roll back transaction: %v", err)
+		}
+		if err := conn.Close(ctx); err != nil {
+			t.Fatalf("failed to close connection to %s: %v", dbName1, err)
+		}
+
+		// The backend reports its counters when it exits; wait until they are visible.
+		var rollbacks int64
+		for deadline := time.Now().Add(15 * time.Second); ; {
+			if err := pool.QueryRow(ctx, "SELECT xact_rollback FROM pg_stat_database WHERE datname = $1", dbName1).Scan(&rollbacks); err != nil {
+				t.Fatalf("failed to read pg_stat_database for %s: %v", dbName1, err)
+			}
+			if rollbacks > 0 || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if rollbacks == 0 {
+			t.Fatalf("pg_stat_database did not report the rolled back transaction for %s", dbName1)
+		}
+
+		const api = "http://127.0.0.1:5000/api/tool/list_database_stats/invoke"
+		requestBody := bytes.NewBuffer([]byte(fmt.Sprintf(`{"database_name": "%s"}`, dbName1)))
+		resp, body := RunRequest(t, http.MethodPost, api, requestBody, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("wrong status code: got %d, want %d, body: %s", resp.StatusCode, http.StatusOK, string(body))
+		}
+		var bodyWrapper struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(body, &bodyWrapper); err != nil {
+			t.Fatalf("error decoding response wrapper: %v", err)
+		}
+		var resultString string
+		if err := json.Unmarshal(bodyWrapper.Result, &resultString); err != nil {
+			resultString = string(bodyWrapper.Result)
+		}
+		var got []map[string]any
+		if err := json.Unmarshal([]byte(resultString), &got); err != nil {
+			t.Fatalf("failed to unmarshal nested result string: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("expected exactly one row for %s, got %d: %s", dbName1, len(got), resultString)
+		}
+
+		toFloat := func(key string) float64 {
+			f, err := strconv.ParseFloat(fmt.Sprint(got[0][key]), 64)
+			if err != nil {
+				t.Fatalf("unable to parse %s=%v as a number: %v", key, got[0][key], err)
+			}
+			return f
+		}
+		commits, rolledBack, ratio := toFloat("xact_commit"), toFloat("xact_rollback"), toFloat("rollback_ratio_percent")
+		if rolledBack == 0 {
+			t.Fatalf("list_database_stats reported no rolled back transactions for %s", dbName1)
+		}
+		want := rolledBack * 100 / (commits + rolledBack)
+		if diff := ratio - want; diff > 0.006 || diff < -0.006 {
+			t.Errorf("rollback_ratio_percent = %v, want %.2f (xact_commit=%v, xact_rollback=%v)", ratio, want, commits, rolledBack)
+		}
+	})
 }
 
 func setUpDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, dbName, dbOwner string) func() {
