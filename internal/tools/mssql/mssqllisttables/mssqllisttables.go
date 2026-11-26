@@ -82,7 +82,10 @@ const listTablesStatement = `
         JOIN
             table_info ti ON c.object_id = ti.table_oid
         JOIN
-            sys.types TY ON c.user_type_id = TY.user_type_id AND TY.is_user_defined = 0 -- Ensure we get base types
+            sys.types UT ON c.user_type_id = UT.user_type_id
+        JOIN
+            -- For alias types (CREATE TYPE ... FROM), report the base system type.
+            sys.types TY ON TY.user_type_id = IIF(UT.is_user_defined = 1 AND UT.is_assembly_type = 0, UT.system_type_id, UT.user_type_id)
         LEFT JOIN
             sys.default_constraints dc ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id
         LEFT JOIN
