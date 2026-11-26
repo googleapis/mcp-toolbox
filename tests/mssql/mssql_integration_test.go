@@ -15,9 +15,12 @@
 package mssql
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -152,6 +155,84 @@ func TestMSSQLToolEndpoints(t *testing.T) {
 	// Run specific MSSQL tool tests
 	tests.RunMSSQLListTablesTest(t, tableNameParam, tableNameAuth)
 	tests.RunMSSQLGetDatabaseObjectSourceCodeTest(t, tableNameParam, tableNameAuth)
+	runMSSQLListTablesForeignKeyTest(t, ctx, pool)
+}
+
+// runMSSQLListTablesForeignKeyTest checks that list_tables reports a definition
+// for foreign key constraints. It creates its own tables, so it runs after the
+// list_tables tests that expect only the param and auth tables in dbo.
+func runMSSQLListTablesForeignKeyTest(t *testing.T, ctx context.Context, pool *sql.DB) {
+	suffix := strings.ReplaceAll(uuid.New().String(), "-", "")
+	parentTable := "fk_parent_" + suffix
+	childTable := "fk_child_" + suffix
+	fkName := "fk_child_parent_" + suffix
+
+	stmts := []string{
+		fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, code INT NOT NULL, CONSTRAINT uq_%s UNIQUE (id, code))", parentTable, suffix),
+		fmt.Sprintf("CREATE TABLE %s (id INT PRIMARY KEY, parent_id INT NOT NULL, parent_code INT NOT NULL, CONSTRAINT %s FOREIGN KEY (parent_id, parent_code) REFERENCES dbo.%s (id, code) ON DELETE CASCADE)", childTable, fkName, parentTable),
+	}
+	for _, stmt := range stmts {
+		if _, err := pool.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("unable to set up foreign key tables: %s", err)
+		}
+	}
+	defer func() {
+		for _, table := range []string{childTable, parentTable} {
+			if _, err := pool.ExecContext(context.Background(), fmt.Sprintf("DROP TABLE IF EXISTS %s", table)); err != nil {
+				t.Errorf("unable to drop table %s: %s", table, err)
+			}
+		}
+	}()
+
+	const api = "http://127.0.0.1:5000/api/tool/list_tables/invoke"
+	reqBytes, _ := json.Marshal(map[string]any{"table_names": childTable})
+	resp, respBytes := tests.RunRequest(t, http.MethodPost, api, bytes.NewBuffer(reqBytes), nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	var body struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(respBytes, &body); err != nil {
+		t.Fatalf("error parsing response body: %s, body: %s", err, string(respBytes))
+	}
+	var rows []struct {
+		ObjectDetails json.RawMessage `json:"object_details"`
+	}
+	if err := json.Unmarshal([]byte(body.Result), &rows); err != nil {
+		t.Fatalf("error parsing result: %s, result: %s", err, body.Result)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 table, got %d: %s", len(rows), body.Result)
+	}
+	// object_details is the JSON document built by the statement, returned as a string.
+	detailsJSON := []byte(rows[0].ObjectDetails)
+	var detailsStr string
+	if err := json.Unmarshal(detailsJSON, &detailsStr); err == nil {
+		detailsJSON = []byte(detailsStr)
+	}
+	var details struct {
+		Constraints []map[string]any `json:"constraints"`
+	}
+	if err := json.Unmarshal(detailsJSON, &details); err != nil {
+		t.Fatalf("error parsing object_details: %s, object_details: %s", err, string(detailsJSON))
+	}
+
+	want := fmt.Sprintf("FOREIGN KEY (parent_id, parent_code) REFERENCES dbo.%s (id, code) ON DELETE CASCADE", parentTable)
+	for _, c := range details.Constraints {
+		if c["constraint_name"] != fkName {
+			continue
+		}
+		if c["constraint_type"] != "FOREIGN KEY" {
+			t.Errorf("constraint_type: got %v, want FOREIGN KEY", c["constraint_type"])
+		}
+		if got := c["constraint_definition"]; got != want {
+			t.Errorf("constraint_definition: got %v, want %q", got, want)
+		}
+		return
+	}
+	t.Fatalf("foreign key %s not found in constraints: %s", fkName, string(detailsJSON))
 }
 
 func addNonCloudMSSQLPrebuiltToolConfig(t *testing.T, config map[string]any) map[string]any {

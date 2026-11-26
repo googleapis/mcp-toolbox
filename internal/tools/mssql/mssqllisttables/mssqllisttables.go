@@ -114,23 +114,31 @@ const listTablesStatement = `
             fk.parent_object_id AS table_oid,
             fk.name AS constraint_name,
             'FOREIGN KEY' AS constraint_type,
-            STUFF((SELECT ', ' + pc.name
-                FROM sys.foreign_key_columns fkc
-                JOIN sys.columns pc ON fkc.parent_object_id = pc.object_id AND fkc.parent_column_id = pc.column_id
-                WHERE fkc.constraint_object_id = fk.object_id
-                ORDER BY fkc.constraint_column_id
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS constraint_columns,
+            fkcols.parent_columns AS constraint_columns,
             SCHEMA_NAME(rt.schema_id) + '.' + OBJECT_NAME(fk.referenced_object_id) AS foreign_key_referenced_table,
-            STUFF((SELECT ', ' + rc.name
-                FROM sys.foreign_key_columns fkc
-                JOIN sys.columns rc ON fkc.referenced_object_id = rc.object_id AND fkc.referenced_column_id = rc.column_id
-                WHERE fkc.constraint_object_id = fk.object_id
-                ORDER BY fkc.constraint_column_id
-                FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS foreign_key_referenced_columns,
-            OBJECT_DEFINITION(fk.object_id) AS constraint_definition
+            fkcols.referenced_columns AS foreign_key_referenced_columns,
+            -- OBJECT_DEFINITION does not apply to foreign keys, so build the definition from the catalog.
+            'FOREIGN KEY (' + fkcols.parent_columns + ') REFERENCES ' + SCHEMA_NAME(rt.schema_id) + '.' + OBJECT_NAME(fk.referenced_object_id) + ' (' + fkcols.referenced_columns + ')'
+                + IIF(fk.delete_referential_action <> 0, ' ON DELETE ' + REPLACE(fk.delete_referential_action_desc, '_', ' '), '')
+                + IIF(fk.update_referential_action <> 0, ' ON UPDATE ' + REPLACE(fk.update_referential_action_desc, '_', ' '), '') AS constraint_definition
         FROM sys.foreign_keys fk
         JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
         JOIN table_info ti ON fk.parent_object_id = ti.table_oid
+        CROSS APPLY (
+            SELECT
+                STUFF((SELECT ', ' + pc.name
+                    FROM sys.foreign_key_columns fkc
+                    JOIN sys.columns pc ON fkc.parent_object_id = pc.object_id AND fkc.parent_column_id = pc.column_id
+                    WHERE fkc.constraint_object_id = fk.object_id
+                    ORDER BY fkc.constraint_column_id
+                    FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS parent_columns,
+                STUFF((SELECT ', ' + rc.name
+                    FROM sys.foreign_key_columns fkc
+                    JOIN sys.columns rc ON fkc.referenced_object_id = rc.object_id AND fkc.referenced_column_id = rc.column_id
+                    WHERE fkc.constraint_object_id = fk.object_id
+                    ORDER BY fkc.constraint_column_id
+                    FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS referenced_columns
+        ) fkcols
         UNION ALL
         -- Check Constraints
         SELECT
