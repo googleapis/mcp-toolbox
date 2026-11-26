@@ -24,6 +24,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/googleapis/mcp-toolbox/internal/util/orderedmap"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
@@ -148,14 +149,14 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("unable to convert result to list", http.StatusInternalServerError, nil)
 	}
 
-	var tables []map[string]any
+	var tables []orderedmap.Row
 	for _, item := range res {
-		tableMap, ok := item.(map[string]any)
+		row, ok := item.(orderedmap.Row)
 		if !ok {
-			return nil, util.NewClientServerError(fmt.Sprintf("unexpected type in result: got %T, want map[string]any", item), http.StatusInternalServerError, nil)
+			return nil, util.NewClientServerError(fmt.Sprintf("unexpected type in result: got %T, want orderedmap.Row", item), http.StatusInternalServerError, nil)
 		}
-		tableMap["database"] = database
-		tables = append(tables, tableMap)
+		row.Add("database", database)
+		tables = append(tables, row)
 	}
 	return tables, nil
 }
