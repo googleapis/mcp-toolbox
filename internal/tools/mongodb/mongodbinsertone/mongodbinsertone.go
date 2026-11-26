@@ -48,6 +48,7 @@ func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.T
 type compatibleSource interface {
 	MongoClient() *mongo.Client
 	InsertOne(context.Context, string, bool, string, string) (any, error)
+	mongodbcommon.CollectionScopedSource
 }
 
 type Config struct {
@@ -112,11 +113,33 @@ func (t Tool) ToConfig() tools.ToolConfig {
 }
 
 func (t Tool) ValidateSource(source sources.Source) error {
-	_, ok := source.(compatibleSource)
+	s, ok := source.(compatibleSource)
 	if !ok {
 		return fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
 	}
-	return nil
+	return mongodbcommon.ValidateCollectionScope(s, t.Cfg.Database, t.Cfg.Collection, t.Cfg.CollectionAllowedValues)
+}
+
+// resolveParams narrows the runtime collection parameter to the collections both the source and the tool allow.
+func (t Tool) resolveParams(source sources.Source) (parameters.Parameters, error) {
+	s, ok := source.(compatibleSource)
+	if !ok {
+		return nil, fmt.Errorf("invalid source for %q tool: source %q is not a compatible type", t.Cfg.Type, t.Cfg.Source)
+	}
+	allowed := mongodbcommon.EffectiveCollections(s.MongoDBAllowedCollections(t.Cfg.Database), t.Cfg.CollectionAllowedValues)
+	return mongodbcommon.ScopeCollectionParam(t.StaticParameters, allowed), nil
+}
+
+func (t Tool) GetParameters(source sources.Source) (parameters.Parameters, error) {
+	return t.resolveParams(source)
+}
+
+func (t Tool) Manifest(source sources.Source) (tools.Manifest, error) {
+	params, err := t.resolveParams(source)
+	if err != nil {
+		return tools.Manifest{}, err
+	}
+	return tools.Manifest{Description: t.Cfg.Description, Parameters: params.Manifest(), AuthRequired: t.Cfg.AuthRequired}, nil
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
@@ -136,6 +159,9 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	collection, tbErr := mongodbcommon.ResolveCollection(t.Cfg.Collection, params.AsMap())
 	if tbErr != nil {
 		return nil, tbErr
+	}
+	if !source.IsCollectionAllowed(t.Cfg.Database, collection) {
+		return nil, util.NewAgentError(fmt.Sprintf("collection %q is not allowed on this source; allowed collections in database %q are %v", collection, t.Cfg.Database, source.MongoDBAllowedCollections(t.Cfg.Database)), nil)
 	}
 
 	resp, err := source.InsertOne(ctx, jsonData, t.Cfg.Canonical, t.Cfg.Database, collection)
