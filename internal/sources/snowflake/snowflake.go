@@ -140,21 +140,26 @@ func (s *Source) RunSQL(ctx context.Context, statement string, params []any) (an
 	return out, nil
 }
 
+// snowflakeDSN builds a gosnowflake DSN. An empty warehouse falls back to
+// COMPUTE_WH. An empty role is omitted so Snowflake uses the user's own
+// default role instead of ACCOUNTADMIN.
+func snowflakeDSN(user, password, account, database, schema, warehouse, role string) string {
+	if warehouse == "" {
+		warehouse = "COMPUTE_WH"
+	}
+	dsn := fmt.Sprintf("%s:%s@%s/%s/%s?warehouse=%s", user, password, account, database, schema, warehouse)
+	if role != "" {
+		dsn += "&role=" + role
+	}
+	return dsn
+}
+
 func initSnowflakeConnection(ctx context.Context, tracer trace.Tracer, name, account, user, password, database, schema, warehouse, role string) (*sqlx.DB, error) {
 	//nolint:all // Reassigned ctx
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
 	defer span.End()
 
-	// Set defaults for optional parameters
-	if warehouse == "" {
-		warehouse = "COMPUTE_WH"
-	}
-	if role == "" {
-		role = "ACCOUNTADMIN"
-	}
-
-	// Snowflake DSN format: user:password@account/database/schema?warehouse=warehouse&role=role
-	dsn := fmt.Sprintf("%s:%s@%s/%s/%s?warehouse=%s&role=%s", user, password, account, database, schema, warehouse, role)
+	dsn := snowflakeDSN(user, password, account, database, schema, warehouse, role)
 	db, err := sqlx.ConnectContext(ctx, "snowflake", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create connection: %w", err)

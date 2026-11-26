@@ -13,7 +13,7 @@ export SNOWFLAKE_SCHEMA="your-schema"                  # Schema name (usually "P
 
 # Optional environment variables (will use defaults if not set)
 export SNOWFLAKE_WAREHOUSE="COMPUTE_WH"                # Warehouse name (default: COMPUTE_WH)
-export SNOWFLAKE_ROLE="ACCOUNTADMIN"                   # Role name (default: ACCOUNTADMIN)
+export SNOWFLAKE_ROLE="ACCOUNTADMIN"                   # Role name. Omit to use the user's Snowflake default role.
 
 echo "Snowflake environment variables have been set!"
 echo "Account: $SNOWFLAKE_ACCOUNT"

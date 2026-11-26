@@ -21,7 +21,7 @@ password: ${SNOWFLAKE_PASSWORD}
 database: ${SNOWFLAKE_DATABASE}
 schema: ${SNOWFLAKE_SCHEMA}
 warehouse: ${SNOWFLAKE_WAREHOUSE}  # Optional, defaults to COMPUTE_WH if not set
-role: ${SNOWFLAKE_ROLE}           # Optional, defaults to ACCOUNTADMIN if not set
+role: ${SNOWFLAKE_ROLE}           # Optional. Omit to use the user's Snowflake default role.
 ---
 kind: tool
 name: execute_sql
