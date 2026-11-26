@@ -245,3 +245,50 @@ func TestGetURLCustomFuncs(t *testing.T) {
 		t.Fatalf("expected %q, got %q", expected, urlString)
 	}
 }
+
+func TestGetURLFloatParams(t *testing.T) {
+	pathParams := parameters.Parameters{parameters.NewFloatParameter("price", "price")}
+	queryParams := parameters.Parameters{parameters.NewFloatParameter("amount", "amount")}
+	for _, tc := range []struct {
+		name  string
+		path  string
+		value float64
+		want  string
+	}{
+		{
+			name:  "large float in path and query",
+			path:  "/items/{{.price}}",
+			value: 1500000,
+			want:  "https://api.example.com/items/1500000?amount=1500000",
+		},
+		{
+			name:  "small float in path and query",
+			path:  "/items/{{.price}}",
+			value: 0.00001,
+			want:  "https://api.example.com/items/0.00001?amount=0.00001",
+		},
+		{
+			name:  "float through pathEscape and queryEscape",
+			path:  "/items/{{pathEscape .price}}?max={{queryEscape .price}}",
+			value: 2500000.5,
+			want:  "https://api.example.com/items/2500000.5?amount=2500000.5&max=2500000.5",
+		},
+		{
+			name:  "ordinary float is unchanged",
+			path:  "/items/{{.price}}",
+			value: 19.99,
+			want:  "https://api.example.com/items/19.99?amount=19.99",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			paramsMap := map[string]any{"price": tc.value, "amount": tc.value}
+			got, err := getURL("https://api.example.com", tc.path, pathParams, queryParams, nil, paramsMap)
+			if err != nil {
+				t.Fatalf("getURL() error = %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("getURL() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

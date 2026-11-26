@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template" // NOLINT: renders URL paths, not YAML
 
@@ -152,6 +153,9 @@ func getURL(baseURL, path string, pathParams, queryParams parameters.Parameters,
 		return "", err
 	}
 	pathParamsMap := pathParamValues.AsMap()
+	for name, v := range pathParamsMap {
+		pathParamsMap[name] = urlValue(v)
+	}
 
 	funcMap := template.FuncMap{
 		"pathEscape": func(v any) string {
@@ -242,10 +246,26 @@ func getURL(baseURL, path string, pathParams, queryParams parameters.Parameters,
 			}
 			v = ""
 		}
-		query.Add(p.GetName(), fmt.Sprintf("%v", v))
+		query.Add(p.GetName(), fmt.Sprintf("%v", urlValue(v)))
 	}
 	parsedURL.RawQuery = query.Encode()
 	return parsedURL.String(), nil
+}
+
+// plainFloat prints a float in decimal notation. %v switches to exponent
+// form from 1e6 and below 1e-4, so 1500000 would reach the URL as 1.5e+06.
+type plainFloat float64
+
+func (f plainFloat) String() string {
+	return strconv.FormatFloat(float64(f), 'f', -1, 64)
+}
+
+// urlValue returns a parameter value ready to be printed into a URL.
+func urlValue(v any) any {
+	if f, ok := v.(float64); ok {
+		return plainFloat(f)
+	}
+	return v
 }
 
 // Merge headers case-insensitively, with later sets overriding earlier sets.
