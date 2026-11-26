@@ -219,7 +219,8 @@ WITH table_info_cte AS (
       CONSTRAINT_CATALOG,
       CONSTRAINT_SCHEMA,
       CONSTRAINT_NAME,
-      ARRAY_AGG(REPLACE(COLUMN_NAME, '"', '\"') ORDER BY ORDINAL_POSITION) AS column_names_json_list
+      ARRAY_AGG(REPLACE(COLUMN_NAME, '"', '\"') ORDER BY ORDINAL_POSITION) AS column_names_json_list,
+      ARRAY_AGG(CONCAT('"', REPLACE(COLUMN_NAME, '"', '\"'), '"') ORDER BY ORDINAL_POSITION) AS quoted_column_names_json_list
     FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
     WHERE CONSTRAINT_SCHEMA = 'public'
     GROUP BY CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, CONSTRAINT_NAME
@@ -244,9 +245,9 @@ WITH table_info_cte AS (
                                       ' (', array_to_string(COALESCE(RefKeyCols.column_names_json_list, ARRAY[]::text[]), ', '), ')', '"')
               ELSE 'null'
             END, ',',
-          '"constraint_columns":["', array_to_string(COALESCE(KeyCols.column_names_json_list, ARRAY[]::text[]), ','), '"],',
+          '"constraint_columns":[', array_to_string(COALESCE(KeyCols.quoted_column_names_json_list, ARRAY[]::text[]), ','), '],',
           '"foreign_key_referenced_table":', CASE WHEN RefKeyTable.TABLE_NAME IS NULL THEN 'null' ELSE CONCAT('"', REPLACE(RefKeyTable.TABLE_NAME, '"', '\"'), '"') END, ',',
-          '"foreign_key_referenced_columns":["', array_to_string(COALESCE(RefKeyCols.column_names_json_list, ARRAY[]::text[]), ','), '"]',
+          '"foreign_key_referenced_columns":[', array_to_string(COALESCE(RefKeyCols.quoted_column_names_json_list, ARRAY[]::text[]), ','), ']',
           '}'
         ) ORDER BY TC.CONSTRAINT_NAME
       ) AS constraints_json_array_elements
@@ -404,7 +405,8 @@ constraint_columns_agg_cte AS (
     CONSTRAINT_CATALOG,
     CONSTRAINT_SCHEMA,
     CONSTRAINT_NAME,
-    ARRAY_AGG(REPLACE(COLUMN_NAME, '"', '\"') ORDER BY ORDINAL_POSITION) AS column_names_json_list
+    ARRAY_AGG(REPLACE(COLUMN_NAME, '"', '\"') ORDER BY ORDINAL_POSITION) AS column_names_json_list,
+    ARRAY_AGG(CONCAT('"', REPLACE(COLUMN_NAME, '"', '\"'), '"') ORDER BY ORDINAL_POSITION) AS quoted_column_names_json_list
   FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
   GROUP BY CONSTRAINT_CATALOG, CONSTRAINT_SCHEMA, CONSTRAINT_NAME
 ),
@@ -429,9 +431,9 @@ constraints_info_cte AS (
                                     ' (', ARRAY_TO_STRING(COALESCE(RefKeyCols.column_names_json_list, []), ', '), ')', '"')
             ELSE 'null'
           END, ',',
-        '"constraint_columns":["', ARRAY_TO_STRING(COALESCE(KeyCols.column_names_json_list, []), ','), '"],',
+        '"constraint_columns":[', ARRAY_TO_STRING(COALESCE(KeyCols.quoted_column_names_json_list, []), ','), '],',
         '"foreign_key_referenced_table":', IF(RefKeyTable.TABLE_NAME IS NULL, 'null', CONCAT('"', RefKeyTable.TABLE_NAME, '"')), ',',
-        '"foreign_key_referenced_columns":["', ARRAY_TO_STRING(COALESCE(RefKeyCols.column_names_json_list, []), ','), '"]',
+        '"foreign_key_referenced_columns":[', ARRAY_TO_STRING(COALESCE(RefKeyCols.quoted_column_names_json_list, []), ','), ']',
         '}'
       ) ORDER BY TC.CONSTRAINT_NAME
     ) AS constraints_json_array_elements

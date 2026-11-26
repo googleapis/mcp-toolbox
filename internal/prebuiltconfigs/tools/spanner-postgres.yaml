@@ -85,6 +85,7 @@ statement: |
         CONSTRAINT_CATALOG,
         CONSTRAINT_SCHEMA,
         CONSTRAINT_NAME,
+        ARRAY_AGG(REPLACE(COLUMN_NAME, '"', '\"') ORDER BY ORDINAL_POSITION) AS column_names_list,
         ARRAY_AGG('"' || REPLACE(COLUMN_NAME, '"', '\"') || '"' ORDER BY ORDINAL_POSITION) AS column_names_json_list
       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
       WHERE CONSTRAINT_SCHEMA = 'public'
@@ -103,11 +104,11 @@ statement: |
             '"constraint_definition":',
               CASE TC.CONSTRAINT_TYPE
                 WHEN 'CHECK' THEN CASE WHEN CC.CHECK_CLAUSE IS NULL THEN 'null' ELSE CONCAT('"', REPLACE(CC.CHECK_CLAUSE, '"', '\"'), '"') END
-                WHEN 'PRIMARY KEY' THEN CONCAT('"', 'PRIMARY KEY (', array_to_string(COALESCE(KeyCols.column_names_json_list, ARRAY[]::text[]), ', '), ')', '"')
-                WHEN 'UNIQUE' THEN CONCAT('"', 'UNIQUE (', array_to_string(COALESCE(KeyCols.column_names_json_list, ARRAY[]::text[]), ', '), ')', '"')
-                WHEN 'FOREIGN KEY' THEN CONCAT('"', 'FOREIGN KEY (', array_to_string(COALESCE(KeyCols.column_names_json_list, ARRAY[]::text[]), ', '), ') REFERENCES ',
+                WHEN 'PRIMARY KEY' THEN CONCAT('"', 'PRIMARY KEY (', array_to_string(COALESCE(KeyCols.column_names_list, ARRAY[]::text[]), ', '), ')', '"')
+                WHEN 'UNIQUE' THEN CONCAT('"', 'UNIQUE (', array_to_string(COALESCE(KeyCols.column_names_list, ARRAY[]::text[]), ', '), ')', '"')
+                WHEN 'FOREIGN KEY' THEN CONCAT('"', 'FOREIGN KEY (', array_to_string(COALESCE(KeyCols.column_names_list, ARRAY[]::text[]), ', '), ') REFERENCES ',
                                         COALESCE(REPLACE(RefKeyTable.TABLE_NAME, '"', '\"'), ''),
-                                        ' (', array_to_string(COALESCE(RefKeyCols.column_names_json_list, ARRAY[]::text[]), ', '), ')', '"')
+                                        ' (', array_to_string(COALESCE(RefKeyCols.column_names_list, ARRAY[]::text[]), ', '), ')', '"')
                 ELSE 'null'
               END, ',',
             '"constraint_columns":[', array_to_string(COALESCE(KeyCols.column_names_json_list, ARRAY[]::text[]), ','), '],',
