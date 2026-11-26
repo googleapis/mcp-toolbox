@@ -591,6 +591,7 @@ steps:
       - "GOPATH=/gopath"
       - "SPANNER_PROJECT=$PROJECT_ID"
       - "SPANNER_DATABASE=$_DATABASE_NAME"
+      - "SPANNER_PG_DATABASE=$_SPANNER_PG_DATABASE"
       - "SPANNER_INSTANCE=$_SPANNER_INSTANCE"
       - "SERVICE_ACCOUNT_EMAIL=$SERVICE_ACCOUNT_EMAIL"
     secretEnv: ["CLIENT_ID", "API_KEY"]
@@ -607,7 +608,7 @@ steps:
           .ci/test_with_coverage.sh \
             "Spanner" \
             spanner \
-            spanner || echo "Integration tests failed."
+            spanner
         else
           echo "No relevant changes for Spanner. Skipping shard."
           exit 0
@@ -1800,6 +1801,7 @@ substitutions:
   _POSTGRES_HOST: 127.0.0.1
   _POSTGRES_PORT: "5432"
   _SPANNER_INSTANCE: "spanner-testing"
+  _SPANNER_PG_DATABASE: "pg_test_database"
   _NEO4J_DATABASE: "neo4j"
   _CLOUD_SQL_MSSQL_INSTANCE: "cloud-sql-mssql-testing"
   _CLOUD_SQL_MYSQL_INSTANCE: "cloud-sql-mysql-testing"
