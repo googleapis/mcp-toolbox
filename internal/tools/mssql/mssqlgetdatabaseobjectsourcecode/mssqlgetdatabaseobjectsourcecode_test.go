@@ -114,6 +114,18 @@ func TestGetStatement(t *testing.T) {
 			wantVal:    "sys.assemblies WHERE is_user_defined = 1",
 		},
 		{
+			desc:       "procedures return the definition with the object name",
+			objectType: "procedures",
+			namesOnly:  false,
+			wantVal:    "OBJECT_DEFINITION(OBJECT_ID(@CurrentResource)) AS [Definition]",
+		},
+		{
+			desc:       "triggers return the definition with the trigger name",
+			objectType: "triggers",
+			namesOnly:  false,
+			wantVal:    "QUOTENAME(t.name) AS [TriggerName],",
+		},
+		{
 			desc:       "objectType unsupported string returns error",
 			objectType: "unknown_type",
 			namesOnly:  false,
@@ -145,6 +157,11 @@ func TestGetStatement(t *testing.T) {
 			}
 			if !strings.Contains(stmt, "#SqlResourceList") {
 				t.Errorf("expected statement to contain #SqlResourceList in ELSE block")
+			}
+			// sp_helptext returns the definition in rows that do not name the
+			// object, so the definitions of different objects cannot be told apart.
+			if strings.Contains(stmt, "sp_helptext") {
+				t.Errorf("expected statement not to use sp_helptext, got: %s", stmt)
 			}
 		})
 	}
