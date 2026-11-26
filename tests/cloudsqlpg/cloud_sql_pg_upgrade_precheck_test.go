@@ -276,10 +276,10 @@ func TestPreCheckToolEndpoints(t *testing.T) {
 			name:        "instance not found",
 			toolName:    "precheck-tool",
 			body:        `{"project": "p1", "instance": "instance-notfound", "targetDatabaseVersion": "POSTGRES_18"}`,
-			want:        `{"error":"failed to access GCP resource: googleapi: got HTTP response code 403 with body: Not authorized to access instance\n"}`,
+			want:        `{"error":"failed to access GCP resource"}`,
 			expectError: true,
 			errorStatus: http.StatusInternalServerError,
-			errorMsg:    "failed to access GCP resource: googleapi: got HTTP response code 403",
+			errorMsg:    "failed to access GCP resource",
 		},
 		{
 			name:     "missing required parameter - project",
