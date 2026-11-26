@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -186,6 +187,14 @@ func initPostgresConnectionPool(ctx context.Context, tracer trace.Tracer, name, 
 // required by RFC 3986 (e.g. "[::1]:5432"); IPv4 addresses and hostnames are
 // left unchanged. Query parameters are encoded with url.Values so special
 // characters are escaped correctly and the output is deterministic.
+//
+// url.Values.Encode form-encodes a space as '+', but since pgx v5.11.0 the
+// connection URI parser matches libpq and treats '+' in query values as a
+// literal plus rather than a space. A queryParams value containing a space
+// (e.g. `options: -c statement_timeout=30000`) would therefore be sent to the
+// server with a stray '+'. We rewrite '+' to the RFC 3986 percent-encoding
+// '%20' after Encode so spaces survive the round-trip; Encode already escapes a
+// literal '+' as '%2B', so a plain '+' in the output can only be a space.
 func BuildPostgresURL(host, port, user, pass, dbname string, queryParams map[string]string) string {
 	u := &url.URL{
 		Scheme: "postgres",
@@ -198,7 +207,7 @@ func BuildPostgresURL(host, port, user, pass, dbname string, queryParams map[str
 		for k, v := range queryParams {
 			q.Set(k, v)
 		}
-		u.RawQuery = q.Encode()
+		u.RawQuery = strings.ReplaceAll(q.Encode(), "+", "%20")
 	}
 	return u.String()
 }

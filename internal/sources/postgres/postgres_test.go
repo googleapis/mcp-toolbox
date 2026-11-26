@@ -280,14 +280,21 @@ func TestBuildPostgresURL(t *testing.T) {
 			host:        "db.example.com",
 			port:        "5432",
 			queryParams: map[string]string{"sslmode": "verify-full", "application_name": "my app"},
-			want:        "postgres://u:p@db.example.com:5432/mydb?application_name=my+app&sslmode=verify-full",
+			want:        "postgres://u:p@db.example.com:5432/mydb?application_name=my%20app&sslmode=verify-full",
 		},
 		{
 			desc:        "query param value with special characters",
 			host:        "db.example.com",
 			port:        "5432",
 			queryParams: map[string]string{"options": "-c statement_timeout=5s&key=val"},
-			want:        "postgres://u:p@db.example.com:5432/mydb?options=-c+statement_timeout%3D5s%26key%3Dval",
+			want:        "postgres://u:p@db.example.com:5432/mydb?options=-c%20statement_timeout%3D5s%26key%3Dval",
+		},
+		{
+			desc:        "space in a query param value is percent-encoded, not a literal plus",
+			host:        "db.example.com",
+			port:        "5432",
+			queryParams: map[string]string{"options": "-c statement_timeout=30000"},
+			want:        "postgres://u:p@db.example.com:5432/mydb?options=-c%20statement_timeout%3D30000",
 		},
 	}
 	for _, tc := range tcs {
