@@ -1,5 +1,4 @@
 {
-  "name": "mcp-toolbox-docs",
   "devDependencies": {
     "autoprefixer": "^10.6.2",
     "postcss": "^8.5.32",
