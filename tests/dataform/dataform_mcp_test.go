@@ -33,8 +33,7 @@ import (
 // teardown step is registered with t.Cleanup, so nothing leaks if setup fails
 // partway through.
 func setupDataformMCPServer(t *testing.T, ctx context.Context) string {
-	projectDir, cleanupProject := setupTestProject(t)
-	t.Cleanup(cleanupProject)
+	projectDir := setupTestProject(t)
 
 	toolsFile := map[string]any{
 		"tools": map[string]any{
