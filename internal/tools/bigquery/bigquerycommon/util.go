@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
@@ -157,6 +158,30 @@ func (o *validateOptions) isSessionTempObject(name string) bool {
 	return false
 }
 
+// isSessionTempTargetTable checks whether a dry-run DdlTargetTable corresponds to
+// a server-generated session temporary object (such as a CREATE TEMP MODEL target).
+// In BigQuery sessions, anonymous session datasets start with "_" and session
+// temporary object IDs are prefixed with "_<session_id_with_underscores>_".
+func (o *validateOptions) isSessionTempTargetTable(projectID string, tableRef *bigqueryrestapi.TableReference) bool {
+	if tableRef == nil || projectID == "" {
+		return false
+	}
+	if !strings.EqualFold(tableRef.ProjectId, projectID) || !strings.HasPrefix(tableRef.DatasetId, "_") {
+		return false
+	}
+	lowerTableID := strings.ToLower(tableRef.TableId)
+	for _, tempName := range o.sessionTempObjects {
+		lowerTemp := strings.ToLower(tempName)
+		if lowerTableID == lowerTemp {
+			return true
+		}
+		if strings.HasPrefix(lowerTableID, "_") && strings.HasSuffix(lowerTableID, "_"+lowerTemp) {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateQueryAgainstAllowedDatasets validates a SQL query against a list of allowed datasets.
 //
 // Why custom SQL parsing (TableParserDetailed & IsAnyTableExplicitlyReferenced) is needed
@@ -174,7 +199,9 @@ func (o *validateOptions) isSessionTempObject(name string) bool {
 //     explicitly referenced by name in the query text.
 //     - If the user explicitly typed the restricted table name, the query is blocked.
 //     - If the restricted table was NOT named in the query (and all other references are
-//     fully qualified), the access is via an authorized view and is granted exemption.
+//     fully qualified), Toolbox dry-runs each allowed candidate view referenced in the
+//     query and grants an exemption only when every restricted table is backed by one of
+//     those allowed views.
 //
 //  2. Catching Unanalyzable or Ambiguous Operations:
 //     Dry run statistics alone cannot detect every security boundary issue:
@@ -302,7 +329,10 @@ func ValidateQueryAgainstAllowedDatasets(
 			addTableRef(tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)
 		}
 	}
-	if tableRef := queryStats.DdlTargetTable; tableRef != nil {
+	// Skip server-generated session temporary DDL targets (e.g. CREATE TEMP MODEL),
+	// which BigQuery places in an anonymous session dataset (_<hex>) with a
+	// session-prefixed table ID (_<session_uuid>_<model_id>).
+	if tableRef := queryStats.DdlTargetTable; tableRef != nil && !vOpts.isSessionTempTargetTable(projectID, tableRef) {
 		addTableRef(tableRef.ProjectId, tableRef.DatasetId, tableRef.TableId)
 	}
 	if tableRef := queryStats.DdlDestinationTable; tableRef != nil {
@@ -320,11 +350,6 @@ func ValidateQueryAgainstAllowedDatasets(
 		if IsSystemResource(ref.DatasetID, ref.TableID) {
 			continue
 		}
-		// Skip server-generated session temporary objects (e.g. CREATE TEMP MODEL targets),
-		// which BigQuery places in an anonymous session dataset (_<hex>).
-		if vOpts.isSessionTempObject(ref.TableID) {
-			continue
-		}
 		if !validator.IsDatasetAllowed(ref.ProjectID, ref.DatasetID) {
 			violatingTables = append(violatingTables, fmt.Sprintf("%s.%s.%s", ref.ProjectID, ref.DatasetID, ref.TableID))
 			violatingRefs = append(violatingRefs, ref)
@@ -338,16 +363,7 @@ func ValidateQueryAgainstAllowedDatasets(
 			return nil, util.NewAgentError("failed to analyze query for explicit table references", err)
 		}
 		if explicitlyReferenced {
-			var violatingDatasets []string
-			seenDatasets := make(map[string]struct{})
-			for _, ref := range violatingRefs {
-				datasetFQN := fmt.Sprintf("%s.%s", ref.ProjectID, ref.DatasetID)
-				if _, seen := seenDatasets[datasetFQN]; !seen {
-					violatingDatasets = append(violatingDatasets, datasetFQN)
-					seenDatasets[datasetFQN] = struct{}{}
-				}
-			}
-			return nil, notAllowedDatasetsErr(violatingDatasets)
+			return nil, notAllowedDatasetsErr(collectViolatingDatasets(violatingRefs))
 		}
 
 		// Only when all table references in the query are explicit and fully-qualified
@@ -361,9 +377,137 @@ func ValidateQueryAgainstAllowedDatasets(
 					"fully qualify all table names (dataset.table) when dataset restrictions are in place",
 				unqualRef), nil)
 		}
+
+		// Fail-closed Authorized View verification: confirm via BigQuery Tables API
+		// and dry run that every violating underlying table reference comes from an
+		// allowed view explicitly referenced in the query rather than a parser differential.
+		unexemptedRefs, err := findUnexemptedViolatingRefs(
+			ctx,
+			restService,
+			projectID,
+			location,
+			validator,
+			parsed.TableIDs,
+			violatingRefs,
+		)
+		if err != nil {
+			var gErr *googleapi.Error
+			if errors.As(err, &gErr) {
+				return nil, util.ProcessGcpError(err)
+			}
+			return nil, util.NewAgentError("failed to verify authorized views", err)
+		}
+		if len(unexemptedRefs) > 0 {
+			return nil, notAllowedDatasetsErr(collectViolatingDatasets(unexemptedRefs))
+		}
 	}
 
 	return dryRunJob, nil
+}
+
+func collectViolatingDatasets(refs []tableReference) []string {
+	var violatingDatasets []string
+	seenDatasets := make(map[string]struct{})
+	for _, ref := range refs {
+		datasetFQN := fmt.Sprintf("%s.%s", ref.ProjectID, ref.DatasetID)
+		if _, seen := seenDatasets[datasetFQN]; !seen {
+			violatingDatasets = append(violatingDatasets, datasetFQN)
+			seenDatasets[datasetFQN] = struct{}{}
+		}
+	}
+	return violatingDatasets
+}
+
+var safeBQProjectPart = regexp.MustCompile(`^[a-zA-Z0-9_.:-]+$`)
+var safeBQIdentifierPart = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func splitFullTableID(tableID string) (tableReference, bool) {
+	parts := strings.Split(tableID, ".")
+	if len(parts) == 4 && strings.Contains(parts[1], ":") {
+		parts = []string{parts[0] + "." + parts[1], parts[2], parts[3]}
+	}
+	if len(parts) != 3 {
+		return tableReference{}, false
+	}
+	if !safeBQProjectPart.MatchString(parts[0]) ||
+		!safeBQIdentifierPart.MatchString(parts[1]) ||
+		!safeBQIdentifierPart.MatchString(parts[2]) {
+		return tableReference{}, false
+	}
+	return tableReference{
+		ProjectID: parts[0],
+		DatasetID: parts[1],
+		TableID:   parts[2],
+	}, true
+}
+
+func findUnexemptedViolatingRefs(
+	ctx context.Context,
+	restService *bigqueryrestapi.Service,
+	projectID string,
+	location string,
+	validator DatasetValidator,
+	parsedTableIDs []string,
+	violatingRefs []tableReference,
+) ([]tableReference, error) {
+	var allowedViewRefs []tableReference
+	for _, tableID := range parsedTableIDs {
+		ref, ok := splitFullTableID(tableID)
+		if !ok {
+			continue
+		}
+		if IsSystemResource(ref.DatasetID, ref.TableID) {
+			continue
+		}
+		if validator.IsDatasetAllowed(ref.ProjectID, ref.DatasetID) {
+			allowedViewRefs = append(allowedViewRefs, ref)
+		}
+	}
+	if len(allowedViewRefs) == 0 {
+		return violatingRefs, nil
+	}
+
+	authorizedUnderlying := make(map[tableReference]struct{})
+	for _, viewRef := range allowedViewRefs {
+		tbl, err := restService.Tables.Get(viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID).Context(ctx).Do()
+		if err != nil {
+			var gErr *googleapi.Error
+			if errors.As(err, &gErr) && gErr.Code == http.StatusNotFound {
+				// Non-table objects (such as INFORMATION_SCHEMA or routines) are not views.
+				continue
+			}
+			return nil, fmt.Errorf("failed to inspect candidate view %s.%s.%s: %w", viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID, err)
+		}
+		if tbl == nil || (tbl.Type != "VIEW" && tbl.Type != "MATERIALIZED_VIEW") {
+			continue
+		}
+		cleanFQN := strings.ReplaceAll(fmt.Sprintf("%s.%s.%s", viewRef.ProjectID, viewRef.DatasetID, viewRef.TableID), "`", "")
+		viewSQL := fmt.Sprintf("SELECT * FROM `%s`", cleanFQN)
+		viewJob, err := DryRunQuery(ctx, restService, projectID, location, viewSQL, nil, nil, 0, false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to dry run candidate view %s: %w", cleanFQN, err)
+		}
+		if viewJob == nil || viewJob.Statistics == nil || viewJob.Statistics.Query == nil {
+			return nil, fmt.Errorf("dry run for candidate view %s returned empty statistics", cleanFQN)
+		}
+		for _, tRef := range viewJob.Statistics.Query.ReferencedTables {
+			if tRef != nil && tRef.ProjectId != "" && tRef.DatasetId != "" && tRef.TableId != "" {
+				authorizedUnderlying[tableReference{
+					ProjectID: tRef.ProjectId,
+					DatasetID: tRef.DatasetId,
+					TableID:   tRef.TableId,
+				}] = struct{}{}
+			}
+		}
+	}
+
+	var unexempted []tableReference
+	for _, vRef := range violatingRefs {
+		if _, ok := authorizedUnderlying[vRef]; !ok {
+			unexempted = append(unexempted, vRef)
+		}
+	}
+	return unexempted, nil
 }
 
 func notAllowedDatasetsErr(datasetFQNs []string) util.ToolboxError {

@@ -231,6 +231,11 @@ func TestInvokeAllowedDatasetsValidation(t *testing.T) {
 	// 1. Start httptest Server to mock BigQuery jobs.insert API
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Logf("Mock server received: %s %s", r.Method, r.URL.String())
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"type": "VIEW"})
+			return
+		}
 		// Verify this is a jobs insert request
 		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/jobs") {
 			// Read request body to verify it's a dry run query

@@ -39,14 +39,17 @@ layer of security by controlling which datasets can be accessed:
   references any table outside `allowedDatasets`.
 
   **Authorized views are supported.** If the dry run reports that the query
-  reads a table outside `allowedDatasets`, but that table is not named anywhere
-  in the SQL text, the access is treated as an
-  [authorized view](https://cloud.google.com/bigquery/docs/authorized-views)
-  and permitted. This lets you expose a curated view in an allowed dataset that
-  reads from restricted source data. Note that all table names in the query
-  must be fully qualified (`dataset.table` or `project.dataset.table`) to be
-  eligible for authorized view exemptions, as unqualified table names resolved
-  via default datasets cannot be statically verified against `allowedDatasets`.
+  reads a table outside `allowedDatasets`, and that table is not named anywhere
+  in the SQL text, Toolbox verifies via dry run that the restricted table is
+  actually referenced by an allowed view in the query before permitting it as an
+  [authorized view](https://cloud.google.com/bigquery/docs/authorized-views).
+  This lets you expose a curated view in an allowed dataset that reads from
+  restricted source data. Note that all table names in the query must be fully
+  qualified (`dataset.table` or `project.dataset.table`) to be eligible for
+  authorized view exemptions, as unqualified table names resolved via default
+  datasets cannot be statically verified against `allowedDatasets`. Always
+  configure BigQuery IAM permissions on the service account or OAuth credentials
+  as the primary dataset security boundary.
 
   To keep the analysis sound, the following operations remain disallowed:
 

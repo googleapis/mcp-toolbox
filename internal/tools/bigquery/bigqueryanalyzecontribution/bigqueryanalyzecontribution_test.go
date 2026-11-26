@@ -412,6 +412,15 @@ func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
 	var dryRunReceivedSessionID bool
 
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/tables/") {
+			tblType := "TABLE"
+			if strings.Contains(r.URL.Path, "authorized_view") {
+				tblType = "VIEW"
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"type": tblType})
+			return
+		}
 		if strings.Contains(r.URL.Path, "/jobs") {
 			if r.Method == http.MethodGet {
 				resp := map[string]any{
@@ -477,7 +486,7 @@ func TestInvokeProtectedWriteModeCreateSession(t *testing.T) {
 						queryStats["ddlTargetTable"] = map[string]any{
 							"projectId": "test-project",
 							"datasetId": "_anon_session_dataset",
-							"tableId":   modelName,
+							"tableId":   "_01234567_89ab_cdef_0123_456789abcdef_" + modelName,
 						}
 					}
 
