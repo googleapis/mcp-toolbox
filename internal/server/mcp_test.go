@@ -19,13 +19,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/googleapis/mcp-toolbox/internal/group"
@@ -2400,6 +2403,48 @@ func TestStdioSession(t *testing.T) {
 	want := fmt.Sprintf(`"%s"`, write) + "\n"
 	if read != want {
 		t.Fatalf("unexpected read: got %s, want %s", read, want)
+	}
+}
+
+// notifyingReader closes started on its first Read.
+type notifyingReader struct {
+	r       io.Reader
+	once    sync.Once
+	started chan struct{}
+}
+
+func (n *notifyingReader) Read(p []byte) (int, error) {
+	n.once.Do(func() { close(n.started) })
+	return n.r.Read(p)
+}
+
+// TestStdioSessionReadLineAfterCancel checks that a line arriving after readLine
+// returned on a cancelled context doesn't panic the reading goroutine.
+func TestStdioSessionReadLineAfterCancel(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		pr, pw := io.Pipe()
+		reader := &notifyingReader{r: pr, started: make(chan struct{})}
+		session := &stdioSession{reader: bufio.NewReader(reader)}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		errc := make(chan error, 1)
+		go func() {
+			_, err := session.readLine(ctx)
+			errc <- err
+		}()
+
+		// Cancel only once the reading goroutine is blocked in ReadString.
+		<-reader.started
+		cancel()
+		if err := <-errc; !errors.Is(err, context.Canceled) {
+			t.Fatalf("readLine() error = %v, want %v", err, context.Canceled)
+		}
+
+		// Hand the still-blocked goroutine a line. Write returns once it has been read.
+		if _, err := pw.Write([]byte("{}\n")); err != nil {
+			t.Fatalf("error writing into pipe: %s", err)
+		}
+		pw.Close()
 	}
 }
 
