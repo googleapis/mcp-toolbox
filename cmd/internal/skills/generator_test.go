@@ -216,6 +216,7 @@ func TestGenerateScriptContent(t *testing.T) {
 		toolName      string
 		configArgs    string
 		wantContains  []string
+		wantAbsent    []string
 		licenseHeader string
 		mode          string
 		version       string
@@ -281,7 +282,10 @@ func TestGenerateScriptContent(t *testing.T) {
 			wantContains: []string{
 				`const toolName = "npx-tool";`,
 				`const npxArgs = ["--yes", "@toolbox-sdk/server@0.31.0"`,
+				`'node_modules', 'npm', 'bin', 'npx-cli.js'`,
+				`const child = spawn(command, commandArgs, { stdio: 'inherit', env });`,
 			},
+			wantAbsent: []string{"shell:", "'npx.cmd'"},
 		},
 		{
 			name:       "claude code script",
@@ -317,6 +321,11 @@ func TestGenerateScriptContent(t *testing.T) {
 			for _, s := range tt.wantContains {
 				if !strings.Contains(got, s) {
 					t.Errorf("generateScriptContent() missing substring %q\nGot:\n%s", s, got)
+				}
+			}
+			for _, s := range tt.wantAbsent {
+				if strings.Contains(got, s) {
+					t.Errorf("generateScriptContent() contains unexpected substring %q\nGot:\n%s", s, got)
 				}
 			}
 		})

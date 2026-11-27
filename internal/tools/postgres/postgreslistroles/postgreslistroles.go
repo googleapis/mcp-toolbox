@@ -102,6 +102,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	allParameters := parameters.Parameters{
 		parameters.NewStringParameter("role_name", "Optional: a text to filter results by role name. The input is used within a LIKE clause.", parameters.WithStringDefault("")),
@@ -144,10 +148,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGeneralError(err)
 	}
 	return resp, nil
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

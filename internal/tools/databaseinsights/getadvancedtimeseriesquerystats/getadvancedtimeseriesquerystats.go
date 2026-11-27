@@ -59,6 +59,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		cfg.Description = `Fetches time-series history of query execution statistics to analyze trends and spikes for a requested AlloyDB instance within a specified time period. Supports filtering by database name, database user, and a specific query ID. Returns time-series data including rates of execution time (rate(execution_time)) and wait time (rate(wait_time)). Requires advanced query insights to be enabled.
@@ -88,10 +92,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
