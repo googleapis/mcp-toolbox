@@ -2795,3 +2795,44 @@ func TestMcpSkillsMethods(t *testing.T) {
 		}
 	})
 }
+
+// blockingStringReader blocks in Read until release is closed, signalling once
+// via started when it is first reached. It lets a test park readLine's goroutine
+// inside ReadString, then cancel the context and unblock it deterministically.
+type blockingStringReader struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingStringReader) Read(p []byte) (int, error) {
+	select {
+	case r.started <- struct{}{}:
+	default:
+	}
+	<-r.release
+	return copy(p, "line\n"), nil
+}
+
+// TestStdioSessionReadLineCancellationDoesNotPanic guards the "send on closed
+// channel" panic: readLine used to close readChan/errChan on return, so after a
+// cancellation its still-blocked goroutine could race a send on a closed
+// channel. Cancelling while the goroutine is parked in ReadString and then
+// unblocking it must not panic.
+func TestStdioSessionReadLineCancellationDoesNotPanic(t *testing.T) {
+	for range 20 {
+		r := &blockingStringReader{started: make(chan struct{}, 1), release: make(chan struct{})}
+		s := &stdioSession{reader: bufio.NewReader(r)}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = s.readLine(ctx)
+		}()
+
+		<-r.started // the read goroutine is now blocked in ReadString
+		cancel()
+		close(r.release) // unblock ReadString so the goroutine reaches its select
+		<-done
+	}
+}
