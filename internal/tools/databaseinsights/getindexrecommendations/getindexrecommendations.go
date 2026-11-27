@@ -60,6 +60,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	if cfg.Description == "" {
 		cfg.Description = `Fetches index advisor suggestions to optimize performance for a requested AlloyDB instance. Supports requesting recommendations for specific databases and a list of query IDs. Returns index recommendations including SQL commands (CREATE INDEX), target schema, relation, and columns, estimated storage size, and predicted query performance improvements (current vs estimated execution duration). Requires advanced query insights to be enabled.
@@ -112,10 +116,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

@@ -1,2 +1,2 @@
-google-adk[toolbox]==1.28.1
+google-adk[toolbox]==2.14.0
 pytest==9.0.3

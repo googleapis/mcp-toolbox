@@ -57,7 +57,7 @@ const listIndexesStatement = `
         JOIN pg_catalog.pg_stat_all_indexes s
             ON i.oid = s.indexrelid
         WHERE
-            t.relkind = 'r'
+            t.relkind IN ('r', 'm')
             AND s.schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
             AND s.schemaname NOT LIKE 'pg_temp_%'
     )
@@ -104,6 +104,10 @@ var _ tools.ToolConfig = Config{}
 
 func (cfg Config) ToolConfigType() string {
 	return resourceType
+}
+
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
 }
 
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
@@ -153,10 +157,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.ProcessGeneralError(err)
 	}
 	return resp, nil
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

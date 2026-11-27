@@ -255,8 +255,8 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
 * **Define a `Tool` struct** that **embeds
   [`tools.BaseTool[Config]`](https://github.com/googleapis/mcp-toolbox/blob/main/internal/tools/tools.go)**.
   `BaseTool` provides default implementations of most of the `Tool` interface —
-  `GetName`, `GetDescription`, `GetAuthRequired`, `GetScopesRequired`,
-  `GetAnnotations`, `Manifest`, `GetParameters`,
+  `GetName`, `GetSourceName`, `GetDescription`, `GetAuthRequired`,
+  `GetScopesRequired`, `GetAnnotations`, `Manifest`, `GetParameters`,
   `RequiresClientAuthorization`, `GetAuthTokenHeaderName`, and `EmbedParams`.
   **Do not re-declare these** — eliminating that boilerplate is the entire point
   of embedding `BaseTool`.
@@ -270,6 +270,9 @@ Remember to keep your PRs small. For example, if you are contributing a new Sour
   interface**:
   * `ToolConfigType() string`: Returns a unique string identifier for your tool
     (e.g., `"newdb-tool"`).
+  * `GetSourceName() string`: Returns the name of the source the tool is
+    configured to use (typically `cfg.Source`), or `""` if the tool does not
+    use a source. `BaseTool` forwards `Tool.GetSourceName()` to this method.
   * `Initialize(srcs map[string]sources.Source) (tools.Tool, error)`: Validates
     the config, processes parameters, and returns your `Tool` constructed via
     `tools.NewBaseTool(cfg, annotations, manifest, staticParameters)`.
@@ -577,18 +580,25 @@ variables for each source.
 * Looker
   * The Cloud Build service account is a user for conversational analytics
   * The Looker instance runs under google.com:looker-sandbox.
-* Memorystore Redis - setup in the test project using a Memorystore for Redis
+* Redis - ephemeral `redis:7.2` container via testcontainers (set
+  `REDIS_ADDRESS` and `REDIS_PASS` to use an existing instance)
+* Memorystore Valkey - setup in the test project using a Memorystore for Redis
   standalone instance
   * Memorystore Redis Cluster, Memorystore Valkey standalone, and Memorystore
     Valkey Cluster instances all require PSC connections, which requires extra
     security setup to connect from Cloud Build. Memorystore Redis standalone is
     the only one allowing PSA connection.
   * The Cloud Build service account is a user
-* Memorystore Valkey - setup in the test project using a Memorystore for Redis
-  standalone instance
-  * The Cloud Build service account is a user
-* MySQL - setup in the test project using a Cloud SQL instance
+* MySQL - ephemeral `mysql:8.4` container via testcontainers (set
+  `MYSQL_HOST` to use an existing instance)
 * Neo4j - setup in the test project on a GCE VM
+* OceanBase - ephemeral `oceanbase/oceanbase-ce:4.4.2.1-101000022026050611`
+  container via testcontainers (set `OCEANBASE_HOST`, `OCEANBASE_PORT`,
+  `OCEANBASE_USER`, `OCEANBASE_PASSWORD`, and `OCEANBASE_DATABASE` to use an
+  existing instance)
+* Oracle - ephemeral `gvenzl/oracle-free:23.26.3-slim-faststart` container via
+  testcontainers (set `ORACLE_HOST`, `ORACLE_USERNAME`, `ORACLE_PASSWORD`, and
+  `ORACLE_SERVER_NAME` to use an existing instance)
 * Postgres - setup in the test project using an AlloyDB instance
 * Spanner - setup in the test project
   * The Cloud Build service account is a user

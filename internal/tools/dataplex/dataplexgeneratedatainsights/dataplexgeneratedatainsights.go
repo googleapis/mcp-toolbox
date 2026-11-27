@@ -60,6 +60,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	resourcePath := parameters.NewStringParameter("resourcePath", "The fully-qualified BigQuery resource path of the dataset or table to analyze. Format: //bigquery.googleapis.com/projects/{project}/datasets/{dataset} or //bigquery.googleapis.com/projects/{project}/datasets/{dataset}/tables/{table}.")
 	location := parameters.NewStringParameter("location", "The Google Cloud region where the Dataplex scan should be created and executed (e.g., 'us-central1'). This should match the location of the BigQuery resource or the published location of the asset in the catalog.")
@@ -81,10 +85,6 @@ var _ tools.Tool = Tool{}
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

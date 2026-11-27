@@ -118,18 +118,17 @@ func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineag
 		t.Fatalf("Failed to create process %s: %v", processID, err)
 	}
 
-	// 2. Create Run
-	tTime, err := time.Parse(time.RFC3339Nano, "2026-01-01T01:01:01.010Z")
-	if err != nil {
-		t.Fatalf("failed to parse start time: %v", err)
-	}
-	startTime := timestamppb.New(tTime)
+	// 2. Create Run (within the 30-day retention window)
+	now := time.Now().UTC()
+	startTime := timestamppb.New(now.Add(-1 * time.Minute))
+	endTime := timestamppb.New(now)
 
 	createRunReq := &lineagepb.CreateRunRequest{
 		Parent: process.GetName(),
 		Run: &lineagepb.Run{
 			Name:      fmt.Sprintf("%s/runs/%s", process.GetName(), runID),
 			StartTime: startTime,
+			EndTime:   endTime,
 			State:     lineagepb.Run_COMPLETED,
 		},
 	}
@@ -144,6 +143,7 @@ func setupDatalineageResources(t *testing.T, ctx context.Context, client *lineag
 		LineageEvent: &lineagepb.LineageEvent{
 			Name:      fmt.Sprintf("%s/lineageEvents/%s", run.GetName(), eventID),
 			StartTime: startTime,
+			EndTime:   endTime,
 			Links: []*lineagepb.EventLink{
 				{
 					Source: &lineagepb.EntityReference{FullyQualifiedName: sourceFQN},
