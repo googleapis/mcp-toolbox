@@ -1560,6 +1560,99 @@ func TestParseTypeErrorReportsValue(t *testing.T) {
 	}
 }
 
+func TestParseParamsYAMLNumericDefaults(t *testing.T) {
+	// YAML decodes whole numbers inside array and map defaults as uint64 (or
+	// int64 when negative), not int. These defaults must still parse when the
+	// parameter is omitted from the call.
+	ctx, err := testutils.ContextWithNewLogger()
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tcs := []struct {
+		name    string
+		in      string
+		want    parameters.ParamValues
+		wantErr bool
+	}{
+		{
+			name: "integer array default",
+			in: `
+- name: ids
+  type: array
+  description: d
+  default: [1, 2]
+  items: {name: id, type: integer, description: d}
+`,
+			want: parameters.ParamValues{{Name: "ids", Value: []any{1, 2}}},
+		},
+		{
+			name: "float array default with whole numbers",
+			in: `
+- name: ratios
+  type: array
+  description: d
+  default: [0.5, 2, -1]
+  items: {name: ratio, type: float, description: d}
+`,
+			want: parameters.ParamValues{{Name: "ratios", Value: []any{0.5, 2.0, -1.0}}},
+		},
+		{
+			name: "integer map default",
+			in: `
+- name: counts
+  type: map
+  description: d
+  valueType: integer
+  default: {a: 1}
+`,
+			want: parameters.ParamValues{{Name: "counts", Value: map[string]any{"a": 1}}},
+		},
+		{
+			name: "float map default with whole number",
+			in: `
+- name: weights
+  type: map
+  description: d
+  valueType: float
+  default: {a: 1}
+`,
+			want: parameters.ParamValues{{Name: "weights", Value: map[string]any{"a": 1.0}}},
+		},
+		{
+			name: "integer array default overflows int",
+			in: `
+- name: ids
+  type: array
+  description: d
+  default: [18446744073709551615]
+  items: {name: id, type: integer, description: d}
+`,
+			wantErr: true,
+		},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			var ps parameters.Parameters
+			if err := yaml.UnmarshalContext(ctx, []byte(tc.in), &ps, yaml.Strict()); err != nil {
+				t.Fatalf("unable to unmarshal: %s", err)
+			}
+			got, err := parameters.ParseParams(ps, map[string]any{}, nil)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got %v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error from ParseParams: %s", err)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Fatalf("ParseParams() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAuthParametersParse(t *testing.T) {
 	authServices := []parameters.ParamAuthService{
 		{

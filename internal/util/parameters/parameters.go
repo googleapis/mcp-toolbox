@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -843,6 +844,12 @@ func (p *IntParameter) Parse(v any) (any, error) {
 		out = int(newV)
 	case int64:
 		out = int(newV)
+	case uint64:
+		// YAML decodes non-negative integers inside array and map defaults as uint64.
+		if newV > math.MaxInt {
+			return nil, &ParseTypeError{p.Name, p.Type, v}
+		}
+		out = int(newV)
 	case json.Number:
 		newI, err := newV.Int64()
 		if err != nil {
@@ -951,6 +958,15 @@ func (p *FloatParameter) Parse(v any) (any, error) {
 		out = float64(newV)
 	case float64:
 		out = newV
+	// YAML decodes whole numbers inside array and map defaults as integers.
+	case int:
+		out = float64(newV)
+	case int32:
+		out = float64(newV)
+	case int64:
+		out = float64(newV)
+	case uint64:
+		out = float64(newV)
 	case json.Number:
 		newI, err := newV.Float64()
 		if err != nil {
