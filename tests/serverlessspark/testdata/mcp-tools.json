@@ -1,0 +1,420 @@
+[
+  {
+    "name": "list-batches",
+    "description": "Lists available Serverless Spark (aka Dataproc Serverless) batches",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "description": "Filter expression to limit the batches. Filters are case sensitive, and may contain multiple clauses combined with logical operators (AND/OR, case sensitive). Supported fields are batch_id, batch_uuid, state, create_time, and labels. e.g. state = RUNNING AND create_time < \"2023-01-01T00:00:00Z\" filters for batches in state RUNNING that were created before 2023-01-01. state = RUNNING AND labels.environment=production filters for batches in state in a RUNNING state that have a production environment label. Valid states are STATE_UNSPECIFIED, PENDING, RUNNING, CANCELLING, CANCELLED, SUCCEEDED, FAILED. Valid operators are < > <= >= = !=, and : as \"has\" for labels, meaning any non-empty value)"
+        },
+        "pageSize": {
+          "type": "integer",
+          "description": "The maximum number of batches to return in a single page (default 20)",
+          "default": 20
+        },
+        "pageToken": {
+          "type": "string",
+          "description": "A page token, received from a previous `ListBatches` call"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "list-batches-with-auth",
+    "description": "Lists available Serverless Spark (aka Dataproc Serverless) batches",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "description": "Filter expression to limit the batches. Filters are case sensitive, and may contain multiple clauses combined with logical operators (AND/OR, case sensitive). Supported fields are batch_id, batch_uuid, state, create_time, and labels. e.g. state = RUNNING AND create_time < \"2023-01-01T00:00:00Z\" filters for batches in state RUNNING that were created before 2023-01-01. state = RUNNING AND labels.environment=production filters for batches in state in a RUNNING state that have a production environment label. Valid states are STATE_UNSPECIFIED, PENDING, RUNNING, CANCELLING, CANCELLED, SUCCEEDED, FAILED. Valid operators are < > <= >= = !=, and : as \"has\" for labels, meaning any non-empty value)"
+        },
+        "pageSize": {
+          "type": "integer",
+          "description": "The maximum number of batches to return in a single page (default 20)",
+          "default": 20
+        },
+        "pageToken": {
+          "type": "string",
+          "description": "A page token, received from a previous `ListBatches` call"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "list-sessions",
+    "description": "Lists available Serverless Spark (aka Dataproc Serverless) sessions",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "description": "A filter for the sessions to return in the response. A filter is a logical expression constraining the values of various fields in each session resource. Filters are case sensitive, and may contain multiple clauses combined with logical operators (AND, OR). Supported fields are session_id, session_uuid, state, create_time, and labels. Example: state = ACTIVE and create_time < \"2023-01-01T00:00:00Z\" is a filter for sessions in an ACTIVE state that were created before 2023-01-01. state = ACTIVE and labels.environment=production is a filter for sessions in an ACTIVE state that have a production environment label."
+        },
+        "pageSize": {
+          "type": "integer",
+          "description": "The maximum number of sessions to return in a single page (default 20)",
+          "default": 20
+        },
+        "pageToken": {
+          "type": "string",
+          "description": "A page token, received from a previous `ListSessions` call"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "list-sessions-with-auth",
+    "description": "Lists available Serverless Spark (aka Dataproc Serverless) sessions",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "description": "A filter for the sessions to return in the response. A filter is a logical expression constraining the values of various fields in each session resource. Filters are case sensitive, and may contain multiple clauses combined with logical operators (AND, OR). Supported fields are session_id, session_uuid, state, create_time, and labels. Example: state = ACTIVE and create_time < \"2023-01-01T00:00:00Z\" is a filter for sessions in an ACTIVE state that were created before 2023-01-01. state = ACTIVE and labels.environment=production is a filter for sessions in an ACTIVE state that have a production environment label."
+        },
+        "pageSize": {
+          "type": "integer",
+          "description": "The maximum number of sessions to return in a single page (default 20)",
+          "default": 20
+        },
+        "pageToken": {
+          "type": "string",
+          "description": "A page token, received from a previous `ListSessions` call"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "get-batch",
+    "description": "Gets a Serverless Spark (aka Dataproc Serverless) batch",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The short name of the batch, e.g. for \"projects/my-project/locations/us-central1/batches/my-batch\", pass \"my-batch\" (the project and location are inherited from the source)"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "get-batch-with-auth",
+    "description": "Gets a Serverless Spark (aka Dataproc Serverless) batch",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The short name of the batch, e.g. for \"projects/my-project/locations/us-central1/batches/my-batch\", pass \"my-batch\" (the project and location are inherited from the source)"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "get-session",
+    "description": "Gets a Serverless Spark (aka Dataproc Serverless) session",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The short name of the session, e.g. for \"projects/my-project/locations/us-central1/sessions/my-session\", pass \"my-session\" (the project and location are inherited from the source)"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "get-session-with-auth",
+    "description": "Gets a Serverless Spark (aka Dataproc Serverless) session",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The short name of the session, e.g. for \"projects/my-project/locations/us-central1/sessions/my-session\", pass \"my-session\" (the project and location are inherited from the source)"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "get-session-template",
+    "description": "Gets a Serverless Spark (aka Dataproc Serverless) session template",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The short name of the session template, e.g. for \"projects/my-project/locations/us-central1/sessionTemplates/my-template\", pass \"my-template\" (the project and location are inherited from the source)"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "get-session-template-with-auth",
+    "description": "Gets a Serverless Spark (aka Dataproc Serverless) session template",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The short name of the session template, e.g. for \"projects/my-project/locations/us-central1/sessionTemplates/my-template\", pass \"my-template\" (the project and location are inherited from the source)"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "cancel-batch",
+    "description": "Cancels a running Serverless Spark (aka Dataproc Serverless) batch operation. Note that the batch state will not change immediately after the tool returns; it can take a minute or so for the cancellation to be reflected.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "description": "The name of the operation to cancel, e.g. for \"projects/my-project/locations/us-central1/operations/my-operation\", pass \"my-operation\""
+        }
+      },
+      "required": [
+        "operation"
+      ]
+    }
+  },
+  {
+    "name": "cancel-batch-with-auth",
+    "description": "Cancels a running Serverless Spark (aka Dataproc Serverless) batch operation. Note that the batch state will not change immediately after the tool returns; it can take a minute or so for the cancellation to be reflected.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "description": "The name of the operation to cancel, e.g. for \"projects/my-project/locations/us-central1/operations/my-operation\", pass \"my-operation\""
+        }
+      },
+      "required": [
+        "operation"
+      ]
+    }
+  },
+  {
+    "name": "create-pyspark-batch",
+    "description": "Creates a Serverless Spark (aka Dataproc Serverless) serverless-spark-create-pyspark-batch operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mainFile": {
+          "type": "string",
+          "description": "The path to the main Python file, as a gs://... URI."
+        },
+        "args": {
+          "type": "array",
+          "description": "Optional. A list of arguments passed to the main file.",
+          "items": {
+            "type": "string",
+            "description": "An argument."
+          }
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional. The Serverless runtime version to execute with."
+        }
+      },
+      "required": [
+        "mainFile"
+      ]
+    }
+  },
+  {
+    "name": "create-pyspark-batch-2-3",
+    "description": "Creates a Serverless Spark (aka Dataproc Serverless) serverless-spark-create-pyspark-batch operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mainFile": {
+          "type": "string",
+          "description": "The path to the main Python file, as a gs://... URI."
+        },
+        "args": {
+          "type": "array",
+          "description": "Optional. A list of arguments passed to the main file.",
+          "items": {
+            "type": "string",
+            "description": "An argument."
+          }
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional. The Serverless runtime version to execute with."
+        }
+      },
+      "required": [
+        "mainFile"
+      ]
+    }
+  },
+  {
+    "name": "create-pyspark-batch-with-auth",
+    "description": "Creates a Serverless Spark (aka Dataproc Serverless) serverless-spark-create-pyspark-batch operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mainFile": {
+          "type": "string",
+          "description": "The path to the main Python file, as a gs://... URI."
+        },
+        "args": {
+          "type": "array",
+          "description": "Optional. A list of arguments passed to the main file.",
+          "items": {
+            "type": "string",
+            "description": "An argument."
+          }
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional. The Serverless runtime version to execute with."
+        }
+      },
+      "required": [
+        "mainFile"
+      ]
+    }
+  },
+  {
+    "name": "create-spark-batch",
+    "description": "Creates a Serverless Spark (aka Dataproc Serverless) serverless-spark-create-spark-batch operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mainJarFile": {
+          "type": "string",
+          "description": "Optional. The gs:// URI of the jar file that contains the main class. Exactly one of mainJarFile or mainClass must be specified."
+        },
+        "mainClass": {
+          "type": "string",
+          "description": "Optional. The name of the driver's main class. Exactly one of mainJarFile or mainClass must be specified."
+        },
+        "jarFiles": {
+          "type": "array",
+          "description": "Optional. A list of gs:// URIs of jar files to add to the CLASSPATHs of the Spark driver and tasks.",
+          "items": {
+            "type": "string",
+            "description": "A jar file URI."
+          }
+        },
+        "args": {
+          "type": "array",
+          "description": "Optional. A list of arguments passed to the driver.",
+          "items": {
+            "type": "string",
+            "description": "An argument."
+          }
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional. The Serverless runtime version to execute with."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "create-spark-batch-2-3",
+    "description": "Creates a Serverless Spark (aka Dataproc Serverless) serverless-spark-create-spark-batch operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mainJarFile": {
+          "type": "string",
+          "description": "Optional. The gs:// URI of the jar file that contains the main class. Exactly one of mainJarFile or mainClass must be specified."
+        },
+        "mainClass": {
+          "type": "string",
+          "description": "Optional. The name of the driver's main class. Exactly one of mainJarFile or mainClass must be specified."
+        },
+        "jarFiles": {
+          "type": "array",
+          "description": "Optional. A list of gs:// URIs of jar files to add to the CLASSPATHs of the Spark driver and tasks.",
+          "items": {
+            "type": "string",
+            "description": "A jar file URI."
+          }
+        },
+        "args": {
+          "type": "array",
+          "description": "Optional. A list of arguments passed to the driver.",
+          "items": {
+            "type": "string",
+            "description": "An argument."
+          }
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional. The Serverless runtime version to execute with."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "create-spark-batch-with-auth",
+    "description": "Creates a Serverless Spark (aka Dataproc Serverless) serverless-spark-create-spark-batch operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mainJarFile": {
+          "type": "string",
+          "description": "Optional. The gs:// URI of the jar file that contains the main class. Exactly one of mainJarFile or mainClass must be specified."
+        },
+        "mainClass": {
+          "type": "string",
+          "description": "Optional. The name of the driver's main class. Exactly one of mainJarFile or mainClass must be specified."
+        },
+        "jarFiles": {
+          "type": "array",
+          "description": "Optional. A list of gs:// URIs of jar files to add to the CLASSPATHs of the Spark driver and tasks.",
+          "items": {
+            "type": "string",
+            "description": "A jar file URI."
+          }
+        },
+        "args": {
+          "type": "array",
+          "description": "Optional. A list of arguments passed to the driver.",
+          "items": {
+            "type": "string",
+            "description": "An argument."
+          }
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional. The Serverless runtime version to execute with."
+        }
+      },
+      "required": []
+    }
+  }
+]
