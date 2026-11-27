@@ -27,8 +27,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 )
 
-// Compile-time check: ConfigBase satisfies ToolMeta on its own.
-var _ tools.ToolMeta = tools.ConfigBase{}
+// Compile-time check: MockToolConfig satisfies ToolMeta.
+var _ tools.ToolMeta = testutils.MockToolConfig{}
 
 func TestConfigBaseAnnotationsYAML(t *testing.T) {
 	data := []byte(`name: my-tool
@@ -52,12 +52,15 @@ annotations:
 	}
 }
 
-func newBaseTool() (tools.BaseTool[tools.ConfigBase], tools.Manifest) {
-	cfg := tools.ConfigBase{
-		Name:           "my-tool",
-		Description:    "my tool description",
-		AuthRequired:   []string{"google"},
-		ScopesRequired: []string{"scope-a", "scope-b"},
+func newBaseTool() (tools.BaseTool[testutils.MockToolConfig], tools.Manifest) {
+	cfg := testutils.MockToolConfig{
+		ConfigBase: tools.ConfigBase{
+			Name:           "my-tool",
+			Description:    "my tool description",
+			AuthRequired:   []string{"google"},
+			ScopesRequired: []string{"scope-a", "scope-b"},
+		},
+		Source: "my-source",
 	}
 	manifest := tools.Manifest{
 		Description:  "manifest description",
@@ -77,6 +80,9 @@ func TestBaseToolGetters(t *testing.T) {
 
 	if got, want := b.GetName(), "my-tool"; got != want {
 		t.Errorf("GetName() = %q, want %q", got, want)
+	}
+	if got, want := b.GetSourceName(), "my-source"; got != want {
+		t.Errorf("GetSourceName() = %q, want %q", got, want)
 	}
 	if got, want := b.GetDescription(), "my tool description"; got != want {
 		t.Errorf("GetDescription() = %q, want %q", got, want)
@@ -106,6 +112,25 @@ func TestBaseToolGetters(t *testing.T) {
 	}
 }
 
+func TestBaseToolGetSourceName(t *testing.T) {
+	tcs := []struct {
+		desc   string
+		source string
+		want   string
+	}{
+		{"non-empty source", "my-db", "my-db"},
+		{"empty source", "", ""},
+	}
+	for _, tc := range tcs {
+		t.Run(tc.desc, func(t *testing.T) {
+			b := tools.NewBaseTool(testutils.MockToolConfig{Source: tc.source}, nil, tools.Manifest{}, nil)
+			if got := b.GetSourceName(); got != tc.want {
+				t.Errorf("GetSourceName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestIsAuthorized(t *testing.T) {
 	tcs := []struct {
 		desc         string
@@ -121,7 +146,7 @@ func TestIsAuthorized(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
-			b := tools.NewBaseTool(tools.ConfigBase{AuthRequired: tc.authRequired}, nil, tools.Manifest{}, nil)
+			b := tools.NewBaseTool(testutils.MockToolConfig{ConfigBase: tools.ConfigBase{AuthRequired: tc.authRequired}}, nil, tools.Manifest{}, nil)
 			if got := tools.IsAuthorized(b.GetAuthRequired(), tc.verified); got != tc.want {
 				t.Errorf("IsAuthorized(%v, %v) = %v, want %v", tc.authRequired, tc.verified, got, tc.want)
 			}
@@ -130,7 +155,7 @@ func TestIsAuthorized(t *testing.T) {
 }
 
 func TestBaseToolRequiresClientAuthorization(t *testing.T) {
-	b := tools.NewBaseTool(tools.ConfigBase{}, nil, tools.Manifest{}, nil)
+	b := tools.NewBaseTool(testutils.MockToolConfig{}, nil, tools.Manifest{}, nil)
 	got, err := b.RequiresClientAuthorization(nil)
 	if err != nil {
 		t.Fatalf("RequiresClientAuthorization() error = %v", err)
@@ -141,7 +166,7 @@ func TestBaseToolRequiresClientAuthorization(t *testing.T) {
 }
 
 func TestBaseToolGetAuthTokenHeaderName(t *testing.T) {
-	b := tools.NewBaseTool(tools.ConfigBase{}, nil, tools.Manifest{}, nil)
+	b := tools.NewBaseTool(testutils.MockToolConfig{}, nil, tools.Manifest{}, nil)
 	got, err := b.GetAuthTokenHeaderName(nil)
 	if err != nil {
 		t.Fatalf("GetAuthTokenHeaderName() error = %v", err)
@@ -153,7 +178,7 @@ func TestBaseToolGetAuthTokenHeaderName(t *testing.T) {
 
 func TestBaseToolEmbedParamsPassthrough(t *testing.T) {
 	b := tools.NewBaseTool(
-		tools.ConfigBase{},
+		testutils.MockToolConfig{},
 		nil,
 		tools.Manifest{},
 		parameters.Parameters{parameters.NewStringParameter("p1", "first")},
