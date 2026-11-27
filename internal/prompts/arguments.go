@@ -16,7 +16,10 @@ package prompts
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
@@ -26,6 +29,21 @@ import (
 // If the 'type' field is not specified in a YAML definition, it defaults to 'string'.
 type Argument struct {
 	parameters.Parameter
+}
+
+// Parse converts MCP string arguments before validating their declared parameter type.
+func (arg Argument) Parse(value any) (any, error) {
+	if text, ok := value.(string); ok && arg.GetType() != parameters.TypeString {
+		decoder := json.NewDecoder(strings.NewReader(text))
+		decoder.UseNumber()
+		if err := decoder.Decode(&value); err != nil {
+			return nil, fmt.Errorf("unable to decode argument %q: %w", arg.GetName(), err)
+		}
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			return nil, fmt.Errorf("argument %q must contain a single JSON value", arg.GetName())
+		}
+	}
+	return arg.Parameter.Parse(value)
 }
 
 // Arguments is a slice of Argument.
@@ -67,7 +85,7 @@ func (args *Arguments) UnmarshalYAML(ctx context.Context, unmarshal func(interfa
 func ParseArguments(arguments Arguments, args map[string]any, data map[string]map[string]any) (parameters.ParamValues, error) {
 	var params parameters.Parameters
 	for _, arg := range arguments {
-		params = append(params, arg.Parameter)
+		params = append(params, arg)
 	}
 	return parameters.ParseParams(params, args, data)
 }
