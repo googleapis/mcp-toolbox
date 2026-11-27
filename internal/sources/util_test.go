@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -66,6 +67,26 @@ func TestNormalizeValue(t *testing.T) {
 	result = NormalizeValue(uuidAnyArray, 2951)
 	if arr, ok := result.([]any); !ok || len(arr) != 2 || arr[0] != expectedUUIDStr || arr[1] != "not-a-uuid" {
 		t.Errorf("Expected []any with normalized UUID, got %v", result)
+	}
+
+	// Test case 6: Interval OID (1186) with pgtype.Interval
+	interval := pgtype.Interval{Microseconds: 7384500000, Days: 1, Valid: true}
+	result = NormalizeValue(interval, 1186)
+	if str, ok := result.(string); !ok || str != "1 day 02:03:04.500000" {
+		t.Errorf("Expected interval string %q, got %v", "1 day 02:03:04.500000", result)
+	}
+
+	// Test case 7: Interval OID (1186) with an invalid (NULL) pgtype.Interval
+	result = NormalizeValue(pgtype.Interval{}, 1186)
+	if result != nil {
+		t.Errorf("Expected nil for an invalid interval, got %v", result)
+	}
+
+	// Test case 8: Interval Array OID (1187) with []any
+	intervalAnyArray := []any{pgtype.Interval{Microseconds: -300000000, Valid: true}, nil}
+	result = NormalizeValue(intervalAnyArray, 1187)
+	if arr, ok := result.([]any); !ok || len(arr) != 2 || arr[0] != "-00:05:00" || arr[1] != nil {
+		t.Errorf("Expected []any with normalized interval, got %v", result)
 	}
 }
 
