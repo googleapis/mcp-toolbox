@@ -104,7 +104,8 @@ func (s *Source) validateBucket(bucket string) error {
 	return fmt.Errorf("bucket %q is not allowed by source %q configuration", bucket, s.Name)
 }
 
-// validateLocalPath enforces allowedLocalRoots. The path must sit under an
+// validateLocalPath enforces allowedLocalRoots. If no roots are configured,
+// local file access is disabled (fail closed). The path must sit under an
 // allowed root both as written and after symlinks are resolved: the first check
 // keeps the rejection message tied to what the caller actually asked for, and
 // the second is what makes the root a real boundary, since a symlink planted
@@ -118,8 +119,15 @@ func (s *Source) validateLocalPath(p string) error {
 	if err != nil {
 		return err
 	}
+	// Fail closed: with no allowedLocalRoots configured, local file access
+	// is disabled rather than unrestricted. The allowlist added for
+	// CVE-2026-93328 originally defaulted to allowing every absolute path
+	// on the host, which preserved the vulnerability's exposure for any
+	// deployment that upgraded without setting the new option. Operators
+	// enable upload_object/download_object by configuring the roots those
+	// tools may touch.
 	if len(s.AllowedLocalRoots) == 0 {
-		return nil
+		return fmt.Errorf("local path %q rejected: source %q does not configure allowedLocalRoots, so local file access is disabled", p, s.Name)
 	}
 
 	nameMatched := false
