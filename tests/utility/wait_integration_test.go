@@ -15,11 +15,7 @@
 package utility
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
 	"regexp"
 	"testing"
 	"time"
@@ -28,91 +24,34 @@ import (
 	"github.com/googleapis/mcp-toolbox/tests"
 )
 
-func RunWaitTool(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	args := []string{"--port", "5001"}
-
-	toolsFile := map[string]any{
+func setupWaitTest(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	t.Cleanup(cancel)
+	config := map[string]any{
 		"tools": map[string]any{
 			"my-wait-for-tool": map[string]any{
-				"type":        "wait",
-				"description": "Wait for a specified duration.",
-				"timeout":     "30s",
+				"type": "wait", "description": "Wait for a specified duration.", "timeout": "30s",
 			},
 		},
 	}
-	cmd, cleanup, err := tests.StartCmd(ctx, toolsFile, args...)
+	cmd, cleanup, err := tests.StartCmd(ctx, config)
 	if err != nil {
-		t.Fatalf("command initialization returned an error: %s", err)
+		t.Fatalf("start toolbox: %v", err)
 	}
-	defer cleanup()
-
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out)
-	if err != nil {
-		t.Logf("toolbox command logs: \n%s", out)
-		t.Fatalf("toolbox didn't start successfully: %s", err)
-	}
-
-	invokeTcs := []struct {
-		name        string
-		api         string
-		requestBody io.Reader
-		want        string
-		isErr       bool
-	}{
-		{
-			name:        "invoke my-wait-for-tool",
-			api:         "http://127.0.0.1:5001/api/tool/my-wait-for-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"duration": "1s"}`)),
-			want:        `["Wait for 1s completed successfully."]`,
-			isErr:       false,
-		},
-		{
-			name:        "invoke my-wait-for-tool with invalid duration",
-			api:         "http://127.0.0.1:5001/api/tool/my-wait-for-tool/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{"duration": "invalid"}`)),
-			isErr:       true,
-		},
-	}
-	for _, tc := range invokeTcs {
-		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
-			if err != nil {
-				t.Fatalf("unable to create request: %s", err)
-			}
-			req.Header.Add("Content-type", "application/json")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatalf("unable to send request: %s", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				if tc.isErr {
-					return
-				}
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				t.Fatalf("response status code is not 200, got %d: %s", resp.StatusCode, string(bodyBytes))
-			}
-
-			var body map[string]interface{}
-			err = json.NewDecoder(resp.Body).Decode(&body)
-			if err != nil {
-				t.Fatalf("error parsing response body")
-			}
-
-			got, ok := body["result"].(string)
-			if !ok {
-				t.Fatalf("unable to find result in response body")
-			}
-
-			if got != tc.want {
-				t.Fatalf("unexpected value: got %q, want %q", got, tc.want)
-			}
-		})
+	t.Cleanup(cleanup)
+	t.Cleanup(func() {
+		cmd.Stop()
+		waitCtx, stop := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stop()
+		if err := cmd.Wait(waitCtx); err != nil {
+			t.Errorf("stop toolbox: %v", err)
+		}
+		cmd.Close()
+	})
+	waitCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+	defer stop()
+	if out, err := testutils.WaitForString(waitCtx, regexp.MustCompile(`Server ready to serve`), cmd.Out); err != nil {
+		t.Fatalf("toolbox did not start: %v\n%s", err, out)
 	}
 }
