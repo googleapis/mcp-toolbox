@@ -66,6 +66,10 @@ func (cfg Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (cfg Config) GetSourceName() string {
+	return cfg.Source
+}
+
 func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	prompt := parameters.NewStringParameter("prompt", "Prompt representing search intention. Do not rewrite the prompt.")
 	datasetIds := parameters.NewArrayParameter("datasetIds", "Array of dataset IDs.", parameters.NewStringParameter("datasetId", "The IDs of the bigquery dataset."), parameters.WithArrayDefault([]any{}))
@@ -90,10 +94,6 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 type Tool struct {
 	tools.BaseTool[Config]
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {

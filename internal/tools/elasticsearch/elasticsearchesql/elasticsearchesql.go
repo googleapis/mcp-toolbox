@@ -58,6 +58,10 @@ func (c Config) ToolConfigType() string {
 	return resourceType
 }
 
+func (c Config) GetSourceName() string {
+	return c.Source
+}
+
 func newConfig(ctx context.Context, name string, decoder *yaml.Decoder) (tools.ToolConfig, error) {
 	actual := Config{ConfigBase: tools.ConfigBase{Name: name}}
 	if err := decoder.DecodeContext(ctx, &actual); err != nil {
@@ -85,10 +89,6 @@ func (c Config) Initialize(context.Context) (tools.Tool, error) {
 			c.Parameters,
 		),
 	}, nil
-}
-
-func (t Tool) GetSourceName() string {
-	return t.Cfg.Source
 }
 
 func (t Tool) ToConfig() tools.ToolConfig {
