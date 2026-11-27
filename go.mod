@@ -69,6 +69,7 @@ require (
 	github.com/trinodb/trino-go-client v1.5.0
 	github.com/valkey-io/valkey-go v1.0.79
 	github.com/yosida95/uritemplate/v3 v3.0.2
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-5
 	go.mongodb.org/mongo-driver/v2 v2.10.0
 	go.opentelemetry.io/contrib/propagators/autoprop v0.72.0
@@ -255,7 +256,6 @@ require (
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/xdg-go/scram v1.4.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
-	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	gitlab.com/nyarla/go-crypt v0.0.0-20160106005555-d9a5dc2b789b // indirect

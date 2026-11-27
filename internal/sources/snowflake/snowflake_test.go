@@ -57,6 +57,32 @@ func TestParseFromYamlSnowflake(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "key pair authentication",
+			in: `
+				kind: source
+				name: my-snowflake-instance
+				type: snowflake
+				account: my-account
+				user: my_user
+				privateKeyPath: /path/to/rsa_key.p8
+				privateKeyPassphrase: my_passphrase
+				database: my_db
+				schema: my_schema
+			`,
+			want: map[string]sources.SourceConfig{
+				"my-snowflake-instance": snowflake.Config{
+					Name:                 "my-snowflake-instance",
+					Type:                 snowflake.SourceType,
+					Account:              "my-account",
+					User:                 "my_user",
+					PrivateKeyPath:       "/path/to/rsa_key.p8",
+					PrivateKeyPassphrase: "my_passphrase",
+					Database:             "my_db",
+					Schema:               "my_schema",
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -105,6 +131,19 @@ func TestFailParseFromYaml(t *testing.T) {
 				database: my_db
 			`,
 			err: "error unmarshaling source: unable to parse source \"my-snowflake-instance\" as \"snowflake\": Key: 'Config.Schema' Error:Field validation for 'Schema' failed on the 'required' tag",
+		},
+		{
+			desc: "missing authentication",
+			in: `
+				kind: source
+				name: my-snowflake-instance
+				type: snowflake
+				account: my-account
+				user: my_user
+				database: my_db
+				schema: my_schema
+			`,
+			err: "error unmarshaling source: unable to parse source \"my-snowflake-instance\" as \"snowflake\": Key: 'Config.Password' Error:Field validation for 'Password' failed on the 'required_without_all' tag",
 		},
 	}
 	for _, tc := range tcs {
