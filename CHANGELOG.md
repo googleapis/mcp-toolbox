@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.19.0](https://github.com/googleapis/mcp-toolbox/compare/v1.18.0...v1.19.0) (2026-11-27)
+
+
+### Features
+
+* Add workflow for automated triage system ([#4579](https://github.com/googleapis/mcp-toolbox/issues/4579)) ([e53787c](https://github.com/googleapis/mcp-toolbox/commit/e53787c5227f161476a07495f6d5fd05ecf9597d))
+
+
+### Bug Fixes
+
+* **tool/postgres-list-stored-procedure:** Delegate query execution to source.RunSQL to check rows.Err() ([#4520](https://github.com/googleapis/mcp-toolbox/issues/4520)) ([86df414](https://github.com/googleapis/mcp-toolbox/commit/86df414d9c6c381e9945d73799dcc15a82cb0b6f))
+
 ## [1.18.0](https://github.com/googleapis/mcp-toolbox/compare/v1.17.0...v1.18.0) (2026-11-20)
 
 
