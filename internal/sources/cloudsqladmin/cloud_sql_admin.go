@@ -259,7 +259,7 @@ func (s *Source) ListDatabase(ctx context.Context, project, instance, accessToke
 		Collation string `json:"collation"`
 	}
 
-	var databases []databaseInfo
+	databases := []databaseInfo{}
 	for _, item := range resp.Items {
 		databases = append(databases, databaseInfo{
 			Name:      item.Name,
@@ -290,7 +290,7 @@ func (s *Source) ListInstance(ctx context.Context, project, accessToken string) 
 		InstanceType string `json:"instanceType"`
 	}
 
-	var instances []instanceInfo
+	instances := []instanceInfo{}
 	for _, item := range resp.Items {
 		instances = append(instances, instanceInfo{
 			Name:         item.Name,

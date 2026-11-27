@@ -104,7 +104,7 @@ func ExecuteSearch(ctx context.Context, client *dataplexapi.CatalogClient, req *
 		return nil, fmt.Errorf("failed to create search entries iterator")
 	}
 
-	var results []DataplexSearchResponse
+	results := []DataplexSearchResponse{}
 	for req.PageSize <= 0 || len(results) < int(req.PageSize) {
 		entry, err := it.Next()
 		if err == iterator.Done {
