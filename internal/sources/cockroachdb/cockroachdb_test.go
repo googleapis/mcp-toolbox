@@ -238,7 +238,7 @@ func TestInitCockroachDBConnectionPoolWithRetryReleasesFailedPools(t *testing.T)
 	_, err := initCockroachDBConnectionPoolWithRetry(
 		context.Background(),
 		noop.NewTracerProvider().Tracer("cockroachdb-test"),
-		"test-source", "127.0.0.1", "1", "u", "p", "db", nil, 2, time.Millisecond,
+		"test-source", "127.0.0.1", "1", "u", "p", "db", nil, 2, time.Millisecond, false,
 	)
 	if err == nil {
 		t.Fatal("expected the connection to fail against a dead endpoint")
@@ -249,5 +249,17 @@ func TestInitCockroachDBConnectionPoolWithRetryReleasesFailedPools(t *testing.T)
 		b := make([]byte, 2<<20)
 		runtime.Stack(b, true)
 		t.Fatalf("failed Initialize left %d pgx goroutine(s) running in the background:\n%s", n, b[:2<<20])
+	}
+}
+
+func TestReadOnlyModeRejectsSimpleProtocol(t *testing.T) {
+	_, err := initCockroachDBConnectionPoolWithRetry(
+		context.Background(),
+		noop.NewTracerProvider().Tracer("cockroachdb-test"),
+		"test-source", "127.0.0.1", "1", "u", "p", "db",
+		map[string]string{"default_query_exec_mode": "simple_protocol"}, 0, time.Millisecond, true,
+	)
+	if err == nil || !strings.Contains(err.Error(), "simple_protocol") {
+		t.Fatalf("expected readOnlyMode to reject default_query_exec_mode=simple_protocol, got: %v", err)
 	}
 }

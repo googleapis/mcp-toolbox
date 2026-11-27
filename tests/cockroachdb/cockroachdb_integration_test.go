@@ -15,8 +15,11 @@
 package cockroachdb
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"testing"
@@ -163,6 +166,13 @@ func TestCockroachDB(t *testing.T) {
 	// Add execute-sql tool with write-enabled source (CockroachDB MCP security requires explicit opt-in)
 	toolsFile = addCockroachDBExecuteSqlConfig(t, toolsFile, sourceConfig)
 
+	// Add execute-sql tool on the default read-only source
+	toolsFile["tools"].(map[string]any)["my-readonly-exec-sql-tool"] = map[string]any{
+		"type":        "cockroachdb-execute-sql",
+		"source":      "my-instance",
+		"description": "Tool to execute sql on a read-only source",
+	}
+
 	tmplSelectCombined, tmplSelectFilterCombined := tests.GetPostgresSQLTmplToolStatement()
 	toolsFile = tests.AddTemplateParamConfig(t, toolsFile, CockroachDBToolType, tmplSelectCombined, tmplSelectFilterCombined, "")
 
@@ -202,6 +212,10 @@ func TestCockroachDB(t *testing.T) {
 
 	t.Run("ToolInvokeWithTemplateParameters", func(t *testing.T) {
 		tests.RunToolInvokeWithTemplateParameters(t, tableNameTemplateParam)
+	})
+
+	t.Run("ReadOnlyModeRejectsWrites", func(t *testing.T) {
+		runReadOnlyModeRejectsWritesTest(t, ctx, pool, tableNameParam)
 	})
 
 	t.Logf("✅✅✅ All CockroachDB integration tests passed!")
@@ -247,4 +261,46 @@ func addCockroachDBExecuteSqlConfig(t *testing.T, config map[string]any, baseSou
 	}
 
 	return config
+}
+
+// runReadOnlyModeRejectsWritesTest sends writes that the keyword check does not
+// classify through an execute-sql tool on a read-only source, and checks that
+// CockroachDB rejected them while reads, including follower reads, still work.
+func runReadOnlyModeRejectsWritesTest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tableName string) {
+	invoke := func(sql string) (int, string) {
+		reqBytes, err := json.Marshal(map[string]any{"sql": sql})
+		if err != nil {
+			t.Fatalf("unable to marshal request: %s", err)
+		}
+		resp, body := tests.RunRequest(t, http.MethodPost, "http://127.0.0.1:5000/api/tool/my-readonly-exec-sql-tool/invoke", bytes.NewBuffer(reqBytes), nil)
+		return resp.StatusCode, string(body)
+	}
+	countRows := func() int {
+		var n int
+		if err := pool.QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM %s", tableName)).Scan(&n); err != nil {
+			t.Fatalf("unable to count rows in %s: %s", tableName, err)
+		}
+		return n
+	}
+
+	want := countRows()
+	for _, sql := range []string{
+		// Turning the session setting off must not carry over to later queries.
+		"SET default_transaction_read_only = off",
+		fmt.Sprintf("WITH deleted AS (DELETE FROM %s WHERE true RETURNING *) SELECT * FROM deleted", tableName),
+		fmt.Sprintf("UPSERT INTO %s (id, name) VALUES (999, 'upserted')", tableName),
+		fmt.Sprintf("/*\n*/ DELETE FROM %s WHERE true", tableName),
+		fmt.Sprintf("SELECT 1; DROP TABLE %s", tableName),
+	} {
+		status, body := invoke(sql)
+		t.Logf("%q: %d %s", sql, status, body)
+		if got := countRows(); got != want {
+			t.Fatalf("after %q, %s has %d rows, want %d", sql, tableName, got, want)
+		}
+	}
+
+	followerRead := fmt.Sprintf("SELECT count(*) AS n FROM %s AS OF SYSTEM TIME '-1us'", tableName)
+	if status, body := invoke(followerRead); status != http.StatusOK || strings.Contains(body, "error") {
+		t.Fatalf("%q failed: %d %s", followerRead, status, body)
+	}
 }

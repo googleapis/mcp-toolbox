@@ -103,7 +103,7 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		return nil, fmt.Errorf("invalid retryBaseDelay: %w", err)
 	}
 
-	pool, err := initCockroachDBConnectionPoolWithRetry(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.MaxRetries, retryBaseDelay)
+	pool, err := initCockroachDBConnectionPoolWithRetry(ctx, tracer, r.Name, r.Host, r.Port, r.User, r.Password, r.Database, r.QueryParams, r.MaxRetries, retryBaseDelay, r.ReadOnlyMode && !r.EnableWriteMode)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create pool: %w", err)
 	}
@@ -472,7 +472,7 @@ func (s *Source) EmitTelemetry(ctx context.Context, event TelemetryEvent) {
 	}
 }
 
-func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string, queryParams map[string]string, maxRetries int, baseDelay time.Duration) (*pgxpool.Pool, error) {
+func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tracer, name, host, port, user, pass, dbname string, queryParams map[string]string, maxRetries int, baseDelay time.Duration, readOnly bool) (*pgxpool.Pool, error) {
 	//nolint:all
 	ctx, span := sources.InitConnectionSpan(ctx, tracer, SourceType, name)
 	defer span.End()
@@ -496,9 +496,29 @@ func initCockroachDBConnectionPoolWithRetry(ctx context.Context, tracer trace.Tr
 		RawQuery: ConvertParamMapToRawQuery(queryParams),
 	}
 
+	config, err := pgxpool.ParseConfig(connURL.String())
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse CockroachDB connection config: %w", err)
+	}
+	if readOnly {
+		// The simple protocol lets one query run several statements, including a
+		// BEGIN READ WRITE that overrides the read-only session default below.
+		if config.ConnConfig.DefaultQueryExecMode == pgx.QueryExecModeSimpleProtocol {
+			return nil, fmt.Errorf("readOnlyMode does not support default_query_exec_mode=simple_protocol")
+		}
+		// Make every connection read-only each time it is handed out, so CockroachDB
+		// rejects writes even if an earlier query changed the session setting.
+		config.PrepareConn = func(ctx context.Context, conn *pgx.Conn) (bool, error) {
+			if _, err := conn.Exec(ctx, "SET default_transaction_read_only = on"); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+
 	var pool *pgxpool.Pool
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		pool, err = pgxpool.New(ctx, connURL.String())
+		pool, err = pgxpool.NewWithConfig(ctx, config.Copy())
 		if err == nil {
 			err = pool.Ping(ctx)
 		}
