@@ -53,7 +53,11 @@ func (args *Arguments) UnmarshalYAML(ctx context.Context, unmarshal func(interfa
 		}
 
 		// Call the clean, exported parser from the tools package. No more duplicated logic!
-		param, err := parameters.ParseParameter(ctx, p, paramType.(string))
+		typeStr, ok := paramType.(string)
+		if !ok {
+			return fmt.Errorf("argument 'type' field must be a string, got %T", paramType)
+		}
+		param, err := parameters.ParseParameter(ctx, p, typeStr)
 		if err != nil {
 			return err
 		}
