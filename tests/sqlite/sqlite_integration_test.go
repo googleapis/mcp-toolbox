@@ -241,6 +241,12 @@ func TestSQLiteExecuteSqlTool(t *testing.T) {
 			wantBody:   `\"payload\":{\"id\":9007199254740993}`,
 		},
 		{
+			name:       "keep text that looks like a JSON scalar",
+			sql:        "SELECT '94105' AS zip, 'null' AS nickname",
+			wantStatus: 200,
+			wantBody:   `\"zip\":\"94105\",\"nickname\":\"null\"`,
+		},
+		{
 			name:       "select no rows",
 			sql:        fmt.Sprintf("SELECT name FROM %s WHERE id = 999", tableName),
 			wantStatus: 200,

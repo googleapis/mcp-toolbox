@@ -49,6 +49,36 @@ func TestRunSQLPreservesJSONNumberPrecision(t *testing.T) {
 	}
 }
 
+func TestRunSQLKeepsTextThatLooksLikeJSONScalars(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("unable to open SQLite database: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`CREATE TABLE t (id INTEGER, v TEXT);
+		INSERT INTO t VALUES
+			(1, '94105'), (2, 'true'), (3, 'null'), (4, '"quoted"'), (5, ' 42 '),
+			(6, '02139'), (7, 'plain'), (8, '{"a":1}'), (9, ' [1, 2]'), (10, NULL);`); err != nil {
+		t.Fatalf("unable to create table: %v", err)
+	}
+
+	source := sqlite.Source{Db: db}
+	got, err := source.RunSQL(context.Background(), "SELECT id, v FROM t ORDER BY id", nil)
+	if err != nil {
+		t.Fatalf("unable to run SQL: %v", err)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("unable to marshal result: %v", err)
+	}
+	const want = `[{"id":1,"v":"94105"},{"id":2,"v":"true"},{"id":3,"v":"null"},{"id":4,"v":"\"quoted\""},{"id":5,"v":" 42 "},` +
+		`{"id":6,"v":"02139"},{"id":7,"v":"plain"},{"id":8,"v":{"a":1}},{"id":9,"v":[1,2]},{"id":10,"v":null}]`
+	if string(encoded) != want {
+		t.Fatalf("unexpected result:\ngot  %s\nwant %s", encoded, want)
+	}
+}
+
 func TestParseFromYamlSQLite(t *testing.T) {
 	tcs := []struct {
 		desc string
