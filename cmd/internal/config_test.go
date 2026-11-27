@@ -2643,7 +2643,7 @@ func TestPrebuiltTools(t *testing.T) {
 			wantGroups: server.GroupConfigs{
 				"elasticsearch-tools": group.GroupConfig{
 					Name:      "elasticsearch-tools",
-					ToolNames: []string{"execute_esql_query"},
+					ToolNames: []string{"execute_esql_query", "list_indices"},
 				},
 			},
 		},

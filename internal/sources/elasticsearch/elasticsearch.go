@@ -210,6 +210,34 @@ func (s *Source) RunSQL(ctx context.Context, format, query string, params []map[
 	return output, nil
 }
 
+func (s *Source) ListIndices(ctx context.Context, patterns []string, columns []string) ([]map[string]any, error) {
+	res, err := esapi.CatIndicesRequest{
+		Index:      patterns,
+		Format:     "json",
+		H:          columns,
+		S:          []string{"index"},
+		Instrument: s.ElasticsearchClient().InstrumentationEnabled(),
+	}.Do(ctx, s.ElasticsearchClient())
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		var esErr json.RawMessage
+		if err := util.DecodeJSON(res.Body, &esErr); err != nil {
+			return nil, fmt.Errorf("elasticsearch error: status %s", res.Status())
+		}
+		return nil, fmt.Errorf("elasticsearch error: status %s: %s", res.Status(), string(esErr))
+	}
+
+	var rows []map[string]any
+	if err := util.DecodeJSON(res.Body, &rows); err != nil {
+		return nil, fmt.Errorf("failed to decode response body: %w", err)
+	}
+	return rows, nil
+}
+
 // EsqlToMap converts the esqlResult to a slice of maps.
 func EsqlToMap(result EsqlResult) []map[string]any {
 	output := make([]map[string]any, 0, len(result.Values))
