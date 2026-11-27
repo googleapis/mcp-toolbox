@@ -571,21 +571,27 @@ func GetPathsFromConfigFolder(ctx context.Context, folderPath string) ([]string,
 		return nil, fmt.Errorf("path %q is not a directory", folderPath)
 	}
 
-	// Find all YAML files in the directory
-	pattern := filepath.Join(folderPath, "*.yaml")
-	yamlFiles, err := filepath.Glob(pattern)
+	// Walk the directory tree and collect YAML files at every depth.
+	var allFiles []string
+	err = filepath.WalkDir(folderPath, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if ext == ".yaml" || ext == ".yml" {
+			allFiles = append(allFiles, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("error finding YAML files in %q: %w", folderPath, err)
 	}
 
-	// Also find .yml files
-	ymlPattern := filepath.Join(folderPath, "*.yml")
-	ymlFiles, err := filepath.Glob(ymlPattern)
-	if err != nil {
-		return nil, fmt.Errorf("error finding YML files in %q: %w", folderPath, err)
-	}
-
-	// Combine both file lists
-	allFiles := append(yamlFiles, ymlFiles...)
+	// Keep configuration merge order deterministic across platforms.
+	slices.Sort(allFiles)
 	return allFiles, nil
 }

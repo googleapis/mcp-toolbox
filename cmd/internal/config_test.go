@@ -3220,3 +3220,42 @@ authServices:
 		t.Fatalf("expected error containing %q, got: %v", want, err)
 	}
 }
+
+func TestGetPathsFromConfigFolderRecursively(t *testing.T) {
+	folder := t.TempDir()
+	relativeFiles := []string{
+		"sources.yaml",
+		"tools-a/tool-a.yml",
+		"tools-a/nested/tool-b.yaml",
+		"tools-b/tool-c.yaml",
+		"tools-c/tool-d.YAML",
+		"tools-d/tool-e.YML",
+		"ignored.txt",
+	}
+	for _, relativePath := range relativeFiles {
+		path := filepath.Join(folder, relativePath)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("failed to create config directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("kind: source\n"), 0644); err != nil {
+			t.Fatalf("failed to create config file %q: %v", path, err)
+		}
+	}
+
+	got, err := GetPathsFromConfigFolder(context.Background(), folder)
+	if err != nil {
+		t.Fatalf("GetPathsFromConfigFolder() returned error: %v", err)
+	}
+
+	want := []string{
+		filepath.Join(folder, "sources.yaml"),
+		filepath.Join(folder, "tools-a/nested/tool-b.yaml"),
+		filepath.Join(folder, "tools-a/tool-a.yml"),
+		filepath.Join(folder, "tools-b/tool-c.yaml"),
+		filepath.Join(folder, "tools-c/tool-d.YAML"),
+		filepath.Join(folder, "tools-d/tool-e.YML"),
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("GetPathsFromConfigFolder() mismatch (-want +got): %s", diff)
+	}
+}

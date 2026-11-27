@@ -194,20 +194,26 @@ func scanWatchedFiles(watchingFolder bool, folderToWatch string, watchedFiles ma
 	changed := false
 	currentDiskFiles := make(map[string]bool)
 	if watchingFolder {
-		files, err := os.ReadDir(folderToWatch)
+		err := filepath.WalkDir(folderToWatch, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(entry.Name()))
+			if ext != ".yaml" && ext != ".yml" {
+				return nil
+			}
+
+			currentDiskFiles[path] = true
+			if info, err := entry.Info(); err == nil && checkModTime(path, info.ModTime(), lastSeen) {
+				changed = true
+			}
+			return nil
+		})
 		if err != nil {
 			return nil, changed, fmt.Errorf("error reading config folder %w", err)
-		}
-		for _, f := range files {
-			if !f.IsDir() && (strings.HasSuffix(f.Name(), ".yaml") || strings.HasSuffix(f.Name(), ".yml")) {
-				fullPath := filepath.Join(folderToWatch, f.Name())
-				currentDiskFiles[fullPath] = true
-				if info, err := f.Info(); err == nil {
-					if checkModTime(fullPath, info.ModTime(), lastSeen) {
-						changed = true
-					}
-				}
-			}
 		}
 	} else {
 		for f := range watchedFiles {
@@ -256,13 +262,35 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 		}
 	}
 
-	for dir := range watchDirs {
-		err := w.Add(dir)
-		if err != nil {
+	addWatchDir := func(dir string) {
+		if err := w.Add(dir); err != nil {
 			logger.WarnContext(ctx, fmt.Sprintf("Error adding path %s to watcher: %s", dir, err))
-			break
+			return
 		}
 		logger.DebugContext(ctx, fmt.Sprintf("Added directory %s to watcher.", dir))
+	}
+	addDirectoryTree := func(root string) {
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				logger.WarnContext(ctx, fmt.Sprintf("Error accessing config path %s: %s", path, walkErr))
+				return nil
+			}
+			if entry.IsDir() {
+				addWatchDir(path)
+			}
+			return nil
+		})
+		if err != nil {
+			logger.WarnContext(ctx, fmt.Sprintf("Error walking config folder %s: %s", root, err))
+		}
+	}
+
+	if watchingFolder {
+		addDirectoryTree(folderToWatch)
+	} else {
+		for dir := range watchDirs {
+			addWatchDir(dir)
+		}
 	}
 
 	lastSeen := make(map[string]time.Time)
@@ -334,15 +362,23 @@ func watchChanges(ctx context.Context, watchDirs map[string]bool, watchedFiles m
 
 			// only check for events which indicate user saved a new config
 			// multiple operations checked due to various file update methods across editors
-			if !e.Has(fsnotify.Write | fsnotify.Create | fsnotify.Rename) {
+			if !e.Has(fsnotify.Write) && !e.Has(fsnotify.Create) && !e.Has(fsnotify.Rename) {
 				continue
 			}
 
 			cleanedFilename := filepath.Clean(e.Name)
 			logger.DebugContext(ctx, fmt.Sprintf("%s event detected in %s", e.Op, cleanedFilename))
 
-			folderChanged := watchingFolder &&
-				(strings.HasSuffix(cleanedFilename, ".yaml") || strings.HasSuffix(cleanedFilename, ".yml"))
+			// fsnotify watches directories non-recursively. Add a newly created
+			// directory tree so config files created below it are observed too.
+			if watchingFolder && (e.Has(fsnotify.Create) || e.Has(fsnotify.Rename)) {
+				if info, err := os.Stat(cleanedFilename); err == nil && info.IsDir() {
+					addDirectoryTree(cleanedFilename)
+				}
+			}
+
+			ext := strings.ToLower(filepath.Ext(cleanedFilename))
+			folderChanged := watchingFolder && (ext == ".yaml" || ext == ".yml")
 
 			if folderChanged || watchedFiles[cleanedFilename] {
 				// indicates the write event is on a relevant file
