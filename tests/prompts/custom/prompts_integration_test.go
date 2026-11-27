@@ -70,6 +70,21 @@ func getPromptsConfig() map[string]any {
 					},
 				},
 			},
+			"prompt3": map[string]any{
+				"description": "description3",
+				"arguments": []any{
+					map[string]any{
+						"name":        "focus",
+						"description": "Optional focus for prompt3",
+						"required":    false,
+					},
+				},
+				"messages": []any{
+					map[string]any{
+						"content": "focus: {{.focus}}",
+					},
+				},
+			},
 		},
 	}
 }
@@ -96,6 +111,7 @@ func TestMCPPromptsIntegration(t *testing.T) {
 
 	runMCPListPromptsTest(t)
 	runMCPGetPromptTest(t)
+	runMCPGetPromptOmittedOptionalArgTest(t)
 }
 
 func runMCPListPromptsTest(t *testing.T) {
@@ -127,8 +143,8 @@ func runMCPListPromptsTest(t *testing.T) {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 
-		if len(result.Result.Prompts) != 2 {
-			t.Errorf("expected 2 prompts, got %d", len(result.Result.Prompts))
+		if len(result.Result.Prompts) != 3 {
+			t.Errorf("expected 3 prompts, got %d", len(result.Result.Prompts))
 		}
 	})
 }
@@ -185,6 +201,49 @@ func runMCPGetPromptTest(t *testing.T) {
 		expectedContent2 := "value1"
 		if content2 != expectedContent2 {
 			t.Errorf("unexpected content in message 2.\nGot: %q\nWant: %q", content2, expectedContent2)
+		}
+	})
+}
+
+func runMCPGetPromptOmittedOptionalArgTest(t *testing.T) {
+	t.Run("MCP_prompts/get_omitted_optional_argument", func(t *testing.T) {
+		api := "http://127.0.0.1:5000/mcp"
+		reqBody := jsonrpc.JSONRPCRequest{
+			Jsonrpc: "2.0",
+			Id:      "get-prompt-3",
+			Request: jsonrpc.Request{Method: "prompts/get"},
+			Params:  map[string]any{"name": "prompt3"},
+		}
+		jsonBody, _ := json.Marshal(reqBody)
+
+		resp, err := http.Post(api, "application/json", bytes.NewBuffer(jsonBody))
+		if err != nil {
+			t.Fatalf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected status OK; got %s, body: %s", resp.Status, string(body))
+		}
+
+		var result struct {
+			Result struct {
+				Messages []struct {
+					Content struct {
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"messages"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if len(result.Result.Messages) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(result.Result.Messages))
+		}
+		if got, want := result.Result.Messages[0].Content.Text, "focus: "; got != want {
+			t.Errorf("unexpected content.\nGot: %q\nWant: %q", got, want)
 		}
 	})
 }
