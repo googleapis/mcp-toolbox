@@ -62,7 +62,9 @@ func (h *masterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var body sqladmin.DatabaseInstance
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.t.Fatalf("failed to decode request body: %v", err)
+		h.t.Errorf("failed to decode request body: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	instanceName := body.Name
