@@ -33,6 +33,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/util"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -66,7 +67,40 @@ func NormalizeValue(val any, oid uint32) any {
 			return strs
 		}
 	}
+	// 1186 is the standard OID for interval in PostgreSQL. pgx decodes it into
+	// pgtype.Interval, which has no JSON encoding of its own, so without this
+	// it would be returned as {"Microseconds":...,"Days":...,"Months":...,"Valid":true}.
+	if oid == 1186 {
+		if iv, ok := val.(pgtype.Interval); ok {
+			return intervalToString(iv)
+		}
+	}
+	// 1187 is the standard OID for _interval (interval array) in PostgreSQL
+	if oid == 1187 {
+		if arr, ok := val.([]any); ok {
+			strs := make([]any, len(arr))
+			for i, item := range arr {
+				if iv, ok := item.(pgtype.Interval); ok {
+					strs[i] = intervalToString(iv)
+				} else {
+					strs[i] = item
+				}
+			}
+			return strs
+		}
+	}
 	return val
+}
+
+// intervalToString returns the PostgreSQL text form of an interval
+// as encoded by pgx (e.g. "1 day 02:03:04.500000"), or nil for an invalid
+// (NULL) interval.
+func intervalToString(iv pgtype.Interval) any {
+	v, err := iv.Value()
+	if err != nil {
+		return iv
+	}
+	return v
 }
 
 // GetCloudSQLDialOpts retrieve dial options with the right ip type and user agent for cloud sql
