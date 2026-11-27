@@ -76,7 +76,7 @@ statement: |
   SELECT name,
       setting
   FROM   pg_settings
-  WHERE  category = 'Autovacuum';
+  WHERE  category IN ('Autovacuum', 'Vacuuming / Automatic Vacuuming');
 ---
 kind: tool
 name: list_columnar_configurations
