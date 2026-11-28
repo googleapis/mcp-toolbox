@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/googleapis/mcp-toolbox-sdk-go/core v0.7.0
-	github.com/tmc/langchaingo v0.1.14
+	github.com/tmc/langchaingo v0.1.15
 )
 
 require (

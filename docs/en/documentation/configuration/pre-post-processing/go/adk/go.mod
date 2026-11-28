@@ -4,8 +4,8 @@ go 1.27.3
 
 require (
 	github.com/googleapis/mcp-toolbox-sdk-go v0.5.1
-	google.golang.org/adk v0.3.0
-	google.golang.org/genai v1.51.0
+	google.golang.org/adk v0.6.0
+	google.golang.org/genai v1.79.1
 )
 
 require (
@@ -31,6 +31,7 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
+	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
