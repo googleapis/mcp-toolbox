@@ -216,13 +216,27 @@ func TestInvokeLookerGetDashboard(t *testing.T) {
 			"id": "123",
 			"title": "Certified Dashboard",
 			"description": "Board certified dashboard",
+			"folder_id": "42",
+			"appearance": {
+				"page_side_margins": 0,
+				"tile_space_between": 0,
+				"tile_shadow": false
+			},
 			"view_count": 42,
 			"certification_metadata": {
 				"certification_status": "certified",
 				"user_name": "Data Steward",
 				"notes": "Certified for executive reporting",
 				"updated_at": "2026-09-15T10:00:00Z"
-			}
+			},
+			"dashboard_elements": [
+				{
+					"id": "99",
+					"title": "Data App Tile",
+					"type": "extension",
+					"extension_id": "db::abc-123"
+				}
+			]
 		}`))
 	}))
 	defer ts.Close()
@@ -262,7 +276,7 @@ func TestInvokeLookerGetDashboard(t *testing.T) {
 		t.Fatalf("unexpected invoke error: %v", toolboxErr)
 	}
 
-	for _, expectedField := range []string{"certification_metadata", "rich_content_json", "note_text", "title_hidden"} {
+	for _, expectedField := range []string{"folder_id", "appearance", "extension_id", "certification_metadata", "rich_content_json", "note_text", "title_hidden"} {
 		if !strings.Contains(requestedFields, expectedField) {
 			t.Errorf("expected requested fields to include %q, got %q", expectedField, requestedFields)
 		}
@@ -271,6 +285,19 @@ func TestInvokeLookerGetDashboard(t *testing.T) {
 	dash, ok := got.(v4.Dashboard)
 	if !ok {
 		t.Fatalf("expected v4.Dashboard, got %T", got)
+	}
+	if dash.FolderId == nil || *dash.FolderId != "42" {
+		t.Errorf("expected folder_id '42', got %v", dash.FolderId)
+	}
+	if dash.Appearance == nil {
+		t.Fatalf("expected Appearance to be populated, got nil")
+	}
+	if dash.DashboardElements == nil || len(*dash.DashboardElements) != 1 {
+		t.Fatalf("expected 1 dashboard element, got %v", dash.DashboardElements)
+	}
+	elem := (*dash.DashboardElements)[0]
+	if elem.ExtensionId == nil || *elem.ExtensionId != "db::abc-123" {
+		t.Errorf("expected extension_id 'db::abc-123', got %v", elem.ExtensionId)
 	}
 	if dash.CertificationMetadata == nil {
 		t.Fatalf("expected CertificationMetadata to be populated, got nil")

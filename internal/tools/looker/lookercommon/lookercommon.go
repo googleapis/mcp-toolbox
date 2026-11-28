@@ -1000,6 +1000,7 @@ type DataAppExtension struct {
 	MountPoints  map[string]any  `json:"mount_points,omitempty"`
 	Entitlements map[string]any  `json:"entitlements,omitempty"`
 	CodeSize     *int64          `json:"code_size,omitempty"`
+	Code         *string         `json:"code,omitempty"`
 	CreatedAt    *string         `json:"created_at,omitempty"`
 	UpdatedAt    *string         `json:"updated_at,omitempty"`
 	Can          map[string]bool `json:"can,omitempty"`
@@ -1120,6 +1121,34 @@ func UpdateDataAppExtension(l *v4.LookerSDK, id string, dashboardId string, req 
 	}
 	if result.Id != "" {
 		result.ExtensionId = "db::" + result.Id
+	}
+	return &result, nil
+}
+
+// GetDataAppExtension calls GET /api/4.0/data_app_extension/:data_app_extension_id
+// and, when includeCode is true, fetches the published uncompressed JavaScript ES module
+// source from GET /api/4.0/inline_extension/:data_app_extension_id/bundle.js.
+func GetDataAppExtension(l *v4.LookerSDK, id string, includeCode bool, options *rtl.ApiSettings) (*DataAppExtension, error) {
+	rawID, err := NormalizeDataAppExtensionID(id)
+	if err != nil {
+		return nil, err
+	}
+	escapedID := url.PathEscape(rawID)
+	metaPath := fmt.Sprintf("/data_app_extension/%s", escapedID)
+	var result DataAppExtension
+	if err := l.AuthSession.Do(&result, "GET", "/4.0", metaPath, nil, nil, options); err != nil {
+		return nil, err
+	}
+	if result.Id != "" {
+		result.ExtensionId = "db::" + result.Id
+	}
+	if includeCode {
+		bundlePath := fmt.Sprintf("/inline_extension/%s/bundle.js", escapedID)
+		var code string
+		if err := l.AuthSession.Do(&code, "GET", "/4.0", bundlePath, nil, nil, options); err != nil {
+			return nil, err
+		}
+		result.Code = &code
 	}
 	return &result, nil
 }

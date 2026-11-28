@@ -46,6 +46,7 @@ import (
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetconnectiontables"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboard"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdashboards"
+	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdataappextension"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetdimensions"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplore"
 	_ "github.com/googleapis/mcp-toolbox/internal/tools/looker/lookergetexplores"
@@ -209,6 +210,11 @@ func TestAllLookerToolsAnnotations(t *testing.T) {
 		},
 		{
 			resourceType:    "looker-get-dashboards",
+			wantReadOnly:    true,
+			wantDestructive: false,
+		},
+		{
+			resourceType:    "looker-get-data-app-extension",
 			wantReadOnly:    true,
 			wantDestructive: false,
 		},

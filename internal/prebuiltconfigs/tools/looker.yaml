@@ -934,7 +934,7 @@ type: looker-get-dashboard
 source: looker-source
 description: |
   This tool retrieves the JSON design of a Looker dashboard by its ID.
-  The output is trimmed to essential fields (including certification_metadata), excluding alerts and scheduled plans,
+  The output is trimmed to essential fields (including folder_id, appearance, certification_metadata, and dashboard element extension_id), excluding alerts and scheduled plans,
   making it suitable for replicating or analyzing the dashboard structure.
 
   Parameters:
@@ -1048,6 +1048,28 @@ description: |
   - height (optional): The new height.
 ---
 kind: tool
+name: get_data_app_extension
+type: looker-get-data-app-extension
+source: looker-source
+description: |
+  This tool retrieves an existing Data App Extension in Looker (`GET /api/4.0/data_app_extension/:id`)
+  and optionally fetches its published uncompressed JavaScript ES module source code
+  (`GET /api/4.0/inline_extension/:id/bundle.js`).
+
+  Use this tool after inspecting a Data App dashboard with `get_dashboard` (which returns `extension_id`, e.g. `"db::<id>"`,
+  on `type: "extension"` elements) to read back the existing metadata and JavaScript source before applying
+  incremental edits with `update_data_app_extension`.
+
+  Required Parameters:
+  - data_app_extension_id: The ID of the Data App Extension to retrieve (accepts `<id>` or `db::<id>`).
+
+  Optional Parameters:
+  - include_code: Whether to also fetch and include the published JavaScript ES module source code (defaults to `true`). Set to `false` to retrieve metadata only.
+
+  Output:
+  Returns the Data App Extension metadata JSON, including `id`, `extension_id` (`"db::<id>"`), `label`, `description`, `code_size`, and (when `include_code` is `true`) `code`.
+---
+kind: tool
 name: create_data_app_extension
 type: looker-create-data-app-extension
 source: looker-source
@@ -1134,5 +1156,6 @@ tools:
 - create_dashboard_layout
 - update_dashboard_layout
 - update_dashboard_layout_component
+- get_data_app_extension
 - create_data_app_extension
 - update_data_app_extension
