@@ -34,7 +34,7 @@ statement: |
       m.name AS table_name,
       json_group_array(json_object('column_name', ti.name, 'data_type', ti.type, 'ordinal_position', ti.cid, 'is_not_nullable', ti."notnull" = 1, 'column_default', ti.dflt_value, 'is_primary_key', ti.pk > 0)) AS details
     FROM sqlite_master AS m, pragma_table_info(m.name) AS ti
-    WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
+    WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite\_%' ESCAPE '\'
     GROUP BY m.name
   ),
   table_constraints AS (
@@ -64,7 +64,7 @@ statement: |
       m.name AS table_name,
       json_group_array(json_object('index_name', il.name, 'is_unique', il."unique" = 1, 'is_primary', il.origin = 'pk', 'index_columns', (SELECT json_group_array(ii.name) FROM pragma_index_info(il.name) AS ii))) AS details
     FROM sqlite_master AS m, pragma_index_list(m.name) AS il
-    WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
+    WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite\_%' ESCAPE '\'
     GROUP BY m.name
   ),
   table_triggers AS (
@@ -96,7 +96,7 @@ statement: |
   LEFT JOIN table_triggers tt ON m.name = tt.table_name
   WHERE
     m.type = 'table'
-    AND m.name NOT LIKE 'sqlite_%'
+    AND m.name NOT LIKE 'sqlite\_%' ESCAPE '\'
     AND (?2 = '' OR instr(',' || ?2 || ',', ',' || m.name || ',') > 0);
 parameters:
 - name: output_format
