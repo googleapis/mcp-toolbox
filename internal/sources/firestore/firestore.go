@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -41,7 +42,14 @@ const (
 	SourceType                     string = "firestore"
 	firestoreAPIRequesterHeader    string = "x-goog-firestore-api-requester"
 	firestoreAPIRequesterQueryData string = "querydata"
+	// firestoreEmulatorHostEnv directs the Firestore Go client to connect to a
+	// local Firestore emulator instead of the production service.
+	firestoreEmulatorHostEnv string = "FIRESTORE_EMULATOR_HOST"
 )
+
+// errRulesUnavailableOnEmulator is returned by Firebase Rules operations when
+// the source is initialized against the Firestore emulator, which has no Rules API.
+var errRulesUnavailableOnEmulator = fmt.Errorf("the Firebase Rules API is not available when %s is set", firestoreEmulatorHostEnv)
 
 // validate interface
 var _ sources.SourceConfig = Config{}
@@ -80,11 +88,15 @@ func (r Config) Initialize(ctx context.Context, tracer trace.Tracer) (sources.So
 		return nil, err
 	}
 
-	// Initialize Firebase Rules client
-	rulesClient, err := initFirebaseRulesConnection(ctx, r.Project)
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to initialize Firebase Rules client: %w", err)
+	// Skip creating the Firebase Rules client in emulator mode: the emulator has
+	// no Rules API, and creating the Rules client requires ADC.
+	var rulesClient *firebaserules.Service
+	if os.Getenv(firestoreEmulatorHostEnv) == "" {
+		rulesClient, err = initFirebaseRulesConnection(ctx, r.Project)
+		if err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("failed to initialize Firebase Rules client: %w", err)
+		}
 	}
 
 	s := &Source{
@@ -122,6 +134,13 @@ func (s *Source) FirestoreClient() *firestore.Client {
 
 func (s *Source) FirebaseRulesClient() *firebaserules.Service {
 	return s.RulesClient
+}
+
+func (s *Source) rulesClient() (*firebaserules.Service, error) {
+	if s.RulesClient == nil {
+		return nil, errRulesUnavailableOnEmulator
+	}
+	return s.RulesClient, nil
 }
 
 func (s *Source) GetProjectId() string {
@@ -459,9 +478,13 @@ func (s *Source) ListCollections(ctx context.Context, parentPath string) ([]any,
 }
 
 func (s *Source) GetRules(ctx context.Context) (any, error) {
+	rulesClient, err := s.rulesClient()
+	if err != nil {
+		return nil, err
+	}
 	// Get the latest release for Firestore
 	releaseName := fmt.Sprintf("projects/%s/releases/cloud.firestore/%s", s.GetProjectId(), s.GetDatabaseId())
-	release, err := s.FirebaseRulesClient().Projects.Releases.Get(releaseName).Context(ctx).Do()
+	release, err := rulesClient.Projects.Releases.Get(releaseName).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest Firestore release: %w", err)
 	}
@@ -471,7 +494,7 @@ func (s *Source) GetRules(ctx context.Context) (any, error) {
 	}
 
 	// Get the ruleset content
-	ruleset, err := s.FirebaseRulesClient().Projects.Rulesets.Get(release.RulesetName).Context(ctx).Do()
+	ruleset, err := rulesClient.Projects.Rulesets.Get(release.RulesetName).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ruleset content: %w", err)
 	}
@@ -508,6 +531,10 @@ type ValidationResult struct {
 }
 
 func (s *Source) ValidateRules(ctx context.Context, sourceParam string) (any, error) {
+	rulesClient, err := s.rulesClient()
+	if err != nil {
+		return nil, err
+	}
 	// Create test request
 	testRequest := &firebaserules.TestRulesetRequest{
 		Source: &firebaserules.Source{
@@ -525,7 +552,7 @@ func (s *Source) ValidateRules(ctx context.Context, sourceParam string) (any, er
 	}
 	// Call the test API
 	projectName := fmt.Sprintf("projects/%s", s.GetProjectId())
-	response, err := s.FirebaseRulesClient().Projects.Test(projectName, testRequest).Context(ctx).Do()
+	response, err := rulesClient.Projects.Test(projectName, testRequest).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate rules: %w", err)
 	}

@@ -16,6 +16,7 @@ package firestore
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
+	"go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/api/firebaserules/v1"
 	"google.golang.org/genproto/googleapis/type/latlng"
 	"google.golang.org/grpc/metadata"
 )
@@ -456,5 +459,46 @@ func TestBuildPipelineRequest(t *testing.T) {
 	}
 	if got := req.Header.Get(firestoreAPIRequesterHeader); got != firestoreAPIRequesterQueryData {
 		t.Errorf("%s = %q, want %q", firestoreAPIRequesterHeader, got, firestoreAPIRequesterQueryData)
+	}
+}
+
+func TestInitializeWithEmulatorSkipsRulesClient(t *testing.T) {
+	t.Setenv(firestoreEmulatorHostEnv, "127.0.0.1:1")
+	ctx := testutils.ContextWithUserAgent(context.Background(), "test-agent")
+
+	cfg := Config{Name: "my-firestore", Type: SourceType, Project: "test-project"}
+	src, err := cfg.Initialize(ctx, noop.NewTracerProvider().Tracer("test"))
+	if err != nil {
+		t.Fatalf("Initialize() with %s set returned error: %v", firestoreEmulatorHostEnv, err)
+	}
+	s, ok := src.(*Source)
+	if !ok {
+		t.Fatalf("Initialize() returned %T, want *Source", src)
+	}
+	t.Cleanup(func() { _ = s.Client.Close() })
+
+	if s.FirestoreClient() == nil {
+		t.Fatal("FirestoreClient() is nil, want a client")
+	}
+	if s.FirebaseRulesClient() != nil {
+		t.Fatal("FirebaseRulesClient() is not nil, want nil in emulator mode")
+	}
+	if _, err := s.GetRules(ctx); !errors.Is(err, errRulesUnavailableOnEmulator) {
+		t.Errorf("GetRules() error = %v, want %v", err, errRulesUnavailableOnEmulator)
+	}
+	if _, err := s.ValidateRules(ctx, "rules_version = '2';"); !errors.Is(err, errRulesUnavailableOnEmulator) {
+		t.Errorf("ValidateRules() error = %v, want %v", err, errRulesUnavailableOnEmulator)
+	}
+}
+
+func TestRulesClientWithoutEmulator(t *testing.T) {
+	want := &firebaserules.Service{}
+	s := &Source{RulesClient: want}
+	got, err := s.rulesClient()
+	if err != nil {
+		t.Fatalf("rulesClient() returned error: %v", err)
+	}
+	if got != want {
+		t.Fatalf("rulesClient() = %p, want %p", got, want)
 	}
 }

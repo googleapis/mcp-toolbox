@@ -18,12 +18,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +37,8 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -41,6 +46,67 @@ var (
 	FirestoreProject    = os.Getenv("FIRESTORE_PROJECT")
 	FirestoreDatabase   = os.Getenv("FIRESTORE_DATABASE") // Optional, defaults to "(default)"
 )
+
+const (
+	testCollectionPrefix     = "test_collection_"
+	orphanedCollectionTTL    = 3 * time.Hour
+	firestoreCleanupTimeout  = 2 * time.Minute
+	firestoreEmulatorHostEnv = "FIRESTORE_EMULATOR_HOST"
+)
+
+func TestMain(m *testing.M) {
+	if FirestoreProject != "" && os.Getenv(firestoreEmulatorHostEnv) == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		sweepOrphanedFirestoreCollections(ctx, FirestoreProject, FirestoreDatabase)
+		cancel()
+	}
+	os.Exit(m.Run())
+}
+
+func shouldSweepFirestoreCollection(name string, now time.Time) bool {
+	if !strings.HasPrefix(name, testCollectionPrefix) {
+		return false
+	}
+	suffix := strings.TrimPrefix(name, testCollectionPrefix)
+	sep := strings.IndexByte(suffix, '_')
+	if sep <= 0 {
+		return false
+	}
+	createdAt, err := strconv.ParseInt(suffix[:sep], 10, 64)
+	if err != nil || createdAt <= 0 {
+		return false
+	}
+	return now.Sub(time.Unix(createdAt, 0)) > orphanedCollectionTTL
+}
+
+func isFirestoreNotFound(err error) bool {
+	return status.Code(err) == codes.NotFound
+}
+
+func sweepOrphanedFirestoreCollections(ctx context.Context, project, database string) {
+	client, err := initFirestoreConnection(project, database)
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: failed to create Firestore client: %v", err)
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	colls, err := client.Collections(ctx).GetAll()
+	if err != nil {
+		log.Printf("INTEGRATION CLEANUP: failed to list root collections: %v", err)
+		return
+	}
+	now := time.Now()
+	for _, coll := range colls {
+		if !shouldSweepFirestoreCollection(coll.ID, now) {
+			continue
+		}
+		log.Printf("INTEGRATION CLEANUP: deleting orphaned Firestore collection %q", coll.ID)
+		if err := deleteFirestoreCollection(ctx, client, coll); err != nil {
+			log.Printf("INTEGRATION CLEANUP: failed to delete collection %q: %v", coll.ID, err)
+		}
+	}
+}
 
 func getFirestoreVars(t *testing.T) map[string]any {
 	if FirestoreProject == "" {
@@ -82,14 +148,11 @@ func TestFirestoreToolEndpoints(t *testing.T) {
 
 	args := []string{"--enable-api"}
 
-	client, err := initFirestoreConnection(FirestoreProject, FirestoreDatabase)
-	if err != nil {
-		t.Fatalf("unable to create Firestore connection: %s", err)
-	}
-	defer client.Close()
+	client := newFirestoreTestClient(t, FirestoreProject, FirestoreDatabase)
 
-	// Create test collection and document names with UUID
-	testCollectionName := fmt.Sprintf("test_collection_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
+	// Embed Unix timestamp + UUID so TestMain can sweep collections leaked by
+	// interrupted runs while keeping concurrent runs isolated.
+	testCollectionName := fmt.Sprintf("%s%d_%s", testCollectionPrefix, time.Now().Unix(), strings.ReplaceAll(uuid.New().String(), "-", "")[:16])
 	testSubCollectionName := fmt.Sprintf("test_subcollection_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	testDocID1 := fmt.Sprintf("doc_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
 	testDocID2 := fmt.Sprintf("doc_%s", strings.ReplaceAll(uuid.New().String(), "-", ""))
@@ -100,10 +163,9 @@ func TestFirestoreToolEndpoints(t *testing.T) {
 	docPath2 := fmt.Sprintf("%s/%s", testCollectionName, testDocID2)
 	docPath3 := fmt.Sprintf("%s/%s", testCollectionName, testDocID3)
 
-	// Set up test data
-	teardown := setupFirestoreTestData(t, ctx, client, testCollectionName, testSubCollectionName,
+	// Register collection cleanup via t.Cleanup before writing seed data.
+	setupFirestoreTestData(t, ctx, client, testCollectionName, testSubCollectionName,
 		testDocID1, testDocID2, testDocID3)
-	defer teardown(t)
 
 	// Write config into a file and pass it to command
 	toolsFile := getFirestoreToolsConfig(sourceConfig)
@@ -112,7 +174,7 @@ func TestFirestoreToolEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -130,7 +192,7 @@ func TestFirestoreToolEndpoints(t *testing.T) {
 
 	// Run specific Firestore tool tests
 	runFirestoreGetDocumentsTest(t, docPath1, docPath2)
-	runFirestoreQueryCollectionTest(t, testCollectionName)
+	runFirestoreQueryCollectionTest(t, testCollectionName, true)
 	runFirestoreQueryTest(t, testCollectionName)
 	runFirestoreQuerySelectArrayTest(t, testCollectionName)
 	runFirestoreListCollectionsTest(t, testCollectionName, testSubCollectionName, docPath1)
@@ -788,12 +850,14 @@ func runFirestoreUpdateDocumentTest(t *testing.T, collectionName string, docID s
 		{
 			name: "update non-existent document",
 			api:  "http://127.0.0.1:5000/api/tool/firestore-update-doc/invoke",
-			requestBody: bytes.NewBuffer([]byte(`{
-				"documentPath": "non-existent-collection/non-existent-doc",
+			// Keep inside collectionName because Set with MergeAll creates the
+			// document, and teardown deletes only collectionName.
+			requestBody: bytes.NewBuffer([]byte(fmt.Sprintf(`{
+				"documentPath": "%s/non-existent-doc",
 				"documentData": {
 					"field": {"stringValue": "value"}
 				}
-			}`)),
+			}`, collectionName))),
 			wantKeys: []string{"documentPath", "updateTime"}, // Set with MergeAll creates if doesn't exist
 			isErr:    false,
 		},
@@ -1084,99 +1148,147 @@ func runFirestoreAddDocumentsTest(t *testing.T, collectionName string) {
 	}
 }
 
+// newFirestoreTestClient builds a Firestore client from context.Background()
+// and registers client.Close() via t.Cleanup first so LIFO closes the client
+// after collection teardowns finish.
+func newFirestoreTestClient(t *testing.T, project, database string) *firestoreapi.Client {
+	t.Helper()
+	client, err := initFirestoreConnection(project, database)
+	if err != nil {
+		t.Fatalf("unable to create Firestore connection: %s", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("failed to close Firestore client: %v", err)
+		}
+	})
+	return client
+}
+
+// registerFirestoreCollectionCleanup registers a t.Cleanup that deletes only
+// collectionName (and its subcollections) under a bounded fresh context.
+func registerFirestoreCollectionCleanup(t *testing.T, client *firestoreapi.Client, collectionName string) {
+	t.Helper()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), firestoreCleanupTimeout)
+		defer cancel()
+		if err := deleteFirestoreCollection(cleanupCtx, client, client.Collection(collectionName)); err != nil {
+			t.Errorf("failed to delete test collection %s: %v", collectionName, err)
+		}
+	})
+}
+
 func setupFirestoreTestData(t *testing.T, ctx context.Context, client *firestoreapi.Client,
-	collectionName, subCollectionName, docID1, docID2, docID3 string) func(*testing.T) {
-	// Create test documents
-	testData1 := map[string]interface{}{
-		"name": "Alice",
-		"age":  30,
-	}
-	testData2 := map[string]interface{}{
-		"name": "Bob",
-		"age":  25,
-	}
-	testData3 := map[string]interface{}{
-		"name": "Charlie",
-		"age":  35,
-	}
+	collectionName, subCollectionName, docID1, docID2, docID3 string) {
+	t.Helper()
+	registerFirestoreCollectionCleanup(t, client, collectionName)
+	seedFirestoreTestCollection(t, ctx, client, collectionName, subCollectionName, docID1, docID2, docID3)
+}
 
-	// Create documents
-	_, err := client.Collection(collectionName).Doc(docID1).Set(ctx, testData1)
-	if err != nil {
-		t.Fatalf("Failed to create test document 1: %v", err)
-	}
+// seedFirestoreTestCollection writes all seed documents in a single batched
+// BulkWriter flush. Emulator tests call this directly so container termination
+// does not spend extra RPC round-trips deleting in-memory documents first.
+func seedFirestoreTestCollection(t *testing.T, ctx context.Context, client *firestoreapi.Client,
+	collectionName, subCollectionName, docID1, docID2, docID3 string) {
+	t.Helper()
 
-	_, err = client.Collection(collectionName).Doc(docID2).Set(ctx, testData2)
-	if err != nil {
-		t.Fatalf("Failed to create test document 2: %v", err)
+	coll := client.Collection(collectionName)
+	bw := client.BulkWriter(ctx)
+	type seedWrite struct {
+		name string
+		ref  *firestoreapi.DocumentRef
+		data map[string]any
 	}
-
-	_, err = client.Collection(collectionName).Doc(docID3).Set(ctx, testData3)
-	if err != nil {
-		t.Fatalf("Failed to create test document 3: %v", err)
+	writes := []seedWrite{
+		{name: docID1, ref: coll.Doc(docID1), data: map[string]any{"name": "Alice", "age": 30}},
+		{name: docID2, ref: coll.Doc(docID2), data: map[string]any{"name": "Bob", "age": 25}},
+		{name: docID3, ref: coll.Doc(docID3), data: map[string]any{"name": "Charlie", "age": 35}},
+		{name: "subdoc1", ref: coll.Doc(docID1).Collection(subCollectionName).Doc("subdoc1"), data: map[string]any{"type": "subcollection_doc", "value": "test"}},
 	}
 
-	// Create a subcollection document
-	subDocData := map[string]interface{}{
-		"type":  "subcollection_doc",
-		"value": "test",
-	}
-	_, err = client.Collection(collectionName).Doc(docID1).Collection(subCollectionName).Doc("subdoc1").Set(ctx, subDocData)
-	if err != nil {
-		t.Fatalf("Failed to create subcollection document: %v", err)
-	}
-
-	// Return cleanup function that deletes ALL collections and documents in the database
-	return func(t *testing.T) {
-		// Helper function to recursively delete all documents in a collection
-		var deleteCollection func(*firestoreapi.CollectionRef) error
-		deleteCollection = func(collection *firestoreapi.CollectionRef) error {
-			// Get all documents in the collection
-			docs, err := collection.Documents(ctx).GetAll()
-			if err != nil {
-				return fmt.Errorf("failed to list documents in collection %s: %w", collection.Path, err)
-			}
-
-			// Delete each document and its subcollections
-			for _, doc := range docs {
-				// First, get all subcollections of this document
-				subcollections, err := doc.Ref.Collections(ctx).GetAll()
-				if err != nil {
-					return fmt.Errorf("failed to list subcollections of document %s: %w", doc.Ref.Path, err)
-				}
-
-				// Recursively delete each subcollection
-				for _, subcoll := range subcollections {
-					if err := deleteCollection(subcoll); err != nil {
-						return fmt.Errorf("failed to delete subcollection %s: %w", subcoll.Path, err)
-					}
-				}
-
-				// Delete the document itself
-				if _, err := doc.Ref.Delete(ctx); err != nil {
-					return fmt.Errorf("failed to delete document %s: %w", doc.Ref.Path, err)
-				}
-			}
-
-			return nil
-		}
-
-		// Get all root collections in the database
-		rootCollections, err := client.Collections(ctx).GetAll()
+	jobs := make([]*firestoreapi.BulkWriterJob, 0, len(writes))
+	for _, w := range writes {
+		job, err := bw.Set(w.ref, w.data)
 		if err != nil {
-			t.Errorf("Failed to list root collections: %v", err)
-			return
+			bw.End()
+			t.Fatalf("Failed to enqueue seed document %s: %v", w.name, err)
 		}
+		jobs = append(jobs, job)
+	}
+	bw.End()
 
-		// Delete each root collection and all its contents
-		for _, collection := range rootCollections {
-			if err := deleteCollection(collection); err != nil {
-				t.Errorf("Failed to delete collection %s and its contents: %v", collection.ID, err)
+	var errs []error
+	for i, job := range jobs {
+		if _, err := job.Results(); err != nil {
+			errs = append(errs, fmt.Errorf("seed document %s: %w", writes[i].name, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		t.Fatalf("Failed to seed Firestore test collection %s: %v", collectionName, err)
+	}
+}
+
+func collectFirestoreDocumentRefs(ctx context.Context, collection *firestoreapi.CollectionRef, dst *[]*firestoreapi.DocumentRef) error {
+	refs, err := collection.DocumentRefs(ctx).GetAll()
+	if err != nil {
+		return fmt.Errorf("failed to list documents in collection %s: %w", collection.Path, err)
+	}
+	for _, ref := range refs {
+		subcollections, err := ref.Collections(ctx).GetAll()
+		if err != nil {
+			return fmt.Errorf("failed to list subcollections of document %s: %w", ref.Path, err)
+		}
+		for _, subcoll := range subcollections {
+			if err := collectFirestoreDocumentRefs(ctx, subcoll, dst); err != nil {
+				return err
 			}
 		}
-
-		t.Logf("Successfully deleted all collections and documents in the database")
+		*dst = append(*dst, ref)
 	}
+	return nil
+}
+
+// deleteFirestoreCollection recursively collects every document in collection
+// (including missing parent documents via DocumentRefs) and deletes them in
+// batched BulkWriter requests without touching any other collection.
+func deleteFirestoreCollection(ctx context.Context, client *firestoreapi.Client, collection *firestoreapi.CollectionRef) error {
+	var refs []*firestoreapi.DocumentRef
+	if err := collectFirestoreDocumentRefs(ctx, collection, &refs); err != nil {
+		return err
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	if len(refs) == 1 {
+		if _, err := refs[0].Delete(ctx); err != nil && !isFirestoreNotFound(err) {
+			return fmt.Errorf("failed to delete document %s: %w", refs[0].Path, err)
+		}
+		return nil
+	}
+
+	type deleteJob struct {
+		path string
+		job  *firestoreapi.BulkWriterJob
+	}
+	bw := client.BulkWriter(ctx)
+	jobs := make([]deleteJob, 0, len(refs))
+	var errs []error
+	for _, ref := range refs {
+		job, err := bw.Delete(ref)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to enqueue delete for %s: %w", ref.Path, err))
+			continue
+		}
+		jobs = append(jobs, deleteJob{path: ref.Path, job: job})
+	}
+	bw.End()
+
+	for _, dj := range jobs {
+		if _, err := dj.job.Results(); err != nil && !isFirestoreNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed to delete document %s: %w", dj.path, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func runFirestoreGetDocumentsTest(t *testing.T, docPath1, docPath2 string) {
@@ -1655,7 +1767,7 @@ func runFirestoreQuerySelectArrayTest(t *testing.T, collectionName string) {
 	}
 }
 
-func runFirestoreQueryCollectionTest(t *testing.T, collectionName string) {
+func runFirestoreQueryCollectionTest(t *testing.T, collectionName string, supportsAnalyzeQuery bool) {
 	invokeTcs := []struct {
 		name        string
 		api         string
@@ -1759,6 +1871,9 @@ func runFirestoreQueryCollectionTest(t *testing.T, collectionName string) {
 
 	for _, tc := range invokeTcs {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "query with analyzeQuery" && !supportsAnalyzeQuery {
+				t.Skip("analyzeQuery (Query Explain) is not supported by the Firestore emulator")
+			}
 			req, err := http.NewRequest(http.MethodPost, tc.api, tc.requestBody)
 			if err != nil {
 				t.Fatalf("unable to create request: %s", err)
