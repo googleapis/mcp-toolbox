@@ -1,0 +1,125 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: supporting resources
+release:
+  name: test
+set:
+  config.toolsYaml: "kind: source"
+tests:
+  - it: stores inline tools.yaml in a Secret
+    template: templates/secret.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: test-mcp-toolbox-config
+      - equal:
+          path: stringData["tools.yaml"]
+          value: "kind: source\n"
+
+  - it: does not create a Secret when using an existing one
+    template: templates/secret.yaml
+    set:
+      config.toolsYaml: ""
+      config.existingSecret: my-secret
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: annotates the ServiceAccount for Workload Identity
+    template: templates/serviceaccount.yaml
+    set:
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: toolbox@my-project.iam.gserviceaccount.com
+    asserts:
+      - equal:
+          path: metadata.annotations["iam.gke.io/gcp-service-account"]
+          value: toolbox@my-project.iam.gserviceaccount.com
+      - equal:
+          path: automountServiceAccountToken
+          value: false
+
+  - it: skips the ServiceAccount when create is false
+    template: templates/serviceaccount.yaml
+    set:
+      serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: exposes the http port and session affinity
+    template: templates/service.yaml
+    set:
+      service.sessionAffinity: ClientIP
+    asserts:
+      - equal:
+          path: spec.ports[0].targetPort
+          value: http
+      - equal:
+          path: spec.sessionAffinity
+          value: ClientIP
+
+  - it: renders an HPA when autoscaling is enabled
+    template: templates/hpa.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.targetMemoryUtilizationPercentage: 70
+    asserts:
+      - isKind:
+          of: HorizontalPodAutoscaler
+      - lengthEqual:
+          path: spec.metrics
+          count: 2
+
+  - it: renders a PDB with maxUnavailable when set
+    template: templates/pdb.yaml
+    set:
+      podDisruptionBudget.enabled: true
+      podDisruptionBudget.maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - notExists:
+          path: spec.minAvailable
+
+  - it: renders an Ingress routed to the http port
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+      ingress.tls:
+        - secretName: toolbox-tls
+          hosts: [toolbox.example.com]
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.name
+          value: http
+      - equal:
+          path: spec.tls[0].secretName
+          value: toolbox-tls
+
+  - it: renders nothing for disabled optional resources
+    templates:
+      - templates/hpa.yaml
+      - templates/pdb.yaml
+      - templates/ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
