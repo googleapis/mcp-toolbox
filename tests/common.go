@@ -783,6 +783,16 @@ func GetRedisValkeyWants() (string, string, string, string, string, string, stri
 }
 
 func GetRedisValkeyToolsConfig(sourceConfig map[string]any, toolType string) map[string]any {
+	return GetRedisValkeyToolsConfigWithPrefix(sourceConfig, toolType, "")
+}
+
+// GetRedisValkeyToolsConfigWithPrefix returns a mock tools config file for redis and valkey with a custom key prefix.
+func GetRedisValkeyToolsConfigWithPrefix(sourceConfig map[string]any, toolType, prefix string) map[string]any {
+	row1 := prefix + "row1"
+	row3 := prefix + "row3"
+	row4 := prefix + "row4"
+	nullKey := prefix + "null"
+
 	toolsFile := map[string]any{
 		"sources": map[string]any{
 			"my-instance": sourceConfig,
@@ -804,7 +814,7 @@ func GetRedisValkeyToolsConfig(sourceConfig map[string]any, toolType string) map
 				"type":        toolType,
 				"source":      "my-instance",
 				"description": "Tool to test invocation with params.",
-				"commands":    [][]string{{"HGETALL", "row1"}, {"HGETALL", "row3"}},
+				"commands":    [][]string{{"HGETALL", row1}, {"HGETALL", row3}},
 				"parameters": []any{
 					map[string]any{
 						"name":        "id",
@@ -822,7 +832,7 @@ func GetRedisValkeyToolsConfig(sourceConfig map[string]any, toolType string) map
 				"type":        toolType,
 				"source":      "my-instance",
 				"description": "Tool to test invocation with params.",
-				"commands":    [][]string{{"HGETALL", "row4"}},
+				"commands":    [][]string{{"HGETALL", row4}},
 				"parameters": []any{
 					map[string]any{
 						"name":        "id",
@@ -835,7 +845,7 @@ func GetRedisValkeyToolsConfig(sourceConfig map[string]any, toolType string) map
 				"type":        toolType,
 				"source":      "my-instance",
 				"description": "Tool to test invocation with params.",
-				"commands":    [][]string{{"GET", "null"}},
+				"commands":    [][]string{{"GET", nullKey}},
 				"parameters": []any{
 					map[string]any{
 						"name":        "name",
@@ -849,7 +859,7 @@ func GetRedisValkeyToolsConfig(sourceConfig map[string]any, toolType string) map
 				"type":        toolType,
 				"source":      "my-instance",
 				"description": "Tool to test invocation with array params.",
-				"commands":    [][]string{{"HGETALL", "row1"}, {"$cmdArray"}},
+				"commands":    [][]string{{"HGETALL", row1}, {"$cmdArray"}},
 				"parameters": []any{
 					map[string]any{
 						"name":        "cmdArray",
@@ -887,7 +897,7 @@ func GetRedisValkeyToolsConfig(sourceConfig map[string]any, toolType string) map
 				"type":        toolType,
 				"source":      "my-instance",
 				"description": "Tool to test secure parameters.",
-				"commands":    [][]string{{"HGETALL", "row1"}, {"HGETALL", "row3"}},
+				"commands":    [][]string{{"HGETALL", row1}, {"HGETALL", row3}},
 				"parameters": []any{
 					map[string]any{
 						"name":        "id",
