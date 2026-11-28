@@ -18,6 +18,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/google/go-cmp/cmp"
@@ -86,6 +87,34 @@ func TestParseFromYamlClickhouse(t *testing.T) {
 				},
 			},
 		},
+		{
+			desc: "connection pool settings",
+			in: `
+			kind: source
+			name: pool-clickhouse
+			type: clickhouse
+			host: localhost
+			port: "8443"
+			user: default
+			database: mydb
+			maxOpenConns: 50
+			maxIdleConns: 0
+			connMaxLifetime: 10m
+			`,
+			want: map[string]sources.SourceConfig{
+				"pool-clickhouse": Config{
+					Name:            "pool-clickhouse",
+					Type:            "clickhouse",
+					Host:            "localhost",
+					Port:            "8443",
+					User:            "default",
+					Database:        "mydb",
+					MaxOpenConns:    intPtr(50),
+					MaxIdleConns:    intPtr(0),
+					ConnMaxLifetime: "10m",
+				},
+			},
+		},
 	}
 	for _, tc := range tcs {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -116,6 +145,34 @@ func TestFailParseFromYaml(t *testing.T) {
 			foo: bar
 			`,
 			err: "error unmarshaling source: unable to parse source \"test-clickhouse\" as \"clickhouse\": [1:1] unknown field \"foo\"\n>  1 | foo: bar\n       ^\n   2 | host: localhost\n   3 | name: test-clickhouse\n   4 | type: clickhouse",
+		},
+		{
+			desc: "maxOpenConns below minimum",
+			in: `
+			kind: source
+			name: test-clickhouse
+			type: clickhouse
+			host: localhost
+			port: "8443"
+			user: default
+			database: mydb
+			maxOpenConns: 0
+			`,
+			err: "error unmarshaling source: unable to parse source \"test-clickhouse\" as \"clickhouse\": [3:15] Key: 'Config.MaxOpenConns' Error:Field validation for 'MaxOpenConns' failed on the 'gte' tag\n   1 | database: mydb\n   2 | host: localhost\n>  3 | maxOpenConns: 0\n                     ^\n   4 | name: test-clickhouse\n   5 | port: \"8443\"\n   6 | type: clickhouse\n   7 | ",
+		},
+		{
+			desc: "negative maxIdleConns",
+			in: `
+			kind: source
+			name: test-clickhouse
+			type: clickhouse
+			host: localhost
+			port: "8443"
+			user: default
+			database: mydb
+			maxIdleConns: -1
+			`,
+			err: "error unmarshaling source: unable to parse source \"test-clickhouse\" as \"clickhouse\": [3:15] Key: 'Config.MaxIdleConns' Error:Field validation for 'MaxIdleConns' failed on the 'gte' tag\n   1 | database: mydb\n   2 | host: localhost\n>  3 | maxIdleConns: -1\n                     ^\n   4 | name: test-clickhouse\n   5 | port: \"8443\"\n   6 | type: clickhouse\n   7 | ",
 		},
 	}
 
@@ -220,6 +277,10 @@ func TestValidateConfig(t *testing.T) {
 func TestInitClickHouseConnectionPoolDSNGeneration(t *testing.T) {
 	tracer := otel.Tracer("test")
 	ctx := context.Background()
+	defaultPool, err := Config{}.poolSettings()
+	if err != nil {
+		t.Fatalf("unexpected error resolving default pool settings: %v", err)
+	}
 
 	tests := []struct {
 		name      string
@@ -302,7 +363,7 @@ func TestInitClickHouseConnectionPoolDSNGeneration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pool, err := initClickHouseConnectionPool(ctx, tracer, "test", tt.host, tt.port, tt.user, tt.pass, tt.dbname, tt.protocol, tt.secure)
+			pool, err := initClickHouseConnectionPool(ctx, tracer, "test", tt.host, tt.port, tt.user, tt.pass, tt.dbname, tt.protocol, tt.secure, defaultPool)
 
 			if !tt.shouldErr && err != nil {
 				t.Errorf("Expected no error, got: %v", err)
@@ -312,5 +373,90 @@ func TestInitClickHouseConnectionPoolDSNGeneration(t *testing.T) {
 				pool.Close()
 			}
 		})
+	}
+}
+
+func intPtr(i int) *int {
+	return &i
+}
+
+func TestPoolSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		want    poolSettings
+		wantErr string
+	}{
+		{
+			name: "defaults when unset",
+			cfg:  Config{},
+			want: poolSettings{maxOpenConns: 25, maxIdleConns: 5, connMaxLifetime: 5 * time.Minute},
+		},
+		{
+			name: "all fields overridden",
+			cfg:  Config{MaxOpenConns: intPtr(100), MaxIdleConns: intPtr(20), ConnMaxLifetime: "1h"},
+			want: poolSettings{maxOpenConns: 100, maxIdleConns: 20, connMaxLifetime: time.Hour},
+		},
+		{
+			name: "zero idle connections allowed",
+			cfg:  Config{MaxIdleConns: intPtr(0)},
+			want: poolSettings{maxOpenConns: 25, maxIdleConns: 0, connMaxLifetime: 5 * time.Minute},
+		},
+		{
+			name:    "idle greater than open",
+			cfg:     Config{MaxOpenConns: intPtr(5), MaxIdleConns: intPtr(10)},
+			wantErr: "maxIdleConns (10) must not be greater than maxOpenConns (5)",
+		},
+		{
+			name:    "idle greater than default open",
+			cfg:     Config{MaxIdleConns: intPtr(30)},
+			wantErr: "maxIdleConns (30) must not be greater than maxOpenConns (25)",
+		},
+		{
+			name: "default idle capped at lower open",
+			cfg:  Config{MaxOpenConns: intPtr(2)},
+			want: poolSettings{maxOpenConns: 2, maxIdleConns: 2, connMaxLifetime: 5 * time.Minute},
+		},
+		{
+			name:    "invalid lifetime",
+			cfg:     Config{ConnMaxLifetime: "ten minutes"},
+			wantErr: `invalid connMaxLifetime "ten minutes"`,
+		},
+		{
+			name:    "non-positive lifetime",
+			cfg:     Config{ConnMaxLifetime: "0s"},
+			wantErr: `invalid connMaxLifetime "0s": must be positive`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.cfg.poolSettings()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("incorrect pool settings: want %+v, got %+v", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestInitClickHouseConnectionPoolAppliesSettings(t *testing.T) {
+	poolCfg := poolSettings{maxOpenConns: 7, maxIdleConns: 3, connMaxLifetime: time.Minute}
+	pool, err := initClickHouseConnectionPool(context.Background(), otel.Tracer("test"), "test", "localhost", "8443", "default", "", "default", "https", true, poolCfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer pool.Close()
+
+	if got := pool.Stats().MaxOpenConnections; got != poolCfg.maxOpenConns {
+		t.Errorf("MaxOpenConnections: want %d, got %d", poolCfg.maxOpenConns, got)
 	}
 }
