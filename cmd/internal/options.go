@@ -58,6 +58,15 @@ type Option func(*ToolboxOptions)
 // githubReleasesURL is the endpoint used to check for latest Toolbox release on startup.
 var githubReleasesURL = "https://api.github.com/repos/googleapis/mcp-toolbox/releases/latest"
 
+const (
+	// allowedSourcesEnvVar holds a comma-separated allowlist of source types.
+	// When it is unset or empty, every source type is allowed.
+	allowedSourcesEnvVar = "TOOLBOX_ALLOWED_SOURCES"
+	// disallowedToolsEnvVar holds a comma-separated denylist of tool types.
+	// When it is unset or empty, every tool type is allowed.
+	disallowedToolsEnvVar = "TOOLBOX_DISALLOWED_TOOLS"
+)
+
 // NewToolboxOptions creates a new instance with defaults, then applies any
 // provided options.
 func NewToolboxOptions(opts ...Option) *ToolboxOptions {
@@ -110,6 +119,8 @@ func (opts *ToolboxOptions) Setup(ctx context.Context) (context.Context, func(co
 	opts.Logger = logger
 
 	ctx = util.WithIgnoreUnknownTools(ctx, opts.Cfg.IgnoreUnknownTools)
+
+	opts.loadRestrictionsFromEnv()
 
 	logger.InfoContext(ctx, fmt.Sprintf("Starting MCP Toolbox for Databases version %s", opts.Cfg.Version))
 
@@ -369,4 +380,27 @@ func (opts *ToolboxOptions) checkVersion(ctx context.Context) {
 	if semver.Compare(latest, current) > 0 {
 		opts.Logger.InfoContext(ctx, fmt.Sprintf("A newer version of MCP Toolbox is available: (%s -> %s). Visit https://github.com/googleapis/mcp-toolbox/releases to view the latest release.", current, latest))
 	}
+}
+
+// loadRestrictionsFromEnv reads the source and tool type restrictions from
+// TOOLBOX_ALLOWED_SOURCES and TOOLBOX_DISALLOWED_TOOLS into opts.Cfg.
+func (opts *ToolboxOptions) loadRestrictionsFromEnv() {
+	if items := parseCommaSeparatedList(os.Getenv(allowedSourcesEnvVar)); len(items) > 0 {
+		opts.Cfg.AllowedSources = items
+	}
+	if items := parseCommaSeparatedList(os.Getenv(disallowedToolsEnvVar)); len(items) > 0 {
+		opts.Cfg.DisallowedTools = items
+	}
+}
+
+// parseCommaSeparatedList splits a comma-separated string, trims surrounding
+// whitespace from each entry, and drops empty entries.
+func parseCommaSeparatedList(v string) []string {
+	var items []string
+	for _, s := range strings.Split(v, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			items = append(items, s)
+		}
+	}
+	return items
 }
