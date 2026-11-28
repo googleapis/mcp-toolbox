@@ -114,6 +114,34 @@ func TestSubstituteMessages(t *testing.T) {
 		}
 	})
 
+	t.Run("OmittedOptionalArgumentRendersEmpty", func(t *testing.T) {
+		arguments := prompts.Arguments{
+			{Parameter: parameters.NewStringParameter("name", "The name to use.")},
+			{Parameter: parameters.NewStringParameter("location", "The location.", parameters.WithStringRequired(false))},
+		}
+		messages := []prompts.Message{
+			{Role: "user", Content: "Hello {{.name}}, in {{.location}}."},
+		}
+		// location is omitted: ParseParams stores it as nil for an optional
+		// string parameter with no default.
+		argValues := parameters.ParamValues{
+			{Name: "name", Value: "Alice"},
+			{Name: "location", Value: nil},
+		}
+
+		want := []prompts.Message{
+			{Role: "user", Content: "Hello Alice, in ."},
+		}
+
+		got, err := prompts.SubstituteMessages(messages, arguments, argValues)
+		if err != nil {
+			t.Fatalf("SubstituteMessages() failed: %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("SubstituteMessages() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("FailureInvalidTemplate", func(t *testing.T) {
 		arguments := prompts.Arguments{}
 		messages := []prompts.Message{
