@@ -14,8 +14,11 @@ string parameter against a Neo4j database. It's designed to be a flexible tool
 for interacting with the database when a pre-defined query is not sufficient.
 
 For security, the tool can be configured to be read-only. If the `readOnly` flag
-is set to `true`, the tool will analyze the incoming Cypher query and reject any
-write operations (like `CREATE`, `MERGE`, `DELETE`, etc.) before execution.
+is set to `true`, the tool analyzes the incoming Cypher query and rejects write
+operations (like `CREATE`, `MERGE`, `DELETE`, etc.) before execution. It also
+runs the query in a read access mode transaction, so the Neo4j server itself
+rejects any write that the analysis misses. For defense in depth, connect with a
+Neo4j user that only has read privileges.
 
 The Cypher query uses standard [Neo4j
 Cypher](https://neo4j.com/docs/cypher-manual/current/queries/) syntax and
