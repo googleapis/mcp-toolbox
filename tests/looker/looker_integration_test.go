@@ -399,6 +399,11 @@ func TestLooker(t *testing.T) {
 				"source":      "my-instance",
 				"description": "Simple tool to test end to end functionality.",
 			},
+			"publish_data_app": map[string]any{
+				"type":        "looker-publish-data-app",
+				"source":      "my-instance",
+				"description": "Simple tool to test end to end functionality.",
+			},
 		},
 	}
 
@@ -2833,6 +2838,60 @@ func TestLooker(t *testing.T) {
 						"required":     false,
 						"type":         "string",
 						"default":      "",
+					},
+				},
+			},
+		},
+	)
+	tests.RunToolGetTestByName(t, "publish_data_app",
+		map[string]any{
+			"publish_data_app": map[string]any{
+				"description":  "Simple tool to test end to end functionality.",
+				"authRequired": []any{},
+				"parameters": []any{
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The display title for the Data App dashboard and extension label (up to 255 characters).",
+						"name":         "title",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "The uncompressed JavaScript ES module source code payload (up to 5 MB). Must be a native ES module (<script type=\"module\">), not CommonJS or an IIFE bundle. To connect to Looker's extension host (avoiding 'Cannot connect to extension'), the module MUST establish the Looker Extension SDK handshake and mount into document.body: either import { DataApp, html } from the Looker Data Apps runtime (https://www.gstatic.com/looker-data-apps/versions/<version>/data-app.js, e.g. 1.3.0), extend DataApp, and end with the custom element registration guard (if (!customElements.get(elementName)) { customElements.define(elementName, AppClass); } export default AppClass;), or call connectExtensionHost() from @looker/extension-sdk and append the root element to document.body. Any relative imports (e.g. '/runtime/data-app.js') must be rewritten to absolute HTTPS URLs.",
+						"name":         "code",
+						"required":     true,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional description for the Data App dashboard and extension.",
+						"name":         "description",
+						"required":     false,
+						"type":         "string",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional target folder ID when creating a new Data App dashboard. Leave blank to use the authenticated user's personal folder. Ignored when dashboard_id is provided.",
+						"name":         "folder",
+						"required":     false,
+						"type":         "string",
+						"default":      "",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional existing dashboard ID to update in-place. When omitted, creates a new full-bleed Data App dashboard.",
+						"name":         "dashboard_id",
+						"required":     false,
+						"type":         "string",
+						"default":      "",
+					},
+					map[string]any{
+						"authServices": []any{},
+						"description":  "Optional JSON string (e.g. '{\"data_app_queries_version\": 1, \"data_app_queries\": [...]}') to attach to the extension dashboard element.",
+						"name":         "rich_content_json",
+						"required":     false,
+						"type":         "string",
 					},
 				},
 			},
