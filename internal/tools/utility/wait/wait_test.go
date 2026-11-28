@@ -15,12 +15,14 @@
 package wait_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/googleapis/mcp-toolbox/internal/server"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
 	wait "github.com/googleapis/mcp-toolbox/internal/tools/utility/wait"
 )
@@ -70,4 +72,53 @@ func TestParseFromYamlWait(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWaitInvokeRespectsTimeout(t *testing.T) {
+	cfg := wait.Config{
+		ConfigBase: tools.ConfigBase{Name: "wait", Description: "wait tool"},
+		Type:       "wait",
+		Timeout:    "100ms",
+	}
+	tool, err := cfg.Initialize(context.Background())
+	if err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	t.Run("duration exceeding timeout is rejected", func(t *testing.T) {
+		_, boxErr := tool.Invoke(context.Background(), nil, parameters.ParamValues{
+			{Name: "duration", Value: "200ms"},
+		}, tools.AccessToken(""))
+		if boxErr == nil {
+			t.Fatal("expected an error for a duration exceeding the configured timeout")
+		}
+	})
+
+	t.Run("duration within timeout succeeds", func(t *testing.T) {
+		if _, boxErr := tool.Invoke(context.Background(), nil, parameters.ParamValues{
+			{Name: "duration", Value: "50ms"},
+		}, tools.AccessToken("")); boxErr != nil {
+			t.Fatalf("expected success: %v", boxErr)
+		}
+	})
+
+	t.Run("non-positive duration is rejected", func(t *testing.T) {
+		_, boxErr := tool.Invoke(context.Background(), nil, parameters.ParamValues{
+			{Name: "duration", Value: "0s"},
+		}, tools.AccessToken(""))
+		if boxErr == nil {
+			t.Fatal("expected an error for a non-positive duration")
+		}
+	})
+
+	t.Run("cancelled context aborts the sleep", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, boxErr := tool.Invoke(ctx, nil, parameters.ParamValues{
+			{Name: "duration", Value: "100ms"},
+		}, tools.AccessToken(""))
+		if boxErr == nil {
+			t.Fatal("expected an error when the request is cancelled")
+		}
+	})
 }
