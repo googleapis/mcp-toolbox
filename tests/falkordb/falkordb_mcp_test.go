@@ -21,17 +21,25 @@ import (
 	"testing"
 	"time"
 
+	falkordb "github.com/FalkorDB/falkordb-go/v2"
 	"github.com/googleapis/mcp-toolbox/internal/testutils"
 	"github.com/googleapis/mcp-toolbox/tests"
 )
 
 // startFalkorDBMCPServer sets up a FalkorDB instance, starts the toolbox server
-// with the FalkorDB tools config and waits until it is ready to serve.
-func startFalkorDBMCPServer(t *testing.T, ctx context.Context) {
+// with the FalkorDB tools config and waits until it is ready to serve. When
+// needClient is true, a shared FalkorDB client is registered before StartCmd so
+// it closes after the server stops and before the container terminates.
+func startFalkorDBMCPServer(t *testing.T, ctx context.Context, uniqueID, emptyGraphName string, needClient bool) *falkordb.FalkorDB {
 	t.Helper()
-	setupFalkorDBInstance(ctx, t)
+	setupFalkorDBInstance(ctx, t, uniqueID)
 
-	cmd, cleanup, err := tests.StartCmd(ctx, getFalkorDBToolsConfig(t))
+	var client *falkordb.FalkorDB
+	if needClient {
+		client = newFalkorDBClient(t)
+	}
+
+	cmd, cleanup, err := tests.StartCmd(ctx, getFalkorDBToolsConfig(t, emptyGraphName))
 	if err != nil {
 		t.Fatalf("command initialization returned an error: %s", err)
 	}
@@ -45,13 +53,16 @@ func startFalkorDBMCPServer(t *testing.T, ctx context.Context) {
 		t.Logf("toolbox command logs: \n%s", out)
 		t.Fatalf("toolbox didn't start successfully: %s", err)
 	}
+	return client
 }
 
 func TestFalkorDBMCPListTools(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
-	startFalkorDBMCPServer(t, ctx)
+	uniqueID := newFalkorDBUniqueID()
+	emptyGraphName := newTestGraphName("empty", uniqueID, time.Now())
+	startFalkorDBMCPServer(t, ctx, uniqueID, emptyGraphName, false)
 
 	t.Run("verify tools/list registry returns complete manifest", func(t *testing.T) {
 		tests.RunMCPToolsListMethod(t, getFalkorDBMCPExpectedTools())
@@ -60,11 +71,13 @@ func TestFalkorDBMCPListTools(t *testing.T) {
 
 func TestFalkorDBMCPCallTool(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
-	startFalkorDBMCPServer(t, ctx)
+	uniqueID := newFalkorDBUniqueID()
+	emptyGraphName := newTestGraphName("empty", uniqueID, time.Now())
+	client := startFalkorDBMCPServer(t, ctx, uniqueID, emptyGraphName, true)
 
-	for _, tc := range getFalkorDBInvokeTestCases() {
+	for _, tc := range getFalkorDBInvokeTestCases(ctx, client, uniqueID, emptyGraphName) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.prepareData != nil {
 				tc.prepareData(t)
